@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -17,12 +18,14 @@ def test_exact_bytes_and_one_call_no_redirect(monkeypatch):
         assert request.content == b'{"n":9007199254740993}'
         return httpx.Response(307, headers={"location": "https://attacker.invalid/"})
 
-    result = OneShotHttp(httpx.MockTransport(handle)).send(
-        "POST",
-        JEV_DESTINATION,
-        b'{"n":9007199254740993}',
-        "SENTINEL",
-        60,
+    result = asyncio.run(
+        OneShotHttp(httpx.MockTransport(handle)).send(
+            "POST",
+            JEV_DESTINATION,
+            b'{"n":9007199254740993}',
+            "SENTINEL",
+            60,
+        )
     )
     assert result.status == 307
     assert len(calls) == 1
@@ -47,7 +50,9 @@ def test_unapproved_destinations_make_zero_calls(destination):
         return httpx.Response(200)
 
     with pytest.raises(ValueError):
-        OneShotHttp(httpx.MockTransport(handle)).send("POST", destination, b"{}", "TEST", 60)
+        asyncio.run(
+            OneShotHttp(httpx.MockTransport(handle)).send("POST", destination, b"{}", "TEST", 60)
+        )
     assert calls == []
 
 
@@ -60,7 +65,11 @@ def test_transport_errors_are_unknown_and_never_retried(failure):
         raise failure("SENTINEL Authorization: Bearer SECRET")
 
     with pytest.raises(HttpFailure) as raised:
-        OneShotHttp(httpx.MockTransport(handle)).send("POST", JEV_DESTINATION, b"{}", "TEST", 60)
+        asyncio.run(
+            OneShotHttp(httpx.MockTransport(handle)).send(
+                "POST", JEV_DESTINATION, b"{}", "TEST", 60
+            )
+        )
     assert len(calls) == 1
     assert "SENTINEL" not in str(raised.value)
     assert "SECRET" not in str(raised.value)
@@ -84,12 +93,14 @@ def test_models_only_get_and_bounded_body():
         return httpx.Response(200, content=b"123456")
 
     with pytest.raises(HttpFailure, match="response_too_large"):
-        OneShotHttp(httpx.MockTransport(handle), max_response_bytes=5).send(
-            "GET",
-            MODELS_DESTINATION,
-            None,
-            "TEST",
-            60,
+        asyncio.run(
+            OneShotHttp(httpx.MockTransport(handle), max_response_bytes=5).send(
+                "GET",
+                MODELS_DESTINATION,
+                None,
+                "TEST",
+                60,
+            )
         )
     assert [r.method for r in calls] == ["GET"]
 
@@ -98,35 +109,205 @@ def test_a42_real_httpcore_debug_logs_cannot_echo_response_headers(caplog):
     import logging
 
     class Stream:
-        def read(self, max_bytes, timeout=None):
+        async def read(self, max_bytes, timeout=None):
             return (
                 b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
                 b"Authorization: Bearer SECRET_SENTINEL\r\n\r\n{}"
             )
 
-        def write(self, buffer, timeout=None):
+        async def write(self, buffer, timeout=None):
             pass
 
-        def close(self):
+        async def aclose(self):
             pass
 
-        def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
             return self
 
         def get_extra_info(self, info):
             return None
 
     class Backend:
-        def connect_tcp(self, *args, **kwargs):
+        async def connect_tcp(self, *args, **kwargs):
             return Stream()
 
     # Exercise real HTTPX/httpcore parsing and logging with a network-free byte stream.
-    transport = httpx.HTTPTransport(retries=0, trust_env=False)
+    transport = httpx.AsyncHTTPTransport(retries=0, trust_env=False)
     transport._pool._network_backend = Backend()
     with caplog.at_level(logging.DEBUG):
-        result = OneShotHttp(transport).send("POST", JEV_DESTINATION, b"{}", "SECRET_SENTINEL", 60)
+        result = asyncio.run(
+            OneShotHttp(transport).send("POST", JEV_DESTINATION, b"{}", "SECRET_SENTINEL", 60)
+        )
         logging.getLogger("httpcore.http11").debug("unrelated caller remains visible")
     assert result.status == 200
     assert "SECRET_SENTINEL" not in caplog.text
     assert "Authorization" not in caplog.text
     assert "unrelated caller remains visible" in caplog.text
+
+
+def test_aggregate_deadline_expires_across_individually_timely_httpcore_reads(monkeypatch):
+    class Stream:
+        reads = 0
+        closed = False
+        phase_bounds = []
+
+        async def read(self, max_bytes, timeout=None):
+            self.reads += 1
+            self.phase_bounds.append(timeout)
+            clock[0] += 30
+            # Advance a controlled event-loop clock, then let due timers run.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            if self.reads == 1:
+                return b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\na"
+            return b"b" if self.reads == 2 else b"c"
+
+        async def write(self, buffer, timeout=None):
+            pass
+
+        async def aclose(self):
+            self.closed = True
+
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            return self
+
+        def get_extra_info(self, info):
+            return None
+
+    class Backend:
+        connections = 0
+
+        async def connect_tcp(self, *args, **kwargs):
+            self.connections += 1
+            return stream
+
+    stream, backend, clock = Stream(), Backend(), [1000.0]
+    transport = httpx.AsyncHTTPTransport(retries=0, trust_env=False)
+    transport._pool._network_backend = backend
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        with monkeypatch.context() as patch:
+            patch.setattr(loop, "time", lambda: clock[0])
+            with pytest.raises(HttpFailure, match="timeout"):
+                await OneShotHttp(transport).send("POST", JEV_DESTINATION, b"{}", "TEST", 60)
+
+    asyncio.run(scenario())
+    assert backend.connections == 1
+    assert stream.reads == 2
+    assert clock[0] == 1060
+    assert stream.phase_bounds == [60, 60]
+    assert stream.closed
+
+
+@pytest.mark.parametrize("phase", ["connect", "headers", "body"])
+def test_aggregate_deadline_covers_every_network_phase_and_closes_client(monkeypatch, phase):
+    async def elapsed():
+        clock[0] += 61
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    class Stream:
+        closed = False
+        reads = 0
+
+        async def read(self, max_bytes, timeout=None):
+            self.reads += 1
+            if self.reads == 1:
+                if phase == "headers":
+                    await elapsed()
+                return b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n"
+            if phase == "body":
+                await elapsed()
+            return b"{}"
+
+        async def write(self, buffer, timeout=None):
+            pass
+
+        async def aclose(self):
+            self.closed = True
+
+        async def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            return self
+
+        def get_extra_info(self, info):
+            return None
+
+    class Backend:
+        calls = 0
+
+        async def connect_tcp(self, *args, **kwargs):
+            self.calls += 1
+            if phase == "connect":
+                await elapsed()
+            return stream
+
+    class Transport(httpx.AsyncHTTPTransport):
+        closed = False
+
+        async def __aexit__(self, *args):
+            self.closed = True
+            await super().__aexit__(*args)
+
+    stream, backend, clock = Stream(), Backend(), [1000.0]
+    transport = Transport(retries=0, trust_env=False)
+    transport._pool._network_backend = backend
+
+    async def scenario():
+        with monkeypatch.context() as patch:
+            patch.setattr(asyncio.get_running_loop(), "time", lambda: clock[0])
+            with pytest.raises(HttpFailure, match="timeout"):
+                await OneShotHttp(transport).send("POST", JEV_DESTINATION, b"{}", "TEST", 60)
+
+    asyncio.run(scenario())
+    assert backend.calls == 1
+    assert transport.closed
+    assert stream.closed is (phase != "connect")
+
+
+def test_external_cancellation_closes_response_and_client_without_retry():
+    class Body(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            reading.set()
+            await asyncio.Event().wait()
+            yield b"unreachable"
+
+        async def aclose(self):
+            self.closed = True
+
+    class Transport(httpx.AsyncBaseTransport):
+        closed = False
+        calls = 0
+
+        async def handle_async_request(self, request):
+            self.calls += 1
+            return httpx.Response(200, stream=body)
+
+        async def aclose(self):
+            self.closed = True
+
+    body, transport = Body(), Transport()
+
+    async def scenario():
+        nonlocal reading
+        reading = asyncio.Event()
+        task = asyncio.create_task(
+            OneShotHttp(transport).send(
+                "POST",
+                JEV_DESTINATION,
+                b"{}",
+                "TEST",
+                60,
+            )
+        )
+        await reading.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    reading = None
+    asyncio.run(scenario())
+    assert body.closed and transport.closed
+    assert transport.calls == 1

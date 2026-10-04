@@ -1,10 +1,10 @@
 """Jev provider implementation of the shared one-dispatch port."""
 
-import asyncio
 import math
+from typing import cast
 
 from deykit.contracts.errors import ServiceError
-from deykit.contracts.json_value import dump_json, parse_json
+from deykit.contracts.json_value import JsonValue, dump_json, parse_json
 from deykit.contracts.records import CompiledRequest, DispatchOutcome, ProviderProfile
 from deykit.providers.choice import (
     JEV_DESTINATION,
@@ -96,9 +96,6 @@ class JevProvider:
         *,
         timeout_seconds: float = 60,
     ) -> DispatchOutcome:
-        return await asyncio.to_thread(self._dispatch, request, timeout_seconds=timeout_seconds)
-
-    def _dispatch(self, request: CompiledRequest, *, timeout_seconds: float) -> DispatchOutcome:
         try:
             verify_compiled_request(request)
             if not 0 < timeout_seconds <= 600:
@@ -131,7 +128,7 @@ class JevProvider:
             )
         sanitizer = Sanitizer([credential])
         try:
-            reply = self._http.send(
+            reply = await self._http.send(
                 "POST", request.destination, request.body, credential, timeout_seconds
             )
         except HttpFailure as error:
@@ -144,7 +141,7 @@ class JevProvider:
         safe_source = None
         try:
             # Sanitize first: an echoed key cannot escape in a normalized field.
-            candidate = dump_json(sanitizer.value(parse_json(reply.body)))
+            candidate = dump_json(safe_response(parse_json(reply.body), sanitizer))
             parse_json(candidate)  # Sanitization can expand bytes; retain only valid evidence.
             safe_source = candidate
             answer = validate_response(request, safe_source)
@@ -163,10 +160,10 @@ class JevProvider:
             usage_source=dump_json(root["usage"]),
         )
 
-    def models(self, *, timeout_seconds: float = 60) -> tuple[dict[str, str], ...]:
+    async def models(self, *, timeout_seconds: float = 60) -> tuple[dict[str, str], ...]:
         """Explicit network diagnostic: one GET, zero inference requests."""
         credential = self._credentials.resolve(self.profile.credential_ref or "")
-        reply = self._http.send("GET", MODELS_DESTINATION, None, credential, timeout_seconds)
+        reply = await self._http.send("GET", MODELS_DESTINATION, None, credential, timeout_seconds)
         if reply.status != 200:
             raise ValueError(
                 "Jev model listing failed; check credentials and provider availability."
@@ -194,3 +191,30 @@ class JevProvider:
             return tuple(result)
         except ValueError:
             raise ResponseInvalid("invalid_models") from None
+
+
+def safe_response(value: JsonValue, sanitizer: Sanitizer) -> JsonValue:
+    """Sanitize metadata without treating stable IDs as credential field names.
+
+    Question and probability keys are typed user IDs. Their spelling alone cannot
+    make the associated numeric/answer value secret. Actual credential substrings
+    are still redacted everywhere, including those IDs, before normalization.
+    """
+    result = cast(JsonValue, sanitizer.value(value))
+    if not isinstance(value, dict) or not isinstance(result, dict):
+        return result
+    original_answers = value.get("answers")
+    if not isinstance(original_answers, dict):
+        return result
+    answers: dict[str, JsonValue] = {}
+    for question_id, item in original_answers.items():
+        safe_item = cast(JsonValue, sanitizer.value(item))
+        probabilities = item.get("probabilities") if isinstance(item, dict) else None
+        if isinstance(safe_item, dict) and isinstance(probabilities, dict):
+            safe_item["probabilities"] = {
+                sanitizer.text(option_id): cast(JsonValue, sanitizer.value(probability))
+                for option_id, probability in probabilities.items()
+            }
+        answers[sanitizer.text(question_id)] = safe_item
+    result["answers"] = answers
+    return result

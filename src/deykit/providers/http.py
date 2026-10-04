@@ -1,5 +1,6 @@
 """One-shot HTTP boundary. Retry scheduling belongs exclusively to the runner."""
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -48,13 +49,13 @@ def retry_after(value: str | None, now: datetime) -> Decimal | None:
 class OneShotHttp:
     """A fresh client per attempt, strict destination and bounded response bytes.
 
-    Supplying a transport is for controlled tests; production constructs HTTPTransport
+    Supplying a transport is for controlled tests; production constructs AsyncHTTPTransport
     with zero retries. No client injection permits enabling authenticated redirects.
     """
 
     def __init__(
         self,
-        transport: httpx.BaseTransport | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         max_response_bytes: int = 1_048_576,
     ) -> None:
@@ -64,7 +65,7 @@ class OneShotHttp:
         self._now = now
         self._max_response_bytes = max_response_bytes
 
-    def send(
+    async def send(
         self,
         method: Literal["GET", "POST"],
         destination: str,
@@ -85,40 +86,54 @@ class OneShotHttp:
             or any(ord(c) < 33 or ord(c) > 126 for c in credential)
         ):
             raise ValueError("Credential cannot form a valid authorization value.")
-        transport = self._transport or httpx.HTTPTransport(retries=0, trust_env=False)
+        transport = self._transport or httpx.AsyncHTTPTransport(retries=0, trust_env=False)
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        reply: HttpReply | None = None
         try:
-            with (
-                quiet_authenticated_transport(),
-                httpx.Client(
-                    transport=transport,
-                    follow_redirects=False,
-                    trust_env=False,
-                    timeout=timeout_seconds,
-                ) as client,
-            ):
-                with client.stream(
-                    method,
-                    destination,
-                    content=body,
-                    headers={
-                        "Authorization": "Bearer " + credential,
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    },
-                ) as response:
-                    chunks: list[bytes] = []
-                    size = 0
-                    for chunk in response.iter_bytes():
-                        size += len(chunk)
-                        if size > self._max_response_bytes:
-                            raise HttpFailure("response_too_large")
-                        chunks.append(chunk)
-                    return HttpReply(
-                        response.status_code,
-                        b"".join(chunks),
-                        retry_after(response.headers.get("retry-after"), self._now()),
-                    )
-        except httpx.TimeoutException:
+            # HTTPX phase timeouts are inactivity bounds; this scope additionally
+            # bounds the whole exchange, including many individually timely chunks.
+            with quiet_authenticated_transport():
+                async with (
+                    asyncio.timeout_at(deadline),
+                    httpx.AsyncClient(
+                        transport=transport,
+                        follow_redirects=False,
+                        trust_env=False,
+                        timeout=timeout_seconds,
+                    ) as client,
+                ):
+                    async with client.stream(
+                        method,
+                        destination,
+                        content=body,
+                        headers={
+                            "Authorization": "Bearer " + credential,
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                        },
+                    ) as response:
+                        delay = retry_after(response.headers.get("retry-after"), self._now())
+                        if response.status_code != 200:
+                            # No error payload is needed for status classification. Preserve
+                            # a definitive rejection even when its body/close fails later.
+                            reply = HttpReply(response.status_code, b"", delay)
+                        else:
+                            chunks: list[bytes] = []
+                            size = 0
+                            async for chunk in response.aiter_bytes():
+                                size += len(chunk)
+                                if size > self._max_response_bytes:
+                                    raise HttpFailure("response_too_large")
+                                chunks.append(chunk)
+                            reply = HttpReply(response.status_code, b"".join(chunks), delay)
+            if reply.status == 200 and asyncio.get_running_loop().time() >= deadline:
+                raise HttpFailure("timeout")
+            return reply
+        except (TimeoutError, httpx.TimeoutException):
+            if reply is not None and reply.status != 200:
+                return reply
             raise HttpFailure("timeout") from None
         except (httpx.HTTPError, OSError):
+            if reply is not None and reply.status != 200:
+                return reply
             raise HttpFailure("disconnect") from None

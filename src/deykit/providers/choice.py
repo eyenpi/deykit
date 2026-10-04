@@ -79,8 +79,8 @@ def compile_choice(
     if definition.input_kind == "text":
         if not isinstance(selected_state, str):
             raise ValueError("Selected text state must be a string.")
-    elif not isinstance(selected_state, dict) or set(selected_state) != set(
-        definition.selected_fields
+    elif not isinstance(selected_state, dict) or (
+        definition.selected_fields and set(selected_state) != set(definition.selected_fields)
     ):
         raise ValueError("JSON state must contain exactly the declared selected fields.")
     criteria: dict[str, JsonValue] = {

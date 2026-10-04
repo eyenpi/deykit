@@ -193,3 +193,14 @@ def test_deep_admitted_state_preserves_generated_request_wrapper_budget():
     compiled = compile_choice(definition(kind="json", fields=("nested",)), state, "jev-1.13.0")
     normalized = validate_response(compiled, (CORPUS / "valid-choice.json").read_bytes())
     assert normalized.option_id == "question"
+
+
+def test_empty_field_selection_compiles_complete_validated_object():
+    from deykit.contracts.json_value import JsonDocument
+    from deykit.domain.definitions import select_input
+
+    entire = JsonDocument('{"message":"Hello","nested":{"n":9007199254740993}}')
+    choice = definition(kind="json", fields=())
+    selected = select_input(choice, entire)
+    compiled = compile_choice(choice, selected.value, "jev-1.13.0")
+    assert parse_json(compiled.body)["state"] == entire.value
