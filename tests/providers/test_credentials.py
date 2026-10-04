@@ -65,3 +65,15 @@ def test_os_store_rejects_non_native_backend_without_credential_operation(monkey
     monkeypatch.setattr(keyring, "get_keyring", lambda: MemoryStore())
     with pytest.raises(CredentialUnavailable):
         os_secret_store()
+
+
+def test_missing_optional_os_store_dependency_is_safe_and_local(monkeypatch):
+    from deykit.providers import credentials
+
+    def unavailable(name):
+        raise ImportError("SECRET_SENTINEL")
+
+    monkeypatch.setattr(credentials, "import_module", unavailable)
+    with pytest.raises(CredentialUnavailable) as failure:
+        credentials.os_secret_store()
+    assert "SECRET_SENTINEL" not in str(failure.value)

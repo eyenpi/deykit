@@ -4,7 +4,8 @@ import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from importlib import import_module
+from typing import Protocol, cast
 from urllib.parse import quote, unquote
 
 
@@ -103,8 +104,7 @@ class Credentials:
 def os_secret_store() -> SecretStore:
     """Explicit opt-in to the installed OS keyring backend; never called at import."""
     try:
-        import keyring
-
+        keyring = import_module("keyring")
         backend = keyring.get_keyring()
         approved = {
             "keyring.backends.macOS",
@@ -114,6 +114,6 @@ def os_secret_store() -> SecretStore:
         }
         if type(backend).__module__ not in approved:
             raise CredentialUnavailable()
-        return backend
+        return cast(SecretStore, backend)
     except Exception:
         raise CredentialUnavailable() from None
