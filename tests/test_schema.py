@@ -45,3 +45,38 @@ def test_local_reference_and_missing_local_reference():
         validate_json('{"$ref":"#/$defs/missing"}', "1")
     with pytest.raises(JsonError, match="schema_resource_limit"):
         validate_json('{"$ref":"#"}', "1")
+
+
+def test_reference_words_inside_user_data_are_not_schema_references():
+    schema = '{"type":"object","properties":{"$ref":{"type":"string"}},"const":{"$ref":"a value"}}'
+    assert not validate_json(schema, '{"$ref":"a value"}')
+
+
+def test_same_dialect_nested_schema_retains_exact_numbers():
+    dialect = '"$schema":"https://json-schema.org/draft/2020-12/schema",'
+    inline = '{"properties":{"n":{' + dialect + '"type":"integer"}}}'
+    assert not validate_json(inline, '{"n":1.0}')
+    assert validate_json(inline, '{"n":1.1}')
+    referenced = '{"$defs":{"n":{' + dialect + '"multipleOf":0.1}},"$ref":"#/$defs/n"}'
+    with localcontext() as ctx:
+        ctx.prec = 2
+        assert not validate_json(referenced, "123456789012345678901234567890.1")
+        assert validate_json(referenced, "123456789012345678901234567890.11")
+
+
+def test_schema_data_can_contain_reference_and_identifier_fields():
+    assert not validate_json('{"properties":{"$id":{"type":"string"}}}', '{"$id":"x"}')
+    assert not validate_json('{"const":{"$id":"data"}}', '{"$id":"data"}')
+    assert not validate_json(
+        '{"enum":[{"$ref":"https://example.com/data"}]}', '{"$ref":"https://example.com/data"}'
+    )
+
+
+def test_reference_target_outside_schema_positions_is_explicitly_rejected():
+    source = (
+        '{"x-schema":{"$schema":"https://json-schema.org/draft/2020-12/schema",'
+        '"type":"integer"},"$ref":"#/x-schema"}'
+    )
+    with pytest.raises(JsonError, match="unresolved_schema_reference"):
+        compile_schema(source)
+    assert not validate_json('{"$defs":{"n":{"$anchor":"n","type":"integer"}},"$ref":"#n"}', "1")

@@ -60,7 +60,10 @@ def parse_json(source: str | bytes, limits: JsonLimits = DEFAULT_LIMITS) -> Json
         if exponent and (len(exponent) > 7 or abs(int(exponent)) > limits.max_exponent):
             raise JsonError("json_resource_limit")
         try:
-            return Decimal(token)
+            result = Decimal(token)
+            if not result.is_zero() and abs(result.adjusted()) > limits.max_exponent:
+                raise JsonError("json_resource_limit")
+            return result
         except InvalidOperation:
             raise JsonError("invalid_number") from None
 

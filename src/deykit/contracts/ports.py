@@ -71,9 +71,14 @@ Collection = Literal[
 class ResourceKey:
     collection: Collection
     resource_id: str
+    scope: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         validate_resource_id(self.resource_id)
+        if not isinstance(self.scope, tuple):
+            raise ValueError("invalid_scope")
+        for component in self.scope:
+            validate_resource_id(component)
         if self.collection not in get_args(Collection):
             raise ValueError("invalid_collection")
 
@@ -105,6 +110,6 @@ class ProjectSource(Protocol):
     """Authoritative source, with recovery before reads and atomic conflict-checked commits."""
 
     def read(self, key: ResourceKey) -> StoredRecord | None: ...
-    def list_ids(self, collection: Collection) -> tuple[str, ...]: ...
+    def list_ids(self, collection: Collection, scope: tuple[str, ...] = ()) -> tuple[str, ...]: ...
     def consistent_read(self) -> AbstractContextManager[ProjectSource]: ...
     def commit(self, operation_id: str, changes: tuple[SourceChange, ...]) -> CommitReceipt: ...

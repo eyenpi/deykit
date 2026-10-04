@@ -12,6 +12,8 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL", "CLOCK$", "CONIN$", "CONOUT$"} | {
 
 
 def validate_resource_id(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("invalid_resource_id")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", value):
         raise ValueError("invalid_resource_id")
     if value.upper() in _RESERVED:

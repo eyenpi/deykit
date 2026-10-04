@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal, Self
 
-from pydantic import AfterValidator, Field, model_validator
+from pydantic import AfterValidator, Field, ValidationInfo, model_validator
 
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.errors import ServiceError
@@ -24,13 +24,28 @@ def _utc(value: str) -> str:
 
 
 UtcTimestamp = Annotated[str, AfterValidator(_utc)]
-Nonempty = Annotated[str, Field(min_length=1, max_length=100_000)]
+
+
+def _not_blank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("blank_text")
+    return value
+
+
+Nonempty = Annotated[str, Field(min_length=1, max_length=100_000), AfterValidator(_not_blank)]
 NonnegativeInt = Annotated[int, Field(ge=0)]
 PositiveInt = Annotated[int, Field(gt=0)]
 
 
 class HashedRecord(Record):
     hash_format: Literal["deykit-json-v1"] = "deykit-json-v1"
+
+    @model_validator(mode="after")
+    def persisted_hash_format(self, info: ValidationInfo) -> Self:
+        if info.context and info.context.get("persisted"):
+            if "hash_format" not in self.model_fields_set:
+                raise ValueError("missing_hash_format")
+        return self
 
 
 class ProjectRecord(Record):
@@ -154,7 +169,7 @@ class LabelRecord(HashedRecord):
     input_hash: ContentHash
     acceptable_option_ids: Annotated[tuple[ResourceId, ...], Field(min_length=1)]
     status: Literal["active", "disputed"] = "active"
-    provenance: Literal["human", "authored", "imported", "model_generated"]
+    provenance: Literal["human", "authored_fixture", "imported_unknown", "model_generated"]
     updated_at: UtcTimestamp
     note: str = ""
 

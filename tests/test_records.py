@@ -175,3 +175,114 @@ def test_unknown_cannot_silently_retry_and_safe_errors():
     with pytest.raises(ValidationError):
         ServiceError(code="internal_error", message="SECRET raw exception")
     assert error.safe_dict()["message"] == "The provider rejected the request."
+
+
+@pytest.mark.parametrize("instructions", ["", " ", "\n\t", "\u2003"])
+def test_blank_instructions_block_runnable_definition(instructions):
+    with pytest.raises(ValidationError):
+        ChoiceQuestion(id="q", instructions=instructions, options=definition().questions[0].options)
+
+
+@pytest.mark.parametrize(
+    "provenance", ["human", "authored_fixture", "imported_unknown", "model_generated"]
+)
+def test_documented_label_provenance(provenance):
+    label = LabelRecord(
+        id="l",
+        decision_id="d",
+        dataset_id="data",
+        case_id="c",
+        question_id="q",
+        input_hash="a" * 64,
+        acceptable_option_ids=("a",),
+        provenance=provenance,
+        updated_at=STAMP,
+    )
+    assert load_record(LabelRecord, dump_record(label)).provenance == provenance
+
+
+@pytest.mark.parametrize("provenance", ["authored", "imported", "unknown"])
+def test_ambiguous_label_provenance_is_rejected(provenance):
+    with pytest.raises(ValidationError):
+        LabelRecord(
+            id="l",
+            decision_id="d",
+            dataset_id="data",
+            case_id="c",
+            question_id="q",
+            input_hash="a" * 64,
+            acceptable_option_ids=("a",),
+            provenance=provenance,
+            updated_at=STAMP,
+        )
+
+
+def test_nested_persisted_records_require_explicit_versions():
+    from deykit.contracts.records import DecisionRevision
+
+    revision = DecisionRevision(
+        id="r", decision_id="d", definition=definition(), content_hash="a" * 64, created_at=STAMP
+    )
+    assert load_record(DecisionRevision, dump_record(revision)) == revision
+    source = json.loads(dump_record(revision))
+    del source["definition"]["schema_version"]
+    with pytest.raises(JsonError, match="invalid_record"):
+        load_record(DecisionRevision, json.dumps(source))
+    source["definition"]["schema_version"] = True
+    with pytest.raises(JsonError, match="invalid_record"):
+        load_record(DecisionRevision, json.dumps(source))
+
+
+def test_resource_keys_preserve_scoped_case_and_revision_ids():
+    assert ResourceKey("cases", "case-1", ("dataset-a",)) != ResourceKey(
+        "cases", "case-1", ("dataset-b",)
+    )
+    assert ResourceKey("revisions", "v1", ("decision-a",)) != ResourceKey(
+        "revisions", "v1", ("decision-b",)
+    )
+    with pytest.raises(ValueError):
+        ResourceKey("cases", "case-1", ("../data",))
+    with pytest.raises(ValueError):
+        ResourceKey("cases", "case-1", ["dataset"])
+
+
+def test_persisted_hash_profiles_are_explicit_including_nested_records():
+    from deykit.contracts.records import DatasetSnapshot, DecisionRevision, ResultSnapshot
+
+    records = [
+        DecisionRevision(
+            id="r",
+            decision_id="d",
+            definition=definition(),
+            content_hash="a" * 64,
+            created_at=STAMP,
+        ),
+        ResultSnapshot(
+            id="r",
+            run_id="run",
+            results=(),
+            through_event_sequence=0,
+            content_hash="a" * 64,
+            created_at=STAMP,
+        ),
+    ]
+    for record in records:
+        for profile in (None, "unknown"):
+            value = json.loads(dump_record(record))
+            if profile is None:
+                del value["hash_format"]
+            else:
+                value["hash_format"] = profile
+            with pytest.raises(JsonError, match="invalid_record"):
+                load_record(type(record), json.dumps(value))
+    snapshot = DatasetSnapshot(
+        id="s",
+        dataset_id="d",
+        content_hash="a" * 64,
+        created_at=STAMP,
+        cases=(CaseRecord(id="c", dataset_id="d", input_kind="json", input_source="{}"),),
+    )
+    value = json.loads(dump_record(snapshot))
+    del value["cases"][0]["hash_format"]
+    with pytest.raises(JsonError, match="invalid_record"):
+        load_record(DatasetSnapshot, json.dumps(value))

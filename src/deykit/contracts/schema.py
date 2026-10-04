@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from decimal import Decimal
 from fractions import Fraction
 from typing import Any
+from urllib.parse import unquote
 
 from jsonschema import Draft202012Validator, ValidationError, validators
 from jsonschema.exceptions import SchemaError
@@ -57,26 +58,84 @@ def compile_schema(source: str) -> Any:
     schema = _schema_numbers(parse_json(source))
     if not isinstance(schema, (dict, bool)):
         raise JsonError("invalid_schema")
-    pending = [schema]
+    pending: list[tuple[tuple[str, ...], Any]] = [((), schema)]
+    schema_paths: set[tuple[str, ...]] = set()
+    anchors: set[str] = set()
+    references: list[str] = []
     while pending:
-        node = pending.pop()
+        path, node = pending.pop()
+        schema_paths.add(path)
         if isinstance(node, dict):
             for key in ("$ref", "$dynamicRef"):
                 if key in node and (
                     not isinstance(node[key], str) or not node[key].startswith("#")
                 ):
                     raise JsonError("remote_schema_reference")
+                if key in node:
+                    references.append(node[key])
+            for key in ("$anchor", "$dynamicAnchor"):
+                if isinstance(node.get(key), str):
+                    anchors.add(node[key])
             if (
                 "$schema" in node
                 and node["$schema"] != "https://json-schema.org/draft/2020-12/schema"
             ):
                 raise JsonError("unsupported_schema_dialect")
+            # Prevent jsonschema.evolve from switching same-dialect subschemas back
+            # to the stock validator (which loses our exact number semantics).
+            node.pop("$schema", None)
             # Embedded identifiers change reference scope; version 1 supports local fragments only.
             if "$id" in node:
                 raise JsonError("unsupported_schema_id")
-            pending.extend(node.values())
-        elif isinstance(node, list):
-            pending.extend(node)
+            for keyword in (
+                "$defs",
+                "definitions",
+                "properties",
+                "patternProperties",
+                "dependentSchemas",
+            ):
+                children = node.get(keyword)
+                if isinstance(children, dict):
+                    pending.extend(
+                        ((*path, keyword, key), child) for key, child in children.items()
+                    )
+            for keyword in (
+                "additionalProperties",
+                "unevaluatedProperties",
+                "propertyNames",
+                "if",
+                "then",
+                "else",
+                "not",
+                "items",
+                "contains",
+                "unevaluatedItems",
+                "contentSchema",
+            ):
+                if keyword in node:
+                    pending.append(((*path, keyword), node[keyword]))
+            for keyword in ("allOf", "anyOf", "oneOf", "prefixItems"):
+                children = node.get(keyword)
+                if isinstance(children, list):
+                    pending.extend(
+                        ((*path, keyword, str(index)), child)
+                        for index, child in enumerate(children)
+                    )
+    for reference in references:
+        try:
+            fragment = unquote(reference[1:], errors="strict")
+        except UnicodeDecodeError:
+            raise JsonError("unresolved_schema_reference") from None
+        if not fragment:
+            continue
+        if fragment.startswith("/"):
+            target = tuple(
+                part.replace("~1", "/").replace("~0", "~") for part in fragment[1:].split("/")
+            )
+            if target not in schema_paths:
+                raise JsonError("unresolved_schema_reference")
+        elif fragment not in anchors:
+            raise JsonError("unresolved_schema_reference")
     try:
         ExactValidator.check_schema(schema)
     except SchemaError:

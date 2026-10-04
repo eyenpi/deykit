@@ -18,7 +18,7 @@ def load_record(record_type: type[R], source: str | bytes) -> R:
     if "schema_version" not in value:
         raise JsonError("missing_schema_version")
     try:
-        return record_type.model_validate_json(source)
+        return record_type.model_validate_json(source, context={"persisted": True})
     except ValidationError:
         # Never leak exception input values or provider bodies to transport errors.
         raise JsonError("invalid_record") from None

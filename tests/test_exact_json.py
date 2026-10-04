@@ -102,3 +102,15 @@ def test_limits_at_actual_boundaries():
     with pytest.raises(JsonError, match="json_resource_limit"):
         parse_json("[" + ",".join(["0"] * 100000) + "]")
     assert parse_json("[0]", JsonLimits(max_nodes=2)) == [Decimal(0)]
+
+
+@pytest.mark.parametrize("source", ["10e10000", "0.1e-10000", "999e9999"])
+def test_effective_exponent_limit_closes_parse_under_hashing(source):
+    with pytest.raises(JsonError, match="json_resource_limit"):
+        parse_json(source)
+
+
+@pytest.mark.parametrize("source", ["10e9999", "0.1e-9999", "1e10000", "1e-10000"])
+def test_accepted_exponent_boundaries_round_trip(source):
+    document = JsonDocument(source)
+    assert semantic_hash(parse_json(dump_json(document.value))) == document.content_hash
