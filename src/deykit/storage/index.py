@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 
 from deykit.contracts.ports import StoredRecord
 from deykit.storage.filesystem import SafeFiles
@@ -13,7 +14,7 @@ class SourceIndex:
 
     def rebuild(self, records: tuple[StoredRecord, ...]) -> None:
         # Build in memory so SQLite cannot follow a replaced/symlinked cache path.
-        with sqlite3.connect(":memory:") as connection:
+        with closing(sqlite3.connect(":memory:")) as connection:
             connection.execute(
                 "CREATE TABLE records (collection TEXT, scope TEXT, id TEXT, "
                 "etag TEXT, PRIMARY KEY(collection, scope, id))"

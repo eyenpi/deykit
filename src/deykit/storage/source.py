@@ -35,7 +35,7 @@ from deykit.storage.journal import (
     JournalManifest,
 )
 from deykit.storage.locks import acquire
-from deykit.storage.records import IMMUTABLE, key_path, path_key, validate_body
+from deykit.storage.records import IMMUTABLE, SCOPES, TYPES, key_path, path_key, validate_body
 
 FaultHook = Callable[[str], None]
 IndexUpdater = Callable[[tuple[StoredRecord, ...]], None]
@@ -96,6 +96,8 @@ class FileProjectSource:
                         self._local.source_depth = 0
         except OSError:
             fail("storage_io", "internal_error")
+        except JsonError as error:
+            fail(error.code)
         finally:
             self._mutex.release()
 
@@ -107,6 +109,7 @@ class FileProjectSource:
         return StoredRecord(key, body, bytes_hash(body))
 
     def read(self, key: ResourceKey) -> StoredRecord | None:
+        key_path(key)
         with self.consistent_read():
             records = self._all()
             self._check_integrity(records)
@@ -137,6 +140,18 @@ class FileProjectSource:
                     continue
                 path = (*directory, name)
                 if self.files.is_directory(path):
+                    if path[1] not in TYPES or path[1] == "project":
+                        fail("invalid_source_path")
+                    from typing import cast
+
+                    collection = cast(Collection, path[1])
+                    if len(path) > 2 + len(SCOPES.get(collection, ())):
+                        fail("invalid_source_path")
+                    for component in path[2:]:
+                        try:
+                            validate_resource_id(component)
+                        except ValueError:
+                            fail("invalid_source_path")
                     pending.append(path)
                 else:
                     key = path_key(path)
@@ -149,11 +164,12 @@ class FileProjectSource:
     def list_ids(self, collection: Collection, scope: tuple[str, ...] = ()) -> tuple[str, ...]:
         key_path(ResourceKey(collection, "scope-validation", scope))
         with self.consistent_read():
-            self._check_integrity(self._all())
+            records = self._all()
+            self._check_integrity(records)
             return tuple(
                 sorted(
                     record.key.resource_id
-                    for record in self._all()
+                    for record in records
                     if record.key.collection == collection and record.key.scope == scope
                 )
             )
@@ -219,10 +235,6 @@ class FileProjectSource:
         intent_hash: str | None = None,
     ) -> CommitReceipt:
         self._validate_operation(operation_id, intent_hash)
-        try:
-            validate_resource_id(operation_id)
-        except ValueError:
-            fail("invalid_operation_id")
         if not changes or len({change.key for change in changes}) != len(changes):
             fail("invalid_changes")
         ordered = tuple(sorted(changes, key=lambda change: key_path(change.key)))
@@ -270,15 +282,6 @@ class FileProjectSource:
                 else:
                     final_keys.add(change.key)
             self._check_collisions(final_keys)
-            stage = ("history", "journal", operation_id)
-            self.files.mkdir(stage)
-            for index, change in enumerate(ordered):
-                old = existing.get(change.key)
-                if old is not None:
-                    self.files.replace((*stage, f"old-{index}.json"), old.body)
-                if change.body is not None:
-                    self.files.replace((*stage, f"new-{index}.json"), change.body)
-                self._hook(f"staged:{index}")
             sequence = 1 + max(
                 (
                     self._manifest(("history", "operations", name)).sequence
@@ -294,6 +297,15 @@ class FileProjectSource:
                 sequence=sequence,
             )
             manifest_body = dump_record(manifest)
+            stage = ("history", "journal", operation_id)
+            self.files.mkdir(stage)
+            for index, change in enumerate(ordered):
+                old = existing.get(change.key)
+                if old is not None:
+                    self.files.replace((*stage, f"old-{index}.json"), old.body)
+                if change.body is not None:
+                    self.files.replace((*stage, f"new-{index}.json"), change.body)
+                self._hook(f"staged:{index}")
             self.files.replace((*stage, "manifest.json"), manifest_body)
             self._hook("prepared")
             if current != self._all():

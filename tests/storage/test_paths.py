@@ -66,3 +66,24 @@ def test_scoped_case_ids_can_repeat_without_aliasing(tmp_path):
             )
         assert source.list_ids("cases", ("a",)) == ("same",)
         assert source.list_ids("cases", ("b",)) == ("same",)
+
+
+@pytest.mark.parametrize("name", ["Cases", "unknown", "project"])
+def test_external_unknown_collection_directory_rejected_even_when_empty(tmp_path, name):
+    (tmp_path / "source" / name).mkdir(parents=True)
+    with FileProjectSource(tmp_path) as source:
+        with pytest.raises(ServiceFailure) as error:
+            source.capture_snapshot()
+        assert error.value.error.reason == "invalid_source_path"
+
+
+def test_root_metadata_symlink_is_rejected(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(body())
+    (root / "deykit.project.json").symlink_to(outside)
+    with FileProjectSource(root) as source:
+        with pytest.raises(ServiceFailure):
+            source.capture_snapshot()
+    assert outside.read_bytes() == body()
