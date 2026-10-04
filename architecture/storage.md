@@ -117,7 +117,9 @@ attempt budgets, explicit resume and unknown-response semantics.
 `request_cancel(run_id)` durably appends a cancellation request while another process
 may own execution. `cancellation_requested(run_id)` observes unacknowledged requests.
 Explicit resume uses `acknowledge_cancel(run_id, segment_id)` only while this source
-instance owns execution and the new segment exists. The immutable acknowledgement
+instance owns execution and the new segment exists. The runner must hold one `consistent_read` source context
+across committing that segment and acknowledging prior requests, preventing a newer
+cross-process cancellation from being consumed between those steps. The immutable acknowledgement
 names prior request IDs; history is retained. A later cancellation cannot be consumed
 by repeating the same segment acknowledgement. Crashing before acknowledgement leaves
 the run cancelled, and opening never acknowledges or resumes it automatically.

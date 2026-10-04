@@ -81,12 +81,22 @@ class ProjectService:
                     raise ServiceFailure(
                         ServiceError(code="validation_error", reason="invalid_project")
                     ) from None
-                source.commit(
+                receipt = source.commit(
                     operation_id,
                     (SourceChange(ResourceKey("project", project.id), dump_record(project), None),),
                     intent_hash=intent,
                 )
-            return self._info(source)
+            current = self._info(source)
+            original = next(
+                record for record in receipt.changes if record.key.collection == "project"
+            )
+            return ProjectInfo(
+                load_record(ProjectRecord, original.body),
+                original.etag,
+                current.execution_active,
+                current.record_count,
+                current.index_warning,
+            )
         finally:
             source.close()
 

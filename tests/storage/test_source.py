@@ -260,3 +260,34 @@ def test_terminal_segment_end_cannot_precede_start(tmp_path):
         with pytest.raises(ServiceFailure) as error:
             source.commit("end", (SourceChange(key, dump_record(invalid), first.etag),))
         reason(error, "invalid_segment_end")
+
+
+def test_project_create_replay_returns_original_receipt_after_rename(tmp_path):
+    from deykit.contracts.records import ProjectRecord
+
+    root = initialized(tmp_path)
+    with FileProjectSource(root) as source:
+        key = ResourceKey("project", "project")
+        current = source.read(key)
+        renamed = ProjectRecord(id="project", name="Renamed", created_at=STAMP)
+        source.commit("rename", (SourceChange(key, dump_record(renamed), current.etag),))
+    assert service().create(root, "Project", "create").project.name == "Project"
+    assert service().open(root).project.name == "Renamed"
+
+
+def test_reentrant_reads_recover_a_failed_commit_within_outer_context(tmp_path):
+    root = initialized(tmp_path)
+    key = ResourceKey("drafts", "d")
+    crashed = False
+
+    def failure(point):
+        nonlocal crashed
+        if point == "decided" and not crashed:
+            crashed = True
+            raise OSError("injected write failure")
+
+    with FileProjectSource(root, fault_hook=failure) as source:
+        with source.consistent_read():
+            with pytest.raises(ServiceFailure):
+                source.commit("write", (SourceChange(key, draft("recover me"), None),))
+            assert load_record(DecisionDraft, source.read(key).body).editor_source == "recover me"

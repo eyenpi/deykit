@@ -83,6 +83,7 @@ class FileProjectSource:
             if depth:
                 self._local.source_depth = depth + 1
                 try:
+                    self._recover()
                     yield self
                 finally:
                     self._local.source_depth = depth
