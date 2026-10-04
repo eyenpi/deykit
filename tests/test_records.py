@@ -321,3 +321,29 @@ def test_aggregate_snapshot_record_limit_is_explicit():
     )
     with pytest.raises(JsonError, match="record_resource_limit"):
         dump_record(snapshot)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '{"rows":[' + ",".join(["0"] * 99998) + "]}",
+        '{"deep":' + "[" * 63 + "0" + "]" * 63 + "}",
+    ],
+)
+def test_full_source_depth_node_boundaries_allow_fixed_request_and_record_wrappers(source):
+    from deykit.contracts.json_value import JsonDocument, dump_json
+
+    document = JsonDocument(source)
+    selected = document.select(tuple(document.value))
+    body = dump_json({"state": selected.value, "questions": [{"q": {"a": "A", "b": "B"}}]}).encode()
+    request = CompiledRequest(
+        adapter="fixture",
+        compiler="choice",
+        compiler_version="1",
+        requested_model="authored",
+        destination="fixture:local",
+        body=body,
+        body_hash=bytes_hash(body),
+    )
+    assert load_record(CompiledRequest, dump_record(request)).body == body
+    assert selected.content_hash == document.content_hash

@@ -15,8 +15,10 @@ have socket connections disabled and use no secrets, provider keys or inference.
 
 Executed locally: pytest, Ruff lint/format, strict mypy, uv build, and
 `tests/check_install.py`. The repeatable commands are in `guide/development.md`.
-GitHub CI results and independent final-commit review must be inspected on the PR.
+GitHub Actions also passed the Python 3.11/3.13 Ubuntu contract, build, wheel/sdist
+installation and installed CLI checks on commit e5c28c6. The final successor commit
+and independent final-commit review must still be inspected on the PR.
 
 Limits: no provider compatibility/quality observation, browser workflow, SQLite or
-recovery implementation, manual keyboard acceptance, Linux/Windows install claim,
+recovery implementation, manual keyboard acceptance, Windows installation claim,
 or complete A45 bundled UI/demo claim. These remain explicit later milestone gates.
