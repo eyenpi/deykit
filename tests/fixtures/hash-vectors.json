@@ -1,0 +1,112 @@
+{
+  "purpose": "Expected hash representation vectors for implementing deykit-json-v1; no production serializer exists or has been tested.",
+  "hash_format": "deykit-json-v1",
+  "algorithm": "SHA-256",
+  "prefix": "deykit-json-v1\n",
+  "vectors": [
+    {
+      "id": "H01",
+      "input": "{\"b\":2,\"a\":1}",
+      "canonical": "{\"a\":1e0,\"b\":2e0}",
+      "sameAs": null,
+      "expected_sha256": "e07f0de94c6cb79ef332cdc657d918e83b60ae9e3fcc49efa9d6cf8ba286d283"
+    },
+    {
+      "id": "H02",
+      "input": "{ \"a\":1.0,\"b\":2e0 }",
+      "canonical": "{\"a\":1e0,\"b\":2e0}",
+      "sameAs": "H01",
+      "expected_sha256": "e07f0de94c6cb79ef332cdc657d918e83b60ae9e3fcc49efa9d6cf8ba286d283"
+    },
+    {
+      "id": "H03",
+      "input": "{\"large\":9007199254740993,\"decimal\":0.1234567890123456789}",
+      "canonical": "{\"decimal\":1.234567890123456789e-1,\"large\":9.007199254740993e15}",
+      "sameAs": null,
+      "expected_sha256": "e2459e2a9c7e3d7111732e01309d565feddb1fc56c22139eeee3ac59fa69c2e4"
+    },
+    {
+      "id": "H04",
+      "input": "{\"n\":1200}",
+      "canonical": "{\"n\":1.2e3}",
+      "sameAs": null,
+      "expected_sha256": "bfbaf4ede5939d33b5cd29f71b417a1e604a7ce5c2d7d49e08e70a8c032f12f8"
+    },
+    {
+      "id": "H05",
+      "input": "{\"n\":0.00120}",
+      "canonical": "{\"n\":1.2e-3}",
+      "sameAs": null,
+      "expected_sha256": "59ee715a1393ee026b09167c86e2bf45d6d1ae753c70a8ba928b793db3f0daf6"
+    },
+    {
+      "id": "H06",
+      "input": "{\"n\":-0.0}",
+      "canonical": "{\"n\":0}",
+      "sameAs": null,
+      "expected_sha256": "b1009ef0093e98bbbc538bce4a6f2ed7ed500f16b942f94edfbd5566aee96b1f"
+    },
+    {
+      "id": "H07",
+      "input": "[1,2]",
+      "canonical": "[1e0,2e0]",
+      "sameAs": null,
+      "expected_sha256": "c06e9c96a99329186dd69f381f8594ece52e739d10f4b7c8d73422818001dfb1"
+    },
+    {
+      "id": "H08",
+      "input": "[2,1]",
+      "canonical": "[2e0,1e0]",
+      "differentFrom": "H07",
+      "expected_sha256": "08987577ef49cd272364998149ab8a3676c3ddef24a45192bae5ae6289d9ee9c"
+    },
+    {
+      "id": "H09",
+      "input": "{\"s\":\"é\"}",
+      "canonical": "{\"s\":\"é\"}",
+      "sameAs": null,
+      "expected_sha256": "784d1b688c011747f2225605d4847af1a9fe5e40e91b2f27912daea5c8bd7a51"
+    },
+    {
+      "id": "H10",
+      "input": "{\"s\":\"é\"}",
+      "canonical": "{\"s\":\"é\"}",
+      "differentFrom": "H09",
+      "expected_sha256": "547c3141b0cc201b34953347877e1bcc8fd74297c23559adde9ad57e03df3af5"
+    },
+    {
+      "id": "H11",
+      "input": "{\"é\":\"é\",\"a\":\"line\\nbreak\",\"😀\":\"x\"}",
+      "canonical": "{\"a\":\"line\\nbreak\",\"é\":\"é\",\"😀\":\"x\"}",
+      "sameAs": null,
+      "expected_sha256": "4de6454690b3edc09a5aa20ddc0d2901b73cf1f03113abaf809b642153b018d7"
+    },
+    {
+      "id": "H12",
+      "input": "{\"v\":[true,null,false]}",
+      "canonical": "{\"v\":[true,null,false]}",
+      "sameAs": null,
+      "expected_sha256": "ad12d562cdaaca03f60544b71e5b9abb8dc4fa539f190864c918d4294862037b"
+    }
+  ],
+  "wireOrderExample": {
+    "bodyA": "{\"criteria\":{\"question\":{\"name\":\"Question\"},\"report\":{\"name\":\"Report\"}}}",
+    "bodyB": "{\"criteria\":{\"report\":{\"name\":\"Report\"},\"question\":{\"name\":\"Question\"}}}",
+    "semanticHashEqual": true,
+    "wireHashEqual": false
+  },
+  "rejectedInputs": [
+    {
+      "input": "{\"a\":1,\"a\":2}",
+      "reason": "Duplicate key"
+    },
+    {
+      "input": "{\"a\":NaN}",
+      "reason": "Nonfinite/nonstandard number"
+    },
+    {
+      "input": "{\"a\":\"\\ud800\"}",
+      "reason": "Unpaired surrogate"
+    }
+  ]
+}
