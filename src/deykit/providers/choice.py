@@ -1,0 +1,214 @@
+"""Pure choice compilation and strict Jev wire normalization."""
+
+import re
+from decimal import Decimal, localcontext
+
+from deykit.contracts.json_value import JsonValue, bytes_hash, dump_json, parse_json
+from deykit.contracts.records import (
+    ChoiceDefinition,
+    CompiledRequest,
+    NormalizedAnswer,
+    ProviderProfile,
+)
+
+COMPILER_VERSION = "1"
+JEV_DESTINATION = "https://api.typesafe.ai/v1/systemone"
+MODELS_DESTINATION = "https://api.typesafe.ai/v1/models"
+TOLERANCE = Decimal("0.000001")
+MODEL_VERSION = re.compile(r"jev-[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9]+)*\Z")
+
+
+class ResponseInvalid(ValueError):
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"Jev response failed validation: {reason}.")
+
+
+def _object(value: JsonValue, reason: str) -> dict[str, JsonValue]:
+    if not isinstance(value, dict):
+        raise ResponseInvalid(reason)
+    return value
+
+
+def _probability(value: JsonValue, reason: str) -> Decimal:
+    if type(value) is int:
+        value = Decimal(value)
+    if not isinstance(value, Decimal) or not value.is_finite() or not 0 <= value <= 1:
+        raise ResponseInvalid(reason)
+    return value
+
+
+def _usage(value: JsonValue) -> int:
+    if type(value) is int:
+        value = Decimal(value)
+    if (
+        not isinstance(value, Decimal)
+        or not value.is_finite()
+        or value < 0
+        or value != value.to_integral_value()
+    ):
+        raise ResponseInvalid("invalid_usage")
+    return int(value)
+
+
+def compile_choice(
+    definition: "ChoiceDefinition",
+    selected_state: JsonValue,
+    requested_model: str,
+    *,
+    adapter: str = "jev",
+) -> "CompiledRequest":
+    """Compile validated, selected input; never accept a CaseRecord or labels."""
+    if adapter not in {"jev", "fixture"}:
+        raise ValueError("Unsupported choice adapter.")
+    if not requested_model or requested_model.strip() != requested_model:
+        raise ValueError("A nonempty explicit model is required.")
+    if adapter == "jev" and not (
+        MODEL_VERSION.fullmatch(requested_model) or requested_model in {"jev-latest", "jev-preview"}
+    ):
+        raise ValueError("Unsupported Jev model identity.")
+    question = definition.questions[0]
+    if len(question.options) > 255:
+        raise ValueError("Jev choice supports at most 255 options.")
+    if definition.input_kind == "text":
+        if not isinstance(selected_state, str):
+            raise ValueError("Selected text state must be a string.")
+    elif not isinstance(selected_state, dict) or set(selected_state) != set(
+        definition.selected_fields
+    ):
+        raise ValueError("JSON state must contain exactly the declared selected fields.")
+    criteria: dict[str, JsonValue] = {
+        option.id: {"name": option.name, "description": option.description}
+        for option in question.options
+    }
+    body = dump_json(
+        {
+            "state": selected_state,
+            "model": requested_model,
+            "questions": {
+                question.id: {
+                    "type": "choice",
+                    "instructions": question.instructions,
+                    "criteria": criteria,
+                }
+            },
+        }
+    ).encode("utf-8")
+    return CompiledRequest(
+        adapter=adapter,
+        compiler="jev-choice",
+        compiler_version=COMPILER_VERSION,
+        requested_model=requested_model,
+        destination=JEV_DESTINATION if adapter == "jev" else "fixture:jev-choice",
+        body=body,
+        body_hash=bytes_hash(body),
+    )
+
+
+def validate_response(request: "CompiledRequest", source: str | bytes) -> "NormalizedAnswer":
+    """Strict provider wire validation. Generic optional answer fields do not relax it."""
+    try:
+        root = _object(parse_json(source), "object_required")
+    except ValueError:
+        raise ResponseInvalid("invalid_json") from None
+    verify_compiled_request(request)
+    compiled = _object(parse_json(request.body), "invalid_request")
+    questions = _object(compiled.get("questions"), "invalid_request")
+    if len(questions) != 1:
+        raise ResponseInvalid("invalid_request")
+    question_id = next(iter(questions))
+    criteria = _object(
+        _object(questions[question_id], "invalid_request").get("criteria"), "invalid_request"
+    )
+    answers = _object(root.get("answers"), "missing_answers")
+    if set(answers) != {question_id}:
+        raise ResponseInvalid("question_mismatch")
+    answer = _object(answers[question_id], "invalid_answer")
+    if answer.get("type") != "choice":
+        raise ResponseInvalid("type_mismatch")
+    choice = answer.get("choice")
+    if not isinstance(choice, str) or choice not in criteria:
+        raise ResponseInvalid("unknown_option")
+    probabilities = _object(answer.get("probabilities"), "missing_probabilities")
+    if set(probabilities) != set(criteria):
+        raise ResponseInvalid("probability_option_mismatch")
+    numeric = {
+        key: _probability(value, "invalid_probability") for key, value in probabilities.items()
+    }
+    # Exact context is sized beyond codec bounds; ambient Decimal precision cannot
+    # round near-tolerance values into acceptance.
+    with localcontext() as context:
+        context.prec = 30_000
+        if abs(sum(numeric.values(), Decimal(0)) - 1) > TOLERANCE:
+            raise ResponseInvalid("invalid_probability_sum")
+        if max(numeric.values()) - numeric[choice] > TOLERANCE:
+            raise ResponseInvalid("choice_not_argmax")
+    confidence = _probability(answer.get("confidence"), "invalid_confidence")
+    model = root.get("model")
+    if not isinstance(model, str) or not MODEL_VERSION.fullmatch(model):
+        raise ResponseInvalid("invalid_model")
+    if MODEL_VERSION.fullmatch(request.requested_model) and model != request.requested_model:
+        raise ResponseInvalid("model_pin_mismatch")
+    usage = _object(root.get("usage"), "missing_usage")
+    _usage(usage.get("input_tokens"))
+    _usage(usage.get("output_tokens"))
+    return NormalizedAnswer(
+        question_id=question_id,
+        option_id=choice,
+        probabilities_source=dump_json(probabilities),
+        native_confidence_source=dump_json(confidence),
+        native_confidence_semantics="jev_native_distribution_confidence",
+        reported_model=model,
+    )
+
+
+class JevChoiceCompiler:
+    def compile(
+        self,
+        definition: ChoiceDefinition,
+        selected_state: JsonValue,
+        profile: ProviderProfile,
+    ) -> CompiledRequest:
+        expected = JEV_DESTINATION if profile.adapter == "jev" else "fixture:jev-choice"
+        if profile.destination != expected:
+            raise ValueError("Profile destination does not match the choice compiler.")
+        return compile_choice(
+            definition, selected_state, profile.requested_model, adapter=profile.adapter
+        )
+
+    def validate_response(self, request: CompiledRequest, response_source: str) -> NormalizedAnswer:
+        return validate_response(request, response_source)
+
+
+def verify_compiled_request(request: CompiledRequest) -> None:
+    """Check persisted or externally constructed records before credential resolution."""
+    try:
+        CompiledRequest.model_validate(request.model_dump())
+        root = _object(parse_json(request.body), "invalid_request")
+        if set(root) != {"state", "model", "questions"}:
+            raise ValueError
+        if root["model"] != request.requested_model or not isinstance(root["state"], (str, dict)):
+            raise ValueError
+        questions = _object(root["questions"], "invalid_request")
+        if len(questions) != 1:
+            raise ValueError
+        question_id = next(iter(questions))
+        question = _object(questions[question_id], "invalid_request")
+        if set(question) != {"type", "instructions", "criteria"} or question["type"] != "choice":
+            raise ValueError
+        criteria = _object(question["criteria"], "invalid_request")
+        if not 2 <= len(criteria) <= 255:
+            raise ValueError
+        from deykit.contracts.records import ChoiceOption, ChoiceQuestion
+
+        options = []
+        for key, value in criteria.items():
+            option = _object(value, "invalid_request")
+            if set(option) != {"name", "description"}:
+                raise ValueError
+            options.append(ChoiceOption.model_validate({"id": key, **option}))
+        ChoiceQuestion.model_validate(
+            {"id": question_id, "instructions": question["instructions"], "options": tuple(options)}
+        )
+    except ValueError:
+        raise ResponseInvalid("invalid_request") from None
