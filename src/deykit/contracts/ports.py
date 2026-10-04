@@ -104,6 +104,7 @@ class CommitReceipt:
     operation_id: str
     changes: tuple[StoredRecord, ...]
     replayed: bool = False
+    deleted_keys: tuple[ResourceKey, ...] = ()
 
 
 class ProjectSource(Protocol):
