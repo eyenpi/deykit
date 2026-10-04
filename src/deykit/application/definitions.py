@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TypeVar, cast
+from typing import Generic, TypeVar, cast
 
 from pydantic import ValidationError
 
 from deykit.application.errors import ServiceFailure
+from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ErrorCode, ServiceError
 from deykit.contracts.identities import new_id, validate_resource_id
@@ -32,19 +33,19 @@ from deykit.contracts.records import (
 from deykit.contracts.schema import compile_schema
 from deykit.domain.definitions import definition_hash, missing_options, select_input
 
-R = TypeVar("R", DecisionRecord, DecisionDraft, DecisionRevision, LabelRecord, RegressionRecord)
+R = TypeVar("R", bound=Record)
 
 
 @dataclass(frozen=True)
-class Versioned:
-    record: DecisionRecord | DecisionDraft | DecisionRevision
+class Versioned(Generic[R]):
+    record: R
     etag: str
 
 
 @dataclass(frozen=True)
 class DecisionView:
-    decision: Versioned
-    draft: Versioned
+    decision: Versioned[DecisionRecord]
+    draft: Versioned[DecisionDraft]
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ class DecisionPage:
 
 @dataclass(frozen=True)
 class RevisionPage:
-    items: tuple[Versioned, ...]
+    items: tuple[Versioned[DecisionRevision], ...]
     total: int
     next_cursor: str | None
 
@@ -74,6 +75,7 @@ class DefinitionDiff:
     after_hash: str
     input_changed: bool
     question_changed: bool
+    option_order_changed: bool
     added_option_ids: tuple[str, ...]
     removed_option_ids: tuple[str, ...]
     changed_option_ids: tuple[str, ...]
@@ -186,7 +188,7 @@ class DecisionService:
 
     def update_draft(
         self, decision_id: str, editor_source: str, *, expected_etag: str, operation_id: str
-    ) -> Versioned:
+    ) -> Versioned[DecisionDraft]:
         decision_id = _valid_id(decision_id)
         _valid_id(operation_id)
         intent = _intent("decision.update_draft", decision_id, editor_source, expected_etag)
@@ -197,30 +199,29 @@ class DecisionService:
         with self.source.consistent_read() as source:
             decision, _ = _required(source, DecisionRecord, _key("decisions", decision_id))
             draft, _ = _required(source, DecisionDraft, _key("drafts", decision_id))
-        if decision.archived:
-            raise _failure("conflict", decision_id, "decision_archived")
-        try:
-            changed = DecisionDraft(
-                decision_id=decision_id,
-                editor_source=editor_source,
-                updated_at=self.clock.utc_now(),
-                base_revision_id=draft.base_revision_id,
+            if decision.archived:
+                raise _failure("conflict", decision_id, "decision_archived")
+            try:
+                changed = DecisionDraft(
+                    decision_id=decision_id,
+                    editor_source=editor_source,
+                    updated_at=self.clock.utc_now(),
+                    base_revision_id=draft.base_revision_id,
+                )
+                body = dump_record(changed)
+            except (ValidationError, JsonError):
+                raise _failure("validation_error", decision_id, "invalid_draft") from None
+            receipt = source.commit(
+                operation_id,
+                (SourceChange(_key("drafts", decision_id), body, expected_etag),),
+                intent_hash=intent,
             )
-            body = dump_record(changed)
-        except (ValidationError, JsonError):
-            raise _failure("validation_error", decision_id, "invalid_draft") from None
-        receipt = self.source.commit(
-            operation_id,
-            (SourceChange(_key("drafts", decision_id), body, expected_etag),),
-            intent_hash=intent,
-        )
         stored = receipt.changes[0]
         return Versioned(_decoded(DecisionDraft, stored), stored.etag)
 
     def validate(self, decision_id: str) -> ChoiceDefinition:
         view = self.read(decision_id)
         draft = view.draft.record
-        assert isinstance(draft, DecisionDraft)
         return self._definition(draft.editor_source, decision_id)
 
     def select_case(self, decision_id: str, input_source: str) -> JsonDocument:
@@ -238,7 +239,7 @@ class DecisionService:
         expected_decision_etag: str,
         operation_id: str,
         note: str = "",
-    ) -> Versioned:
+    ) -> Versioned[DecisionRevision]:
         decision_id = _valid_id(decision_id)
         _valid_id(operation_id)
         intent = _intent(
@@ -293,7 +294,7 @@ class DecisionService:
         stored = next(item for item in receipt.changes if item.key.collection == "revisions")
         return Versioned(_decoded(DecisionRevision, stored), stored.etag)
 
-    def revision(self, decision_id: str, revision_id: str) -> Versioned:
+    def revision(self, decision_id: str, revision_id: str) -> Versioned[DecisionRevision]:
         key = _key("revisions", revision_id, (_valid_id(decision_id),))
         with self.source.consistent_read() as source:
             record, etag = _required(source, DecisionRevision, key)
@@ -350,6 +351,7 @@ class DecisionService:
             ),
             question_changed=(old_question.id, old_question.instructions)
             != (new_question.id, new_question.instructions),
+            option_order_changed=(tuple(old_options) != tuple(new_options)),
             added_option_ids=added,
             removed_option_ids=removed,
             changed_option_ids=changed,
@@ -358,13 +360,17 @@ class DecisionService:
 
     def rename(
         self, decision_id: str, name: str, *, expected_etag: str, operation_id: str
-    ) -> Versioned:
+    ) -> Versioned[DecisionRecord]:
         return self._change_decision(decision_id, expected_etag, operation_id, name=name)
 
-    def archive(self, decision_id: str, *, expected_etag: str, operation_id: str) -> Versioned:
+    def archive(
+        self, decision_id: str, *, expected_etag: str, operation_id: str
+    ) -> Versioned[DecisionRecord]:
         return self._change_decision(decision_id, expected_etag, operation_id, archived=True)
 
-    def restore(self, decision_id: str, *, expected_etag: str, operation_id: str) -> Versioned:
+    def restore(
+        self, decision_id: str, *, expected_etag: str, operation_id: str
+    ) -> Versioned[DecisionRecord]:
         return self._change_decision(decision_id, expected_etag, operation_id, archived=False)
 
     def restore_revision_to_draft(
@@ -374,7 +380,7 @@ class DecisionService:
         *,
         expected_draft_etag: str,
         operation_id: str,
-    ) -> Versioned:
+    ) -> Versioned[DecisionDraft]:
         decision_id = _valid_id(decision_id)
         _valid_id(operation_id)
         intent = _intent("decision.restore_revision", decision_id, revision_id, expected_draft_etag)
@@ -382,28 +388,27 @@ class DecisionService:
         if replay is not None:
             stored = replay.changes[0]
             return Versioned(_decoded(DecisionDraft, stored), stored.etag)
-        view = self.read(decision_id)
-        decision = view.decision.record
-        assert isinstance(decision, DecisionRecord)
-        if decision.archived:
-            raise _failure("conflict", decision_id, "decision_archived")
-        saved = self.revision(decision_id, revision_id).record
-        assert isinstance(saved, DecisionRevision)
-        restored = DecisionDraft(
-            decision_id=decision_id,
-            editor_source=dump_record(saved.definition).decode("utf-8"),
-            updated_at=self.clock.utc_now(),
-            base_revision_id=revision_id,
-        )
-        receipt = self.source.commit(
-            operation_id,
-            (
-                SourceChange(
-                    _key("drafts", decision_id), dump_record(restored), expected_draft_etag
+        with self.source.consistent_read() as source:
+            view = self._read_view(source, decision_id)
+            decision = view.decision.record
+            if decision.archived:
+                raise _failure("conflict", decision_id, "decision_archived")
+            saved = self._versioned_revision(source, decision_id, revision_id).record
+            restored = DecisionDraft(
+                decision_id=decision_id,
+                editor_source=dump_record(saved.definition).decode("utf-8"),
+                updated_at=self.clock.utc_now(),
+                base_revision_id=revision_id,
+            )
+            receipt = source.commit(
+                operation_id,
+                (
+                    SourceChange(
+                        _key("drafts", decision_id), dump_record(restored), expected_draft_etag
+                    ),
                 ),
-            ),
-            intent_hash=intent,
-        )
+                intent_hash=intent,
+            )
         stored = receipt.changes[0]
         return Versioned(_decoded(DecisionDraft, stored), stored.etag)
 
@@ -415,7 +420,7 @@ class DecisionService:
         *,
         name: str | None = None,
         archived: bool | None = None,
-    ) -> Versioned:
+    ) -> Versioned[DecisionRecord]:
         decision_id = _valid_id(decision_id)
         _valid_id(operation_id)
         command = (
@@ -431,7 +436,6 @@ class DecisionService:
         with self.source.consistent_read() as source:
             view = self._read_view(source, decision_id)
             decision = view.decision.record
-            assert isinstance(decision, DecisionRecord)
         try:
             changed = DecisionRecord(
                 id=decision.id,
@@ -484,7 +488,9 @@ class DecisionService:
         )
 
     @staticmethod
-    def _versioned_revision(source: ProjectSource, decision_id: str, revision_id: str) -> Versioned:
+    def _versioned_revision(
+        source: ProjectSource, decision_id: str, revision_id: str
+    ) -> Versioned[DecisionRevision]:
         record, etag = _required(
             source, DecisionRevision, _key("revisions", revision_id, (decision_id,))
         )
@@ -499,7 +505,6 @@ class DecisionService:
         if selector == "draft":
             return self.validate(decision_id)
         saved = self.revision(decision_id, selector).record
-        assert isinstance(saved, DecisionRevision)
         return saved.definition
 
     def _incompatible_references(

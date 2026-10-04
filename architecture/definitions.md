@@ -32,6 +32,12 @@ stable across display-name edits. A diff reports removed IDs and references in
 current labels and regressions that became incompatible; it never rewrites either
 historical record.
 
+Draft update and revision-to-draft restore hold the source boundary from the
+archive-state read through commit. A simultaneous archive therefore waits or reports
+`source_busy`; an edit cannot pass an unarchived check and commit after an archive.
+Save checks both decision and draft ETags in its atomic commit. Definition diffs
+include option-order changes even when the option set and texts are unchanged.
+
 Reads use `consistent_read` to recover pending source journals and avoid mixed
 source boundaries. Persisted records are decoded with `load_record`, rejecting
 unsupported versions and malformed content before any dependent mutation. Pagination

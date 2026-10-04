@@ -328,3 +328,39 @@ def test_deterministic_page_boundaries(authoring):
     second = service.list(cursor=first.next_cursor, limit=2)
     assert tuple(view.decision.record.id for view in second.items) == ("c",)
     assert second.next_cursor is None
+    for bad in (0, 501, True):
+        with pytest.raises(ServiceFailure) as invalid:
+            service.list(limit=bad)
+        assert invalid.value.error.reason == "invalid_page_limit"
+
+
+def test_order_only_edit_is_explicit_in_diff(authoring):
+    service, _ = authoring
+    created = service.create("d", "D", definition_source(), operation_id="create")
+    saved = service.save(
+        "d",
+        expected_draft_etag=created.draft.etag,
+        expected_decision_etag=created.decision.etag,
+        operation_id="save",
+    )
+    reordered = ChoiceDefinition(
+        input_kind="json",
+        selected_fields=("shown",),
+        questions=(
+            ChoiceQuestion(
+                id="q",
+                instructions="Classify the selected text",
+                options=(ChoiceOption(id="two", name="two"), ChoiceOption(id="one", name="One")),
+            ),
+        ),
+    )
+    service.update_draft(
+        "d",
+        dump_record(reordered).decode(),
+        expected_etag=service.read("d").draft.etag,
+        operation_id="reorder",
+    )
+    diff = service.diff("d", saved.record.id, "draft")
+    assert diff.option_order_changed
+    assert diff.added_option_ids == diff.removed_option_ids == diff.changed_option_ids == ()
+    assert diff.before_hash != diff.after_hash
