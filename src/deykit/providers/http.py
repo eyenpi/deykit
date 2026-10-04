@@ -10,6 +10,7 @@ from typing import Literal
 import httpx
 
 from deykit.providers.choice import JEV_DESTINATION, MODELS_DESTINATION
+from deykit.providers.safety import quiet_authenticated_transport
 
 
 @dataclass(frozen=True)
@@ -86,12 +87,15 @@ class OneShotHttp:
             raise ValueError("Credential cannot form a valid authorization value.")
         transport = self._transport or httpx.HTTPTransport(retries=0, trust_env=False)
         try:
-            with httpx.Client(
-                transport=transport,
-                follow_redirects=False,
-                trust_env=False,
-                timeout=timeout_seconds,
-            ) as client:
+            with (
+                quiet_authenticated_transport(),
+                httpx.Client(
+                    transport=transport,
+                    follow_redirects=False,
+                    trust_env=False,
+                    timeout=timeout_seconds,
+                ) as client,
+            ):
                 with client.stream(
                     method,
                     destination,

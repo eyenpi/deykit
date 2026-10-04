@@ -92,3 +92,41 @@ def test_models_only_get_and_bounded_body():
             60,
         )
     assert [r.method for r in calls] == ["GET"]
+
+
+def test_a42_real_httpcore_debug_logs_cannot_echo_response_headers(caplog):
+    import logging
+
+    class Stream:
+        def read(self, max_bytes, timeout=None):
+            return (
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+                b"Authorization: Bearer SECRET_SENTINEL\r\n\r\n{}"
+            )
+
+        def write(self, buffer, timeout=None):
+            pass
+
+        def close(self):
+            pass
+
+        def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            return self
+
+        def get_extra_info(self, info):
+            return None
+
+    class Backend:
+        def connect_tcp(self, *args, **kwargs):
+            return Stream()
+
+    # Exercise real HTTPX/httpcore parsing and logging with a network-free byte stream.
+    transport = httpx.HTTPTransport(retries=0, trust_env=False)
+    transport._pool._network_backend = Backend()
+    with caplog.at_level(logging.DEBUG):
+        result = OneShotHttp(transport).send("POST", JEV_DESTINATION, b"{}", "SECRET_SENTINEL", 60)
+        logging.getLogger("httpcore.http11").debug("unrelated caller remains visible")
+    assert result.status == 200
+    assert "SECRET_SENTINEL" not in caplog.text
+    assert "Authorization" not in caplog.text
+    assert "unrelated caller remains visible" in caplog.text
