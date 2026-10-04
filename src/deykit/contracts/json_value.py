@@ -32,6 +32,9 @@ class JsonLimits:
 
 
 DEFAULT_LIMITS = JsonLimits()
+# Derived output adds wrapper/escaping overhead without relaxing user-source admission.
+GENERATED_LIMITS = JsonLimits(max_bytes=2_097_152, max_depth=128, max_nodes=200_000)
+RECORD_LIMITS = JsonLimits(max_bytes=16_777_216, max_depth=256, max_nodes=1_000_000)
 
 
 def _valid_string(value: str) -> None:
@@ -128,7 +131,7 @@ def parse_json(source: str | bytes, limits: JsonLimits = DEFAULT_LIMITS) -> Json
     return value
 
 
-def _number(value: Decimal | int) -> str:
+def _number(value: Decimal | int, *, canonical: bool) -> str:
     decimal = Decimal(value) if isinstance(value, int) else value
     if not decimal.is_finite():
         raise JsonError("nonfinite_number")
@@ -140,10 +143,36 @@ def _number(value: Decimal | int) -> str:
     scientific_exponent = exponent + len(digits) - 1
     digits = digits.rstrip("0")
     mantissa = digits[0] + ("." + digits[1:] if len(digits) > 1 else "")
-    return ("-" if sign else "") + mantissa + "e" + str(scientific_exponent)
+    scientific = ("-" if sign else "") + mantissa + "e" + str(scientific_exponent)
+    if canonical:
+        return scientific
+    coefficient_exponent = scientific_exponent - len(digits) + 1
+    if abs(coefficient_exponent) <= DEFAULT_LIMITS.max_exponent:
+        coefficient_form = ("-" if sign else "") + digits + "e" + str(coefficient_exponent)
+        scientific = min((scientific, coefficient_form), key=len)
+    # Derive the shortest plain spelling from the normalized tuple, avoiding both
+    # Decimal context.capitals and allocation of enormous expanded exponents.
+    point = scientific_exponent + 1
+    prefix = "-" if sign else ""
+    plain_length = (
+        2 - point + len(digits)
+        if point <= 0
+        else point
+        if point >= len(digits)
+        else len(digits) + 1
+    ) + len(prefix)
+    if plain_length >= len(scientific):
+        return scientific
+    if point <= 0:
+        plain = "0." + "0" * (-point) + digits
+    elif point >= len(digits):
+        plain = digits + "0" * (point - len(digits))
+    else:
+        plain = digits[:point] + "." + digits[point:]
+    return prefix + plain
 
 
-def dump_json(value: JsonValue, *, sort_keys: bool = False) -> str:
+def _dump_json(value: JsonValue, *, sort_keys: bool, canonical: bool) -> str:
     """Exact UTF-8 JSON text. Object insertion order is retained for provider bodies."""
 
     def encode(node: JsonValue) -> str:
@@ -155,7 +184,7 @@ def dump_json(value: JsonValue, *, sort_keys: bool = False) -> str:
             _valid_string(node)
             return json.dumps(node, ensure_ascii=False)
         if type(node) is int or isinstance(node, Decimal):
-            return _number(node)
+            return _number(node, canonical=canonical)
         if isinstance(node, list):
             return "[" + ",".join(encode(item) for item in node) + "]"
         if isinstance(node, dict):
@@ -169,12 +198,17 @@ def dump_json(value: JsonValue, *, sort_keys: bool = False) -> str:
         source = encode(value)
     except RecursionError:
         raise JsonError("json_resource_limit") from None
-    parse_json(source)  # Apply identical limits to constructed values.
+    parse_json(source, GENERATED_LIMITS)  # Bound derived wire/canonical output separately.
     return source
 
 
+def dump_json(value: JsonValue, *, sort_keys: bool = False) -> str:
+    """Minimal exact numeric tokens, insertion-ordered objects, bounded derived output."""
+    return _dump_json(value, sort_keys=sort_keys, canonical=False)
+
+
 def canonical_bytes(value: JsonValue) -> bytes:
-    return dump_json(value, sort_keys=True).encode("utf-8")
+    return _dump_json(value, sort_keys=True, canonical=True).encode("utf-8")
 
 
 def semantic_hash(value: JsonValue) -> str:

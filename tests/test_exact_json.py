@@ -42,8 +42,8 @@ def test_a02_exact_beyond_decimal_context_and_source_boundary():
         body = dump_json({"model": "authored", "state": selected.value})
         assert body == (
             '{"model":"authored","state":{"n":'
-            "1.23456789012345678901234567890123456789e-1,"
-            '"big":9.007199254740993e15,"é":"😀"}}'
+            "0.123456789012345678901234567890123456789,"
+            '"big":9007199254740993,"é":"😀"}}'
         )
     # Browser/API wraps editor text as a JSON string, never as JS Number fields.
     browser_envelope = json.dumps({"source": document.source})
@@ -114,3 +114,44 @@ def test_effective_exponent_limit_closes_parse_under_hashing(source):
 def test_accepted_exponent_boundaries_round_trip(source):
     document = JsonDocument(source)
     assert semantic_hash(parse_json(dump_json(document.value))) == document.content_hash
+
+
+def test_source_at_byte_boundary_can_hash_select_and_emit_generated_wire():
+    from deykit.contracts.json_value import DEFAULT_LIMITS, GENERATED_LIMITS
+
+    # Many short numeric tokens grow in the required canonical form. Keep a second
+    # field to bring the original object exactly to the user-source byte limit.
+    numbers = ",".join(["1"] * 10000)
+    prefix = '{"numbers":[' + numbers + '],"padding":"'
+    suffix = '"}'
+    source = prefix + "x" * (DEFAULT_LIMITS.max_bytes - len(prefix) - len(suffix)) + suffix
+    document = JsonDocument(source)
+    assert len(canonical_bytes(document.value)) == DEFAULT_LIMITS.max_bytes + 20000
+    assert len(document.content_hash) == 64
+    selected = document.select(("numbers", "padding"))
+    assert len(selected.source.encode()) <= DEFAULT_LIMITS.max_bytes
+    assert selected.content_hash == document.content_hash
+    wire = dump_json({"state": selected.value})
+    assert parse_json(wire, GENERATED_LIMITS)["state"] == document.value
+
+
+def test_wire_numbers_are_context_and_spelling_independent():
+    outputs = []
+    for capitals in (0, 1):
+        with localcontext() as ctx:
+            ctx.capitals = capitals
+            ctx.prec = 2
+            outputs.append(dump_json(parse_json("[1.0,10e-1,1e100,0.0100,-1000000000000]")))
+    assert outputs == ["[1,1,1e100,1e-2,-1e12]"] * 2
+
+
+@pytest.mark.parametrize("number", ["12e3", "123e6", "12.3e-99", "1.23e100", "0.1", "1.23e-10000"])
+def test_selection_does_not_expand_short_exponent_spelling_at_byte_limit(number):
+    from deykit.contracts.json_value import DEFAULT_LIMITS
+
+    prefix = '{"n":' + number + ',"s":"'
+    source = prefix + "x" * (DEFAULT_LIMITS.max_bytes - len(prefix) - 2) + '"}'
+    document = JsonDocument(source)
+    selected = document.select(("n", "s"))
+    assert len(selected.source) <= len(source)
+    assert selected.content_hash == document.content_hash

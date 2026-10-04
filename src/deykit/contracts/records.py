@@ -10,7 +10,7 @@ from pydantic import AfterValidator, Field, ValidationInfo, model_validator
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
-from deykit.contracts.json_value import JsonSource, bytes_hash, parse_json
+from deykit.contracts.json_value import GENERATED_LIMITS, JsonSource, bytes_hash, parse_json
 from deykit.contracts.schema import compile_schema
 
 
@@ -233,7 +233,7 @@ class CompiledRequest(Record):
 
     @model_validator(mode="after")
     def exact_body(self) -> Self:
-        parse_json(self.body)
+        parse_json(self.body, GENERATED_LIMITS)
         if bytes_hash(self.body) != self.body_hash:
             raise ValueError("request_body_hash_mismatch")
         return self

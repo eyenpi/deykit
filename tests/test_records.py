@@ -76,7 +76,7 @@ def test_complete_input_validation_precedes_selection():
         select_input(d, JsonDocument('{"shown":1}'))
     assert (
         select_input(d, JsonDocument('{"hidden":2,"shown":9007199254740993}')).source
-        == '{"shown":9.007199254740993e15}'
+        == '{"shown":9007199254740993}'
     )
 
 
@@ -286,3 +286,38 @@ def test_persisted_hash_profiles_are_explicit_including_nested_records():
     del value["cases"][0]["hash_format"]
     with pytest.raises(JsonError, match="invalid_record"):
         load_record(DatasetSnapshot, json.dumps(value))
+
+
+def test_maximum_input_and_generated_request_persist_with_envelope_overhead():
+    from deykit.contracts.json_value import DEFAULT_LIMITS, dump_json
+
+    source = '"' + "x" * (DEFAULT_LIMITS.max_bytes - 2) + '"'
+    case = CaseRecord(id="c", dataset_id="d", input_kind="text", input_source=source)
+    assert load_record(CaseRecord, dump_record(case)) == case
+    body = dump_json({"state": json.loads(source)}).encode()
+    request = CompiledRequest(
+        adapter="fixture",
+        compiler="choice",
+        compiler_version="1",
+        requested_model="authored",
+        destination="fixture:local",
+        body=body,
+        body_hash=bytes_hash(body),
+    )
+    assert load_record(CompiledRequest, dump_record(request)) == request
+
+
+def test_aggregate_snapshot_record_limit_is_explicit():
+    from deykit.contracts.json_value import DEFAULT_LIMITS
+    from deykit.contracts.records import DatasetSnapshot
+
+    source = '"' + "x" * (DEFAULT_LIMITS.max_bytes - 2) + '"'
+    cases = tuple(
+        CaseRecord(id=f"c{i}", dataset_id="d", input_kind="text", input_source=source)
+        for i in range(17)
+    )
+    snapshot = DatasetSnapshot(
+        id="s", dataset_id="d", cases=cases, content_hash="a" * 64, created_at=STAMP
+    )
+    with pytest.raises(JsonError, match="record_resource_limit"):
+        dump_record(snapshot)

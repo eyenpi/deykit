@@ -54,14 +54,17 @@ removed IDs are returned explicitly rather than deleted from old labels/regressi
 
 `parse_json(str|bytes)` returns bool/null/string/Decimal/list/dict without coercion.
 Both JSON integer and fractional tokens become exact Decimal values. Construction
-never uses a float. `dump_json` emits numeric JSON tokens and retains insertion order;
+never uses a float. `dump_json` emits the shortest of normalized plain, scientific, and integer-coefficient exponent numeric
+JSON tokens (scientific wins ties) and retains insertion order;
 `canonical_bytes` sorts object keys by Unicode code point. Arrays retain order;
 strings retain their exact Unicode without normalization. Controls use JSON short
 escapes where defined, otherwise lowercase hex; slash and Unicode are not escaped.
 
 For `deykit-json-v1`, finite nonzero numbers have one leading digit, no insignificant
 trailing fractional zeros, lowercase `e`, and an unpadded exponent with no plus sign.
-Zero, including negative zero, is `0`. Normalization uses the Decimal digit tuple,
+Zero, including negative zero, is `0`. Wire spelling is derived from the same
+normalized digit tuple; equivalent numeric values have deterministic wire spellings
+independent of Decimal precision or capitals settings. Normalization uses the Decimal digit tuple,
 not context-sensitive arithmetic. `semantic_hash` hashes UTF-8
 `deykit-json-v1\n` followed by canonical bytes. `bytes_hash` is ordinary SHA-256 over
 exact dispatched bytes with no prefix or canonicalization. Object semantic equality
@@ -72,6 +75,15 @@ Limits are 1,048,576 UTF-8 source bytes, 64 container levels, 100,000 value node
 lexeme length at most seven characters. Keys count toward source bytes but not value
 nodes. These are deliberate profile limits; excess is `json_resource_limit`.
 The effective exponent bound closes accepted values under canonicalization.
+Derived canonical/wire output has a separate 2 MiB, 128-level, 200,000-node budget
+(`GENERATED_LIMITS`) to allow scientific spelling and request wrappers. Parse generated
+request bodies with that budget, not user admission defaults. Minimal wire spelling
+ensures selecting fields from an admitted user document does not expand its size.
+Owned record envelopes have a separate 16 MiB, 256-level, 1,000,000-node budget
+(`RECORD_LIMITS`), allowing source strings and generated request bodies to be escaped
+inside records. Every user `JsonSource` still independently has the 1 MiB admission
+limit. Aggregate dataset/result snapshots that exceed the envelope budget fail with
+`record_resource_limit`; the storage/run owner must preflight persistence before inference.
 Duplicates (including escaped equivalent keys), nonfinite numbers, malformed UTF-8,
 unpaired surrogates and unsupported Python types such as float are rejected.
 The immutable source wrapper and `JsonSource` fields prevent default Pydantic Decimal

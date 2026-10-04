@@ -6,6 +6,7 @@ Imports/CLI run outside the checkout with no Node or other system tools on PATH.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,7 @@ def run(*args: str, cwd: Path, env: dict[str, str] | None = None) -> str:
     completed = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, check=False)
     if completed.returncode:
         raise RuntimeError(completed.stderr)
-    return completed.stdout
+    return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", completed.stdout)
 
 
 def main() -> None:
@@ -54,7 +55,7 @@ def main() -> None:
                 "s='{\\\"n\\\":9007199254740993}'; "
                 "c=CaseRecord(id='c',dataset_id='d',input_kind='json',input_source=s); "
                 "assert load_record(CaseRecord,dump_record(c))==c; "
-                "assert JsonDocument(s).select(('n',)).source=='{\\\"n\\\":9.007199254740993e15}'"
+                "assert JsonDocument(s).select(('n',)).source=='{\\\"n\\\":9007199254740993}'"
             )
             run(str(python), "-I", "-c", code, cwd=destination, env=env)
             print(f"PASS clean installation: {artifact.name}; CLI without Node on PATH")
