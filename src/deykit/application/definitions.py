@@ -336,48 +336,51 @@ class DecisionService:
         return RevisionPage(items, len(ids), next_cursor)
 
     def diff(self, decision_id: str, before: str, after: str) -> DefinitionDiff:
-        previous = self._resolve_definition(decision_id, before)
-        current = self._resolve_definition(decision_id, after)
-        old_question, new_question = previous.questions[0], current.questions[0]
-        old_options = {option.id: option for option in old_question.options}
-        new_options = {option.id: option for option in new_question.options}
-        removed = tuple(
-            option.id for option in old_question.options if option.id not in new_options
-        )
-        added = tuple(option.id for option in new_question.options if option.id not in old_options)
-        changed = tuple(
-            option.id
-            for option in new_question.options
-            if option.id in old_options and option != old_options[option.id]
-        )
-        return DefinitionDiff(
-            before_hash=definition_hash(previous),
-            after_hash=definition_hash(current),
-            input_changed=(
-                previous.input_kind,
-                JsonDocument(previous.input_schema_source).content_hash
-                if previous.input_schema_source is not None
-                else None,
-                previous.selected_fields,
+        with self.source.consistent_read():
+            previous = self._resolve_definition(decision_id, before)
+            current = self._resolve_definition(decision_id, after)
+            old_question, new_question = previous.questions[0], current.questions[0]
+            old_options = {option.id: option for option in old_question.options}
+            new_options = {option.id: option for option in new_question.options}
+            removed = tuple(
+                option.id for option in old_question.options if option.id not in new_options
             )
-            != (
-                current.input_kind,
-                JsonDocument(current.input_schema_source).content_hash
-                if current.input_schema_source is not None
-                else None,
-                current.selected_fields,
-            ),
-            question_changed=(old_question.id, old_question.instructions)
-            != (new_question.id, new_question.instructions),
-            option_order_changed=(
-                tuple(option_id for option_id in old_options if option_id in new_options)
-                != tuple(option_id for option_id in new_options if option_id in old_options)
-            ),
-            added_option_ids=added,
-            removed_option_ids=removed,
-            changed_option_ids=changed,
-            incompatible_references=self._incompatible_references(decision_id, current),
-        )
+            added = tuple(
+                option.id for option in new_question.options if option.id not in old_options
+            )
+            changed = tuple(
+                option.id
+                for option in new_question.options
+                if option.id in old_options and option != old_options[option.id]
+            )
+            return DefinitionDiff(
+                before_hash=definition_hash(previous),
+                after_hash=definition_hash(current),
+                input_changed=(
+                    previous.input_kind,
+                    JsonDocument(previous.input_schema_source).content_hash
+                    if previous.input_schema_source is not None
+                    else None,
+                    previous.selected_fields,
+                )
+                != (
+                    current.input_kind,
+                    JsonDocument(current.input_schema_source).content_hash
+                    if current.input_schema_source is not None
+                    else None,
+                    current.selected_fields,
+                ),
+                question_changed=(old_question.id, old_question.instructions)
+                != (new_question.id, new_question.instructions),
+                option_order_changed=(
+                    tuple(option_id for option_id in old_options if option_id in new_options)
+                    != tuple(option_id for option_id in new_options if option_id in old_options)
+                ),
+                added_option_ids=added,
+                removed_option_ids=removed,
+                changed_option_ids=changed,
+                incompatible_references=self._incompatible_references(decision_id, current),
+            )
 
     def rename(
         self, decision_id: str, name: str, *, expected_etag: str, operation_id: str
