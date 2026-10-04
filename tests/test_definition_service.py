@@ -196,6 +196,12 @@ def test_schema_rejection_before_selection_and_precise_input(authoring):
         with pytest.raises(ServiceFailure) as rejected:
             service.validate("d")
         assert rejected.value.error.reason == reason
+    current = service.read("d")
+    malformed = definition_source().replace('"schema_version":1', '"schema_version":NaN')
+    service.update_draft("d", malformed, expected_etag=current.draft.etag, operation_id="nonfinite")
+    with pytest.raises(ServiceFailure) as nonfinite:
+        service.validate("d")
+    assert nonfinite.value.error.reason == "nonfinite_number"
 
 
 def test_option_rename_and_deletion_keep_references_visible(authoring):
@@ -364,3 +370,24 @@ def test_order_only_edit_is_explicit_in_diff(authoring):
     assert diff.option_order_changed
     assert diff.added_option_ids == diff.removed_option_ids == diff.changed_option_ids == ()
     assert diff.before_hash != diff.after_hash
+
+
+def test_current_revision_exposes_one_saved_identity(authoring):
+    service, _ = authoring
+    created = service.create("d", "D", definition_source(), operation_id="create")
+    with pytest.raises(ServiceFailure) as unsaved:
+        service.current_revision("d")
+    assert unsaved.value.error.reason == "unsaved_decision"
+    saved = service.save(
+        "d",
+        expected_draft_etag=created.draft.etag,
+        expected_decision_etag=created.decision.etag,
+        operation_id="save",
+    )
+    current = service.current_revision("d")
+    assert current.decision.record.latest_revision_id == saved.record.id
+    assert current.revision == saved
+    service.archive("d", expected_etag=current.decision.etag, operation_id="archive")
+    with pytest.raises(ServiceFailure) as archived:
+        service.current_revision("d")
+    assert archived.value.error.reason == "decision_archived"

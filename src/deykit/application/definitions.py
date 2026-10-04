@@ -63,6 +63,12 @@ class RevisionPage:
 
 
 @dataclass(frozen=True)
+class CurrentDefinition:
+    decision: Versioned[DecisionRecord]
+    revision: Versioned[DecisionRevision]
+
+
+@dataclass(frozen=True)
 class IncompatibleReference:
     kind: str
     resource_id: str
@@ -304,6 +310,18 @@ class DecisionService:
             raise _failure("validation_error", revision_id, "revision_hash_mismatch")
         return Versioned(record, etag)
 
+    def current_revision(self, decision_id: str) -> CurrentDefinition:
+        """Capture the current validated immutable definition at one source boundary."""
+        decision_id = _valid_id(decision_id)
+        with self.source.consistent_read() as source:
+            decision, etag = _required(source, DecisionRecord, _key("decisions", decision_id))
+            if decision.archived:
+                raise _failure("conflict", decision_id, "decision_archived")
+            if decision.latest_revision_id is None:
+                raise _failure("validation_error", decision_id, "unsaved_decision")
+            revision = self._versioned_revision(source, decision_id, decision.latest_revision_id)
+            return CurrentDefinition(Versioned(decision, etag), revision)
+
     def history(
         self, decision_id: str, *, cursor: str | None = None, limit: int = 50
     ) -> RevisionPage:
@@ -351,7 +369,10 @@ class DecisionService:
             ),
             question_changed=(old_question.id, old_question.instructions)
             != (new_question.id, new_question.instructions),
-            option_order_changed=(tuple(old_options) != tuple(new_options)),
+            option_order_changed=(
+                tuple(option_id for option_id in old_options if option_id in new_options)
+                != tuple(option_id for option_id in new_options if option_id in old_options)
+            ),
             added_option_ids=added,
             removed_option_ids=removed,
             changed_option_ids=changed,
