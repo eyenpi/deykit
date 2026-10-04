@@ -193,3 +193,16 @@ def test_modified_persisted_request_is_rejected_before_dispatch(mutation):
     outcome = asyncio.run(provider.dispatch(compiled))
     assert outcome.state == "not_sent"
     assert calls == []
+
+
+def test_sanitized_evidence_expansion_above_source_limit_is_safe_error():
+    def handle(request):
+        return httpx.Response(200, json={"echo": "key " * 100_000})
+
+    provider = JevProvider(
+        profile(), Credentials({"OFFLINE_KEY": "key"}), OneShotHttp(httpx.MockTransport(handle))
+    )
+    outcome = dispatch(provider)
+    assert outcome.error.code == "response_invalid"
+    assert outcome.raw_response_source is None
+    assert "key" not in outcome.model_dump_json()

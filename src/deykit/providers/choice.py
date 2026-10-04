@@ -3,7 +3,13 @@
 import re
 from decimal import Decimal, localcontext
 
-from deykit.contracts.json_value import JsonValue, bytes_hash, dump_json, parse_json
+from deykit.contracts.json_value import (
+    GENERATED_LIMITS,
+    JsonValue,
+    bytes_hash,
+    dump_json,
+    parse_json,
+)
 from deykit.contracts.records import (
     ChoiceDefinition,
     CompiledRequest,
@@ -112,7 +118,7 @@ def validate_response(request: "CompiledRequest", source: str | bytes) -> "Norma
     except ValueError:
         raise ResponseInvalid("invalid_json") from None
     verify_compiled_request(request)
-    compiled = _object(parse_json(request.body), "invalid_request")
+    compiled = _object(parse_json(request.body, GENERATED_LIMITS), "invalid_request")
     questions = _object(compiled.get("questions"), "invalid_request")
     if len(questions) != 1:
         raise ResponseInvalid("invalid_request")
@@ -184,7 +190,7 @@ def verify_compiled_request(request: CompiledRequest) -> None:
     """Check persisted or externally constructed records before credential resolution."""
     try:
         CompiledRequest.model_validate(request.model_dump())
-        root = _object(parse_json(request.body), "invalid_request")
+        root = _object(parse_json(request.body, GENERATED_LIMITS), "invalid_request")
         if set(root) != {"state", "model", "questions"}:
             raise ValueError
         if root["model"] != request.requested_model or not isinstance(root["state"], (str, dict)):

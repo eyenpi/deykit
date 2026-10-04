@@ -16,8 +16,12 @@ class Source:
     def read(self, key):
         return self.records.get(key)
 
-    def list_ids(self, collection):
-        return sorted(key.resource_id for key in self.records if key.collection == collection)
+    def list_ids(self, collection, scope=()):
+        return sorted(
+            key.resource_id
+            for key in self.records
+            if key.collection == collection and key.scope == scope
+        )
 
     def consistent_read(self):
         return nullcontext(self)

@@ -144,7 +144,9 @@ class JevProvider:
         safe_source = None
         try:
             # Sanitize first: an echoed key cannot escape in a normalized field.
-            safe_source = dump_json(sanitizer.value(parse_json(reply.body)))
+            candidate = dump_json(sanitizer.value(parse_json(reply.body)))
+            parse_json(candidate)  # Sanitization can expand bytes; retain only valid evidence.
+            safe_source = candidate
             answer = validate_response(request, safe_source)
         except ValueError as error:
             reason = error.reason if isinstance(error, ResponseInvalid) else "invalid_json"

@@ -66,8 +66,8 @@ def test_exact_json_precision_nested_values_and_unselected_fields_rejected():
     compiled = compile_choice(
         definition(kind="json", fields=("n", "nested", "unicode")), parse_json(source), "jev-1.13.0"
     )
-    assert b"9.007199254740993e15" in compiled.body
-    assert b"1.234567890123456789e-1" in compiled.body
+    assert b"9007199254740993" in compiled.body
+    assert b"0.1234567890123456789" in compiled.body
     assert parse_json(compiled.body)["state"] == parse_json(source)
     with pytest.raises(ValueError, match="exactly"):
         compile_choice(definition(kind="json", fields=("n",)), parse_json(source), "jev-1.13.0")
@@ -168,3 +168,28 @@ def test_generic_fixture_absent_native_fields_does_not_relax_jev():
     del wire["answers"]["category"]["confidence"]
     with pytest.raises(ResponseInvalid):
         validate_response(request(), dump_json(wire))
+
+
+def test_maximum_admitted_state_remains_valid_inside_generated_request():
+    from deykit.contracts.json_value import DEFAULT_LIMITS
+
+    state = "x" * (DEFAULT_LIMITS.max_bytes - 2)
+    compiled = compile_choice(definition(), state, "jev-1.13.0")
+    assert len(compiled.body) > DEFAULT_LIMITS.max_bytes
+    normalized = validate_response(compiled, (CORPUS / "valid-choice.json").read_bytes())
+    assert normalized.option_id == "question"
+
+
+def test_deep_admitted_state_preserves_generated_request_wrapper_budget():
+    from deykit.contracts.json_value import DEFAULT_LIMITS
+
+    state = parse_json(
+        '{"nested":'
+        + "[" * (DEFAULT_LIMITS.max_depth - 1)
+        + "0"
+        + "]" * (DEFAULT_LIMITS.max_depth - 1)
+        + "}"
+    )
+    compiled = compile_choice(definition(kind="json", fields=("nested",)), state, "jev-1.13.0")
+    normalized = validate_response(compiled, (CORPUS / "valid-choice.json").read_bytes())
+    assert normalized.option_id == "question"
