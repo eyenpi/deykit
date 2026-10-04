@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { safeMessage } from "./api/client";
 import { Modal } from "./components/Modal";
 import { ErrorSummary, LoadingState } from "./components/States";
@@ -22,7 +22,15 @@ export function App({
   const [view, setView] = useState<View>("start");
   const [project, setProject] = useState<ProjectOverview>();
   const [decision, setDecision] = useState<ResourceSummary>();
-  const [action, setAction] = useState<ProjectAction>();
+  const [action, setAction] = useState<{
+    action: ProjectAction;
+    initialPath?: string;
+  }>();
+  const [openSequence, setOpenSequence] = useState(0);
+  const overviewHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (openSequence > 0) overviewHeading.current?.focus();
+  }, [openSequence]);
   const [notice, setNotice] = useState<string>();
   const [recent, setRecent] = useState<readonly ProjectSummary[]>();
   const [error, setError] = useState<string>();
@@ -50,6 +58,7 @@ export function App({
     setDecision(undefined);
     setView("overview");
     setAction(undefined);
+    setOpenSequence((sequence) => sequence + 1);
   }
   return (
     <Shell
@@ -94,7 +103,7 @@ export function App({
               <button
                 className="start-action"
                 key={item.action}
-                onClick={() => setAction(item.action)}
+                onClick={() => setAction({ action: item.action })}
               >
                 <span aria-hidden="true">›</span>
                 <span>
@@ -121,7 +130,12 @@ export function App({
                   <li key={item.id}>
                     <strong>{item.name}</strong>
                     <p className="path muted">{item.path}</p>
-                    <button onClick={() => setAction("open")}>
+                    <button
+                      aria-label={`Open project folder: ${item.name}`}
+                      onClick={() =>
+                        setAction({ action: "open", initialPath: item.path })
+                      }
+                    >
                       Open project folder
                     </button>
                   </li>
@@ -132,6 +146,7 @@ export function App({
         </article>
       ) : view === "overview" && project ? (
         <Overview
+          headingRef={overviewHeading}
           project={project}
           onDecision={selectDecision}
           onAction={setNotice}
@@ -173,7 +188,8 @@ export function App({
       )}
       {action && (
         <ProjectForm
-          action={action}
+          action={action.action}
+          initialPath={action.initialPath}
           gateway={gateway}
           onOpened={opened}
           onClose={() => setAction(undefined)}

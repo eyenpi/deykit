@@ -1,17 +1,22 @@
+import type { Ref } from "react";
 import { DataTable } from "../components/DataTable";
 import type { ProjectOverview, ResourceSummary } from "./gateway";
 export function Overview({
   project,
+  headingRef,
   onDecision,
   onAction,
 }: {
   project: ProjectOverview;
+  headingRef?: Ref<HTMLHeadingElement>;
   onDecision: (decision: ResourceSummary) => void;
   onAction: (action: string) => void;
 }) {
   return (
     <article className="document">
-      <h1>{project.name}</h1>
+      <h1 ref={headingRef} tabIndex={-1}>
+        {project.name}
+      </h1>
       <p className="muted">Project folder</p>
       <div className="section">
         <p className="muted">Project location</p>

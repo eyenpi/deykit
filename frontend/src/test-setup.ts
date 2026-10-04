@@ -8,3 +8,17 @@ HTMLDialogElement.prototype.showModal = function () {
 HTMLDialogElement.prototype.close = function () {
   this.open = false;
 };
+
+// Responsive focus transitions are verified with real matchMedia in Chromium.
+window.matchMedia = () => ({
+  matches: false,
+  media: "",
+  onchange: null,
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent() {
+    return true;
+  },
+});

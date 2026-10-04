@@ -81,3 +81,77 @@ test("narrow and enlarged text layouts do not overflow the page", async ({
     page.getByRole("navigation", { name: "Workspace", exact: true }),
   ).toBeVisible();
 });
+
+test("recent project preserves its selected path and focuses the opened overview", async ({
+  page,
+}) => {
+  await page.goto("/tests/workspace-fixtures.html");
+  const first = page.getByRole("button", {
+    name: "Open project folder: First authored project",
+  });
+  await first.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Project folder path")).toHaveValue(
+    "/tmp/First folder",
+  );
+  await page.keyboard.press("Escape");
+  await expect(first).toBeFocused();
+  const second = page.getByRole("button", {
+    name: "Open project folder: Second authored project",
+  });
+  await second.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Project folder path")).toHaveValue(
+    "/tmp/Second exact folder",
+  );
+  await page.getByRole("button", { name: "Open project", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Second authored project", exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.getByText("/tmp/Second exact folder", { exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "Create decision", exact: true }),
+  ).toBeFocused();
+});
+
+test("narrow menu supports forward Tab, Escape, selection and width transitions", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  const menu = page.getByRole("button", { name: "Menu", exact: true });
+  const projects = page.getByRole("button", { name: "Projects", exact: true });
+  await menu.focus();
+  await page.keyboard.press("Enter");
+  await expect(projects).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "Providers", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeFocused();
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Providers", exact: true }),
+  ).toBeVisible();
+  await expect(menu).toBeFocused();
+  await page.setViewportSize({ width: 1100, height: 812 });
+  await expect(projects).toBeFocused();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(menu).toBeFocused();
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Enter");
+  await expect(projects).toBeFocused();
+  await page.setViewportSize({ width: 1100, height: 812 });
+  await expect(projects).toBeFocused();
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(menu).toBeFocused();
+  await expect(menu).toHaveAttribute("aria-expanded", "false");
+});

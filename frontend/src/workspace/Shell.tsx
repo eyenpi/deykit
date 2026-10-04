@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ProjectOverview, ResourceSummary } from "./gateway";
 export type View =
@@ -28,18 +28,69 @@ export function Shell({
   decisionActions?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const sidebar = useRef<HTMLElement>(null);
+  const firstNavigation = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (expanded) firstNavigation.current?.focus();
+  }, [expanded]);
+  useEffect(() => {
+    // Focus must not remain in navigation that becomes hidden at the breakpoint.
+    const media = window.matchMedia("(max-width: 760px)");
+    // Browsers may blur a CSS-hidden control before firing the media event.
+    // Retain the last focus target so breakpoint changes can restore it visibly.
+    let lastFocused = document.activeElement;
+    function rememberFocus(event: FocusEvent) {
+      if (event.target instanceof Element) lastFocused = event.target;
+    }
+    function changed(event: MediaQueryListEvent) {
+      const active =
+        document.activeElement === document.body
+          ? lastFocused
+          : document.activeElement;
+      setExpanded(false);
+      if (event.matches && active && sidebar.current?.contains(active)) {
+        menuButton.current?.focus();
+      } else if (!event.matches && active === menuButton.current) {
+        firstNavigation.current?.focus();
+      }
+    }
+    media.addEventListener("change", changed);
+    document.addEventListener("focusin", rememberFocus);
+    return () => {
+      media.removeEventListener("change", changed);
+      document.removeEventListener("focusin", rememberFocus);
+    };
+  }, []);
+  function closeMenu() {
+    setExpanded(false);
+    if (expanded) menuButton.current?.focus();
+  }
   function navigate(next: View) {
     onNavigate(next);
-    setExpanded(false);
+    closeMenu();
   }
   const decisionView =
     decision && ["decision", "examples", "runs", "results"].includes(view);
   return (
-    <div className="workspace">
+    <div
+      className="workspace"
+      onKeyDown={(event) => {
+        if (
+          expanded &&
+          event.key === "Escape" &&
+          !(event.target instanceof Element && event.target.closest("dialog"))
+        ) {
+          event.preventDefault();
+          closeMenu();
+        }
+      }}
+    >
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
       <aside
+        ref={sidebar}
         className={`sidebar ${expanded ? "expanded" : ""}`}
         id="workspace-navigation"
       >
@@ -48,6 +99,7 @@ export function Shell({
         </button>
         <nav aria-label="Workspace">
           <button
+            ref={firstNavigation}
             aria-current={view === "start" ? "page" : undefined}
             onClick={() => navigate("start")}
           >
@@ -111,10 +163,14 @@ export function Shell({
       <div className="workspace-content">
         <header className="toolbar">
           <button
+            ref={menuButton}
             className="nav-toggle"
             aria-expanded={expanded}
             aria-controls="workspace-navigation"
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => {
+              if (expanded) closeMenu();
+              else setExpanded(true);
+            }}
           >
             Menu
           </button>

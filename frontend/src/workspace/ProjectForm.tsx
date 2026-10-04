@@ -14,16 +14,18 @@ const titles = {
 };
 export function ProjectForm({
   action,
+  initialPath = "",
   gateway,
   onOpened,
   onClose,
 }: {
   action: ProjectAction;
+  initialPath?: string;
   gateway: WorkspaceGateway;
   onOpened: (project: ProjectOverview) => void;
   onClose: () => void;
 }) {
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState(initialPath);
   const [name, setName] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);

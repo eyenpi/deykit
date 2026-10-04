@@ -59,3 +59,48 @@ it("renders server supplied project context and keeps Run/History within decisio
   await user.click(screen.getByRole("button", { name: "Providers" }));
   expect(screen.queryByRole("button", { name: "History" })).toBeNull();
 });
+
+it("uses the selected recent path and focuses only the successful overview transition", async () => {
+  const gateway: WorkspaceGateway = {
+    recentProjects: async () => [
+      {
+        id: "known",
+        name: "Known project",
+        path: "/tmp/Exact existing folder",
+      },
+    ],
+    openProject: vi.fn().mockImplementation(async (request) => ({
+      id: "known",
+      name: "Known project",
+      path: request.path,
+      decisions: [],
+      datasets: [],
+    })),
+  };
+  const user = userEvent.setup();
+  const { rerender } = render(<App gateway={gateway} />);
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Open project folder: Known project",
+    }),
+  );
+  expect(
+    (screen.getByLabelText("Project folder path") as HTMLInputElement).value,
+  ).toBe("/tmp/Exact existing folder");
+  await user.click(screen.getByRole("button", { name: "Open project" }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Known project" }),
+    ),
+  );
+  expect(gateway.openProject).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: "open",
+      path: "/tmp/Exact existing folder",
+    }),
+  );
+  const create = screen.getByRole("button", { name: "Create decision" });
+  create.focus();
+  rerender(<App gateway={gateway} />);
+  expect(document.activeElement).toBe(create);
+});
