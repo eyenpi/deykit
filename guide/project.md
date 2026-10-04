@@ -12,12 +12,14 @@ from uuid import uuid4
 from deykit.application.projects import ProjectService
 from deykit.storage import FileProjectSource
 
+
 class LocalClock:
     def utc_now(self) -> str:
         return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     def monotonic(self) -> float:
         return monotonic()
+
 
 projects = ProjectService(
     lambda path, create: FileProjectSource(path, create=create),
