@@ -1,0 +1,6 @@
+{"case":"missing-native-confidence","response":{"model":"jev-1.13.0","answers":{"category":{"type":"choice","choice":"question","probabilities":{"question":0.75,"report":0.25}}},"usage":{"input_tokens":101,"output_tokens":12}}}
+{"case":"missing-distribution","response":{"model":"jev-1.13.0","answers":{"category":{"type":"choice","choice":"question","confidence":0.6}},"usage":{"input_tokens":101,"output_tokens":12}}}
+{"case":"wrong-question","response":{"model":"jev-1.13.0","answers":{"other":{"type":"choice","choice":"question","probabilities":{"question":0.75,"report":0.25},"confidence":0.6}},"usage":{"input_tokens":101,"output_tokens":12}}}
+{"case":"wrong-choice","response":{"model":"jev-1.13.0","answers":{"category":{"type":"choice","choice":"report","probabilities":{"question":0.75,"report":0.25},"confidence":0.6}},"usage":{"input_tokens":101,"output_tokens":12}}}
+{"case":"invalid-sum","response":{"model":"jev-1.13.0","answers":{"category":{"type":"choice","choice":"question","probabilities":{"question":0.75,"report":0.2},"confidence":0.6}},"usage":{"input_tokens":101,"output_tokens":12}}}
+{"case":"boolean-usage","response":{"model":"jev-1.13.0","answers":{"category":{"type":"choice","choice":"question","probabilities":{"question":0.75,"report":0.25},"confidence":0.6}},"usage":{"input_tokens":true,"output_tokens":12}}}

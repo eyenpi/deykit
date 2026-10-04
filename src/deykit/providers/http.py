@@ -1,0 +1,139 @@
+"""One-shot HTTP boundary. Retry scheduling belongs exclusively to the runner."""
+
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from email.utils import parsedate_to_datetime
+from typing import Literal
+
+import httpx
+
+from deykit.providers.choice import JEV_DESTINATION, MODELS_DESTINATION
+from deykit.providers.safety import quiet_authenticated_transport
+
+
+@dataclass(frozen=True)
+class HttpReply:
+    status: int
+    body: bytes
+    retry_after_seconds: Decimal | None = None
+
+
+class HttpFailure(Exception):
+    def __init__(self, kind: Literal["timeout", "disconnect", "response_too_large"]) -> None:
+        self.kind = kind
+        super().__init__(f"Provider transport failed: {kind}; execution outcome is unknown.")
+
+
+def retry_after(value: str | None, now: datetime) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        seconds = Decimal(value)
+        if seconds.is_finite() and seconds >= 0:
+            return seconds
+        return None
+    except InvalidOperation:
+        pass
+    try:
+        date = parsedate_to_datetime(value)
+        if date.tzinfo is None:
+            return None
+        return max(Decimal(0), Decimal(str((date - now).total_seconds())))
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+class OneShotHttp:
+    """A fresh client per attempt, strict destination and bounded response bytes.
+
+    Supplying a transport is for controlled tests; production constructs AsyncHTTPTransport
+    with zero retries. No client injection permits enabling authenticated redirects.
+    """
+
+    def __init__(
+        self,
+        transport: httpx.AsyncBaseTransport | None = None,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        max_response_bytes: int = 1_048_576,
+    ) -> None:
+        if max_response_bytes <= 0:
+            raise ValueError("Response byte limit must be positive.")
+        self._transport = transport
+        self._now = now
+        self._max_response_bytes = max_response_bytes
+
+    async def send(
+        self,
+        method: Literal["GET", "POST"],
+        destination: str,
+        body: bytes | None,
+        credential: str,
+        timeout_seconds: float,
+    ) -> HttpReply:
+        allowed = (method == "POST" and destination == JEV_DESTINATION) or (
+            method == "GET" and destination == MODELS_DESTINATION and body is None
+        )
+        if not allowed:
+            raise ValueError("Provider destination or method is not permitted.")
+        if not 0 < timeout_seconds <= 600:
+            raise ValueError("Request timeout must be positive and at most 600 seconds.")
+        if (
+            not credential
+            or not credential.isascii()
+            or any(ord(c) < 33 or ord(c) > 126 for c in credential)
+        ):
+            raise ValueError("Credential cannot form a valid authorization value.")
+        transport = self._transport or httpx.AsyncHTTPTransport(retries=0, trust_env=False)
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        reply: HttpReply | None = None
+        try:
+            # HTTPX phase timeouts are inactivity bounds; this scope additionally
+            # bounds the whole exchange, including many individually timely chunks.
+            with quiet_authenticated_transport():
+                async with (
+                    asyncio.timeout_at(deadline),
+                    httpx.AsyncClient(
+                        transport=transport,
+                        follow_redirects=False,
+                        trust_env=False,
+                        timeout=timeout_seconds,
+                    ) as client,
+                ):
+                    async with client.stream(
+                        method,
+                        destination,
+                        content=body,
+                        headers={
+                            "Authorization": "Bearer " + credential,
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                        },
+                    ) as response:
+                        delay = retry_after(response.headers.get("retry-after"), self._now())
+                        if response.status_code != 200:
+                            # No error payload is needed for status classification. Preserve
+                            # a definitive rejection even when its body/close fails later.
+                            reply = HttpReply(response.status_code, b"", delay)
+                        else:
+                            chunks: list[bytes] = []
+                            size = 0
+                            async for chunk in response.aiter_bytes():
+                                size += len(chunk)
+                                if size > self._max_response_bytes:
+                                    raise HttpFailure("response_too_large")
+                                chunks.append(chunk)
+                            reply = HttpReply(response.status_code, b"".join(chunks), delay)
+            if reply.status == 200 and asyncio.get_running_loop().time() >= deadline:
+                raise HttpFailure("timeout")
+            return reply
+        except (TimeoutError, httpx.TimeoutException):
+            if reply is not None and reply.status != 200:
+                return reply
+            raise HttpFailure("timeout") from None
+        except (httpx.HTTPError, OSError):
+            if reply is not None and reply.status != 200:
+                return reply
+            raise HttpFailure("disconnect") from None
