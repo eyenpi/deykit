@@ -13,7 +13,14 @@ from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ErrorCode, ServiceError
 from deykit.contracts.identities import new_id, validate_resource_id
-from deykit.contracts.json_value import JsonDocument, JsonError, parse_json, semantic_hash
+from deykit.contracts.json_value import (
+    JsonDocument,
+    JsonError,
+    JsonValue,
+    bytes_hash,
+    parse_json,
+    semantic_hash,
+)
 from deykit.contracts.ports import (
     Clock,
     Collection,
@@ -107,7 +114,13 @@ def _key(collection: str, resource_id: str, scope: tuple[str, ...] = ()) -> Reso
 
 
 def _intent(command: str, *values: str | None) -> str:
-    return semantic_hash({"command": command, "values": list(values)})
+    try:
+        digests = [
+            bytes_hash(value.encode("utf-8")) if value is not None else None for value in values
+        ]
+        return semantic_hash({"command": command, "values": cast(JsonValue, digests)})
+    except (AttributeError, UnicodeEncodeError):
+        raise _failure("validation_error", reason="invalid_request_value") from None
 
 
 def _decoded(record_type: type[R], stored: StoredRecord) -> R:

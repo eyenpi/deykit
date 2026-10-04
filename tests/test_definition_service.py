@@ -391,3 +391,11 @@ def test_current_revision_exposes_one_saved_identity(authoring):
     with pytest.raises(ServiceFailure) as archived:
         service.current_revision("d")
     assert archived.value.error.reason == "decision_archived"
+
+
+def test_large_incomplete_draft_stays_editable_with_stable_intent(authoring):
+    service, _ = authoring
+    source = '{"unfinished":"' + "x" * 2_200_000
+    created = service.create("d", "D", source, operation_id="create")
+    assert created.draft.record.editor_source == source
+    assert service.create("d", "D", source, operation_id="create") == created

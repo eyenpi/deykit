@@ -19,7 +19,9 @@ its validated definition into the current draft; the old revision remains immuta
 
 Mutations require an operation ID. Their application-intent hash includes the command,
 resource IDs, requested values and expected ETags. It excludes generated timestamps
-and revision IDs. `operation_receipt` recovers the original committed result after a
+and revision IDs. Requested strings are hashed as exact UTF-8 before the bounded
+canonical intent envelope, so large incomplete drafts retain repeatable identity.
+`operation_receipt` recovers the original committed result after a
 retry, even after a later edit, and rejects reusing the ID for a changed request.
 `ProjectSource.commit` checks ETags and commits all changes as one durable operation.
 Callers must retain the ETags returned by reads and report `conflict` on stale writes.
