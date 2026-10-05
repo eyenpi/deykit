@@ -415,3 +415,111 @@ def test_native_handle_noninheritance_and_failure_loops(files, monkeypatch):
         assert files.read(("record",)) == b"old"
     assert count() <= before + 2
     assert files.names(()) == ("record",)
+
+
+ATOMIC_CHILD = r"""
+import os, sys
+from pathlib import Path
+from deykit.storage.filesystem import SafeFiles
+root, checkpoint = Path(sys.argv[1]), sys.argv[2]
+files = SafeFiles(root)
+backend = files._backend
+original_flush = backend._flush_file
+def flush(handle):
+    if checkpoint == 'written': os._exit(73)
+    original_flush(handle)
+    if checkpoint == 'flushed': os._exit(73)
+backend._flush_file = flush
+if os.name == 'nt':
+    original_rename, original_delete = backend.api.rename, backend.api.delete
+    def rename(*args, **kwargs):
+        original_rename(*args, **kwargs)
+        if checkpoint == 'renamed': os._exit(73)
+    def delete(*args, **kwargs):
+        original_delete(*args, **kwargs)
+        if checkpoint == 'deleted': os._exit(73)
+    backend.api.rename, backend.api.delete = rename, delete
+else:
+    original_rename, original_delete = os.replace, os.unlink
+    def rename(*args, **kwargs):
+        original_rename(*args, **kwargs)
+        if checkpoint == 'renamed': os._exit(73)
+    def delete(*args, **kwargs):
+        original_delete(*args, **kwargs)
+        if checkpoint == 'deleted': os._exit(73)
+    os.replace, os.unlink = rename, delete
+if checkpoint == 'deleted': files.unlink(('record',))
+else: files.replace(('record',), b'new\x00\xff\r\n')
+"""
+
+
+@pytest.mark.parametrize(
+    "checkpoint, expected",
+    [
+        ("written", b"old"),
+        ("flushed", b"old"),
+        ("renamed", b"new\x00\xff\r\n"),
+        ("deleted", None),
+    ],
+)
+def test_abrupt_exit_inside_native_file_operations(files, checkpoint, expected):
+    files.replace(("record",), b"old")
+    child = subprocess.run(
+        [sys.executable, "-c", ATOMIC_CHILD, str(files.root), checkpoint],
+        capture_output=True,
+        timeout=20,
+    )
+    assert child.returncode == 73, child.stderr.decode()
+    assert files.read(("record",)) == expected
+
+
+@POSIX
+def test_opened_parent_survives_path_swapped_to_outside_symlink(files, tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sentinel").write_bytes(b"safe")
+    files.mkdir(("scope",))
+    original = files._backend._check_target
+
+    def swap_after_parent_open(parent, name):
+        original(parent, name)
+        os.rename(files.root / "scope", files.root / "moved")
+        (files.root / "scope").symlink_to(outside, target_is_directory=True)
+
+    monkeypatch.setattr(files._backend, "_check_target", swap_after_parent_open)
+    files.replace(("scope", "sentinel"), b"new")
+    assert (outside / "sentinel").read_bytes() == b"safe"
+    assert (files.root / "moved" / "sentinel").read_bytes() == b"new"
+
+
+@WINDOWS
+def test_junction_substitution_between_enumeration_and_open(files, tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "sentinel").write_bytes(b"safe")
+    files.mkdir(("scope",))
+    api = files._backend.api
+    original = api.open
+    swapped = False
+
+    def swap(parent, name, **kwargs):
+        nonlocal swapped
+        if name == "scope" and not swapped:
+            swapped = True
+            os.rename(files.root / "scope", files.root / "moved")
+            subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(files.root / "scope"), str(outside)],
+                check=True,
+                capture_output=True,
+            )
+        return original(parent, name, **kwargs)
+
+    try:
+        monkeypatch.setattr(api, "open", swap)
+        with pytest.raises((ServiceFailure, OSError)):
+            files.replace(("scope", "sentinel"), b"bad")
+        assert swapped
+        assert (outside / "sentinel").read_bytes() == b"safe"
+    finally:
+        if swapped:
+            (files.root / "scope").rmdir()
