@@ -274,7 +274,7 @@ class Native:
         options |= 1 if directory is True else (0x40 if directory is False else 0)
         code = self._nt_create(
             c.byref(result),
-            access | 0x100000,
+            access | 0x100000 | 0x80,
             c.byref(attrs),
             c.byref(status),
             None,

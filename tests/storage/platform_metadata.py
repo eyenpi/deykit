@@ -32,7 +32,7 @@ elif sys.platform == "darwin":
     volume = plistlib.loads(command(["diskutil", "info", "-plist", device]).encode())
     filesystem = str(volume.get("FilesystemType", volume.get("Content")))
 else:
-    filesystem = command(["stat", "-f", "-c", "%T", str(root)])
+    filesystem = command(["findmnt", "-n", "-o", "FSTYPE", "-T", str(root)])
 print(
     json.dumps(
         {

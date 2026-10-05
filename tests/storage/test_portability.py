@@ -183,7 +183,7 @@ def test_exception_releases_ownership_and_child_does_not_inherit_it(files):
                     stderr=subprocess.PIPE,
                     close_fds=False,
                 )
-                assert child.stdout.readline() == b"ready\n"
+                assert child.stdout.readline().splitlines() == [b"ready"]
                 raise RuntimeError("test release")
         assert child.poll() is None
         with acquire(files, "execution.lock", execution=True):
@@ -213,7 +213,7 @@ def test_cross_process_source_independence_and_killed_owner(files):
         stderr=subprocess.PIPE,
     )
     try:
-        assert child.stdout.readline() == b"ready\n"
+        assert child.stdout.readline().splitlines() == [b"ready"]
         with pytest.raises(ServiceFailure) as error:
             with acquire(files, "execution.lock", execution=True):
                 pytest.fail("two execution owners")

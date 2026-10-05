@@ -9,7 +9,22 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  portable-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.23'
+          python-version: '3.11'
+      - run: uv sync --locked
+      - run: uv run python tests/storage/check_cross_platform_copy.py create portable-project.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: portable-source-project
+          path: portable-project.zip
   storage:
+    needs: portable-source
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -31,7 +46,14 @@ jobs:
       - run: uv run mypy
       - name: Full offline suite including storage and actual process death
         run: uv run pytest -q -ra --junitxml=portability-results.xml
+      - uses: actions/download-artifact@v4
+        with:
+          name: portable-source-project
+      - name: Verify Ubuntu-created project bytes, replay, and index rebuild
+        run: uv run python tests/storage/check_cross_platform_copy.py verify portable-project.zip
       - run: uv build
+      - name: Verify clean wheel and sdist CLI installations
+        run: uv run python tests/check_install.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

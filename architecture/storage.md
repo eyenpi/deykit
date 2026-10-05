@@ -85,7 +85,9 @@ contains new StoredRecords plus `deleted_keys`, and a replay flag.
 5. Move the completed journal into essential operation history; POSIX syncs both parents.
    Only after that update the disposable index.
 
-Before a durable decision, recovery discards staging and leaves old source. After the
+These are checked file-flush and atomic-namespace steps. On Windows they establish
+the tested process-crash protocol, not directory-fsync or power-loss ordering.
+Before a committed decision, recovery discards staging and leaves old source. After the
 decision, recovery finishes the full new state. Every staged body and current target
 is validated before recovery writes: targets must match the saved old or new hash.
 An unrelated external edit or corrupt blob blocks recovery without overwriting it.
@@ -147,8 +149,8 @@ before consuming bytes, so a FIFO cannot hang validation while holding the sourc
 lock. Files use owner-only creation permissions. This blocks
 path escape through supplied IDs and static/internal symlinks. The project directory
 is an explicit trusted user selection; same-user hostile mutation of every internal
-file is not a security isolation boundary. Physical power-loss guarantees ultimately
-depend on the OS/filesystem honoring fsync. Tests establish software crash behavior,
+file is not a security isolation boundary. Physical power-loss ordering has not been verified on any platform. Tests establish
+software crash behavior,
 not disk-controller power-loss behavior or network-filesystem lock support.
 
 ## Evidence and primary references
@@ -204,6 +206,10 @@ acceptance, and authorized provider evidence remain separate integration gates.
 `portability.yml` runs the full offline suite on `ubuntu-24.04`, `macos-15` and
 `windows-2025`, Python 3.11/3.13. It records OS/build, Python patch, architecture,
 filesystem, SQLite, commit and lockfile identity, and archives JUnit skip/results.
+Ubuntu creates a quiescent source/history archive; every matrix host verifies its
+exact byte hashes, idempotent replay and index rebuild. Clean wheel/sdist checks run
+outside the checkout without Node on PATH, but cover only the current basic installed
+CLI/codec check, not the later full browser/demo/CLI packaging gate.
 Windows hosted Server CI does not demonstrate a physical Windows 11 desktop. Read
 actual PR checks for results; a workflow definition is not platform evidence.
 
