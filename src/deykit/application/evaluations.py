@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal, TypeVar, cast
 
 from deykit.application.dataset_support import fail, identifier, page
@@ -252,7 +254,7 @@ def _frozen(
     return frozen
 
 
-def _metrics(frozen: FrozenEvaluation) -> dict[str, JsonValue]:
+def _metrics(frozen: FrozenEvaluation, evaluation_mode: EvaluationMode) -> dict[str, JsonValue]:
     try:
         summary = assess_results(
             frozen.revision.definition,
@@ -304,7 +306,8 @@ def _metrics(frozen: FrozenEvaluation) -> dict[str, JsonValue]:
         "dataset_snapshot_id": frozen.dataset.id,
         "result_snapshot_id": frozen.results.id,
         "label_snapshot_id": frozen.labels.id,
-        "mode": frozen.manifest.mode,
+        "evaluation_mode": evaluation_mode,
+        "evidence_mode": frozen.manifest.mode,
         "summary": summary.source(),
         "baseline": baseline.source(),
         "latency": latency.source(),
@@ -317,7 +320,10 @@ def _view(stored: StoredRecord, *, replayed: bool = False) -> EvaluationView:
     try:
         if record.content_hash != evaluation_hash(record):
             fail("evaluation_hash_mismatch", "incompatible_data")
-        metrics = parse_json(record.metrics_source)
+        parse_json(record.metrics_source)
+        # Exact integer counters stay JSON integers in command/API output. Fractional
+        # tokens, if a future metric adds them, remain Decimal instead of float.
+        metrics = json.loads(record.metrics_source, parse_float=Decimal)
     except JsonError as error:
         fail(error.code, "incompatible_data")
     if not isinstance(metrics, dict):
@@ -383,7 +389,7 @@ class EvaluationService:
             before = cast(SnapshotSource, source).capture_snapshot()
             frozen = _frozen(before, run_id, result_snapshot_id, label_snapshot_id, mode)
             try:
-                metrics_source = dump_json(_metrics(frozen))
+                metrics_source = dump_json(_metrics(frozen, mode))
                 content_hash = _evaluation_hash(
                     run_id, result_snapshot_id, frozen.labels.id, mode, metrics_source
                 )
@@ -480,7 +486,7 @@ class EvaluationService:
                     label_snapshot.id,
                     "saved_answer_reevaluation",
                 )
-                metrics_source = dump_json(_metrics(frozen))
+                metrics_source = dump_json(_metrics(frozen, "saved_answer_reevaluation"))
                 evaluation = EvaluationRecord(
                     id=identifier(self.id_factory()),
                     run_id=run_id,

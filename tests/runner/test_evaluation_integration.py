@@ -5,8 +5,9 @@ import itertools
 
 from deykit.application.evaluations import EvaluationService
 from deykit.application.labels import LabelService
-from deykit.contracts.ports import ResourceKey
-from deykit.contracts.records import ResultSnapshot
+from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.ports import ResourceKey, SourceChange
+from deykit.contracts.records import CaseRecord, ResultSnapshot
 from deykit.runner.planner import RunRequest
 
 
@@ -93,3 +94,64 @@ def test_reevaluation_freezes_current_labels_without_new_dispatch(setup):
     )
     assert replay.replayed and replay.record.id == corrected.record.id
     assert replay.metrics == corrected.metrics and len(factory.calls) == 1
+    case_key = ResourceKey("cases", "case-00", ("data",))
+    stored_case = source.read(case_key)
+    assert stored_case is not None
+    case = load_record(CaseRecord, stored_case.body)
+    edited = CaseRecord(
+        id=case.id,
+        dataset_id=case.dataset_id,
+        input_kind="json",
+        input_source='{"text":"edited after run"}',
+    )
+    source.commit(
+        "edit-input",
+        (SourceChange(case_key, dump_record(edited), stored_case.etag),),
+    )
+    new_review = labels.read("decision", "data", "case-00").review
+    labels.set(new_review, ("yes",), provenance="human", operation_id="label-for-new-input")
+    stale = evaluations.reevaluate_current_labels(
+        result.run_id, snapshot_id, operation_id="stale-input-reevaluation"
+    )
+    assert stale.metrics["summary"]["set_accuracy"]["value"] is None
+    assert stale.metrics["summary"]["exclusion_counts"]["stale"] == 1
+    assert evaluations.read(corrected.record.id).metrics == corrected.metrics
+    assert len(factory.calls) == 1
+
+
+def test_partial_evaluation_remains_old_after_resume(setup):
+    source, runner, factory, clock = setup(1)
+    initial = asyncio.run(
+        runner.start(
+            RunRequest(
+                decision_id="decision", dataset_id="data", mode="fixture", fixture_set_id="set"
+            ),
+            operation_id="start",
+            on_created=lambda created: runner.cancel(created.run_id, operation_id="cancel"),
+        )
+    )
+    snapshots = tuple(
+        ResultSnapshot.model_validate_json(source.read(ResourceKey("result_snapshots", item)).body)
+        for item in source.list_ids("result_snapshots")
+    )
+    partial = max(snapshots, key=lambda item: item.through_event_sequence)
+    assert partial.results[0].status == "pending" and factory.calls == []
+    counter = itertools.count()
+    evaluations = EvaluationService(source, clock, lambda: f"evaluation-{next(counter)}")
+    old = evaluations.evaluate_saved(initial.run_id, partial.id, operation_id="old")
+    assert old.metrics["summary"]["coverage"]["numerator"] == 0
+    asyncio.run(runner.resume(initial.run_id, operation_id="resume"))
+    latest = max(
+        (
+            ResultSnapshot.model_validate_json(
+                source.read(ResourceKey("result_snapshots", item)).body
+            )
+            for item in source.list_ids("result_snapshots")
+        ),
+        key=lambda item: item.through_event_sequence,
+    )
+    assert latest.id != partial.id and latest.results[0].status == "valid"
+    fresh = evaluations.evaluate_saved(initial.run_id, latest.id, operation_id="fresh")
+    assert fresh.metrics["summary"]["coverage"]["numerator"] == 1
+    assert evaluations.read(old.record.id).metrics == old.metrics
+    assert len(factory.calls) == 1

@@ -79,3 +79,11 @@ def test_pure_redactor_keeps_ids_and_hides_known_secret_fields():
     )
     assert '"headers":"[REDACTED]"' in redacted
     assert "Bearer fake" not in redacted
+    choice = _sanitized_source(
+        b'{"answers":{"Authorization":{"option_id":"api-key",'
+        b'"probabilities":{"api-key":1}}},"headers":{"api-key":"secret"}}',
+        response=True,
+    )
+    assert '"Authorization":{"option_id":"api-key","probabilities":{"api-key":1}}' in choice
+    assert '"headers":"[REDACTED]"' in choice
+    assert "secret" not in choice

@@ -3,7 +3,9 @@
 import re
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
+
+from deykit.contracts.json_value import JsonValue
 
 _SENSITIVE_KEY = re.compile(
     r"authorization|proxy.authorization|api.?key|access.?token|password|secret|cookie|headers",
@@ -42,3 +44,25 @@ class Sanitizer:
             return value
         # Arbitrary objects may have credential-bearing repr/str implementations.
         return "[REDACTED]"
+
+
+def safe_choice_response(value: JsonValue, sanitizer: Sanitizer) -> JsonValue:
+    """Preserve typed question/option ID maps while sanitizing response metadata."""
+    result = cast(JsonValue, sanitizer.value(value))
+    if not isinstance(value, dict) or not isinstance(result, dict):
+        return result
+    original_answers = value.get("answers")
+    if not isinstance(original_answers, dict):
+        return result
+    answers: dict[str, JsonValue] = {}
+    for question_id, item in original_answers.items():
+        safe_item = cast(JsonValue, sanitizer.value(item))
+        probabilities = item.get("probabilities") if isinstance(item, dict) else None
+        if isinstance(safe_item, dict) and isinstance(probabilities, dict):
+            safe_item["probabilities"] = {
+                sanitizer.text(option_id): cast(JsonValue, sanitizer.value(probability))
+                for option_id, probability in probabilities.items()
+            }
+        answers[sanitizer.text(question_id)] = safe_item
+    result["answers"] = answers
+    return result

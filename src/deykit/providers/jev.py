@@ -1,11 +1,11 @@
 """Jev provider implementation of the shared one-dispatch port."""
 
 import math
-from typing import cast
 
 from deykit.contracts.errors import ServiceError
-from deykit.contracts.json_value import JsonValue, dump_json, parse_json
+from deykit.contracts.json_value import dump_json, parse_json
 from deykit.contracts.records import CompiledRequest, DispatchOutcome, ProviderProfile
+from deykit.contracts.redaction import safe_choice_response as safe_response
 from deykit.providers.choice import (
     JEV_DESTINATION,
     MODELS_DESTINATION,
@@ -200,30 +200,3 @@ class JevProvider:
             return tuple(result)
         except ValueError:
             raise ResponseInvalid("invalid_models") from None
-
-
-def safe_response(value: JsonValue, sanitizer: Sanitizer) -> JsonValue:
-    """Sanitize metadata without treating stable IDs as credential field names.
-
-    Question and probability keys are typed user IDs. Their spelling alone cannot
-    make the associated numeric/answer value secret. Actual credential substrings
-    are still redacted everywhere, including those IDs, before normalization.
-    """
-    result = cast(JsonValue, sanitizer.value(value))
-    if not isinstance(value, dict) or not isinstance(result, dict):
-        return result
-    original_answers = value.get("answers")
-    if not isinstance(original_answers, dict):
-        return result
-    answers: dict[str, JsonValue] = {}
-    for question_id, item in original_answers.items():
-        safe_item = cast(JsonValue, sanitizer.value(item))
-        probabilities = item.get("probabilities") if isinstance(item, dict) else None
-        if isinstance(safe_item, dict) and isinstance(probabilities, dict):
-            safe_item["probabilities"] = {
-                sanitizer.text(option_id): cast(JsonValue, sanitizer.value(probability))
-                for option_id, probability in probabilities.items()
-            }
-        answers[sanitizer.text(question_id)] = safe_item
-    result["answers"] = answers
-    return result

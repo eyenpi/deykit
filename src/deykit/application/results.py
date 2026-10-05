@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import cast
 
+from deykit.application.annotations import annotation_hash
 from deykit.application.dataset_support import fail, identifier, page
 from deykit.application.evaluations import EvaluationMode, _frozen, _typed, _view
+from deykit.contracts.json_value import JsonValue
 from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import (
     AttemptEvent,
@@ -18,10 +20,9 @@ from deykit.contracts.records import (
     RunEvent,
     RunManifest,
 )
+from deykit.contracts.redaction import Sanitizer, safe_choice_response
 from deykit.metrics import assess_results
-from deykit.metrics.summary import CaseAssessment, MetricsInvalid
-
-CaseStatus = Literal["pending", "input_invalid", "response_error", "unknown", "valid"]
+from deykit.metrics.summary import CaseAssessment, EvaluationSummary, MetricsInvalid
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ class ResultPage:
     evaluation_id: str | None
     selected_count: int
     status_counts: dict[str, int]
+    summary: dict[str, JsonValue]
     filtered_count: int
     items: tuple[ResultRow, ...]
     next_cursor: str | None
@@ -65,6 +67,7 @@ class ResultPage:
             "evaluation_id": self.evaluation_id,
             "selected_count": self.selected_count,
             "status_counts": self.status_counts,
+            "summary": self.summary,
             "filtered_count": self.filtered_count,
             "items": [item.source() for item in self.items],
             "next_cursor": self.next_cursor,
@@ -100,7 +103,7 @@ class CaseDetail:
             ],
             "label_provenance": self.row.assessment.label_provenance,
             "annotations": [
-                {"id": item.id, "note": item.note, "created_at": item.created_at}
+                {"id": item.id, "note": Sanitizer().text(item.note), "created_at": item.created_at}
                 for item in self.annotations
             ],
             "attempts": list(self.attempts),
@@ -150,7 +153,7 @@ class ResultInspection:
 
     def _rows(
         self, run_id: str, evaluation_id: str | None
-    ) -> tuple[tuple[ResultRow, ...], str, str, dict[str, int], tuple[StoredRecord, ...], int]:
+    ) -> tuple[tuple[ResultRow, ...], str, str, EvaluationSummary, tuple[StoredRecord, ...], int]:
         records, result_id, label_id, mode = self._context(run_id, evaluation_id)
         frozen = _frozen(records, run_id, result_id, label_id, mode)
         try:
@@ -167,6 +170,8 @@ class ResultInspection:
         for stored in records:
             if stored.key.collection == "annotations":
                 note = _typed(stored, ResultAnnotation)
+                if note.content_hash != annotation_hash(note.run_id, note.case_id, note.note):
+                    fail("annotation_hash_mismatch", "incompatible_data")
                 if note.run_id == run_id:
                     annotation_counts[note.case_id] = annotation_counts.get(note.case_id, 0) + 1
         rows = tuple(
@@ -179,7 +184,7 @@ class ResultInspection:
             rows,
             result_id,
             frozen.labels.id,
-            dict(summary.status_counts),
+            summary,
             records,
             frozen.results.through_event_sequence,
         )
@@ -189,8 +194,8 @@ class ResultInspection:
         run_id: str,
         *,
         evaluation_id: str | None = None,
-        status: CaseStatus | None = None,
-        split: Literal["development", "calibration", "test"] | None = None,
+        status: str | None = None,
+        split: str | None = None,
         tag: str | None = None,
         cursor: str | None = None,
         limit: int = 50,
@@ -210,7 +215,7 @@ class ResultInspection:
             fail("invalid_split")
         if tag is not None and (type(tag) is not str or not tag):
             fail("invalid_tag")
-        rows, result_id, label_id, counts, _, _ = self._rows(run_id, evaluation_id)
+        rows, result_id, label_id, summary, _, _ = self._rows(run_id, evaluation_id)
         matching = {
             item.case.id: item
             for item in rows
@@ -225,7 +230,8 @@ class ResultInspection:
             label_id,
             evaluation_id,
             len(rows),
-            counts,
+            dict(summary.status_counts),
+            summary.source(),
             len(matching),
             tuple(matching[key] for key in chosen),
             next_cursor,
@@ -305,7 +311,9 @@ class ResultInspection:
                     detail["request_body_source"] = _sanitized_source(attempt.request.body)
                 if include_response:
                     detail["response_source"] = (
-                        _sanitized_source(outcome.raw_response_source.encode("utf-8"))
+                        _sanitized_source(
+                            outcome.raw_response_source.encode("utf-8"), response=True
+                        )
                         if outcome and outcome.raw_response_source is not None
                         else None
                     )
@@ -336,13 +344,14 @@ class ResultInspection:
         )
 
 
-def _sanitized_source(body: bytes) -> str:
+def _sanitized_source(body: bytes, *, response: bool = False) -> str:
     # Raw bodies are explicit opt-ins. The provider adapter has already removed
     # credential values before persistence; inspection redacts common headers too.
     from deykit.contracts.json_value import JsonError, dump_json, parse_json
-    from deykit.contracts.redaction import Sanitizer
 
     try:
-        return dump_json(Sanitizer().value(parse_json(body.decode("utf-8"))))
+        value = parse_json(body.decode("utf-8"))
+        safe = safe_choice_response(value, Sanitizer()) if response else Sanitizer().value(value)
+        return dump_json(safe)
     except (JsonError, UnicodeError):
         fail("invalid_raw_evidence", "incompatible_data")
