@@ -520,32 +520,32 @@
     },
     {
       "path": "results list",
-      "service": "ResultService.list",
+      "service": "ResultInspection.list",
       "owner": "P10",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/runner/test_cli_results.py::test_cli_list_show_annotate_and_reevaluate_saved_answers"
       }
     },
     {
       "path": "results show",
-      "service": "ResultService.read",
+      "service": "ResultInspection.show",
       "owner": "P10",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/runner/test_cli_results.py::test_cli_list_show_annotate_and_reevaluate_saved_answers"
       }
     },
     {
       "path": "results annotate",
-      "service": "ResultService.annotate",
+      "service": "AnnotationService.add",
       "owner": "P10",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/runner/test_cli_results.py::test_cli_list_show_annotate_and_reevaluate_saved_answers"
       }
     },
     {
@@ -560,12 +560,12 @@
     },
     {
       "path": "reevaluate",
-      "service": "EvaluationService",
+      "service": "EvaluationService.reevaluate_current_labels",
       "owner": "P10",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/runner/test_cli_results.py::test_cli_list_show_annotate_and_reevaluate_saved_answers"
       }
     },
     {
