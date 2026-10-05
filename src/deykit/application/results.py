@@ -101,6 +101,9 @@ class CaseDetail:
             "legacy_expected_option_ids": [
                 list(ids) for ids in self.row.assessment.legacy_expected_option_ids
             ],
+            "legacy_exclusion_reasons": [
+                list(reasons) for reasons in self.row.assessment.legacy_exclusion_reasons
+            ],
             "label_provenance": self.row.assessment.label_provenance,
             "annotations": [
                 {"id": item.id, "note": Sanitizer().text(item.note), "created_at": item.created_at}

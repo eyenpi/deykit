@@ -249,6 +249,9 @@ def test_combined_exclusion_causes_and_legacy_question_are_visible():
     )
     with_current = assess_results(definition(), dataset, labels, answers, (one.id, two.id))
     assert with_current.cases[1].legacy_question_ids == ("retired",)
+    assert with_current.cases[1].legacy_exclusion_reasons == (
+        ("incompatible_question_label", "incompatible"),
+    )
     assert with_current.cases[1].set_correct is True
     assert with_current.eligible_set_count == 1
 
@@ -283,6 +286,9 @@ def test_retired_question_keeps_disputed_and_stale_causes():
         "incompatible",
     )
     assert assessment.legacy_question_ids == ("retired",)
+    assert assessment.legacy_exclusion_reasons == (
+        ("incompatible_question_label", "disputed", "stale", "incompatible"),
+    )
 
 
 @pytest.mark.parametrize(

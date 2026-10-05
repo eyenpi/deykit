@@ -88,6 +88,7 @@ class CaseAssessment:
     label_provenance: str | None
     legacy_question_ids: tuple[str, ...]
     legacy_expected_option_ids: tuple[tuple[str, ...], ...]
+    legacy_exclusion_reasons: tuple[tuple[str, ...], ...]
     exclusion_reasons: tuple[str, ...]
     set_correct: bool | None
     single_label_class: bool
@@ -101,6 +102,9 @@ class CaseAssessment:
             "label_provenance": self.label_provenance,
             "legacy_question_ids": list(self.legacy_question_ids),
             "legacy_expected_option_ids": [list(ids) for ids in self.legacy_expected_option_ids],
+            "legacy_exclusion_reasons": [
+                list(reasons) for reasons in self.legacy_exclusion_reasons
+            ],
             "exclusion_reasons": list(self.exclusion_reasons),
             "set_correct": self.set_correct,
             "single_label_class": self.single_label_class,
@@ -254,6 +258,13 @@ def assess_results(
         status_counts[result.status] += 1
         label = indexed.get(result.case_id)
         legacy_labels = legacy.get(result.case_id, ())
+        legacy_reasons = tuple(
+            (
+                "incompatible_question_label",
+                *label_applicability(old, definition, result.input_hash),
+            )
+            for old in legacy_labels
+        )
         answer = result.answer if result.status == "valid" else None
         answer_id = answer.option_id if answer is not None else None
         expected = label.acceptable_option_ids if label is not None else ()
@@ -263,8 +274,8 @@ def assess_results(
         if label is None:
             exclusion.append("incompatible_question_label" if legacy_labels else "unlabelled")
             if legacy_labels:
-                for old in legacy_labels:
-                    for old_reason in label_applicability(old, definition, result.input_hash):
+                for old_reasons in legacy_reasons:
+                    for old_reason in old_reasons:
                         if old_reason not in exclusion:
                             exclusion.append(old_reason)
             if answer is not None and not legacy_labels:
@@ -302,6 +313,7 @@ def assess_results(
                 legacy_expected_option_ids=tuple(
                     item.acceptable_option_ids for item in legacy_labels
                 ),
+                legacy_exclusion_reasons=legacy_reasons,
                 exclusion_reasons=tuple(exclusion),
                 set_correct=set_correct,
                 single_label_class=single,
