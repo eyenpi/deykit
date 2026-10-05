@@ -15,9 +15,9 @@ from deykit.application.dataset_support import (
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.evidence import evidence_hash as evidence_hash
 from deykit.contracts.execution_groups import RegressionRemoval
 from deykit.contracts.identities import ResourceId
-from deykit.contracts.evidence import evidence_hash as evidence_hash
 from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
 from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import (
