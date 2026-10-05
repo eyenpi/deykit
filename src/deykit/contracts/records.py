@@ -341,6 +341,13 @@ class ExecutionSettings(FrozenModel):
 
 class RunManifest(HashedRecord):
     id: ResourceId
+    # Optional only for decoding pre-runner records; executable runs require these.
+    decision_id: ResourceId | None = None
+    dataset_id: ResourceId | None = None
+    baseline_dataset_snapshot_id: ResourceId | None = None
+    baseline_label_snapshot_id: ResourceId | None = None
+    provider: ProviderProfile | None = None
+    fixture_set_id: ResourceId | None = None
     decision_revision_id: ResourceId
     dataset_snapshot_id: ResourceId
     label_snapshot_id: ResourceId
@@ -356,6 +363,41 @@ class RunManifest(HashedRecord):
     operation_id: ResourceId
 
 
+class PreparedCase(HashedRecord):
+    """Immutable plan entry: exact request or a visible zero-dispatch input error."""
+
+    id: ResourceId
+    run_id: ResourceId
+    case_id: ResourceId
+    input_hash: ContentHash
+    request: CompiledRequest | None = None
+    error: ServiceError | None = None
+
+    @model_validator(mode="after")
+    def exact_plan(self) -> Self:
+        if self.id != self.case_id or (self.request is None) == (self.error is None):
+            raise ValueError("invalid_prepared_case")
+        return self
+
+
+class RunControl(Record):
+    """Append-only caller intent; never mutates the original run settings."""
+
+    id: ResourceId
+    run_id: ResourceId
+    sequence: PositiveInt
+    operation_id: ResourceId
+    action: Literal["cancel", "cap_extension"]
+    max_attempts: PositiveInt | None = None
+    created_at: UtcTimestamp
+
+    @model_validator(mode="after")
+    def control_value(self) -> Self:
+        if (self.action == "cap_extension") != (self.max_attempts is not None):
+            raise ValueError("invalid_run_control")
+        return self
+
+
 class RunSegment(Record):
     id: ResourceId
     run_id: ResourceId
@@ -363,12 +405,15 @@ class RunSegment(Record):
     deadline_at: UtcTimestamp
     ended_at: UtcTimestamp | None = None
     retry_unknown: bool = False
+    sequence: NonnegativeInt = 0
+    cancel_through_sequence: NonnegativeInt = 0
 
 
 class RunEvent(Record):
     id: ResourceId
     run_id: ResourceId
     segment_id: ResourceId | None = None
+    attempt_id: ResourceId | None = None
     sequence: NonnegativeInt
     state: Literal[
         "preparing",
@@ -380,6 +425,10 @@ class RunEvent(Record):
         "budget_exhausted",
         "interrupted",
         "preflight_failed",
+        "attempt_reserved",
+        "attempt_dispatched",
+        "attempt_settled",
+        "cap_extended",
     ]
     created_at: UtcTimestamp
     reason: ServiceError | None = None
@@ -393,6 +442,8 @@ class AttemptRecord(Record):
     number: PositiveInt
     request: CompiledRequest
     reserved_at: UtcTimestamp
+    kind: Literal["initial", "rate_retry", "unknown_retry"] = "initial"
+    prior_attempt_id: ResourceId | None = None
 
 
 class AttemptEvent(Record):
@@ -402,6 +453,7 @@ class AttemptEvent(Record):
     state: Literal["reserved", "dispatched", "known", "unknown", "not_sent"]
     created_at: UtcTimestamp
     outcome: DispatchOutcome | None = None
+    duration_seconds: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None = None
 
 
 class CaseResult(FrozenModel):

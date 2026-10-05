@@ -56,6 +56,8 @@ Collection = Literal[
     "providers",
     "fixtures",
     "runs",
+    "prepared_cases",
+    "run_controls",
     "segments",
     "run_events",
     "attempts",
@@ -122,3 +124,11 @@ class ProjectSource(Protocol):
         *,
         intent_hash: str | None = None,
     ) -> CommitReceipt: ...
+
+
+class SnapshotSource(ProjectSource, Protocol):
+    """One consistent batch capture for lifecycle/evaluation readers."""
+
+    def capture_snapshot(
+        self, keys: tuple[ResourceKey, ...] | None = None
+    ) -> tuple[StoredRecord, ...]: ...

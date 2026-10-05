@@ -1,0 +1,506 @@
+"""Short atomic source transactions for run snapshots, controls and attempt lifecycle."""
+
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import Literal
+
+from deykit.application.dataset_support import decoded, fail, identifier, safe_hash
+from deykit.contracts.base import Record
+from deykit.contracts.codec import dump_record
+from deykit.contracts.errors import ServiceError
+from deykit.contracts.identities import new_id
+from deykit.contracts.json_value import JsonError, bytes_hash, dump_json
+from deykit.contracts.ports import (
+    Clock,
+    Collection,
+    CommitReceipt,
+    ResourceKey,
+    SnapshotSource,
+    SourceChange,
+)
+from deykit.contracts.records import (
+    AttemptEvent,
+    AttemptRecord,
+    DatasetSnapshot,
+    DecisionRevision,
+    DispatchOutcome,
+    LabelSnapshot,
+    PreparedCase,
+    ResultSnapshot,
+    RunControl,
+    RunEvent,
+    RunManifest,
+    RunSegment,
+)
+from deykit.runner.history import RunHistory, WorkItem, read_history
+from deykit.runner.planner import MAX_PLAN_BYTES, RunPlan, evidence_hash
+from deykit.runner.ports import ExecutionProject
+
+RunState = Literal[
+    "preparing",
+    "running",
+    "cancelling",
+    "cancelled",
+    "completed",
+    "completed_with_errors",
+    "budget_exhausted",
+    "interrupted",
+    "preflight_failed",
+    "attempt_reserved",
+    "attempt_dispatched",
+    "attempt_settled",
+    "cap_extended",
+]
+
+
+def change(collection: Collection, record: Record, scope: tuple[str, ...] = ()) -> SourceChange:
+    try:
+        return SourceChange(
+            ResourceKey(collection, str(getattr(record, "id", None)), scope),
+            dump_record(record),
+            None,
+        )
+    except JsonError as error:
+        fail(error.code, "preflight_failed")
+
+
+def deadline_at(start: str, seconds: int) -> str:
+    return (
+        (datetime.fromisoformat(start.replace("Z", "+00:00")) + timedelta(seconds=seconds))
+        .astimezone(UTC)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+class RunRepository:
+    def __init__(
+        self,
+        source: SnapshotSource,
+        execution: ExecutionProject,
+        clock: Clock,
+        id_factory: Callable[[], str] = new_id,
+    ) -> None:
+        self.source, self.execution, self.clock, self.id_factory = (
+            source,
+            execution,
+            clock,
+            id_factory,
+        )
+
+    def identity(self) -> str:
+        return identifier(self.id_factory())
+
+    def history(self, run_id: str) -> RunHistory:
+        return read_history(self.source, identifier(run_id))
+
+    @staticmethod
+    def replay_run(receipt: CommitReceipt) -> str:
+        stored = next(
+            (record for record in receipt.changes if record.key.collection == "runs"), None
+        )
+        if stored is None:
+            # Resume/cancel receipts have run-scoped operational records.
+            scoped = next(
+                (
+                    record
+                    for record in receipt.changes
+                    if record.key.collection in {"segments", "run_controls"}
+                ),
+                None,
+            )
+            if scoped is None:
+                fail("incomplete_run_receipt", "internal_error")
+            return scoped.key.scope[0]
+        return decoded(RunManifest, stored).id
+
+    def event(
+        self,
+        history: RunHistory,
+        state: RunState,
+        *,
+        segment_id: str | None = None,
+        attempt_id: str | None = None,
+        reason: ServiceError | None = None,
+    ) -> RunEvent:
+        return RunEvent(
+            id=self.identity(),
+            run_id=history.manifest.id,
+            segment_id=segment_id,
+            attempt_id=attempt_id,
+            sequence=history.boundary + 1,
+            state=state,
+            created_at=self.clock.utc_now(),
+            reason=reason,
+        )
+
+    def freeze(self, plan: RunPlan, operation_id: str, intent_hash: str) -> str:
+        """Caller holds the short source lock after checking the captured context."""
+        run_id, revision_id, dataset_id, label_id, dev_id, dev_label_id = (
+            self.identity() for _ in range(6)
+        )
+        stamp = self.clock.utc_now()
+        revision = DecisionRevision(
+            id=revision_id,
+            decision_id=plan.selection.decision_id,
+            definition=plan.definition,
+            content_hash=plan.definition_hash,
+            created_at=stamp,
+            note="run_snapshot",
+        )
+        dataset = DatasetSnapshot(
+            id=dataset_id,
+            dataset_id=plan.selection.dataset_id,
+            cases=plan.cases,
+            content_hash=evidence_hash(tuple(dump_record(case) for case in plan.cases)),
+            created_at=stamp,
+            selection_source=dump_json(
+                {"split": plan.selection.split, "case_ids": list(plan.selection.case_ids)}
+            ),
+        )
+        labels = LabelSnapshot(
+            id=label_id,
+            decision_id=plan.selection.decision_id,
+            dataset_snapshot_id=dataset_id,
+            labels=plan.labels,
+            content_hash=evidence_hash(tuple(dump_record(label) for label in plan.labels)),
+            created_at=stamp,
+        )
+        development = DatasetSnapshot(
+            id=dev_id,
+            dataset_id=plan.selection.dataset_id,
+            cases=plan.development_cases,
+            content_hash=evidence_hash(tuple(dump_record(case) for case in plan.development_cases)),
+            created_at=stamp,
+            selection_source='{"split":"development","scope":"full_dataset"}',
+        )
+        dev_labels = LabelSnapshot(
+            id=dev_label_id,
+            decision_id=plan.selection.decision_id,
+            dataset_snapshot_id=dev_id,
+            labels=plan.development_labels,
+            content_hash=evidence_hash(
+                tuple(dump_record(label) for label in plan.development_labels)
+            ),
+            created_at=stamp,
+        )
+        manifest = RunManifest(
+            id=run_id,
+            decision_id=plan.selection.decision_id,
+            dataset_id=plan.selection.dataset_id,
+            decision_revision_id=revision_id,
+            dataset_snapshot_id=dataset_id,
+            label_snapshot_id=label_id,
+            baseline_dataset_snapshot_id=dev_id,
+            baseline_label_snapshot_id=dev_label_id,
+            provider_profile_id=plan.provider.id,
+            provider_config_hash=bytes_hash(dump_record(plan.provider)),
+            provider=plan.provider,
+            fixture_set_id=plan.selection.fixture_set_id,
+            adapter=plan.provider.adapter,
+            compiler_version=next(
+                (item.request.compiler_version for item in plan.prepared if item.request),
+                "not_compiled",
+            ),
+            requested_model=plan.provider.requested_model,
+            mode=plan.selection.mode,
+            case_ids=tuple(case.id for case in plan.cases),
+            settings=plan.selection.settings,
+            created_at=stamp,
+            operation_id=operation_id,
+        )
+        prepared = tuple(
+            PreparedCase(
+                id=item.case_id,
+                run_id=run_id,
+                case_id=item.case_id,
+                input_hash=item.input_hash,
+                request=item.request,
+                error=item.error,
+            )
+            for item in plan.prepared
+        )
+        event = RunEvent(
+            id=self.identity(), run_id=run_id, sequence=1, state="preparing", created_at=stamp
+        )
+        history = RunHistory(manifest, prepared, (), (event,), (), (), (), ())
+        initial_snapshot = self.snapshot_record(history)
+        changes = (
+            change("revisions", revision, (plan.selection.decision_id,)),
+            change("dataset_snapshots", dataset),
+            change("label_snapshots", labels),
+            change("dataset_snapshots", development),
+            change("label_snapshots", dev_labels),
+            change("runs", manifest),
+            *(change("prepared_cases", item, (run_id,)) for item in prepared),
+            change("run_events", event, (run_id,)),
+            change("result_snapshots", initial_snapshot),
+        )
+        if sum(len(item.body or b"") for item in changes) > MAX_PLAN_BYTES:
+            fail("run_resource_limit", "preflight_failed")
+        self.source.commit(operation_id, changes, intent_hash=intent_hash)
+        return run_id
+
+    def segment(
+        self,
+        run_id: str,
+        operation_id: str,
+        intent_hash: str,
+        *,
+        retry_unknown: bool = False,
+        max_attempts: int | None = None,
+        acknowledge_cancellation: bool = True,
+    ) -> RunSegment:
+        with self.source.consistent_read():
+            history = self.history(run_id)
+            changes: list[SourceChange] = []
+            through = len(history.controls)
+            if max_attempts is not None:
+                if type(max_attempts) is not int or max_attempts < max(history.cap, history.used):
+                    fail("invalid_cap_extension", "preflight_failed")
+                if max_attempts > history.cap:
+                    through += 1
+                    control = RunControl(
+                        id=self.identity(),
+                        run_id=run_id,
+                        sequence=through,
+                        operation_id=operation_id,
+                        action="cap_extension",
+                        max_attempts=max_attempts,
+                        created_at=self.clock.utc_now(),
+                    )
+                    changes.append(change("run_controls", control, (run_id,)))
+            stamp = self.clock.utc_now()
+            segment = RunSegment(
+                id=self.identity(),
+                run_id=run_id,
+                started_at=stamp,
+                deadline_at=deadline_at(stamp, history.manifest.settings.deadline_seconds),
+                retry_unknown=retry_unknown,
+                sequence=len(history.segments) + 1,
+                cancel_through_sequence=through if acknowledge_cancellation else 0,
+            )
+            event = self.event(history, "running", segment_id=segment.id)
+            changes.extend(
+                (change("segments", segment, (run_id,)), change("run_events", event, (run_id,)))
+            )
+            self.source.commit(operation_id, tuple(changes), intent_hash=intent_hash)
+            # Existing storage flags are acknowledged before any dispatch. A failure
+            # here leaves a durable segment but never starts work; explicit resume recovers.
+            if acknowledge_cancellation:
+                self.execution.acknowledge_cancel(run_id, segment.id)
+            return segment
+
+    def cancelled(self, history: RunHistory, segment: RunSegment) -> bool:
+        return any(
+            control.action == "cancel" and control.sequence > segment.cancel_through_sequence
+            for control in history.controls
+        ) or self.execution.cancellation_requested(history.manifest.id)
+
+    def cancel(self, run_id: str, operation_id: str) -> RunHistory:
+        identifier(run_id)
+        identifier(operation_id)
+        digest = safe_hash({"command": "run.cancel", "run_id": run_id})
+        with self.source.consistent_read():
+            replay = self.source.operation_receipt(operation_id, intent_hash=digest)
+            if replay is not None:
+                return self.history(self.replay_run(replay))
+            history = self.history(run_id)
+            control = RunControl(
+                id=self.identity(),
+                run_id=run_id,
+                sequence=len(history.controls) + 1,
+                operation_id=operation_id,
+                action="cancel",
+                created_at=self.clock.utc_now(),
+            )
+            event = self.event(
+                history,
+                "cancelling",
+                segment_id=history.segments[-1].id if history.segments else None,
+            )
+            self.source.commit(
+                operation_id,
+                (
+                    change("run_controls", control, (run_id,)),
+                    change("run_events", event, (run_id,)),
+                ),
+                intent_hash=digest,
+            )
+            return self.history(run_id)
+
+    def reserve(
+        self, run_id: str, segment: RunSegment, work: WorkItem, *, deadline: float
+    ) -> AttemptRecord | None:
+        with self.source.consistent_read():
+            history = self.history(run_id)
+            if (
+                history.used >= history.cap
+                or self.clock.monotonic() >= deadline
+                or self.cancelled(history, segment)
+            ):
+                return None
+            eligible = {
+                item.prepared.case_id: item
+                for item in history.work(retry_unknown=segment.retry_unknown)
+            }
+            current = eligible.get(work.prepared.case_id)
+            if (
+                current is None
+                or current.kind != work.kind
+                or current.prior_attempt_id != work.prior_attempt_id
+            ):
+                fail("run_work_changed", "conflict")
+            if work.prepared.request is None:
+                fail("invalid_dispatch_plan", "internal_error")
+            attempt = AttemptRecord(
+                id=self.identity(),
+                run_id=run_id,
+                segment_id=segment.id,
+                case_id=work.prepared.case_id,
+                number=history.used + 1,
+                request=work.prepared.request,
+                reserved_at=self.clock.utc_now(),
+                kind=work.kind,
+                prior_attempt_id=work.prior_attempt_id,
+            )
+            event = AttemptEvent(
+                id=self.identity(),
+                attempt_id=attempt.id,
+                sequence=1,
+                state="reserved",
+                created_at=self.clock.utc_now(),
+            )
+            run_event = self.event(
+                history, "attempt_reserved", segment_id=segment.id, attempt_id=attempt.id
+            )
+            self.source.commit(
+                self.identity(),
+                (
+                    change("attempts", attempt, (run_id,)),
+                    change("attempt_events", event, (attempt.id,)),
+                    change("run_events", run_event, (run_id,)),
+                ),
+            )
+            return attempt
+
+    def dispatched(self, attempt: AttemptRecord, segment: RunSegment) -> bool:
+        with self.source.consistent_read():
+            history = self.history(attempt.run_id)
+            if self.cancelled(history, segment):
+                return False
+            prior = history.final_event(attempt.id)
+            if prior is None or prior.state != "reserved":
+                fail("invalid_attempt_transition", "conflict")
+            event = AttemptEvent(
+                id=self.identity(),
+                attempt_id=attempt.id,
+                sequence=prior.sequence + 1,
+                state="dispatched",
+                created_at=self.clock.utc_now(),
+            )
+            run_event = self.event(
+                history, "attempt_dispatched", segment_id=attempt.segment_id, attempt_id=attempt.id
+            )
+            self.source.commit(
+                self.identity(),
+                (
+                    change("attempt_events", event, (attempt.id,)),
+                    change("run_events", run_event, (attempt.run_id,)),
+                ),
+            )
+            return True
+
+    def settle(
+        self,
+        attempt: AttemptRecord,
+        outcome: DispatchOutcome,
+        *,
+        duration_seconds: float | None = None,
+    ) -> None:
+        with self.source.consistent_read():
+            history = self.history(attempt.run_id)
+            prior = history.final_event(attempt.id)
+            if prior is None or prior.state not in {"reserved", "dispatched"}:
+                fail("invalid_attempt_transition", "conflict")
+            event = AttemptEvent(
+                id=self.identity(),
+                attempt_id=attempt.id,
+                sequence=prior.sequence + 1,
+                state=outcome.state,
+                outcome=outcome,
+                duration_seconds=duration_seconds,
+                created_at=self.clock.utc_now(),
+            )
+            run_event = self.event(
+                history, "attempt_settled", segment_id=attempt.segment_id, attempt_id=attempt.id
+            )
+            self.source.commit(
+                self.identity(),
+                (
+                    change("attempt_events", event, (attempt.id,)),
+                    change("run_events", run_event, (attempt.run_id,)),
+                ),
+            )
+
+    def recover(self, run_id: str) -> RunHistory:
+        """Only an OS execution owner may call recovery; never sends requests."""
+        with self.source.consistent_read():
+            history = self.history(run_id)
+            interrupted = False
+            for attempt in history.attempts:
+                prior = history.final_event(attempt.id)
+                if prior is not None and prior.state in {"reserved", "dispatched"}:
+                    interrupted = True
+                    self.settle(
+                        attempt,
+                        DispatchOutcome(
+                            state="unknown",
+                            error=ServiceError(code="run_incomplete", reason="owner_interrupted"),
+                        ),
+                    )
+            if interrupted or history.state in {"preparing", "running", "cancelling"}:
+                self.finish(
+                    run_id, "interrupted", history.segments[-1].id if history.segments else None
+                )
+            return self.history(run_id)
+
+    def snapshot_record(self, history: RunHistory) -> ResultSnapshot:
+        results = history.results()
+        # CaseResult is an owned typed envelope; user input remains absent here.
+        digest = evidence_hash(tuple(item.model_dump_json().encode("utf-8") for item in results))
+        return ResultSnapshot(
+            id=self.identity(),
+            run_id=history.manifest.id,
+            results=results,
+            through_event_sequence=history.boundary,
+            content_hash=digest,
+            created_at=self.clock.utc_now(),
+        )
+
+    def finish(
+        self,
+        run_id: str,
+        state: RunState,
+        segment_id: str | None = None,
+        reason: ServiceError | None = None,
+    ) -> RunHistory:
+        with self.source.consistent_read():
+            history = self.history(run_id)
+            event = self.event(history, state, segment_id=segment_id, reason=reason)
+            updated = RunHistory(
+                history.manifest,
+                history.prepared,
+                history.segments,
+                (*history.events, event),
+                history.attempts,
+                history.attempt_events,
+                history.controls,
+                history.snapshots,
+            )
+            snapshot = self.snapshot_record(updated)
+            self.source.commit(
+                self.identity(),
+                (change("run_events", event, (run_id,)), change("result_snapshots", snapshot)),
+            )
+            return self.history(run_id)
