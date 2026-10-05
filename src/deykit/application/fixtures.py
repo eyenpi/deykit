@@ -20,11 +20,13 @@ from deykit.contracts.ports import (
     SourceChange,
     StoredRecord,
 )
-from deykit.contracts.records import FixtureBinding, FixtureSet
+from deykit.contracts.records import FixtureBinding, FixtureSet, ProviderProfile
 from deykit.providers.fixtures import (
+    FIXTURE_DESTINATION,
     FixtureInvalid,
     FixtureTransportFactory,
     fixture_set_hash,
+    validate_fixture_profile,
     validate_fixture_set,
 )
 
@@ -88,6 +90,12 @@ class FixtureService:
             _id(dataset_id),
         )
         _id(operation_id)
+        if type(binding_sources) is not tuple or not binding_sources:
+            raise _fail("validation_error", "invalid_binding_sources") from None
+        if any(type(value) not in (str, bytes) for value in binding_sources):
+            raise _fail("validation_error", "invalid_binding_source") from None
+        if any(type(value) is not str for value in (name, model_identity, note)):
+            raise _fail("validation_error", "invalid_fixture_metadata") from None
         bodies = tuple(_source_bytes(source) for source in binding_sources)
         try:
             intent = semantic_hash(
@@ -165,5 +173,68 @@ class FixtureService:
         with self.source.consistent_read() as source:
             return source.list_ids("fixtures")
 
-    def transport_factory(self, fixture_set_id: str) -> FixtureTransportFactory:
-        return FixtureTransportFactory(self.read(fixture_set_id).fixture_set)
+    def create_profile(
+        self, profile_id: str, model_identity: str, *, operation_id: str
+    ) -> ProviderProfile:
+        profile_id, operation_id = _id(profile_id), _id(operation_id)
+        if type(model_identity) is not str:
+            raise _fail("validation_error", "invalid_fixture_profile") from None
+        try:
+            intent = semantic_hash(
+                {
+                    "command": "fixture.create_profile",
+                    "profile_id": profile_id,
+                    "model_hash": bytes_hash(model_identity.encode("utf-8")),
+                }
+            )
+        except (AttributeError, UnicodeEncodeError):
+            raise _fail("validation_error", "invalid_fixture_profile") from None
+        with self.source.consistent_read() as source:
+            replay = source.operation_receipt(operation_id, intent_hash=intent)
+            if replay is not None:
+                return self._profile_from_receipt(replay.changes[0])
+            try:
+                profile = ProviderProfile(
+                    id=profile_id,
+                    adapter="fixture",
+                    requested_model=model_identity,
+                    destination=FIXTURE_DESTINATION,
+                )
+                validate_fixture_profile(profile)
+                body = dump_record(profile)
+            except (ValidationError, FixtureInvalid, JsonError):
+                raise _fail("validation_error", "invalid_fixture_profile", profile_id) from None
+            receipt = source.commit(
+                operation_id,
+                (SourceChange(ResourceKey("providers", profile_id), body, None),),
+                intent_hash=intent,
+            )
+            return self._profile_from_receipt(receipt.changes[0])
+
+    @staticmethod
+    def _profile_from_receipt(stored: StoredRecord) -> ProviderProfile:
+        try:
+            profile = load_record(ProviderProfile, stored.body)
+            validate_fixture_profile(profile)
+        except (JsonError, FixtureInvalid):
+            raise _fail(
+                "validation_error", "invalid_fixture_profile", stored.key.resource_id
+            ) from None
+        return profile
+
+    def read_profile(self, profile_id: str) -> ProviderProfile:
+        key = ResourceKey("providers", _id(profile_id))
+        with self.source.consistent_read() as source:
+            stored = source.read(key)
+            if stored is None:
+                raise _fail("not_found", "fixture_profile_missing", profile_id)
+            return self._profile_from_receipt(stored)
+
+    def transport_factory(
+        self, fixture_set_id: str, *, profile_id: str | None = None
+    ) -> FixtureTransportFactory:
+        profile = self.read_profile(profile_id) if profile_id is not None else None
+        try:
+            return FixtureTransportFactory(self.read(fixture_set_id).fixture_set, profile)
+        except FixtureInvalid as error:
+            raise _fail("validation_error", error.reason, fixture_set_id) from None

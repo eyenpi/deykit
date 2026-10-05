@@ -14,6 +14,7 @@ from deykit.contracts.records import (
     FixtureBinding,
     FixtureSet,
     NormalizedAnswer,
+    ProviderProfile,
 )
 from deykit.providers.choice import compile_choice
 from deykit.providers.fixtures import (
@@ -189,3 +190,44 @@ def test_invalid_compiled_request_and_duplicate_binding_reject():
         fixture_set(
             binding, FixtureBinding(id="two", case_id="case", request=compiled, answer=answer())
         )
+
+
+def test_profile_identity_and_malformed_constructed_models_are_rejected_safely():
+    compiled = request()
+    fixtures = fixture_set(
+        FixtureBinding(id="bound", case_id="case", request=compiled, answer=answer())
+    )
+    profile = ProviderProfile(
+        id="fixture-profile",
+        adapter="fixture",
+        requested_model=MODEL,
+        destination="fixture:jev-choice",
+    )
+    assert dispatch(FixtureTransportFactory(fixtures, profile), "case", compiled).answer is not None
+    for mismatched in (
+        profile.model_copy(update={"adapter": "jev"}),
+        profile.model_copy(update={"destination": "https://example.test"}),
+        profile.model_copy(update={"requested_model": "authored-other"}),
+        profile.model_copy(update={"credential_ref": "secret"}),
+        profile.model_copy(update={"schema_version": True}),
+    ):
+        with pytest.raises(FixtureInvalid, match="fixture_profile_identity"):
+            FixtureTransportFactory(fixtures, mismatched)
+
+    malformed = FixtureSet.model_construct(
+        id="set", decision_id="d", dataset_id="data", bindings=(object(),)
+    )
+    with pytest.raises(FixtureInvalid, match="invalid_fixture_set"):
+        FixtureTransportFactory(malformed)
+    constructed_request = CompiledRequest.model_construct(
+        adapter="fixture",
+        compiler="jev-choice",
+        compiler_version="1",
+        requested_model=MODEL,
+        destination="fixture:jev-choice",
+        body=compiled.body,
+        body_hash=compiled.body_hash,
+        schema_version=True,
+    )
+    result = dispatch(FixtureTransportFactory(fixtures), "case", constructed_request)
+    assert result.state == "not_sent" and result.error.code == "preflight_failed"

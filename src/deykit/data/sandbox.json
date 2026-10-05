@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "evidence_mode": "authored_fixture",
+  "project_name": "Sandbox",
+  "decision_id": "content-category",
+  "decision_name": "Content category",
+  "dataset_id": "examples-v1",
+  "dataset_name": "Examples",
+  "profile_id": "sandbox-fixture",
+  "fixture_set_id": "sandbox-fixtures-v1",
+  "model_identity": "authored-sandbox-v1",
+  "definition": {
+    "schema_version": 1,
+    "input_kind": "json",
+    "input_schema_source": "{\"type\":\"object\",\"required\":[\"text\",\"context\"],\"properties\":{\"text\":{\"type\":\"string\",\"minLength\":1},\"context\":{\"type\":\"object\",\"required\":[\"source\"],\"properties\":{\"source\":{\"type\":\"string\"}},\"additionalProperties\":false}},\"additionalProperties\":false}",
+    "selected_fields": ["text", "context"],
+    "questions": [{
+      "id": "category",
+      "kind": "choice",
+      "instructions": "Choose the category that best describes the supplied text.",
+      "options": [
+        {"id": "question", "name": "Question", "description": "Asking for an explanation or an answer."},
+        {"id": "report", "name": "Report", "description": "Describing an observation or problem."},
+        {"id": "request", "name": "Request", "description": "Asking for an action or change."},
+        {"id": "other", "name": "Other", "description": "None of the listed categories."}
+      ]
+    }]
+  },
+  "cases": [
+    {"id": "ex-001", "input_source": "{\"text\":\"Can you help me troubleshoot this error?\",\"context\":{\"source\":\"example\"}}", "label_option_id": "question", "outcome": "answer", "answer_option_id": "question"},
+    {"id": "ex-002", "input_source": "{\"text\":\"The report shows an unexpected value.\",\"context\":{\"source\":\"example\"}}", "label_option_id": "report", "outcome": "answer", "answer_option_id": "report"},
+    {"id": "ex-003", "input_source": "{\"text\":\"Why did the result change after the update?\",\"context\":{\"source\":\"example\"}}", "label_option_id": "question", "outcome": "answer", "answer_option_id": "report", "probabilities_source": "{\"report\":0.62,\"question\":0.2,\"request\":0.14,\"other\":0.04}"},
+    {"id": "ex-004", "input_source": "{\"text\":\"Several entries changed.\",\"context\":{\"source\":\"example\"}}", "label_option_id": "report", "outcome": "answer", "answer_option_id": "report"},
+    {"id": "ex-005", "input_source": "{\"text\":\"I'd like to request access to the dataset.\",\"context\":{\"source\":\"example\"}}", "label_option_id": "request", "outcome": "answer", "answer_option_id": "request"},
+    {"id": "ex-006", "input_source": "{\"text\":\"What does this field mean?\",\"context\":{\"source\":\"example\"}}", "label_option_id": "question", "outcome": "answer", "answer_option_id": "question"},
+    {"id": "ex-007", "input_source": "{\"text\":\"Thanks for sharing.\",\"context\":{\"source\":\"example\"}}", "label_option_id": "other", "outcome": "answer", "answer_option_id": "other"},
+    {"id": "ex-008", "input_source": "{\"text\":\"Please add a way to export the selection.\",\"context\":{\"source\":\"example\"}}", "label_option_id": "request", "outcome": "answer", "answer_option_id": "question"},
+    {"id": "ex-009", "input_source": "{\"text\":\"How is the final answer selected?\",\"context\":{\"source\":\"example\"}}", "label_option_id": null, "outcome": "answer", "answer_option_id": "question"},
+    {"id": "ex-010", "input_source": "{\"text\":\"I have attached today's notes.\",\"context\":{\"source\":\"example\"}}", "label_option_id": null, "outcome": "answer", "answer_option_id": "report"},
+    {"id": "ex-011", "input_source": "{}", "label_option_id": null, "outcome": "input_invalid"},
+    {"id": "ex-012", "input_source": "{\"text\":\"Could you explain the output format?\",\"context\":{\"source\":\"example\"}}", "label_option_id": "question", "outcome": "response_error"}
+  ]
+}

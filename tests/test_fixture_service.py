@@ -193,3 +193,36 @@ def test_missing_context_case_and_bad_binding_source_fail_without_partial_set(tm
             )
         assert missing_case.value.error.reason == "fixture_case_missing"
         assert service.list_ids() == ()
+
+
+def test_fixture_profile_and_invalid_public_inputs(tmp_path):
+    root = initialized(tmp_path)
+    with FileProjectSource(root) as source:
+        service = FixtureService(source, Clock())
+        profile = service.create_profile("fixture-profile", MODEL, operation_id="profile-op")
+        assert service.read_profile("fixture-profile") == profile
+        assert (
+            service.create_profile("fixture-profile", MODEL, operation_id="profile-op") == profile
+        )
+        assert profile.adapter == "fixture" and profile.destination == "fixture:jev-choice"
+        assert profile.credential_ref is None
+        with pytest.raises(ServiceFailure) as changed:
+            service.create_profile("fixture-profile", "authored-other", operation_id="profile-op")
+        assert changed.value.error.reason == "operation_id_conflict"
+        for sources in (None, [dump_record(binding())], "invalid"):
+            with pytest.raises(ServiceFailure) as invalid:
+                service.create(
+                    "set", "decision", "dataset", "Authored", MODEL, sources, operation_id="bad"
+                )
+            assert invalid.value.error.reason == "invalid_binding_sources"
+        with pytest.raises(ServiceFailure) as invalid_name:
+            service.create(
+                "set",
+                "decision",
+                "dataset",
+                3,
+                MODEL,
+                (dump_record(binding()),),
+                operation_id="bad-name",
+            )
+        assert invalid_name.value.error.reason == "invalid_fixture_metadata"
