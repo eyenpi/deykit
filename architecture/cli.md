@@ -9,8 +9,10 @@ they do not call HTTP or a browser. `SystemClock` and generated operation IDs
 are supplied at this boundary.
 
 Project/decision/dataset/case/label command modules adapt typed service
-results. Their input files and stdin are decoded as UTF-8; user JSON stays
-source text and passes the contracts codec. The JSON output adapter only
+results. The `demo` extension module invokes `DemoService` and reports actual
+created IDs and `authored_fixture` provenance. Input files and stdin are
+decoded as UTF-8; user JSON stays source text and passes the contracts codec.
+The JSON output adapter only
 serializes service DTOs and source strings. It never builds user input or
 provider request bytes from Pydantic's Decimal JSON serializer. Parser and
 service failures produce one safe error envelope in JSON mode. Unexpected

@@ -24,6 +24,13 @@ operation ID. It suggests `.deykit/` and `reports/` ignore entries; it does not
 rewrite an existing `.gitignore`. `project rebuild-index` recreates only the
 disposable SQLite index from authoritative source and history.
 
+For an installed example, `uv run deykit --json demo ./sandbox` creates a new
+portable project with 12 cases, 11 fixture bindings, and 9 authored labels.
+The result reports its actual project, decision, revision, dataset, profile,
+and fixture-set IDs. Its evidence mode is `authored_fixture`; creation makes
+zero provider requests. The destination directory must not exist. Use the
+returned IDs in subsequent commands rather than copying IDs from an example.
+
 Create a definition file as UTF-8 text. The question and option IDs are stable
 identities; changing display names should keep their IDs. This example accepts
 JSON input, validates the full object, and selects only `message` as model input.

@@ -578,3 +578,20 @@ def test_cli_invalid_utf8_and_explicit_editor_are_safe(tmp_path: Path) -> None:
     )
     invalid_save = result(cli(root, "--json", "decision", "save", "d"), 2)
     assert invalid_save["error"]["code"] == "validation_error"
+
+
+def test_cli_demo_creates_actual_authored_project_ids(tmp_path: Path) -> None:
+    created = result(cli(tmp_path, "--json", "demo", "sandbox", "--operation-id", "demo-once"))
+    info = created["data"]["info"]
+    assert created["data"]["operation_id"] == "demo-once"
+    assert info["path"] == str(tmp_path / "sandbox")
+    assert (info["case_count"], info["binding_count"], info["label_count"]) == (12, 11, 9)
+    assert info["evidence_mode"] == "authored_fixture"
+    project = result(cli(tmp_path / "sandbox", "--json", "project", "show"))
+    assert project["data"]["info"]["project"]["id"] == info["project_id"]
+    decision = result(cli(tmp_path / "sandbox", "--json", "decision", "show", info["decision_id"]))
+    assert decision["data"]["decision"]["record"]["latest_revision_id"] == info["revision_id"]
+    dataset = result(cli(tmp_path / "sandbox", "--json", "dataset", "show", info["dataset_id"]))
+    assert dataset["data"]["cases"]["total"] == 12
+    conflict = result(cli(tmp_path, "--json", "demo", "sandbox"), 2)
+    assert conflict["error"]["reason"] == "demo_path_exists"

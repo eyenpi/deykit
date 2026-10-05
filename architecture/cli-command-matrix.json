@@ -356,10 +356,10 @@
       "path": "demo",
       "service": "DemoService.create",
       "owner": "P07/P06",
-      "status": "pending_dependency",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_demo_creates_actual_authored_project_ids"
       }
     },
     {
