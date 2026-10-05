@@ -132,3 +132,56 @@ def test_a25_actual_owner_prevents_takeover_or_false_interruption(setup, tmp_pat
         if child.poll() is None:
             child.kill()
             child.communicate(timeout=5)
+
+
+def test_receipt_recheck_covers_freeze_between_lookup_and_owner_contention(
+    setup, tmp_path, monkeypatch
+):
+    import time
+    from contextlib import contextmanager
+
+    from test_execution import request
+
+    from deykit.contracts.records import ExecutionSettings
+
+    source, service, factory, _ = setup(1)
+    marker, release = tmp_path / "race-active", tmp_path / "race-release"
+    command, environment = child_command(source, "after_dispatch", marker, release)
+    original_owner = source.execution_owner
+    children = []
+
+    @contextmanager
+    def acquire_after_other_process_freezes():
+        # Called after the parent's first receipt lookup returned None.
+        # Subsequent ownership probes must not launch another competing child.
+        if not children:
+            child = subprocess.Popen(
+                command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            children.append(child)
+            timeout = time.monotonic() + 20
+            while not marker.exists() and child.poll() is None and time.monotonic() < timeout:
+                time.sleep(0.01)
+            assert marker.exists()
+        with original_owner():
+            yield
+
+    monkeypatch.setattr(source, "execution_owner", acquire_after_other_process_freezes)
+    try:
+        result = asyncio.run(
+            service.start(
+                request(settings=ExecutionSettings(concurrency=1)), operation_id="child-start"
+            )
+        )
+        assert result.replayed and result.execution_active and result.attempts_used == 1
+        assert not factory.calls
+    finally:
+        release.write_text("go")
+        for child in children:
+            try:
+                _, stderr = child.communicate(timeout=30)
+                assert child.returncode == 0, stderr.decode()
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.communicate(timeout=5)
