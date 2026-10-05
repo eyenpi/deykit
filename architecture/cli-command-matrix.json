@@ -550,12 +550,12 @@
     },
     {
       "path": "compare",
-      "service": "ComparisonService",
+      "service": "ComparisonService.create; EvaluationService.read/frozen_context/evaluate_saved",
       "owner": "P11",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/comparisons/test_service.py::test_cli_explicit_and_default_evaluation_selection_is_zero_call"
       }
     },
     {
