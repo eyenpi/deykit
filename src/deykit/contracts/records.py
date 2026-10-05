@@ -118,6 +118,7 @@ class DecisionRevision(HashedRecord):
 
 class DatasetRecord(Record):
     id: ResourceId
+    revision_id: ResourceId | None = None
     name: Nonempty
     created_at: UtcTimestamp
     archived: bool = False
