@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
+from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import ChoiceDefinition, DatasetSnapshot, LabelRecord, LabelSnapshot
 from deykit.domain.definitions import label_applicability, select_input
 from deykit.metrics.summary import MetricsInvalid, Rate
@@ -74,6 +75,16 @@ def majority_baseline(
     paired_case_ids: tuple[str, ...],
 ) -> MajorityBaseline:
     """Fit only the separately frozen full development source, never current mutable data."""
+    try:
+        definition = admit_model(ChoiceDefinition, definition, "invalid_definition")
+        fit_dataset = admit_model(DatasetSnapshot, fit_dataset, "invalid_dataset_snapshot")
+        fit_labels = admit_model(LabelSnapshot, fit_labels, "invalid_label_snapshot")
+        evaluation_dataset = admit_model(
+            DatasetSnapshot, evaluation_dataset, "invalid_dataset_snapshot"
+        )
+        evaluation_labels = admit_model(LabelSnapshot, evaluation_labels, "invalid_label_snapshot")
+    except ModelInvalid as error:
+        raise MetricsInvalid(str(error)) from None
     if fit_labels.decision_id != evaluation_labels.decision_id:
         raise MetricsInvalid("baseline_decision_mismatch")
     if fit_dataset.dataset_id != evaluation_dataset.dataset_id:
@@ -100,6 +111,10 @@ def majority_baseline(
         or any(case_id not in evaluation_case_index for case_id in selected_case_ids)
     ):
         raise MetricsInvalid("baseline_case_mismatch")
+    if any(label.case_id not in fit_case_index for label in fit_labels.labels) or any(
+        label.case_id not in evaluation_case_index for label in evaluation_labels.labels
+    ):
+        raise MetricsInvalid("baseline_label_case_mismatch")
     counts = {option_id: 0 for option_id in option_ids}
     fit_ids: set[str] = set()
     excluded_sets = 0
@@ -122,19 +137,19 @@ def majority_baseline(
     fit_support = sum(counts.values())
     winner = max(option_ids, key=lambda option: counts[option]) if fit_support else None
     scored = correct = 0
-    if winner is not None:
-        for case_id in paired_case_ids:
-            case = evaluation_case_index[case_id]
-            label = evaluation_index.get(case_id)
-            if label is None:
-                raise MetricsInvalid("baseline_pairing_mismatch")
-            input_hash = JsonDocument(case.input_source).content_hash
-            if label_applicability(label, definition, input_hash):
-                raise MetricsInvalid("baseline_pairing_mismatch")
-            try:
-                select_input(definition, JsonDocument(case.input_source))
-            except JsonError:
-                raise MetricsInvalid("baseline_pairing_mismatch") from None
+    for case_id in paired_case_ids:
+        case = evaluation_case_index[case_id]
+        label = evaluation_index.get(case_id)
+        if label is None:
+            raise MetricsInvalid("baseline_pairing_mismatch")
+        input_hash = JsonDocument(case.input_source).content_hash
+        if label_applicability(label, definition, input_hash):
+            raise MetricsInvalid("baseline_pairing_mismatch")
+        try:
+            select_input(definition, JsonDocument(case.input_source))
+        except JsonError:
+            raise MetricsInvalid("baseline_pairing_mismatch") from None
+        if winner is not None:
             scored += 1
             correct += int(winner in label.acceptable_option_ids)
     return MajorityBaseline(

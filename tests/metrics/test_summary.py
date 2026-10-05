@@ -234,11 +234,13 @@ def test_combined_exclusion_causes_and_legacy_question_are_visible():
     summary = assess_results(definition(), dataset, labels, answers, (one.id, two.id))
     assert summary.cases[0].exclusion_reasons == ("disputed", "stale", "incompatible")
     assert summary.cases[0].expected_option_ids == ("deleted",)
-    assert summary.cases[1].exclusion_reasons == ("incompatible_question_label",)
+    assert summary.cases[1].exclusion_reasons == (
+        "incompatible_question_label",
+        "incompatible",
+    )
     assert summary.cases[1].legacy_question_ids == ("retired",)
     assert summary.cases[1].legacy_expected_option_ids == (("report",),)
     assert summary.unlabelled_valid_count == 0
-
     current = label(two, "report")
     dataset, labels, answers = frozen(
         (one, two),
@@ -249,6 +251,59 @@ def test_combined_exclusion_causes_and_legacy_question_are_visible():
     assert with_current.cases[1].legacy_question_ids == ("retired",)
     assert with_current.cases[1].set_correct is True
     assert with_current.eligible_set_count == 1
+
+
+def test_nested_constructed_models_and_cross_dataset_evidence_are_rejected():
+    one = case(1)
+    data, labels, answers = frozen((one,), (label(one, "question"),), (result(one, "question"),))
+    malformed_definition = definition().model_copy(
+        update={"questions": (definition().questions[0], definition().questions[0])}
+    )
+    with pytest.raises(MetricsInvalid, match="invalid_definition"):
+        assess_results(malformed_definition, data, labels, answers, (one.id,))
+    wrong_case = one.model_copy(update={"dataset_id": "other"})
+    wrong_data = data.model_copy(update={"cases": (wrong_case,)})
+    with pytest.raises(MetricsInvalid, match="invalid_dataset_snapshot"):
+        assess_results(definition(), wrong_data, labels, answers, (one.id,))
+    empty_label = label(one, "question").model_copy(update={"acceptable_option_ids": ()})
+    malformed_labels = labels.model_copy(update={"labels": (empty_label,)})
+    with pytest.raises(MetricsInvalid, match="invalid_label_snapshot"):
+        assess_results(definition(), data, malformed_labels, answers, (one.id,))
+
+
+def test_retired_question_keeps_disputed_and_stale_causes():
+    one = case(1)
+    old = label(one, "deleted", question_id="retired", status="disputed", input_hash=HASH)
+    data, labels, answers = frozen((one,), (old,), (result(one, "question"),))
+    assessment = assess_results(definition(), data, labels, answers, (one.id,)).cases[0]
+    assert assessment.exclusion_reasons == (
+        "incompatible_question_label",
+        "disputed",
+        "stale",
+        "incompatible",
+    )
+    assert assessment.legacy_question_ids == ("retired",)
+
+
+@pytest.mark.parametrize(
+    "numerator,denominator",
+    [(True, 1), (1, True), (0.5, 1), (1, 0.5), (-1, 1), (2, 1)],
+)
+def test_rate_counts_require_exact_nonnegative_integers(numerator, denominator):
+    from deykit.metrics.summary import Rate
+
+    with pytest.raises(MetricsInvalid, match="invalid_metric_counts"):
+        Rate.counts(numerator, denominator, "undefined")
+
+
+def test_rate_constructor_and_fraction_reject_invalid_undefined_states():
+    from deykit.metrics.summary import Rate
+
+    for args in ((0, 0, None), (0, 1, "spurious"), (True, 1, None)):
+        with pytest.raises(MetricsInvalid, match="invalid_metric_counts"):
+            Rate(*args)
+    with pytest.raises(MetricsInvalid, match="invalid_metric_counts"):
+        Rate.fraction(0.5, "undefined")
 
 
 def test_mismatched_frozen_identities_do_not_shrink_denominators():

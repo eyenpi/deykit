@@ -8,6 +8,7 @@ from fractions import Fraction
 from typing import Literal
 
 from deykit.contracts.json_value import JsonDocument, JsonValue
+from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import (
     ChoiceDefinition,
     DatasetSnapshot,
@@ -28,14 +29,32 @@ class Rate:
     denominator: int
     reason: str | None = None
 
+    def __post_init__(self) -> None:
+        if (
+            type(self.numerator) is not int
+            or type(self.denominator) is not int
+            or self.numerator < 0
+            or self.denominator < 0
+            or self.numerator > self.denominator
+            or (self.denominator == 0 and (type(self.reason) is not str or not self.reason))
+            or (self.denominator > 0 and self.reason is not None)
+        ):
+            raise MetricsInvalid("invalid_metric_counts")
+
     @classmethod
     def counts(cls, numerator: int, denominator: int, reason: str) -> Rate:
-        if denominator < 0 or numerator < 0 or numerator > denominator:
+        if type(reason) is not str or not reason:
             raise MetricsInvalid("invalid_metric_counts")
         return cls(numerator, denominator, None if denominator else reason)
 
     @classmethod
     def fraction(cls, value: Fraction | None, reason: str) -> Rate:
+        if (
+            (value is not None and type(value) is not Fraction)
+            or type(reason) is not str
+            or not reason
+        ):
+            raise MetricsInvalid("invalid_metric_counts")
         return cls(value.numerator, value.denominator) if value is not None else cls(0, 0, reason)
 
     @property
@@ -140,8 +159,8 @@ class EvaluationSummary:
     native_confidence_mean: Rate
     cases: tuple[CaseAssessment, ...]
 
-    def source(self) -> dict[str, JsonValue]:
-        return {
+    def source(self, *, include_cases: bool = False) -> dict[str, JsonValue]:
+        value: dict[str, JsonValue] = {
             "selected_count": self.selected_count,
             "status_counts": dict(self.status_counts),
             "coverage": self.coverage.source(),
@@ -158,8 +177,10 @@ class EvaluationSummary:
             "macro_f1_class_count": self.macro_f1_class_count,
             "native_confidence_present_count": self.native_confidence_present_count,
             "native_confidence_mean": self.native_confidence_mean.source(),
-            "cases": [item.source() for item in self.cases],
         }
+        if include_cases:
+            value["cases"] = [item.source() for item in self.cases]
+        return value
 
 
 def _label_index(
@@ -193,6 +214,13 @@ def assess_results(
     selected_case_ids: tuple[str, ...],
 ) -> EvaluationSummary:
     """Use only supplied immutable records; no current labels or provider calls."""
+    try:
+        definition = admit_model(ChoiceDefinition, definition, "invalid_definition")
+        dataset = admit_model(DatasetSnapshot, dataset, "invalid_dataset_snapshot")
+        labels = admit_model(LabelSnapshot, labels, "invalid_label_snapshot")
+        results = admit_model(ResultSnapshot, results, "invalid_result_snapshot")
+    except ModelInvalid as error:
+        raise MetricsInvalid(str(error)) from None
     if labels.dataset_snapshot_id != dataset.id:
         raise MetricsInvalid("label_dataset_snapshot_mismatch")
     question = definition.questions[0]
@@ -210,6 +238,8 @@ def assess_results(
     if len({result.case_id for result in results.results}) != len(results.results):
         raise MetricsInvalid("duplicate_result_case")
     indexed, legacy = _label_index(labels, dataset, question.id)
+    if any(label.case_id not in cases for label in labels.labels):
+        raise MetricsInvalid("frozen_label_case_mismatch")
     status_counts = {status: 0 for status in STATUSES}
     reasons: dict[str, int] = {}
     assessments: list[CaseAssessment] = []
@@ -232,6 +262,11 @@ def assess_results(
             exclusion.append("no_valid_answer")
         if label is None:
             exclusion.append("incompatible_question_label" if legacy_labels else "unlabelled")
+            if legacy_labels:
+                for old in legacy_labels:
+                    for old_reason in label_applicability(old, definition, result.input_hash):
+                        if old_reason not in exclusion:
+                            exclusion.append(old_reason)
             if answer is not None and not legacy_labels:
                 unlabelled_valid += 1
         else:

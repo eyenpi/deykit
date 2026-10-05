@@ -157,6 +157,25 @@ def test_baseline_unavailable_when_no_eligible_fit_labels_and_never_uses_test_la
     assert unavailable.accuracy.exact is None
     assert unavailable.unavailable_reason == "no_eligible_development_labels"
 
+    empty_evaluation_labels = LabelSnapshot(
+        id="empty-evaluation-labels",
+        decision_id="decision",
+        dataset_snapshot_id=selected_data.id,
+        labels=(),
+        content_hash=HASH,
+        created_at=STAMP,
+    )
+    with pytest.raises(MetricsInvalid, match="baseline_pairing_mismatch"):
+        majority_baseline(
+            definition(),
+            full_data,
+            full_labels,
+            selected_data,
+            empty_evaluation_labels,
+            ("test",),
+            ("test",),
+        )
+
 
 def test_paired_baseline_scores_acceptable_sets_but_does_not_fit_from_them():
     development = (case("dev-a", "development"), case("dev-set", "development"))
