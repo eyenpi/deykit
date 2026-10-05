@@ -6,11 +6,19 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from deykit.application import label_validation as admission
 from deykit.application.dataset_support import decoded, fail, identifier, intent, page, required
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.identities import new_id
 from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
-from deykit.contracts.ports import Clock, CommitReceipt, ProjectSource, ResourceKey, SourceChange
+from deykit.contracts.ports import (
+    Clock,
+    CommitReceipt,
+    ProjectSource,
+    ResourceKey,
+    SourceChange,
+    StoredRecord,
+)
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
@@ -96,6 +104,7 @@ class LabelService:
     def read(
         self, decision_id: str, dataset_id: str, case_id: str, *, question_id: str | None = None
     ) -> LabelView:
+        self._read_controls(decision_id, dataset_id, case_id, question_id)
         with self.source.consistent_read():
             definition, decision_etag, draft_etag = self._context(decision_id)
             required(self.source, ResourceKey("datasets", identifier(dataset_id)))
@@ -103,11 +112,18 @@ class LabelService:
                 CaseRecord,
                 required(self.source, ResourceKey("cases", identifier(case_id), (dataset_id,))),
             )
-            question = identifier(question_id) if question_id else definition.questions[0].id
+            question = question_id if question_id is not None else definition.questions[0].id
             stored = self.source.read(
                 ResourceKey("labels", label_id(case_id, question), (decision_id, dataset_id))
             )
-            label = decoded(LabelRecord, stored) if stored else None
+            label = self._label(stored) if stored else None
+            if label is not None and (
+                label.decision_id,
+                label.dataset_id,
+                label.case_id,
+                label.question_id,
+            ) != (decision_id, dataset_id, case_id, question):
+                fail("label_identity_mismatch")
             input_hash = JsonDocument(case.input_source).content_hash
             review = LabelReview(
                 decision_id,
@@ -137,8 +153,18 @@ class LabelService:
         cursor: str | None = None,
         limit: int = 50,
     ) -> LabelPage:
-        if status not in {None, "applicable", "unlabelled", "disputed", "stale", "incompatible"}:
-            fail("invalid_label_status")
+        admission.resource(decision_id)
+        admission.resource(dataset_id)
+        if status is not None:
+            admission.choice(
+                status,
+                ("applicable", "unlabelled", "disputed", "stale", "incompatible"),
+                "invalid_label_status",
+            )
+        if cursor is not None:
+            admission.resource(cursor)
+        if not 1 <= admission.integer(limit, "invalid_page_limit") <= 500:
+            fail("invalid_page_limit")
         with self.source.consistent_read():
             definition, _, _ = self._context(decision_id)
             required(self.source, ResourceKey("datasets", identifier(dataset_id)))
@@ -147,9 +173,8 @@ class LabelService:
                 for case_id in self.source.list_ids("cases", (dataset_id,))
             }
             for key in self.source.list_ids("labels", (decision_id, dataset_id)):
-                label = decoded(
-                    LabelRecord,
-                    required(self.source, ResourceKey("labels", key, (decision_id, dataset_id))),
+                label = self._label(
+                    required(self.source, ResourceKey("labels", key, (decision_id, dataset_id)))
                 )
                 pairs.add((label.case_id, label.question_id))
             views = {
@@ -169,9 +194,7 @@ class LabelService:
     def history(
         self, decision_id: str, dataset_id: str, case_id: str, *, question_id: str | None = None
     ) -> tuple[LabelChange, ...]:
-        identifier(decision_id), identifier(dataset_id), identifier(case_id)
-        if question_id is not None:
-            identifier(question_id)
+        self._read_controls(decision_id, dataset_id, case_id, question_id)
         scope = (decision_id, dataset_id)
         with self.source.consistent_read():
             records = (
@@ -227,7 +250,8 @@ class LabelService:
         )
 
     def batch(self, edits: tuple[LabelEdit, ...], *, operation_id: str) -> LabelMutation:
-        identifier(operation_id)
+        admission.resource(operation_id)
+        self._admit_edits(edits)
         try:
             values: list[JsonValue] = []
             for edit in edits:
@@ -361,20 +385,55 @@ class LabelService:
             )
 
     @staticmethod
+    def _read_controls(
+        decision_id: str, dataset_id: str, case_id: str, question_id: str | None
+    ) -> None:
+        for value in (decision_id, dataset_id, case_id):
+            admission.resource(value)
+        if question_id is not None:
+            admission.resource(question_id)
+
+    @staticmethod
+    def _label(stored: StoredRecord) -> LabelRecord:
+        label = decoded(LabelRecord, stored)
+        expected = ResourceKey(
+            "labels",
+            label_id(label.case_id, label.question_id),
+            (label.decision_id, label.dataset_id),
+        )
+        if stored.key != expected or label.id != expected.resource_id:
+            fail("label_identity_mismatch")
+        return label
+
+    @staticmethod
+    def _admit_edits(edits: tuple[LabelEdit, ...]) -> None:
+        for edit in admission.sequence(edits, "invalid_label_batch"):
+            raw = admission.dto(edit, LabelEdit, "invalid_label_edit")
+            review = admission.dto(raw["review"], LabelReview, "invalid_label_review")
+            for name in ("decision_id", "dataset_id", "case_id", "question_id"):
+                admission.resource(review[name])
+            for name in ("input_hash", "decision_etag", "draft_etag"):
+                admission.content_hash(review[name])
+            if review["label_etag"] is not None:
+                admission.content_hash(review["label_etag"])
+            admission.choice(
+                raw["action"], ("set", "clear", "dispute", "resolve"), "invalid_label_action"
+            )
+            for option in admission.sequence(
+                raw["acceptable_option_ids"], "invalid_acceptable_set"
+            ):
+                admission.resource(option)
+            if raw["provenance"] is not None:
+                admission.choice(
+                    raw["provenance"],
+                    ("human", "authored_fixture", "imported_unknown", "model_generated"),
+                    "invalid_provenance",
+                )
+            if raw["note"] is not None:
+                admission.text(raw["note"], "invalid_label_note")
+
+    @staticmethod
     def _validate(edit: LabelEdit, view: LabelView) -> None:
-        if not isinstance(edit.note, str) and edit.note is not None:
-            fail("invalid_label_note")
-        if not isinstance(edit.acceptable_option_ids, tuple) or any(
-            not isinstance(option, str) for option in edit.acceptable_option_ids
-        ):
-            fail("invalid_acceptable_set")
-        if not isinstance(edit.action, str) or edit.action not in {
-            "set",
-            "clear",
-            "dispute",
-            "resolve",
-        }:
-            fail("invalid_label_action")
         if edit.action in {"set", "resolve"}:
             if view.label is None and edit.provenance is None:
                 fail("new_label_requires_provenance")
@@ -394,16 +453,6 @@ class LabelService:
             fail("dispute_requires_label_and_reason")
         if edit.action == "clear" and edit.note is not None:
             fail("unexpected_label_fields")
-        if edit.provenance is not None and not isinstance(edit.provenance, str):
-            fail("invalid_provenance")
-        if edit.provenance not in {
-            None,
-            "human",
-            "authored_fixture",
-            "imported_unknown",
-            "model_generated",
-        }:
-            fail("invalid_provenance")
 
     @staticmethod
     def _result(receipt: CommitReceipt) -> LabelMutation:

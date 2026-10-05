@@ -9,7 +9,10 @@ CLI and browser adapters remain separately owned work.
 
 `LabelService.read(decision_id, dataset_id, case_id)` returns immutable `LabelView`
 with the full case, current validated draft definition, current label, all exclusion
-causes, removed option IDs, and `LabelReview`. Read/list never modify source or
+causes, removed option IDs, and `LabelReview`. Every persisted current label must
+agree with its complete decision/dataset/case/question scope and deterministic key;
+a mismatched external record fails safely rather than being relabelled or hidden.
+Read/list never modify source or
 suggest a prediction. `LabelReview` carries decision/dataset/case/question IDs,
 the semantic hash of the **full input**, and decision/draft/current-label ETags.
 Staged controls retain this review token. `set`, `clear`, `dispute`, `resolve`, and
@@ -49,6 +52,11 @@ repeated targets, and commits current state and append-only history in one sourc
 transaction. Every mutation hashes explicit request intent (including review
 tokens), looks up its operation ID **inside** the consistent boundary before
 current-state validation or ID/time generation, and replays its original receipt.
+Strict raw request admission precedes source access, hashing, and replay. Dataclass
+annotations alone do not validate callers: IDs, hash tokens, tuple shapes, UTF-8
+strings, enum controls, and exact integer counts/seeds are checked explicitly;
+booleans cannot masquerade as counts. Malformed calls return safe ServiceFailure
+errors and do not reach storage. Current-state checks still follow receipt lookup.
 A reused operation ID with a different request is a conflict. Rechecking review
 tokens also detects external file edits during preparation; arbitrary external
 editors must still cooperate with the source lock for atomic writes.

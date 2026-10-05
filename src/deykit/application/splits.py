@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from deykit.application import label_validation as admission
 from deykit.application.dataset_support import (
     DatasetView,
     cases,
@@ -28,6 +29,7 @@ from deykit.domain.splits import (
     Split,
     assign,
     connected_groups,
+    ratios,
     validate_assignments,
 )
 
@@ -45,6 +47,7 @@ class SplitPreview:
     counts: tuple[tuple[Split, int], ...]
 
     def evidence(self) -> JsonValue:
+        _admit_preview(self)
         return {
             "snapshot_hash_profile": "deykit-split-snapshot-v1",
             "algorithm": self.algorithm,
@@ -56,6 +59,55 @@ class SplitPreview:
             "input_identity": self.input_identity,
             "dataset_etag": self.dataset_etag,
         }
+
+
+def _admit_assignments(value: object) -> None:
+    for pair in admission.sequence(value, "invalid_split_assignments"):
+        fields = admission.sequence(pair, "invalid_split_assignments")
+        if len(fields) != 2:
+            fail("invalid_split_assignments")
+        admission.resource(fields[0])
+        admission.choice(fields[1], SPLITS, "invalid_split")
+
+
+def _admit_ratios(value: object) -> None:
+    source = admission.text(value, "invalid_split_ratios")
+    try:
+        ratios(source)
+    except (ValueError, JsonError):
+        fail("invalid_split_ratios")
+
+
+def _admit_preview(value: object) -> None:
+    raw = admission.dto(value, SplitPreview, "invalid_split_preview")
+    admission.resource(raw["dataset_id"])
+    admission.content_hash(raw["dataset_etag"])
+    admission.content_hash(raw["input_identity"])
+    algorithm = admission.choice(
+        raw["algorithm"], (ALGORITHM, "explicit-connected-v1"), "invalid_split_algorithm"
+    )
+    if algorithm == ALGORITHM:
+        admission.integer(raw["seed"], "invalid_split_seed")
+        _admit_ratios(raw["ratios_source"])
+    elif raw["seed"] is not None or raw["ratios_source"] is not None:
+        fail("invalid_split_preview")
+    _admit_assignments(raw["assignments"])
+    for group in admission.sequence(raw["groups"], "invalid_split_groups"):
+        members = admission.sequence(group, "invalid_split_groups")
+        if not members:
+            fail("invalid_split_groups")
+        for member in members:
+            admission.resource(member)
+    names: list[str] = []
+    for pair in admission.sequence(raw["counts"], "invalid_split_counts"):
+        count = admission.sequence(pair, "invalid_split_counts")
+        if len(count) != 2:
+            fail("invalid_split_counts")
+        names.append(admission.choice(count[0], SPLITS, "invalid_split_counts"))
+        if admission.integer(count[1], "invalid_split_counts") < 0:
+            fail("invalid_split_counts")
+    if tuple(names) != SPLITS:
+        fail("invalid_split_counts")
 
 
 @dataclass(frozen=True)
@@ -80,7 +132,11 @@ class SplitService:
         ratios_source: str = DEFAULT_RATIOS,
         assignments: tuple[tuple[str, Split], ...] | None = None,
     ) -> SplitPreview:
-        identifier(dataset_id)
+        admission.resource(dataset_id)
+        admission.integer(seed, "invalid_split_seed")
+        _admit_ratios(ratios_source)
+        if assignments is not None:
+            _admit_assignments(assignments)
         with self.source.consistent_read():
             dataset = self.datasets.read(dataset_id)
             if dataset.record.archived:
@@ -88,8 +144,6 @@ class SplitService:
             stored = cases(self.source, dataset_id)
             records = tuple(decoded(CaseRecord, item) for item in stored)
             try:
-                if type(seed) is not int:
-                    fail("invalid_split_seed")
                 if assignments is not None:
                     if seed != 0 or ratios_source != DEFAULT_RATIOS:
                         fail("assignments_exclude_seed_and_ratios")
@@ -118,7 +172,8 @@ class SplitService:
             )
 
     def commit(self, preview: SplitPreview, *, operation_id: str) -> SplitCommit:
-        identifier(operation_id)
+        admission.resource(operation_id)
+        _admit_preview(preview)
         try:
             digest = intent("split.commit", [preview.dataset_id, preview.evidence()])
         except (ValueError, TypeError):

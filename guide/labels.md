@@ -16,8 +16,10 @@ labels = LabelService(source, clock)
 view = labels.read("decision", "dataset", "case")
 # Display view.case and view.definition; keep view.review with staged controls.
 result = labels.set(
-    view.review, ("option_a", "option_b"),
-    provenance="human", operation_id="review-save-1",
+    view.review,
+    ("option_a", "option_b"),
+    provenance="human",
+    operation_id="review-save-1",
 )
 
 view = labels.read("decision", "dataset", "case")
