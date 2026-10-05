@@ -2,40 +2,33 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import fields
 from pathlib import Path
-from typing import Literal
-
-from pydantic import TypeAdapter, ValidationError
 
 from deykit.application.errors import ServiceFailure
-from deykit.application.imports import ImportPreview
+from deykit.application.imports import ImportPreview, ImportRow
 from deykit.application.splits import SplitPreview
+from deykit.contracts.base import FrozenModel, Record
+from deykit.contracts.codec import load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import RECORD_LIMITS, parse_json
 
 
-@dataclass(frozen=True)
-class _ImportData:
+class _ImportData(FrozenModel):
     preview: ImportPreview
     would_import: int
 
 
-@dataclass(frozen=True)
-class _SplitData:
+class _SplitData(FrozenModel):
     preview: SplitPreview
 
 
-@dataclass(frozen=True)
-class _ImportEnvelope:
-    schema_version: Literal[1]
+class _ImportEnvelope(Record):
     data: _ImportData
     warnings: tuple[()]
 
 
-@dataclass(frozen=True)
-class _SplitEnvelope:
-    schema_version: Literal[1]
+class _SplitEnvelope(Record):
     data: _SplitData
     warnings: tuple[()]
 
@@ -44,23 +37,37 @@ def _invalid() -> ServiceFailure:
     return ServiceFailure(ServiceError(code="validation_error", reason="invalid_preview_file"))
 
 
+def _keys(value: object, expected: set[str]) -> None:
+    if not isinstance(value, dict) or set(value) != expected:
+        raise _invalid()
+
+
 def _load(path: Path, *, import_kind: bool) -> _ImportEnvelope | _SplitEnvelope:
-    """Accept only the versioned dry-run envelope, never an arbitrary DTO fragment."""
+    """Require an exact versioned dry-run envelope and all DTO fields."""
     source = path.read_bytes()
     value = parse_json(source, RECORD_LIMITS)
-    if (
-        not isinstance(value, dict)
-        or set(value) != {"schema_version", "data", "warnings"}
-        or value["warnings"] != []
-        or not isinstance(value["data"], dict)
-        or set(value["data"]) != ({"preview", "would_import"} if import_kind else {"preview"})
-    ):
-        raise _invalid()
+    _keys(value, {"schema_version", "data", "warnings"})
+    assert isinstance(value, dict)
+    _keys(value["data"], {"preview", "would_import"} if import_kind else {"preview"})
+    data = value["data"]
+    assert isinstance(data, dict)
+    preview = data["preview"]
+    _keys(
+        preview,
+        {field.name for field in fields(ImportPreview if import_kind else SplitPreview)},
+    )
+    if import_kind:
+        assert isinstance(preview, dict)
+        rows = preview["rows"]
+        if not isinstance(rows, list):
+            raise _invalid()
+        for row in rows:
+            _keys(row, {field.name for field in fields(ImportRow)})
     try:
         if import_kind:
-            return TypeAdapter(_ImportEnvelope).validate_json(source, strict=True)
-        return TypeAdapter(_SplitEnvelope).validate_json(source, strict=True)
-    except (ValidationError, ValueError, TypeError):
+            return load_record(_ImportEnvelope, source)
+        return load_record(_SplitEnvelope, source)
+    except ValueError:
         raise _invalid() from None
 
 

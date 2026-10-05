@@ -4,14 +4,15 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from typer.testing import CliRunner
 
 from deykit.application.errors import ServiceFailure
 from deykit.cli.context import CliState
-from deykit.cli.main import app
-from deykit.cli.output import execute
+from deykit.cli.main import SafeGroup, app
+from deykit.cli.output import CommandOutcome, execute, execute_outcome
 from deykit.contracts.codec import dump_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.records import ChoiceDefinition, ChoiceOption, ChoiceQuestion
@@ -682,6 +683,10 @@ def test_cli_frozen_import_and_split_preview_commit_and_replay(tmp_path: Path) -
     assert changed_intent["error"]["code"] == "conflict"
     wrong_mode = result(cli(root, *args, "--format", "jsonl"), 2)
     assert wrong_mode["error"]["reason"] == "input_mode_conflict"
+    extra_row = json.loads(import_file.read_text(encoding="utf-8"))
+    extra_row["data"]["preview"]["rows"][0]["unknown"] = "ignored?"
+    import_file.write_text(json.dumps(extra_row), encoding="utf-8")
+    assert result(cli(root, *args), 2)["error"]["reason"] == "invalid_preview_file"
 
     split = result(cli(root, "--json", "dataset", "split", "data", "--seed", "17", "--dry-run"))
     split_file = tmp_path / "split-preview.json"
@@ -783,3 +788,135 @@ def test_cli_service_internal_failure_uses_exit_one_without_traceback() -> None:
     payload = json.loads(invoked.stdout)
     assert payload["error"]["code"] == "internal_error"
     assert "Traceback" not in invoked.output
+
+
+def test_json_root_propagates_service_and_outcome_exit_codes(tmp_path: Path) -> None:
+    missing = result(cli(tmp_path, "--json", "project", "show"), 2)
+    assert missing["error"]["reason"] == "project_not_found"
+    assert result(cli(tmp_path, "--json"), 2)["error"]["reason"] == "invalid_command"
+
+    sample = typer.Typer(cls=SafeGroup)
+
+    @sample.callback()
+    def root(
+        ctx: typer.Context, json_output: Annotated[bool, typer.Option("--json")] = False
+    ) -> None:
+        ctx.obj = CliState(None, json_output)
+
+    @sample.command("failed")
+    def failed(ctx: typer.Context) -> None:
+        execute_outcome(ctx, lambda _: CommandOutcome({"state": "failed"}, exit_code=3))
+
+    @sample.command("incomplete")
+    def incomplete(ctx: typer.Context) -> None:
+        execute_outcome(ctx, lambda _: CommandOutcome({"state": "incomplete"}, exit_code=4))
+
+    @sample.command("unmet")
+    def unmet(ctx: typer.Context) -> None:
+        execute_outcome(ctx, lambda _: CommandOutcome({"state": "unmet"}, exit_code=5))
+
+    @sample.command("broken")
+    def broken(ctx: typer.Context) -> None:
+        def fail(_: CliState) -> CommandOutcome:
+            raise ServiceFailure(ServiceError(code="internal_error"))
+
+        execute_outcome(ctx, fail)
+
+    runner = CliRunner()
+    for name, code in (("failed", 3), ("incomplete", 4), ("unmet", 5)):
+        actual = runner.invoke(sample, ["--json", name])
+        assert actual.exit_code == code
+        assert json.loads(actual.stdout)["data"]["state"] == name
+    internal = runner.invoke(sample, ["--json", "broken"])
+    assert internal.exit_code == 1
+    assert json.loads(internal.stdout)["error"]["code"] == "internal_error"
+
+
+def test_installed_safe_group_subprocess_preserves_outcome_statuses(tmp_path: Path) -> None:
+    script = """
+import typer
+from typing import Annotated
+from deykit.application.errors import ServiceFailure
+from deykit.cli.context import CliState
+from deykit.cli.main import SafeGroup
+from deykit.cli.output import CommandOutcome, execute_outcome
+from deykit.contracts.errors import ServiceError
+
+app = typer.Typer(cls=SafeGroup)
+
+@app.callback()
+def root(ctx: typer.Context, json_output: Annotated[bool, typer.Option('--json')] = False) -> None:
+    ctx.obj = CliState(None, json_output)
+
+@app.command('status')
+def status(ctx: typer.Context, code: int) -> None:
+    def work(_: CliState) -> CommandOutcome:
+        if code == 1:
+            raise ServiceFailure(ServiceError(code='internal_error'))
+        return CommandOutcome({'status': code}, exit_code=code)
+    execute_outcome(ctx, work)
+
+app()
+"""
+    for code in (1, 3, 4, 5):
+        process = subprocess.run(
+            [sys.executable, "-c", script, "--json", "status", str(code)],
+            cwd=tmp_path,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        payload = result(process, code)
+        if code == 1:
+            assert payload["error"]["code"] == "internal_error"
+        else:
+            assert payload["data"]["status"] == code
+
+
+def test_frozen_preview_rejects_non_integer_and_missing_schema_versions(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    result(cli(tmp_path, "--json", "init", str(root), "--name", "P"))
+    result(cli(root, "--json", "dataset", "create", "data", "--name", "D"))
+    value = '{"input_kind":"text","input_source":"\\"hello\\""}'
+    result(
+        cli(
+            root,
+            "--json",
+            "case",
+            "add",
+            "--dataset",
+            "data",
+            "--id",
+            "one",
+            "--stdin",
+            input_text=value,
+        )
+    )
+    preview = result(cli(root, "--json", "dataset", "split", "data", "--dry-run"))
+    original = json.dumps(preview)
+    path = tmp_path / "preview.json"
+    for token in ("true", "1.0", "1e0", "2"):
+        path.write_text(
+            original.replace('"schema_version": 1', f'"schema_version": {token}', 1),
+            encoding="utf-8",
+        )
+        invalid = result(cli(root, "--json", "dataset", "split", "data", "--preview", str(path)), 2)
+        assert invalid["error"]["reason"] == "invalid_preview_file"
+    missing = json.loads(original)
+    del missing["schema_version"]
+    path.write_text(json.dumps(missing), encoding="utf-8")
+    assert (
+        result(cli(root, "--json", "dataset", "split", "data", "--preview", str(path)), 2)["error"][
+            "reason"
+        ]
+        == "invalid_preview_file"
+    )
+    extra = json.loads(original)
+    extra["data"]["preview"]["unknown"] = True
+    path.write_text(json.dumps(extra), encoding="utf-8")
+    assert (
+        result(cli(root, "--json", "dataset", "split", "data", "--preview", str(path)), 2)["error"][
+            "reason"
+        ]
+        == "invalid_preview_file"
+    )

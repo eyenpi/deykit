@@ -51,7 +51,7 @@ class SafeGroup(TyperGroup):
                 **extra,
             )
         try:
-            return super().main(
+            outcome = super().main(
                 args=args,
                 prog_name=prog_name,
                 complete_var=complete_var,
@@ -59,6 +59,9 @@ class SafeGroup(TyperGroup):
                 windows_expand_args=windows_expand_args,
                 **extra,
             )
+            if standalone_mode and type(outcome) is int and outcome != 0:
+                raise SystemExit(outcome)
+            return outcome
         except typer.TyperException:
             emit_error(
                 CliState(None, True),
@@ -91,6 +94,9 @@ def main(
 ) -> None:
     """Choose an explicit project or discover its nearest parent marker."""
     ctx.obj = CliState(project, json_output)
+    if json_output and ctx.invoked_subcommand is None:
+        emit_error(ctx.obj, ServiceError(code="validation_error", reason="invalid_command"))
+        raise typer.Exit(2)
 
 
 projects.register(app)
