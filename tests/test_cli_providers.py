@@ -751,3 +751,113 @@ def test_environment_and_fixture_commands_never_load_optional_os_store(
     for command in commands:
         invoked = CliRunner().invoke(app, [*base, *command])
         assert invoked.exit_code == 0, invoked.output
+
+
+def test_forget_recovers_native_deletion_after_source_failure_and_replays_original(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = project(tmp_path)
+    result(
+        cli(
+            root,
+            "--json",
+            "provider",
+            "configure",
+            "live",
+            "--adapter",
+            "jev",
+            "--model",
+            "jev-1.13.0",
+        )
+    )
+    from deykit.cli.commands import providers
+    from deykit.storage import FileProjectSource
+
+    values = {}
+    deletions = []
+
+    class NativeStore:
+        def get_password(self, service, account):
+            return values.get((service, account))
+
+        def set_password(self, service, account, value):
+            values[(service, account)] = value
+
+        def delete_password(self, service, account):
+            deletions.append((service, account))
+            del values[(service, account)]  # Native backends reject a missing entry.
+
+    monkeypatch.setattr(providers, "os_secret_store", lambda: NativeStore())
+    base = ["--project", str(root), "--json"]
+    stored = CliRunner().invoke(
+        app,
+        [*base, "credential", "set", "--provider", "live", "--stdin"],
+        input="SECRET_SENTINEL\n",
+    )
+    assert stored.exit_code == 0, stored.output
+    etag = json.loads(stored.stdout)["data"]["profile"]["view"]["etag"]
+    original_commit = FileProjectSource.commit
+    fail_once = True
+
+    def commit(source, operation_id, *args, **kwargs):
+        nonlocal fail_once
+        if operation_id == "recover-forget" and fail_once:
+            fail_once = False
+            raise OSError("SECRET_SENTINEL")
+        return original_commit(source, operation_id, *args, **kwargs)
+
+    monkeypatch.setattr(FileProjectSource, "commit", commit)
+    arguments = [
+        *base,
+        "credential",
+        "forget",
+        "--provider",
+        "live",
+        "--if-hash",
+        etag,
+        "--operation-id",
+        "recover-forget",
+    ]
+    failed = CliRunner().invoke(app, arguments)
+    assert failed.exit_code == 1, failed.output
+    assert json.loads(failed.stdout)["error"]["reason"] == "storage_io"
+    assert values == {} and deletions == [("deykit", "live")]
+    unchanged = CliRunner().invoke(app, [*base, "provider", "show", "live"])
+    assert (
+        json.loads(unchanged.stdout)["data"]["view"]["profile"]["credential_ref"]
+        == "keyring:deykit/live"
+    )
+    with monkeypatch.context() as backend_missing:
+
+        def unavailable():
+            raise CredentialUnavailable()
+
+        backend_missing.setattr(providers, "os_secret_store", unavailable)
+        blocked = CliRunner().invoke(app, arguments)
+        assert blocked.exit_code == 2, blocked.output
+        assert json.loads(blocked.stdout)["error"]["reason"] == "credential_store_unavailable"
+        still_linked = CliRunner().invoke(app, [*base, "provider", "show", "live"])
+        assert (
+            json.loads(still_linked.stdout)["data"]["view"]["profile"]["credential_ref"]
+            == "keyring:deykit/live"
+        )
+    recovered = CliRunner().invoke(app, arguments)
+    assert recovered.exit_code == 0, recovered.output
+    saved = json.loads(recovered.stdout)["data"]
+    assert saved["profile"]["view"]["profile"]["credential_ref"] is None
+    assert deletions == [("deykit", "live")]
+    changed = CliRunner().invoke(
+        app, [*base, "credential", "set", "--provider", "live", "--env", "OTHER_OFFLINE_KEY"]
+    )
+    assert changed.exit_code == 0
+    replay = CliRunner().invoke(app, arguments)
+    assert replay.exit_code == 0, replay.output
+    assert json.loads(replay.stdout)["data"] == {**saved, "replayed": True}
+    current = CliRunner().invoke(app, [*base, "provider", "show", "live"])
+    assert (
+        json.loads(current.stdout)["data"]["view"]["profile"]["credential_ref"]
+        == "env:OTHER_OFFLINE_KEY"
+    )
+    assert deletions == [("deykit", "live")]
+    for output in (stored.output, failed.output, unchanged.output, recovered.output, replay.output):
+        assert "SECRET_SENTINEL" not in output

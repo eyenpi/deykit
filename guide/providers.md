@@ -43,6 +43,10 @@ later edits; a changed intent conflicts. Without a pinned ETag, a retry may
 read the newer profile and conflict. Native secret storage and the portable
 project source are separate stores, so a concurrent edit or source failure
 can require repeating a failed credential operation.
+If native deletion succeeds before a source write fails, repeating `credential
+forget` can finish unlinking the reference after a healthy backend read confirms
+the secret is absent. An inaccessible backend still fails and retains the
+reference.
 
 Explicit diagnostics are the only commands here that contact Jev:
 
