@@ -306,16 +306,25 @@ class Native:
             handle.close()
             raise
 
-    def final_component(self, handle: Handle) -> str:
-        # Query the opened object's normalized long name, never reopen this pathname.
+    def identity(self, handle: Handle) -> tuple[int, int]:
+        """Return the volume serial and stable file index for this opened object."""
+        info = _FileInfo()
+        self._check(self._info(handle.value, c.byref(info)))
+        return int(info.volume), (int(info.index_high) << 32) | int(info.index_low)
+
+    def final_path(self, handle: Handle) -> str:
+        """Return this handle's normalized full path without reopening it."""
         size = int(self._final(handle.value, None, 0, 0))
         self._check(size)
         buffer = c.create_unicode_buffer(size + 1)
         count = int(self._final(handle.value, buffer, len(buffer), 0))
         self._check(count)
         if count >= len(buffer):
-            raise OSError("Unstable file name")
-        return buffer.value.rsplit("\\", 1)[-1]
+            raise OSError("Unstable file path")
+        return buffer.value
+
+    def final_component(self, handle: Handle) -> str:
+        return self.final_path(handle).rsplit("\\", 1)[-1]
 
     def inspect(self, handle: Handle, *, directory: bool | None = None) -> FileInfo:
         if self._type(handle.value) != 1:  # FILE_TYPE_DISK; never read pipes/devices.

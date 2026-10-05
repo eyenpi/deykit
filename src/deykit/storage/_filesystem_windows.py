@@ -6,7 +6,7 @@ remain open for the complete operation (including lock ownership).
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +14,7 @@ from uuid import uuid4
 from deykit.application.errors import ServiceFailure
 from deykit.storage import _win32 as win
 from deykit.storage._paths import Parts, check_component
+from deykit.storage._replace_result import _ReplaceResult
 from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
 
@@ -141,22 +142,46 @@ class WindowsFiles:
     def replace(self, parts: Parts, body: bytes) -> None:
         with self.directory(parts[:-1], create=True) as parent:
             self._check_target(parent, parts[-1])
-            with self.api.open(
-                parent,
-                ".tmp-" + uuid4().hex,
-                access=win.WRITE | win.DELETE,
-                share=0,
-                disposition=win.CREATE,
-            ) as temporary:
-                renamed = False
+            result = self._replace_in(parent, parts[-1], body)
+            if result.post_commit_error is not None:
+                raise result.post_commit_error
+
+    def _replace_in(
+        self,
+        parent: win.Handle,
+        name: str,
+        body: bytes,
+        *,
+        before_replace: Callable[[], None] | None = None,
+    ) -> _ReplaceResult:
+        temporary = self.api.open(
+            parent,
+            ".tmp-" + uuid4().hex,
+            access=win.WRITE | win.DELETE,
+            share=0,
+            disposition=win.CREATE,
+        )
+        committed = False
+        try:
+            self.api.write(temporary, body)
+            self._flush_file(temporary)
+            if before_replace is not None:
+                before_replace()
+            self.api.rename(temporary, parent, name, replace=True)
+            committed = True
+        except BaseException:
+            if not committed:
                 try:
-                    self.api.write(temporary, body)
-                    self._flush_file(temporary)
-                    self.api.rename(temporary, parent, parts[-1], replace=True)
-                    renamed = True
+                    self.api.delete(temporary)
                 finally:
-                    if not renamed:
-                        self.api.delete(temporary)
+                    temporary.close()
+            raise
+
+        try:
+            temporary.close()
+        except OSError as error:
+            return _ReplaceResult("unavailable", error)
+        return _ReplaceResult("unavailable", None)
 
     def unlink(self, parts: Parts) -> None:
         try:

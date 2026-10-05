@@ -6,12 +6,14 @@ import errno
 import os
 import stat
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from deykit.storage._paths import Parts, check_component
+from deykit.storage._replace_result import _ReplaceResult
 from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
 
@@ -194,26 +196,69 @@ class PosixFiles:
     def replace(self, parts: Parts, body: bytes) -> None:
         with self.directory(parts[:-1], create=True) as parent:
             self._check_target(parent, parts[-1])
-            temporary = ".tmp-" + uuid4().hex
-            fd = os.open(
-                temporary,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW,
-                0o600,
-                dir_fd=parent,
-            )
-            try:
-                with os.fdopen(fd, "wb", closefd=False) as stream:
-                    stream.write(body)
-                    stream.flush()
-                    self._flush_file(fd)
-                os.replace(temporary, parts[-1], src_dir_fd=parent, dst_dir_fd=parent)
-                os.fsync(parent)
-            finally:
-                os.close(fd)
+            result = self._replace_in(parent, parts[-1], body)
+            if result.post_commit_error is not None:
+                raise result.post_commit_error
+
+    def _replace_in(
+        self,
+        parent: int,
+        name: str,
+        body: bytes,
+        *,
+        before_replace: Callable[[], None] | None = None,
+    ) -> _ReplaceResult:
+        temporary = ".tmp-" + uuid4().hex
+        fd = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW,
+            0o600,
+            dir_fd=parent,
+        )
+        committed = False
+        try:
+            with os.fdopen(fd, "wb", closefd=False) as stream:
+                written = stream.write(body)
+                if written != len(body):
+                    raise OSError("Storage write made no progress")
+                stream.flush()
+                self._flush_file(fd)
+            if before_replace is not None:
+                before_replace()
+            os.replace(temporary, name, src_dir_fd=parent, dst_dir_fd=parent)
+            committed = True
+        except BaseException:
+            if not committed:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
                 try:
                     os.unlink(temporary, dir_fd=parent)
-                except FileNotFoundError:
+                except OSError:
                     pass
+            raise
+
+        post_commit_error: OSError | None = None
+        parent_flush: Literal["confirmed", "failed"] = "confirmed"
+        try:
+            os.fsync(parent)
+        except OSError as error:
+            parent_flush = "failed"
+            post_commit_error = error
+        try:
+            os.close(fd)
+        except OSError as error:
+            if post_commit_error is None:
+                post_commit_error = error
+        try:
+            os.unlink(temporary, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            if post_commit_error is None:
+                post_commit_error = error
+        return _ReplaceResult(parent_flush, post_commit_error)
 
     @staticmethod
     def _check_spelling(parent: int, name: str) -> None:

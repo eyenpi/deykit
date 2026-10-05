@@ -260,3 +260,14 @@ and linear operation counts on 10 and 1000 leaves. Case-sensitive collision inje
 run only when the actual filesystem supports two names differing only by case. Windows
 native traversal and handle-count acceptance still require the real Windows CI matrix;
 no Windows result is inferred from POSIX execution.
+
+
+The private `_replace_in` storage primitive now exposes whether the parent flush was
+confirmed, unavailable, or failed after an atomic rename. The existing `replace()`
+interface preserves its error behavior, including an error after visible replacement.
+The normalized path and file identity queries reuse P18's bound Windows APIs; Windows
+reports no parent-directory flush equivalent. POSIX descriptor anchoring pins the
+opened directory object, but an uncooperative same-user process can rename that object
+after a final namespace check. Any caller protecting external destinations must account
+for that location-change limit and must not claim redirected-path protection in that
+race window.
