@@ -239,6 +239,8 @@ class FileProjectSource:
         if not changes or len({change.key for change in changes}) != len(changes):
             fail("invalid_changes")
         ordered = tuple(sorted(changes, key=lambda change: key_path(change.key)))
+        if len({key_path(change.key) for change in ordered}) != len(ordered):
+            fail("duplicate_target_path", "conflict")
         payload = self._payload(ordered)
         with self.consistent_read():
             current = self._all()  # Invalid/unknown versions anywhere block mutation.
@@ -255,6 +257,9 @@ class FileProjectSource:
             existing = {record.key: record for record in current}
             entries: list[JournalEntry] = []
             for change in ordered:
+                self.files.check_path_spelling(key_path(change.key))
+                if change.key.collection == "project" and change.body is None:
+                    fail("project_identity_immutable", "conflict")
                 old = existing.get(change.key)
                 if (old.etag if old else None) != change.expected_etag:
                     fail("revision_changed", "conflict")
@@ -402,7 +407,9 @@ class FileProjectSource:
             self._hook(f"applied:{index}")
 
     def _recover(self) -> None:
-        self._all()  # Unknown source formats block even pending recovery writes.
+        # Completed history must be intact before even recovery may alter source.
+        # Pending replacements can temporarily differ from the latest completed ledger.
+        self._check_integrity(self._all(), check_current=False)
         for operation_id in self.files.names(("history", "journal")):
             try:
                 validate_resource_id(operation_id)
@@ -418,6 +425,7 @@ class FileProjectSource:
             self.files.rename_directory(folder, ("history", "operations", operation_id))
             self._hook("recovered")
             self._update_index()
+        self._check_integrity(self._all())
 
     def _receipt(
         self, folder: Parts, manifest: JournalManifest, *, replayed: bool
@@ -432,18 +440,62 @@ class FileProjectSource:
                 records.append(StoredRecord(entry.key, body, bytes_hash(body)))
         return CommitReceipt(manifest.operation_id, tuple(records), replayed, tuple(deleted))
 
-    def _check_integrity(self, records: tuple[StoredRecord, ...]) -> None:
+    def _check_integrity(
+        self, records: tuple[StoredRecord, ...], *, check_current: bool = True
+    ) -> None:
         latest: dict[ResourceKey, tuple[int, str | None]] = {}
+        project_ids: set[str] = set()
+        sequences: set[int] = set()
         for operation_id in self.files.names(("history", "operations")):
-            manifest = self._manifest(("history", "operations", operation_id))
-            for entry in manifest.entries:
+            folder = ("history", "operations", operation_id)
+            manifest = self._manifest(folder)
+            if manifest.sequence in sequences:
+                fail("journal_sequence_conflict", "conflict")
+            sequences.add(manifest.sequence)
+            expected_files = {"manifest.json", "commit.json"}
+            paths = [key_path(entry.key) for entry in manifest.entries]
+            if len(set(paths)) != len(paths):
+                fail("duplicate_target_path", "conflict")
+            for index, entry in enumerate(manifest.entries):
+                for old, digest in ((True, entry.old_hash), (False, entry.new_hash)):
+                    self._blob(folder, index, entry, old=old)
+                    if digest is not None:
+                        expected_files.add(f"{'old' if old else 'new'}-{index}.json")
+                if entry.key.collection == "project":
+                    project_ids.add(entry.key.resource_id)
+                    if entry.new_hash is None:
+                        fail("project_identity_immutable", "conflict")
                 if entry.key.collection in IMMUTABLE:
                     if entry.key not in latest or latest[entry.key][0] < manifest.sequence:
                         latest[entry.key] = (manifest.sequence, entry.new_hash)
+            if set(self.files.names(folder)) != expected_files:
+                fail("journal_integrity_error", "conflict")
         current = {record.key: record.etag for record in records}
-        for key, (_, expected_hash) in latest.items():
-            if current.get(key) != expected_hash:
-                fail("immutable_source_changed", "conflict")
+        current_projects = {key.resource_id for key in current if key.collection == "project"}
+        if len(project_ids) > 1 or (project_ids and current_projects != project_ids):
+            fail("project_identity_changed", "conflict")
+        if check_current:
+            for key, (_, expected_hash) in latest.items():
+                if current.get(key) != expected_hash:
+                    fail("immutable_source_changed", "conflict")
+        self._validate_cancellation_history(set(current))
+
+    def _validate_cancellation_history(self, keys: set[ResourceKey]) -> None:
+        run_ids: set[str] = set()
+        for collection in ("cancellations", "cancel_ack"):
+            for run_id in self.files.names(("history", collection)):
+                self._valid_run_id(run_id)
+                if ResourceKey("runs", run_id) not in keys:
+                    fail("cancellation_run_missing", "conflict")
+                run_ids.add(run_id)
+        for run_id in run_ids:
+            self._cancellations(run_id)
+            for name in self.files.names(("history", "cancel_ack", run_id)):
+                if re.fullmatch(r"\.tmp-[0-9a-f]{32}", name):
+                    continue
+                segment_id = name.removesuffix(".json")
+                if ResourceKey("segments", segment_id, (run_id,)) not in keys:
+                    fail("cancellation_segment_missing", "conflict")
 
     def operation_history(self, key: ResourceKey) -> tuple[HistoryEntry, ...]:
         with self.consistent_read():
@@ -514,6 +566,8 @@ class FileProjectSource:
         requests: set[str] = set()
         acknowledged: set[str] = set()
         for name in self.files.names(("history", "cancellations", run_id)):
+            if re.fullmatch(r"\.tmp-[0-9a-f]{32}", name):
+                continue
             body = self.files.read(("history", "cancellations", run_id, name))
             try:
                 request = load_record(Cancellation, body or b"")
@@ -523,6 +577,8 @@ class FileProjectSource:
                 fail("invalid_cancellation")
             requests.add(request.id)
         for name in self.files.names(("history", "cancel_ack", run_id)):
+            if re.fullmatch(r"\.tmp-[0-9a-f]{32}", name):
+                continue
             body = self.files.read(("history", "cancel_ack", run_id, name))
             try:
                 ack = load_record(CancellationAcknowledgement, body or b"")

@@ -41,6 +41,7 @@ class SafeFiles:
             for part in parts:
                 if not part or part in {".", ".."} or "/" in part or "\\" in part:
                     fail("unsafe_source_path")
+                self._check_spelling(fd, part)
                 if create:
                     try:
                         os.mkdir(part, mode=0o700, dir_fd=fd)
@@ -75,7 +76,8 @@ class SafeFiles:
     def read(self, parts: Parts, *, limit: int = 16_777_216) -> bytes | None:
         try:
             with self.directory(parts[:-1]) as parent:
-                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+                self._check_spelling(parent, parts[-1])
+                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
                 try:
                     info = os.fstat(fd)
                     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
@@ -117,7 +119,25 @@ class SafeFiles:
                     pass
 
     @staticmethod
+    def _check_spelling(parent: int, name: str) -> None:
+        matches = [item for item in os.listdir(parent) if item.casefold() == name.casefold()]
+        if matches and matches != [name]:
+            fail("casefold_collision", "conflict")
+
+    def check_path_spelling(self, parts: Parts) -> None:
+        """Check existing parents and leaf, including empty directories, before staging."""
+        for depth, part in enumerate(parts):
+            try:
+                with self.directory(parts[:depth]) as parent:
+                    self._check_spelling(parent, part)
+                    if part not in os.listdir(parent):
+                        return
+            except FileNotFoundError:
+                return
+
+    @staticmethod
     def _check_target(parent: int, name: str) -> None:
+        SafeFiles._check_spelling(parent, name)
         try:
             info = os.stat(name, dir_fd=parent, follow_symlinks=False)
         except FileNotFoundError:
@@ -159,7 +179,10 @@ class SafeFiles:
 
     def lock_fd(self, name: str) -> int:
         with self.directory((".deykit", "locks"), create=True) as parent:
-            fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            self._check_spelling(parent, name)
+            fd = os.open(
+                name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent
+            )
             if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink != 1:
                 os.close(fd)
                 fail("unsafe_lock_path")

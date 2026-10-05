@@ -50,11 +50,17 @@ Cases scope by `(dataset_id,)`; labels/label-history by `(decision_id, dataset_i
 revisions by `(decision_id,)`; attempts/run-events/segments by `(run_id,)`;
 attempt-events by `(attempt_id,)`. Other resources are globally scoped. Draft ID is
 the decision ID. IDs in record bodies must match their path and parent scopes.
-Case-insensitive aliases in collection, scope and ID path components are rejected;
-case IDs can repeat across distinct datasets. Root metadata uses its embedded stable
-project ID and is never duplicated under source/.
+Case-insensitive aliases in collection, scope and ID path components are rejected,
+including retained empty directories, before a transaction is staged; case IDs can
+repeat across distinct datasets. Root metadata uses its embedded stable project ID
+and is never duplicated under source/. A transaction cannot target the root marker
+twice, delete it, or change its established identity. External marker identity changes
+conflict with the essential operation ledger.
 
 All reads validate strict typed record envelopes, versions and named hash profiles.
+Every completed operation is checked for complete old/new blobs, byte hashes, record
+versions and scoped identities; corruption in historical bodies blocks unrelated
+reads, mutations and pending recovery writes without repairing the damaged data.
 Committed immutable source is checked against essential operation history, including
 missing/deleted immutable keys. Revisions, snapshots, runs, attempts/events,
 evaluations/comparisons and reports cannot be overwritten or have their IDs reused.
@@ -123,6 +129,9 @@ cross-process cancellation from being consumed between those steps. The immutabl
 names prior request IDs; history is retained. A later cancellation cannot be consumed
 by repeating the same segment acknowledgement. Crashing before acknowledgement leaves
 the run cancelled, and opening never acknowledges or resumes it automatically.
+Project validation also checks every cancellation and acknowledgement version, file
+identity, run reference, segment reference and acknowledged request reference. An
+unrelated operation cannot bypass damaged cancellation history.
 
 ## Cache and filesystem guarantees
 
@@ -133,7 +142,9 @@ No source operation reads SQLite to decide truth or replay an operation.
 
 Internal filesystem traversal uses anchored directory descriptors and O_NOFOLLOW;
 symlinked internal directories/files, nonregular source files, and multiply linked
-source files are rejected. Files use owner-only creation permissions. This blocks
+source files are rejected. Reads open nonblocking and check the opened descriptor
+before consuming bytes, so a FIFO cannot hang validation while holding the source
+lock. Files use owner-only creation permissions. This blocks
 path escape through supplied IDs and static/internal symlinks. The project directory
 is an explicit trusted user selection; same-user hostile mutation of every internal
 file is not a security isolation boundary. Physical power-loss guarantees ultimately
@@ -146,7 +157,9 @@ P02 tests use no keys/inference and cover A05–A08, subprocess hard exit at eac
 boundary and during recovery, stale-write conflicts, changed operation payloads,
 intent replay, deletion history, deleted immutable identity reuse, index failure,
 copy/rebuild, actual OS ownership/process death, lock ordering, durable cancellation,
-external edits, symlink/hardlink boundaries and casefold collisions.
+external edits, symlink/hardlink boundaries, child-process FIFO rejection, retained
+empty-directory aliases, stable root identity, historical blob corruption and global
+cancellation-history validation.
 
 Research checked 2026-10-05: [Python flock](https://docs.python.org/3/library/fcntl.html),
 [Python fsync and directory-relative filesystem operations](https://docs.python.org/3/library/os.html),
