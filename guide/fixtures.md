@@ -12,6 +12,7 @@ from time import monotonic
 from deykit.application.demo import DemoService
 from deykit.storage import FileProjectSource
 
+
 class Clock:
     def utc_now(self) -> str:
         return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -19,10 +20,11 @@ class Clock:
     def monotonic(self) -> float:
         return monotonic()
 
+
 target = Path("Sandbox")  # The parent directory must exist; Sandbox must not.
-info = DemoService(
-    lambda path, create: FileProjectSource(path, create=create), Clock()
-).create(target, operation_id="create-sandbox")
+info = DemoService(lambda path, create: FileProjectSource(path, create=create), Clock()).create(
+    target, operation_id="create-sandbox"
+)
 print(info)
 ```
 
