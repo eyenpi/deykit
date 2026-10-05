@@ -17,7 +17,8 @@ from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.execution_groups import RegressionRemoval
 from deykit.contracts.identities import ResourceId
-from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue, bytes_hash
+from deykit.contracts.evidence import evidence_hash as evidence_hash
+from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
 from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import (
     CaseRecord,
@@ -400,7 +401,3 @@ class Planner:
             fingerprint(records),
         )
 
-
-def evidence_hash(bodies: tuple[bytes, ...]) -> str:
-    """Length-independent exact envelope identity; user values stay source strings."""
-    return bytes_hash("\n".join(bytes_hash(body) for body in bodies).encode("ascii"))

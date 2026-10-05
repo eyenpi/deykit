@@ -12,6 +12,7 @@ from deykit.application.dataset_support import fail, identifier, page
 from deykit.application.evaluation_evidence import snapshot_attempts
 from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.identities import new_id
 from deykit.contracts.json_value import JsonError, JsonValue, dump_json, parse_json, semantic_hash
 from deykit.contracts.ports import (
@@ -38,7 +39,6 @@ from deykit.domain.label_identity import label_id
 from deykit.metrics import assess_results, live_latency, majority_baseline, reported_usage
 from deykit.metrics.baseline import unavailable_regression_baseline
 from deykit.metrics.summary import MetricsInvalid
-from deykit.runner.planner import evidence_hash
 
 R = TypeVar("R", bound=Record)
 EvaluationMode = Literal["original", "saved_answer_reevaluation"]
