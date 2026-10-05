@@ -1,6 +1,7 @@
 """Short atomic source transactions for run snapshots, controls and attempt lifecycle."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -71,6 +72,12 @@ def deadline_at(start: str, seconds: int) -> str:
         .isoformat()
         .replace("+00:00", "Z")
     )
+
+
+@dataclass(frozen=True)
+class StartedSegment:
+    record: RunSegment
+    monotonic_deadline: float
 
 
 class RunRepository:
@@ -193,6 +200,7 @@ class RunRepository:
             label_snapshot_id=label_id,
             baseline_dataset_snapshot_id=dev_id,
             baseline_label_snapshot_id=dev_label_id,
+            option_order=plan.selection.option_order,
             provider_profile_id=plan.provider.id,
             provider_config_hash=bytes_hash(dump_record(plan.provider)),
             provider=plan.provider,
@@ -250,7 +258,7 @@ class RunRepository:
         retry_unknown: bool = False,
         max_attempts: int | None = None,
         acknowledge_cancellation: bool = True,
-    ) -> RunSegment:
+    ) -> StartedSegment:
         with self.source.consistent_read():
             history = self.history(run_id)
             changes: list[SourceChange] = []
@@ -271,6 +279,7 @@ class RunRepository:
                     )
                     changes.append(change("run_controls", control, (run_id,)))
             stamp = self.clock.utc_now()
+            deadline = self.clock.monotonic() + history.manifest.settings.deadline_seconds
             segment = RunSegment(
                 id=self.identity(),
                 run_id=run_id,
@@ -289,7 +298,7 @@ class RunRepository:
             # here leaves a durable segment but never starts work; explicit resume recovers.
             if acknowledge_cancellation:
                 self.execution.acknowledge_cancel(run_id, segment.id)
-            return segment
+            return StartedSegment(segment, deadline)
 
     def cancelled(self, history: RunHistory, segment: RunSegment) -> bool:
         return any(
@@ -321,9 +330,11 @@ class RunRepository:
             )
             self.source.commit(
                 operation_id,
-                (
-                    change("run_controls", control, (run_id,)),
-                    change("run_events", event, (run_id,)),
+                (change("run_controls", control, (run_id,)),)
+                + (
+                    (change("run_events", event, (run_id,)),)
+                    if history.state in {"preparing", "running", "cancelling"}
+                    else ()
                 ),
                 intent_hash=digest,
             )
@@ -384,10 +395,10 @@ class RunRepository:
             )
             return attempt
 
-    def dispatched(self, attempt: AttemptRecord, segment: RunSegment) -> bool:
+    def dispatched(self, attempt: AttemptRecord, segment: RunSegment, *, deadline: float) -> bool:
         with self.source.consistent_read():
             history = self.history(attempt.run_id)
-            if self.cancelled(history, segment):
+            if self.cancelled(history, segment) or self.clock.monotonic() >= deadline:
                 return False
             prior = history.final_event(attempt.id)
             if prior is None or prior.state != "reserved":

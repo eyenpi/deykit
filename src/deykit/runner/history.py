@@ -113,12 +113,7 @@ class RunHistory:
                     and outcome.error
                     and outcome.error.reason == "cancelled_before_dispatch"
                 ):
-                    result = CaseResult(
-                        case_id=prepared.case_id,
-                        input_hash=prepared.input_hash,
-                        status="pending",
-                        attempt_id=attempt.id,
-                    )
+                    continue  # Keep the prior unknown/error; a proven non-call is not new evidence.
                 elif outcome is None or outcome.state == "unknown":
                     result = CaseResult(
                         case_id=prepared.case_id,
@@ -186,94 +181,89 @@ def _records(
 
 
 def read_history(source: SnapshotSource, run_id: str) -> RunHistory:
-    with source.consistent_read():
-        records = source.capture_snapshot()
-        manifest_source = next(
-            (record for record in records if record.key == ResourceKey("runs", run_id)), None
+    records = source.capture_snapshot()
+    manifest_source = next(
+        (record for record in records if record.key == ResourceKey("runs", run_id)), None
+    )
+    if manifest_source is None:
+        fail("run_missing", "not_found")
+    manifest = decoded(RunManifest, manifest_source)
+    if (
+        manifest.provider is None
+        or manifest.decision_id is None
+        or manifest.dataset_id is None
+        or manifest.baseline_dataset_snapshot_id is None
+        or manifest.baseline_label_snapshot_id is None
+    ):
+        fail("legacy_run_not_executable", "incompatible_data")
+    prepared = _records(records, PreparedCase, "prepared_cases", (run_id,))
+    by_id = {item.case_id: item for item in prepared}
+    if set(by_id) != set(manifest.case_ids):
+        fail("incomplete_prepared_plan", "incompatible_data")
+    segments = tuple(
+        sorted(_records(records, RunSegment, "segments", (run_id,)), key=lambda item: item.sequence)
+    )
+    events = tuple(
+        sorted(_records(records, RunEvent, "run_events", (run_id,)), key=lambda item: item.sequence)
+    )
+    attempts = tuple(
+        sorted(
+            _records(records, AttemptRecord, "attempts", (run_id,)),
+            key=lambda item: item.number,
         )
-        if manifest_source is None:
-            fail("run_missing", "not_found")
-        manifest = decoded(RunManifest, manifest_source)
+    )
+    controls = tuple(
+        sorted(
+            _records(records, RunControl, "run_controls", (run_id,)),
+            key=lambda item: item.sequence,
+        )
+    )
+    for values in (
+        tuple(item.sequence for item in segments),
+        tuple(item.sequence for item in events),
+        tuple(item.number for item in attempts),
+        tuple(item.sequence for item in controls),
+    ):
+        if values != tuple(range(1, len(values) + 1)):
+            fail("invalid_run_sequence", "incompatible_data")
+    attempt_events: list[AttemptEvent] = []
+    for attempt in attempts:
         if (
-            manifest.provider is None
-            or manifest.decision_id is None
-            or manifest.dataset_id is None
-            or manifest.baseline_dataset_snapshot_id is None
-            or manifest.baseline_label_snapshot_id is None
+            attempt.case_id not in by_id
+            or attempt.segment_id not in {segment.id for segment in segments}
+            or attempt.request != by_id[attempt.case_id].request
         ):
-            fail("legacy_run_not_executable", "incompatible_data")
-        prepared = _records(records, PreparedCase, "prepared_cases", (run_id,))
-        by_id = {item.case_id: item for item in prepared}
-        if set(by_id) != set(manifest.case_ids):
-            fail("incomplete_prepared_plan", "incompatible_data")
-        segments = tuple(
-            sorted(
-                _records(records, RunSegment, "segments", (run_id,)), key=lambda item: item.sequence
-            )
+            fail("attempt_plan_mismatch", "incompatible_data")
+        ordered = sorted(
+            _records(records, AttemptEvent, "attempt_events", (attempt.id,)),
+            key=lambda item: item.sequence,
         )
-        events = tuple(
-            sorted(
-                _records(records, RunEvent, "run_events", (run_id,)), key=lambda item: item.sequence
-            )
-        )
-        attempts = tuple(
-            sorted(
-                _records(records, AttemptRecord, "attempts", (run_id,)),
-                key=lambda item: item.number,
-            )
-        )
-        controls = tuple(
-            sorted(
-                _records(records, RunControl, "run_controls", (run_id,)),
-                key=lambda item: item.sequence,
-            )
-        )
-        for values in (
-            tuple(item.sequence for item in segments),
-            tuple(item.sequence for item in events),
-            tuple(item.number for item in attempts),
-            tuple(item.sequence for item in controls),
-        ):
-            if values != tuple(range(1, len(values) + 1)):
-                fail("invalid_run_sequence", "incompatible_data")
-        attempt_events: list[AttemptEvent] = []
-        for attempt in attempts:
-            if (
-                attempt.case_id not in by_id
-                or attempt.segment_id not in {segment.id for segment in segments}
-                or attempt.request != by_id[attempt.case_id].request
-            ):
-                fail("attempt_plan_mismatch", "incompatible_data")
-            ordered = sorted(
-                _records(records, AttemptEvent, "attempt_events", (attempt.id,)),
-                key=lambda item: item.sequence,
-            )
-            if tuple(event.sequence for event in ordered) != tuple(range(1, len(ordered) + 1)):
-                fail("invalid_attempt_sequence", "incompatible_data")
-            if not ordered or ordered[0].state != "reserved":
-                fail("missing_attempt_reservation", "incompatible_data")
-            attempt_events.extend(ordered)
-        snapshots = tuple(
-            item
-            for item in _records(records, ResultSnapshot, "result_snapshots", ())
-            if item.run_id == run_id
-        )
-        history = RunHistory(
-            manifest,
-            tuple(by_id[key] for key in manifest.case_ids),
-            segments,
-            events,
-            attempts,
-            tuple(attempt_events),
-            controls,
-            tuple(sorted(snapshots, key=lambda item: (item.through_event_sequence, item.id))),
-        )
-        previous = manifest.settings.max_attempts
-        for control in controls:
-            if control.max_attempts is not None:
-                if control.max_attempts <= previous:
-                    fail("invalid_cap_extension", "incompatible_data")
-                previous = control.max_attempts
-        if history.used > history.cap:
-            fail("attempt_cap_exceeded", "incompatible_data")
-        return history
+        if tuple(event.sequence for event in ordered) != tuple(range(1, len(ordered) + 1)):
+            fail("invalid_attempt_sequence", "incompatible_data")
+        if not ordered or ordered[0].state != "reserved":
+            fail("missing_attempt_reservation", "incompatible_data")
+        attempt_events.extend(ordered)
+    snapshots = tuple(
+        item
+        for item in _records(records, ResultSnapshot, "result_snapshots", ())
+        if item.run_id == run_id
+    )
+    history = RunHistory(
+        manifest,
+        tuple(by_id[key] for key in manifest.case_ids),
+        segments,
+        events,
+        attempts,
+        tuple(attempt_events),
+        controls,
+        tuple(sorted(snapshots, key=lambda item: (item.through_event_sequence, item.id))),
+    )
+    previous = manifest.settings.max_attempts
+    for control in controls:
+        if control.max_attempts is not None:
+            if control.max_attempts <= previous:
+                fail("invalid_cap_extension", "incompatible_data")
+            previous = control.max_attempts
+    if history.used > history.cap:
+        fail("attempt_cap_exceeded", "incompatible_data")
+    return history

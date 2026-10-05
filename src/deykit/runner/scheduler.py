@@ -57,27 +57,35 @@ class Scheduler:
         self.hook = hook or (lambda _stage, _attempt: None)
 
     async def _dispatch(
-        self, attempt: AttemptRecord, segment: RunSegment, backend: Backend, stop: Stop
+        self,
+        attempt: AttemptRecord,
+        segment: RunSegment,
+        backend: Backend,
+        stop: Stop,
+        timeout: int,
+        deadline: float,
     ) -> DispatchOutcome:
         repo = self.repository
-        started = repo.clock.monotonic()
+        started: float | None = None
+        duration: float | None = None
         outcome: DispatchOutcome
         cancelled = False
         try:
-            if stop.state is not None or not repo.dispatched(attempt, segment):
+            if stop.state is not None or not repo.dispatched(attempt, segment, deadline=deadline):
                 outcome = DispatchOutcome(
                     state="not_sent",
                     error=ServiceError(code="run_incomplete", reason="cancelled_before_dispatch"),
                 )
             else:
                 self.hook("after_dispatch", attempt)
-                timeout = repo.history(attempt.run_id).manifest.settings.timeout_seconds
+                started = repo.clock.monotonic()
                 async with asyncio.timeout(timeout):
                     outcome = _outcome(
                         await backend.for_case(attempt.case_id).dispatch(
                             attempt.request, timeout_seconds=timeout
                         )
                     )
+                duration = max(0.0, repo.clock.monotonic() - started)
                 self.hook("after_received", attempt)
         except asyncio.CancelledError:
             cancelled = True
@@ -106,7 +114,11 @@ class Scheduler:
             stop.reason = outcome.error
         try:
             repo.settle(
-                attempt, outcome, duration_seconds=max(0.0, repo.clock.monotonic() - started)
+                attempt,
+                outcome,
+                duration_seconds=duration
+                if duration is not None
+                else (max(0.0, repo.clock.monotonic() - started) if started is not None else None),
             )
         except ServiceFailure:
             stop.persistence_failed = True
@@ -123,10 +135,15 @@ class Scheduler:
         backend: Backend,
         *,
         progress: Callable[[RunHistory], None] | None = None,
+        deadline: float | None = None,
     ) -> RunHistory:
         repo, clock = self.repository, self.repository.clock
         run_id = history.manifest.id
-        deadline = clock.monotonic() + history.manifest.settings.deadline_seconds
+        deadline = (
+            deadline
+            if deadline is not None
+            else clock.monotonic() + history.manifest.settings.deadline_seconds
+        )
         queue = [
             (clock.monotonic() + item.delay_seconds, item)
             for item in history.work(retry_unknown=segment.retry_unknown)
@@ -136,12 +153,14 @@ class Scheduler:
         outer_cancelled = False
         try:
             while queue or active:
+                if stop.persistence_failed:
+                    break
+                current = repo.history(run_id)
                 for task in tuple(active):
                     if not task.done():
                         continue
                     attempt = active.pop(task)
                     outcome = task.result()
-                    current = repo.history(run_id)
                     if outcome.retryable and stop.state is None:
                         retry = next(
                             (
@@ -162,9 +181,6 @@ class Scheduler:
                             stop.reason = ServiceError(
                                 code="internal_error", reason="progress_callback_failed"
                             )
-                if stop.persistence_failed:
-                    break
-                current = repo.history(run_id)
                 if repo.cancelled(current, segment):
                     stop.state = "cancelled"
                     stop.reason = ServiceError(code="run_incomplete", reason="cancel_requested")
@@ -187,7 +203,16 @@ class Scheduler:
                             queue.insert(0, (clock.monotonic(), work))
                             break
                         self.hook("after_intent", reserved)
-                        task = asyncio.create_task(self._dispatch(reserved, segment, backend, stop))
+                        task = asyncio.create_task(
+                            self._dispatch(
+                                reserved,
+                                segment,
+                                backend,
+                                stop,
+                                history.manifest.settings.timeout_seconds,
+                                deadline,
+                            )
+                        )
                         active[task] = reserved
                 if not active and (stop.state is not None or not queue):
                     break
@@ -216,6 +241,13 @@ class Scheduler:
                 ServiceError(code="internal_error", reason="persistence_failed")
             ) from None
         current = repo.history(run_id)
+        if (
+            stop.state is None
+            and clock.monotonic() >= deadline
+            and any(result.status == "pending" for result in current.results())
+        ):
+            stop.state = "budget_exhausted"
+            stop.reason = ServiceError(code="run_incomplete", reason="segment_deadline")
         state = stop.state or (
             "completed"
             if all(result.status == "valid" for result in current.results())

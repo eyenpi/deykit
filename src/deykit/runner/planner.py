@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal, Self, cast
 
-from pydantic import model_validator
+from pydantic import ValidationError, model_validator
 
 from deykit.application.dataset_support import (
     decoded,
@@ -47,6 +47,7 @@ class RunRequest(FrozenModel):
     revision_id: ResourceId | None = None
     split: Literal["all", "development", "calibration", "test"] = "all"
     case_ids: tuple[ResourceId, ...] = ()
+    option_order: tuple[ResourceId, ...] | None = None
     settings: ExecutionSettings = ExecutionSettings()
 
     @model_validator(mode="after")
@@ -98,6 +99,28 @@ class RunPlan:
         return sum(item.request is not None for item in self.prepared)
 
 
+def trusted_request(value: CompiledRequest, profile: ProviderProfile) -> CompiledRequest:
+    if type(value) is not CompiledRequest:
+        fail("invalid_compiled_request", "preflight_failed")
+    raw = vars(value)
+    if any(type(item) not in (str, int, bytes) for item in raw.values()):
+        fail("invalid_compiled_request", "preflight_failed")
+    try:
+        for item in raw.values():
+            if type(item) is str:
+                item.encode("utf-8", "strict")
+        request = CompiledRequest.model_validate(raw)
+    except (UnicodeError, ValidationError):
+        fail("invalid_compiled_request", "preflight_failed")
+    if (request.adapter, request.destination, request.requested_model) != (
+        profile.adapter,
+        profile.destination,
+        profile.requested_model,
+    ):
+        fail("compiled_profile_mismatch", "preflight_failed")
+    return request
+
+
 class Planner:
     def __init__(self, source: SnapshotSource, backends: BackendFactory) -> None:
         self.source, self.backends = source, backends
@@ -138,6 +161,7 @@ class Planner:
         with self.source.consistent_read():
             records = self._capture(request)
             profile = self.backends.profile(request.provider_id, request.fixture_set_id)
+        profile = validated_model(ProviderProfile, profile, "invalid_provider_profile")
         decision = decoded(DecisionRecord, records[0])
         dataset = decoded(DatasetRecord, records[1])
         if decision.archived or dataset.archived:
@@ -153,6 +177,26 @@ class Planner:
                 definition = load_record(ChoiceDefinition, draft.editor_source)
         except JsonError as error:
             fail(error.code, "preflight_failed")
+        compile_definition = definition
+        if request.option_order is not None:
+            question = definition.questions[0]
+            options = {option.id: option for option in question.options}
+            if len(request.option_order) != len(options) or set(request.option_order) != set(
+                options
+            ):
+                fail("invalid_option_order", "preflight_failed")
+            compile_definition = definition.model_copy(
+                update={
+                    "questions": (
+                        question.model_copy(
+                            update={"options": tuple(options[key] for key in request.option_order)}
+                        ),
+                    )
+                }
+            )
+            compile_definition = validated_model(
+                ChoiceDefinition, compile_definition, "invalid_option_order"
+            )
         all_cases = tuple(
             decoded(CaseRecord, item) for item in records if item.key.collection == "cases"
         )
@@ -200,9 +244,10 @@ class Planner:
                 )
                 continue
             try:
-                compiled = backend.compiler.compile(definition, selected.value, profile)
+                compiled = backend.compiler.compile(compile_definition, selected.value, profile)
             except ValueError:
                 fail("unsupported_request_configuration", "preflight_failed")
+            compiled = trusted_request(compiled, profile)
             prepared.append(PlannedCase(case.id, document.content_hash, compiled, None))
         if sum(item.request is not None for item in prepared) > request.settings.max_attempts:
             fail("initial_requests_exceed_cap", "preflight_failed")

@@ -341,6 +341,7 @@ class ExecutionSettings(FrozenModel):
 
 class RunManifest(HashedRecord):
     id: ResourceId
+    option_order: tuple[ResourceId, ...] | None = None
     # Optional only for decoding pre-runner records; executable runs require these.
     decision_id: ResourceId | None = None
     dataset_id: ResourceId | None = None

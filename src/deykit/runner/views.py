@@ -17,6 +17,14 @@ class RunCreated:
 
 
 @dataclass(frozen=True)
+class RunResumed:
+    run_id: str
+    segment_id: str
+    mode: Literal["fixture", "live"]
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class CaseProgress:
     case_id: str
     status: str
@@ -35,6 +43,15 @@ class AttemptProgress:
 
 
 @dataclass(frozen=True)
+class SegmentProgress:
+    segment_id: str
+    started_at: str
+    deadline_at: str
+    ended_at: str | None
+    retry_unknown: bool
+
+
+@dataclass(frozen=True)
 class RunProgress:
     run_id: str
     decision_id: str
@@ -50,6 +67,7 @@ class RunProgress:
     cases: tuple[CaseProgress, ...]
     attempts: tuple[AttemptProgress, ...]
     segment_ids: tuple[str, ...]
+    segments: tuple[SegmentProgress, ...]
     result_snapshot_ids: tuple[str, ...]
     latest_result_snapshot_id: str | None
     replayed: bool = False
@@ -120,7 +138,7 @@ def progress_view(
         history.manifest.mode,
         history.manifest.requested_model,
         history.state,
-        active,
+        active and history.state in {"preparing", "running", "cancelling"},
         history.used,
         history.cap,
         max(0, history.cap - history.used),
@@ -131,6 +149,31 @@ def progress_view(
         ),
         tuple(attempts),
         tuple(segment.id for segment in history.segments),
+        tuple(
+            SegmentProgress(
+                segment.id,
+                segment.started_at,
+                segment.deadline_at,
+                next(
+                    (
+                        event.created_at
+                        for event in reversed(history.events)
+                        if event.segment_id == segment.id
+                        and event.state
+                        in {
+                            "completed",
+                            "completed_with_errors",
+                            "cancelled",
+                            "interrupted",
+                            "budget_exhausted",
+                        }
+                    ),
+                    None,
+                ),
+                segment.retry_unknown,
+            )
+            for segment in history.segments
+        ),
         tuple(snapshot.id for snapshot in history.snapshots),
         history.snapshots[-1].id if history.snapshots else None,
         replayed,
@@ -144,3 +187,10 @@ class ResumePreview:
     retry_unknown: bool
     proposed_attempt_limit: int
     dry_run: bool = True
+
+
+@dataclass(frozen=True)
+class RunPage:
+    items: tuple[RunProgress, ...]
+    total: int
+    next_cursor: str | None
