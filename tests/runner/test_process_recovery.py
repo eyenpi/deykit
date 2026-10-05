@@ -12,7 +12,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.runner.history import read_history
 
 CHILD = r"""
-import asyncio, sys, time
+import asyncio, os, sys, time
 from pathlib import Path
 from conftest import Clock, Factory
 from deykit.application.execution import ExecutionService
@@ -21,15 +21,19 @@ from deykit.contracts.records import ExecutionSettings
 from deykit.storage import FileProjectSource
 root, boundary, marker, release, resume_id = sys.argv[1:]
 clock, factory = Clock(), Factory()
+def mark(value):
+    temporary = Path(marker + '.ready')
+    temporary.write_text(value, encoding='utf-8')
+    os.replace(temporary, marker)
 if boundary == 'in_transport':
     async def in_transport(case_id, request):
-        Path(marker).write_text(str(len(factory.calls)))
+        mark(str(len(factory.calls)))
         while True:
             await asyncio.sleep(.01)
     factory.callback = in_transport
 def hook(stage, attempt):
     if stage == boundary:
-        Path(marker).write_text(str(len(factory.calls)))
+        mark(str(len(factory.calls)))
         if release != '-':
             while not Path(release).exists():
                 time.sleep(.01)
@@ -48,12 +52,12 @@ with FileProjectSource(Path(root)) as source:
         original_ack = source.acknowledge_cancel
         def acknowledge(run_id, segment_id):
             if boundary == 'resume_segment_commit':
-                Path(marker).write_text('0')
+                mark('0')
                 while True:
                     time.sleep(.01)
             original_ack(run_id, segment_id)
             if boundary == 'resume_legacy_ack':
-                Path(marker).write_text('0')
+                mark('0')
                 while True:
                     time.sleep(.01)
         source.acknowledge_cancel = acknowledge

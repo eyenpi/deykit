@@ -242,7 +242,8 @@ class Native:
             raise self._error(self._last_error())
         handle = Handle(self, int(value))
         try:
-            self.inspect(handle, directory=True)
+            if not self.inspect(handle).directory:
+                raise NotADirectoryError(errno.ENOTDIR, "Project root is not a directory")
             return handle
         except BaseException:
             handle.close()

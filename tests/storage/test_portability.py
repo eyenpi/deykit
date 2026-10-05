@@ -523,3 +523,29 @@ def test_junction_substitution_between_enumeration_and_open(files, tmp_path, mon
     finally:
         if swapped:
             (files.root / "scope").rmdir()
+
+
+@WINDOWS
+def test_case_sensitive_ntfs_directory_still_rejects_portable_collisions(files):
+    import ctypes as c
+
+    from deykit.storage import _win32 as win
+
+    api = files._backend.api
+    files.mkdir(("scope",))
+    with files._backend.directory(()) as parent:
+        with api.open(
+            parent, "scope", directory=True, access=win.DIRECTORY_ACCESS | 0x100
+        ) as handle:
+            flags = win.DWORD(1)
+            if not api._set(handle.value, 23, c.byref(flags), c.sizeof(flags)):
+                error = c.get_last_error()
+                if error == 50:
+                    pytest.skip("Actual Windows volume lacks case-sensitive directory support (50)")
+                raise c.WinError(error)
+    (files.root / "scope" / "Case").mkdir()
+    (files.root / "scope" / "case").mkdir()
+    assert files.names(("scope",)) == ("Case", "case")
+    with pytest.raises(ServiceFailure) as error:
+        files.check_path_spelling(("scope", "case", "record"))
+    assert error.value.error.reason == "casefold_collision"
