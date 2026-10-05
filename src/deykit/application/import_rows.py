@@ -25,6 +25,8 @@ class SourceRow:
 
 
 def source_text(source: str | bytes) -> str:
+    if type(source) not in (str, bytes):
+        fail("invalid_import_source")
     try:
         text = source.decode("utf-8", "strict") if isinstance(source, bytes) else source
         if len(text.encode("utf-8", "strict")) > MAX_IMPORT_BYTES:

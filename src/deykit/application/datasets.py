@@ -18,6 +18,7 @@ from deykit.application.dataset_support import (
     page,
     required,
     safe_hash,
+    validated_model,
 )
 from deykit.application.errors import ServiceFailure
 from deykit.contracts.base import FrozenModel
@@ -259,10 +260,7 @@ class DatasetService:
         identifier(operation_id)
         if case_id is not None:
             identifier(case_id)
-        try:
-            value = CaseInput.model_validate(value.model_dump())
-        except ValidationError:
-            fail("invalid_case")
+        value = validated_model(CaseInput, value, "invalid_case")
         digest = intent(
             "case.add" if creating else "case.edit",
             [

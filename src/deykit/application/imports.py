@@ -1,8 +1,9 @@
 """Immutable import previews and all-or-explicit-partial transactional commits."""
 
+import re
 from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import Literal, cast
 
 from pydantic import ValidationError
@@ -17,10 +18,11 @@ from deykit.application.dataset_support import (
     intent,
     required,
     safe_hash,
+    validated_model,
 )
 from deykit.application.datasets import DatasetService
 from deykit.application.errors import ServiceFailure
-from deykit.application.import_rows import mapped, rows, source_text
+from deykit.application.import_rows import MAX_IMPORT_ROWS, mapped, rows, source_text
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
@@ -103,6 +105,76 @@ class _Context:
     records: tuple[StoredRecord, ...]
 
 
+def _validated_preview(value: object) -> ImportPreview:
+    """Validate all supplied values before any serializer or hash sees them."""
+    if type(value) is not ImportPreview or set(vars(value)) != {
+        field.name for field in fields(ImportPreview)
+    }:
+        fail("invalid_import_preview")
+    preview = value
+    mapping = validated_model(ImportMapping, preview.mapping, "invalid_import_mapping")
+    identifier(preview.dataset_id)
+    identifier(preview.decision_selector)
+    if preview.decision_id is not None:
+        identifier(preview.decision_id)
+    if preview.question_id is not None:
+        identifier(preview.question_id)
+    if mapping.expected_column is not None and preview.decision_id is None:
+        fail("expectations_require_decision")
+    if type(preview.source_text) is not str:
+        fail("invalid_import_preview")
+    source_text(preview.source_text)
+    if type(preview.format) is not str or preview.format not in ("csv", "jsonl"):
+        fail("invalid_import_preview")
+    if type(preview.dataset_etag) is not str or not preview.dataset_etag:
+        fail("invalid_import_preview")
+    for digest in (
+        preview.source_hash,
+        preview.mapping_hash,
+        preview.context_hash,
+        preview.preview_hash,
+    ):
+        if type(digest) is not str or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+            fail("invalid_import_preview")
+    if type(preview.rows) is not tuple or not 1 <= len(preview.rows) <= MAX_IMPORT_ROWS:
+        fail("invalid_import_preview")
+    result: list[ImportRow] = []
+    previous_line = 0
+    for index, row in enumerate(preview.rows, 1):
+        if type(row) is not ImportRow or set(vars(row)) != {
+            field.name for field in fields(ImportRow)
+        }:
+            fail("invalid_import_preview")
+        if type(row.row) is not int or row.row != index:
+            fail("invalid_import_preview")
+        if type(row.source_line) is not int or row.source_line <= previous_line:
+            fail("invalid_import_preview")
+        previous_line = row.source_line
+        case = (
+            validated_model(CaseRecord, row.case, "invalid_import_preview")
+            if row.case is not None
+            else None
+        )
+        if case is not None and case.dataset_id != preview.dataset_id:
+            fail("invalid_import_preview")
+        for ids in (row.acceptable_option_ids, row.duplicate_input_ids):
+            if type(ids) is not tuple:
+                fail("invalid_import_preview")
+            for resource_id in ids:
+                identifier(resource_id)
+            if len(set(ids)) != len(ids):
+                fail("invalid_import_preview")
+        if type(row.errors) is not tuple:
+            fail("invalid_import_preview")
+        errors = tuple(
+            validated_model(ServiceError, error, "invalid_import_preview") for error in row.errors
+        )
+        if any(error.row != row.row for error in errors) or (case is None and not errors):
+            fail("invalid_import_preview")
+        result.append(replace(row, case=case, errors=errors))
+    return replace(preview, mapping=mapping, rows=tuple(result))
+
+
 def _preview_hash(preview: ImportPreview) -> str:
     row_hashes = [
         safe_hash(
@@ -143,7 +215,7 @@ class ImportService:
     @staticmethod
     def parse_mapping(source: str | bytes) -> ImportMapping:
         try:
-            return load_record(ImportMapping, source)
+            return load_record(ImportMapping, source_text(source))
         except JsonError as error:
             fail(error.code)
 
@@ -160,10 +232,10 @@ class ImportService:
         identifier(dataset_id)
         if decision_id is not None:
             identifier(decision_id)
-        try:
-            mapping = ImportMapping.model_validate(mapping.model_dump())
-        except (ValueError, ValidationError):
-            fail("invalid_import_mapping")
+        mapping = validated_model(ImportMapping, mapping, "invalid_import_mapping")
+        if type(format) is not str or format not in ("csv", "jsonl"):
+            fail("invalid_import_format")
+        identifier(decision_selector)
         if mapping.expected_column is not None and decision_id is None:
             fail("expectations_require_decision")
         text = source_text(source)
@@ -352,6 +424,7 @@ class ImportService:
         self, preview: ImportPreview, *, operation_id: str, skip_invalid: bool = False
     ) -> ImportCommit:
         identifier(operation_id)
+        preview = _validated_preview(preview)
         if type(skip_invalid) is not bool:
             fail("invalid_partial_import_choice")
         if (

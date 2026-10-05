@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import NoReturn, TypeVar
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from deykit.application.errors import ServiceFailure
 from deykit.contracts.base import Record
@@ -97,3 +97,48 @@ def safe_hash(value: JsonValue) -> str:
         return semantic_hash(value)
     except JsonError as error:
         fail(error.code)
+
+
+M = TypeVar("M", bound=BaseModel)
+
+
+def validated_model(kind: type[M], value: object, reason: str) -> M:
+    """Rebuild an untrusted model without invoking its serializers or trusting instances.
+
+    Pydantic's model_copy/model_construct deliberately bypass validation. Projecting
+    raw attributes recursively also prevents nested instances bypassing validation.
+    Only bounded plain values are admitted; exceptions never include their contents.
+    """
+    if type(value) is not kind:
+        fail(reason)
+    count = 0
+
+    def plain(item: object, depth: int = 0) -> object:
+        nonlocal count
+        count += 1
+        if depth > 64 or count > 100_000:
+            fail(reason)
+        if isinstance(item, BaseModel):
+            return plain(vars(item), depth + 1)
+        if type(item) is dict:
+            if any(type(key) is not str for key in item):
+                fail(reason)
+            return {plain(key, depth + 1): plain(child, depth + 1) for key, child in item.items()}
+        if type(item) is tuple:
+            return tuple(plain(child, depth + 1) for child in item)
+        if type(item) is list:
+            return [plain(child, depth + 1) for child in item]
+        if type(item) is str:
+            try:
+                item.encode("utf-8", "strict")
+            except UnicodeError:
+                fail(reason)
+            return item
+        if item is None or type(item) in (bool, int):
+            return item
+        fail(reason)
+
+    try:
+        return kind.model_validate(plain(value))
+    except ValidationError:
+        fail(reason)
