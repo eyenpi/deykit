@@ -475,8 +475,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/runner/test_cli_execution.py::test_cli_run_preview_replay_history_and_safe_output",
-        "evaluation": "tests/runner/test_execution_evaluations.py::test_execution_action_replay_retains_evaluation_after_resume_and_label_edit"
+        "behavior": "tests/runner/test_execution_evaluations.py::test_execution_action_replay_retains_evaluation_after_resume_and_label_edit"
       }
     },
     {
@@ -516,8 +515,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/runner/test_cli_execution.py::test_cli_unknown_exit_precedence_and_explicit_resume",
-        "evaluation": "tests/runner/test_execution_evaluations.py::test_execution_action_replay_retains_evaluation_after_resume_and_label_edit"
+        "behavior": "tests/runner/test_execution_evaluations.py::test_execution_action_replay_retains_evaluation_after_resume_and_label_edit"
       }
     },
     {
