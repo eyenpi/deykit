@@ -13,13 +13,14 @@ import typer
 from pydantic import ValidationError
 
 from deykit.application.errors import ServiceFailure
-from deykit.cli.context import CliState, new_operation_id, projects_service
+from deykit.application.execution import ExecutionService
+from deykit.cli.context import CliState, SystemClock, new_operation_id, projects_service
 from deykit.cli.input import source_text
-from deykit.cli.output import execute
+from deykit.cli.output import CommandOutcome, execute, execute_outcome
 from deykit.contracts.codec import load_record
 from deykit.contracts.errors import ErrorCode, ServiceError
 from deykit.contracts.json_value import JsonError
-from deykit.contracts.records import ProviderProfile
+from deykit.contracts.records import ExecutionSettings, ProviderProfile
 from deykit.providers.choice import COMPILER_VERSION, JEV_DESTINATION
 from deykit.providers.credentials import (
     CredentialReference,
@@ -30,6 +31,9 @@ from deykit.providers.credentials import (
 )
 from deykit.providers.fixtures import FIXTURE_DESTINATION
 from deykit.providers.profiles import ProfileView, ProviderProfiles
+from deykit.runner.backends import ProviderBackends
+from deykit.runner.planner import RunRequest
+from deykit.runner.views import RunProgress
 
 provider_app = typer.Typer(help="Manage non-secret provider and authored fixture profiles.")
 credential_app = typer.Typer(help="Manage credential references and explicit OS-store values.")
@@ -372,30 +376,108 @@ class DoctorResult:
     profile_count: int
     provider: object | None = None
     network: object | None = None
+    smoke: object | None = None
+
+
+def _smoke_summary(run: RunProgress) -> dict[str, object]:
+    return {
+        "run_id": run.run_id,
+        "result_snapshot_id": run.latest_result_snapshot_id,
+        "mode": run.mode,
+        "requested_model": run.requested_model,
+        "state": run.state,
+        "attempts_used": run.attempts_used,
+        "attempt_limit": run.attempt_limit,
+        "settings": run.settings,
+        "case": run.cases[0] if run.cases else None,
+        "replayed": run.replayed,
+    }
 
 
 def doctor(
     ctx: typer.Context,
     provider: Annotated[str | None, typer.Option("--provider")] = None,
     network_check: Annotated[bool, typer.Option("--network-check")] = False,
-    timeout_seconds: Annotated[float, typer.Option("--timeout-seconds")] = 60,
+    live_smoke: Annotated[bool, typer.Option("--live-smoke")] = False,
+    decision: Annotated[str | None, typer.Option("--decision")] = None,
+    dataset: Annotated[str | None, typer.Option("--dataset")] = None,
+    case: Annotated[str | None, typer.Option("--case")] = None,
+    timeout_seconds: Annotated[
+        int,
+        typer.Option(
+            "--timeout-seconds",
+            min=1,
+            max=600,
+            help="Model-list timeout; live smoke requires the fixed default of 60 seconds.",
+        ),
+    ] = 60,
+    operation_id: Annotated[str | None, typer.Option("--operation-id")] = None,
 ) -> None:
-    def work(cli: CliState) -> object:
-        if network_check and provider is None:
+    def work(cli: CliState) -> CommandOutcome:
+        if network_check and live_smoke:
+            raise _failure("validation_error", "diagnostic_mode_conflict")
+        if (network_check or live_smoke) and provider is None:
             raise _failure("validation_error", "provider_required")
+        if live_smoke and (decision is None or dataset is None or case is None):
+            raise _failure("validation_error", "smoke_context_required")
+        if live_smoke and timeout_seconds != 60:
+            raise _failure("validation_error", "smoke_timeout_fixed_at_60")
+        if not live_smoke and (decision is not None or dataset is not None or case is not None):
+            raise _failure("validation_error", "live_smoke_required")
+        if not live_smoke and operation_id is not None:
+            raise _failure("validation_error", "live_smoke_required")
         path = cli.require_project()
         project = projects_service().validate(path)
         with cli.source() as source:
             profiles = ProviderProfiles(source)
             listed = profiles.list()
             selected = profiles.read(provider) if provider is not None else None
-        return DoctorResult(
-            project=project,
-            profile_count=len(listed),
-            provider=_status(selected) if selected is not None else None,
-            network={"model_count": len(_models(selected, timeout_seconds)), "inference_calls": 0}
-            if network_check and selected is not None
-            else None,
+            status = _status(selected) if selected is not None else None
+            if live_smoke:
+                assert provider is not None and decision is not None
+                assert dataset is not None and case is not None
+                try:
+                    request = RunRequest(
+                        decision_id=decision,
+                        dataset_id=dataset,
+                        mode="live",
+                        provider_id=provider,
+                        case_ids=(case,),
+                        settings=ExecutionSettings(
+                            max_attempts=1,
+                            concurrency=1,
+                            timeout_seconds=timeout_seconds,
+                            deadline_seconds=timeout_seconds,
+                            max_retries_per_case=0,
+                        ),
+                    )
+                except ValidationError:
+                    raise _failure("validation_error", "invalid_smoke_request") from None
+                clock = SystemClock()
+                runner = ExecutionService(source, source, ProviderBackends(source, clock), clock)
+                actual = new_operation_id(operation_id)
+                run = asyncio.run(runner.start(request, operation_id=actual))
+                return CommandOutcome(
+                    DoctorResult(
+                        project=project,
+                        profile_count=len(listed),
+                        provider=status,
+                        smoke={"operation_id": actual, **_smoke_summary(run)},
+                    ),
+                    run.exit_code,
+                )
+        return CommandOutcome(
+            DoctorResult(
+                project=project,
+                profile_count=len(listed),
+                provider=status,
+                network={
+                    "model_count": len(_models(selected, timeout_seconds)),
+                    "inference_calls": 0,
+                }
+                if network_check and selected is not None
+                else None,
+            )
         )
 
-    execute(ctx, work)
+    execute_outcome(ctx, work)

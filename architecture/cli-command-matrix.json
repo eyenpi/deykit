@@ -374,82 +374,98 @@
     },
     {
       "path": "provider list",
-      "service": "ProviderService.list",
+      "service": "ProviderProfiles.list_views",
       "owner": "P09",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
       }
     },
     {
       "path": "provider show",
-      "service": "ProviderService.read",
+      "service": "ProviderProfiles.view",
       "owner": "P09",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
       }
     },
     {
       "path": "provider configure",
-      "service": "ProviderService.configure",
+      "service": "ProviderProfiles.configure",
       "owner": "P09",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
       }
     },
     {
       "path": "provider models",
-      "service": "ProviderService.models",
+      "service": "JevProvider.models",
       "owner": "P09",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
       }
     },
     {
       "path": "credential set",
-      "service": "CredentialService.set",
+      "service": "ProviderProfiles.set_credential_ref; Credentials.set",
       "owner": "P09",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
       }
     },
     {
       "path": "credential status",
-      "service": "CredentialService.status",
+      "service": "Credentials.status",
       "owner": "P09",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
       }
     },
     {
       "path": "credential forget",
-      "service": "CredentialService.forget",
+      "service": "ProviderProfiles.set_credential_ref; Credentials.forget",
       "owner": "P09",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
       }
     },
     {
       "path": "doctor",
-      "service": "DiagnosticsService",
+      "service": "ProjectService.validate; ProviderProfiles.list; Credentials.status; JevProvider.models",
       "owner": "P09/P14",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_providers.py"
+      },
+      "variants": {
+        "--network-check": {
+          "service": "JevProvider.models",
+          "inference_attempts": 0,
+          "verification": "tests/test_cli_providers.py::test_models_cli_uses_one_authenticated_get_and_redacts_fake_secret"
+        },
+        "--live-smoke": {
+          "service": "ExecutionService.start",
+          "attempt_limit": 1,
+          "concurrency": 1,
+          "timeout_seconds": 60,
+          "max_retries_per_case": 0,
+          "verification": "tests/test_cli_providers.py::test_doctor_live_smoke_uses_runner_one_attempt_and_replays_without_dispatch",
+          "evidence": "offline fake HTTP; live compatibility unverified"
+        }
       }
     },
     {

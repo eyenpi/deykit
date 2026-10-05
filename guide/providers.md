@@ -65,8 +65,12 @@ An explicit one-case live smoke is available with the runner integration:
 uv run deykit --project ./study --json doctor --live-smoke --provider jev-main --decision DECISION_ID --dataset DATASET_ID --case CASE_ID
 ```
 
-It uses the same execution service as `run`, allows one attempt and no retry,
-and reports a durable run/result identity with requested model and attempt
-count. A response or adapter failure is evidence of that specific attempt,
+It uses the same execution service as `run`, allows one attempt with concurrency
+one, a fixed 60-second timeout and scheduling window, and no retry. It reports a
+durable run/result identity with requested model, settings and attempt count.
+`--network-check` and `--live-smoke` cannot be combined. Supply an explicit
+`--operation-id ID` to recover the original smoke evidence without dispatching
+again; a changed scope using that ID conflicts. A response or adapter failure is
+evidence of that specific attempt,
 not a quality verdict. This is a paid inference action; run it only with the
 intended case and available credential.
