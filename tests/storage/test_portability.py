@@ -335,3 +335,83 @@ def test_unavailable_root_is_a_service_error(tmp_path, file_root):
     with pytest.raises(ServiceFailure) as error:
         SafeFiles(path)
     assert error.value.error.reason == "project_unavailable"
+
+
+@WINDOWS
+def test_custom_ntfs_short_alias_is_rejected_before_staging(files):
+    import ctypes as c
+
+    from deykit.storage import _win32 as win
+
+    backend = files._backend
+    files.mkdir(("longdatasetname",))
+    with backend.directory(()) as parent:
+        with backend.api.open(
+            parent, "longdatasetname", directory=True, access=win.DIRECTORY_ACCESS | win.DELETE
+        ) as handle:
+            # SetFileShortName requires a case-insensitive handle. Open a test-only
+            # handle through CreateFileW; production never uses it for traversal.
+            raw = backend.api._create(
+                str(files.root / "longdatasetname"),
+                win.DELETE,
+                win.SHARE_ALL,
+                None,
+                3,
+                0x02000000,
+                None,
+            )
+            assert raw != win.HANDLE(-1).value
+            with win.Handle(backend.api, raw) as alias_handle:
+                setter = backend.api._bind(
+                    backend.api._kernel, "SetFileShortNameW", c.c_int, [win.HANDLE, c.c_wchar_p]
+                )
+                backend.api._check(setter(alias_handle.value, "SCOPEDIR"))
+            assert backend.api.inspect(handle).directory
+    for action in (
+        lambda: files.check_path_spelling(("SCOPEDIR", "record.json")),
+        lambda: files.replace(("SCOPEDIR", "record.json"), b"bad"),
+        lambda: files.read(("SCOPEDIR", "record.json")),
+    ):
+        with pytest.raises(ServiceFailure) as error:
+            action()
+        assert error.value.error.reason == "casefold_collision"
+    assert files.names(("longdatasetname",)) == ()
+
+
+@WINDOWS
+def test_native_handle_noninheritance_and_failure_loops(files, monkeypatch):
+    import ctypes as c
+
+    from deykit.storage import _win32 as win
+
+    api = files._backend.api
+    count_handles = api._bind(
+        api._kernel, "GetProcessHandleCount", c.c_int, [win.HANDLE, c.POINTER(win.DWORD)]
+    )
+    handle_flags = api._bind(
+        api._kernel, "GetHandleInformation", c.c_int, [win.HANDLE, c.POINTER(win.DWORD)]
+    )
+
+    def count():
+        total = win.DWORD()
+        api._check(count_handles(api._process(), c.byref(total)))
+        return total.value
+
+    with files._backend.directory(()) as handle:
+        flags = win.DWORD()
+        api._check(handle_flags(handle.value, c.byref(flags)))
+        assert not flags.value & 1  # HANDLE_FLAG_INHERIT
+    before = count()
+    files.replace(("record",), b"old")
+    for _ in range(20):
+        with monkeypatch.context() as patch:
+
+            def broken_flush(handle):
+                raise OSError("injected flush failure")
+
+            patch.setattr(api, "flush", broken_flush)
+            with pytest.raises(OSError):
+                files.replace(("record",), b"new")
+        assert files.read(("record",)) == b"old"
+    assert count() <= before + 2
+    assert files.names(()) == ("record",)

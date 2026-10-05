@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import platform
+import plistlib
 import sqlite3
 import subprocess
 import sys
@@ -27,7 +28,9 @@ if os.name == "nt":
         ]
     )
 elif sys.platform == "darwin":
-    filesystem = command(["stat", "-f", "%T", str(root)])
+    device = command(["df", "-P", str(root)]).splitlines()[-1].split()[0]
+    volume = plistlib.loads(command(["diskutil", "info", "-plist", device]).encode())
+    filesystem = str(volume.get("FilesystemType", volume.get("Content")))
 else:
     filesystem = command(["stat", "-f", "-c", "%T", str(root)])
 print(

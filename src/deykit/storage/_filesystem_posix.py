@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +12,28 @@ from uuid import uuid4
 
 from deykit.storage._paths import Parts, check_component
 from deykit.storage.errors import fail
+
+if sys.platform != "win32":
+    from os import O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK
+else:
+    # Never used: constructing this private backend rejects non-POSIX hosts.
+    O_DIRECTORY = O_NOFOLLOW = O_NONBLOCK = 0
+
+
+def _try_lock(fd: int) -> bool:
+    if sys.platform == "win32":
+        fail("unsupported_storage_platform", "preflight_failed")
+    else:
+        import errno
+        import fcntl
+
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError as error:
+            if error.errno not in (errno.EACCES, errno.EAGAIN):
+                raise
+            return False
 
 
 class PosixFiles:
@@ -22,7 +45,7 @@ class PosixFiles:
         if root.is_symlink():
             fail("unsafe_project_path")
         try:
-            self.fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            self.fd = os.open(root, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
         except OSError:
             fail("project_unavailable", "not_found")
         self.root = root.resolve()
@@ -48,7 +71,7 @@ class PosixFiles:
                         self._flush_file(fd)
                     except FileExistsError:
                         pass
-                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                child = os.open(part, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=fd)
                 os.close(fd)
                 fd = child
             yield fd
@@ -78,7 +101,7 @@ class PosixFiles:
         try:
             with self.directory(parts[:-1]) as parent:
                 self._check_spelling(parent, parts[-1])
-                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                fd = os.open(parts[-1], os.O_RDONLY | O_NOFOLLOW | O_NONBLOCK, dir_fd=parent)
                 try:
                     info = os.fstat(fd)
                     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
@@ -101,7 +124,7 @@ class PosixFiles:
             temporary = ".tmp-" + uuid4().hex
             fd = os.open(
                 temporary,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | O_NOFOLLOW,
                 0o600,
                 dir_fd=parent,
             )
@@ -187,7 +210,7 @@ class PosixFiles:
         with self.directory((".deykit", "locks"), create=True) as parent:
             self._check_spelling(parent, name)
             fd = os.open(
-                name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent
+                name, os.O_RDWR | os.O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o600, dir_fd=parent
             )
             if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink != 1:
                 os.close(fd)
@@ -201,19 +224,9 @@ class PosixFiles:
 
     @contextmanager
     def ownership(self, name: str) -> Iterator[bool]:
-        import errno
-        import fcntl
-
         fd = self.lock_fd(name)
         try:
-            acquired = False
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-            except OSError as error:
-                if error.errno not in (errno.EACCES, errno.EAGAIN):
-                    raise
-            yield acquired
+            yield _try_lock(fd)
         finally:
             os.close(fd)
 
