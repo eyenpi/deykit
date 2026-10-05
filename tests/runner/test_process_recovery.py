@@ -18,8 +18,14 @@ from deykit.application.execution import ExecutionService
 from deykit.runner.planner import RunRequest
 from deykit.contracts.records import ExecutionSettings
 from deykit.storage import FileProjectSource
-root, boundary, marker, release = sys.argv[1:]
+root, boundary, marker, release, resume_id = sys.argv[1:]
 clock, factory = Clock(), Factory()
+if boundary == 'in_transport':
+    async def in_transport(case_id, request):
+        Path(marker).write_text(str(len(factory.calls)))
+        while True:
+            await asyncio.sleep(.01)
+    factory.callback = in_transport
 def hook(stage, attempt):
     if stage == boundary:
         Path(marker).write_text(str(len(factory.calls)))
@@ -34,11 +40,24 @@ with FileProjectSource(Path(root)) as source:
         decision_id='decision', dataset_id='data', mode='fixture', fixture_set_id='set',
         settings=ExecutionSettings(concurrency=1),
     )
-    result = asyncio.run(service.start(request, operation_id='child-start'))
+    if resume_id == '-':
+        result = asyncio.run(service.start(request, operation_id='child-start'))
+    else:
+        original_ack = source.acknowledge_cancel
+        def acknowledge(run_id, segment_id):
+            if boundary == 'resume_segment_commit':
+                Path(marker).write_text('0')
+                os.kill(os.getpid(), signal.SIGKILL)
+            original_ack(run_id, segment_id)
+            if boundary == 'resume_legacy_ack':
+                Path(marker).write_text('0')
+                os.kill(os.getpid(), signal.SIGKILL)
+        source.acknowledge_cancel = acknowledge
+        result = asyncio.run(service.resume(resume_id, operation_id='child-resume'))
 """
 
 
-def child_command(source, stage, marker, release="-"):
+def child_command(source, stage, marker, release="-", resume_id="-"):
     environment = {**os.environ, "PYTHONPATH": str(Path(__file__).parent)}
     return [
         sys.executable,
@@ -48,6 +67,7 @@ def child_command(source, stage, marker, release="-"):
         stage,
         str(marker),
         str(release),
+        str(resume_id),
     ], environment
 
 
@@ -185,3 +205,69 @@ def test_receipt_recheck_covers_freeze_between_lookup_and_owner_contention(
                 if child.poll() is None:
                     child.kill()
                     child.communicate(timeout=5)
+
+
+def test_a23_kill_with_transport_entered_before_response(setup, tmp_path):
+    import time
+
+    source, service, factory, _ = setup(1)
+    marker = tmp_path / "in-flight"
+    command, environment = child_command(source, "in_transport", marker)
+    child = subprocess.Popen(
+        command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    try:
+        timeout = time.monotonic() + 20
+        while not marker.exists() and child.poll() is None and time.monotonic() < timeout:
+            time.sleep(0.01)
+        assert marker.read_text() == "1"
+        child.kill()
+        child.communicate(timeout=5)
+        assert child.returncode == -signal.SIGKILL
+        run_id = source.list_ids("runs")[0]
+        recovered = service.show(run_id)
+        assert recovered.cases[0].status == "unknown" and recovered.attempts_used == 1
+        assert not factory.calls and service.preview_resume(run_id).planned_case_ids == ()
+        repeated = asyncio.run(service.resume(run_id, operation_id="explicit", retry_unknown=True))
+        assert repeated.attempts_used == 2 and repeated.cases[0].status == "valid"
+        assert len(factory.calls) == 1
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate(timeout=5)
+
+
+@pytest.mark.parametrize("boundary", ["resume_segment_commit", "resume_legacy_ack"])
+def test_resume_death_before_readiness_never_replays_ack_or_consumes_new_cancel(
+    setup, tmp_path, boundary
+):
+    from test_execution import request
+
+    source, service, factory, _ = setup(1)
+    stopped = asyncio.run(
+        service.start(
+            request(),
+            operation_id="start",
+            on_created=lambda created: service.cancel(created.run_id, operation_id="cancel"),
+        )
+    )
+    source.request_cancel(stopped.run_id)
+    marker = tmp_path / "resume-death"
+    command, environment = child_command(source, boundary, marker, resume_id=stopped.run_id)
+    child = subprocess.run(command, env=environment, capture_output=True, timeout=30)
+    assert child.returncode == -signal.SIGKILL, child.stderr.decode()
+    assert marker.read_text() == "0"
+    # After a completed legacy ack this creates a distinct new request; otherwise
+    # it preserves the still-pending request. Replay must acknowledge neither.
+    source.request_cancel(stopped.run_id)
+    callbacks = []
+    with pytest.raises(ServiceFailure) as caught:
+        asyncio.run(
+            service.resume(stopped.run_id, operation_id="child-resume", on_resumed=callbacks.append)
+        )
+    assert caught.value.error.reason == "resume_acknowledgement_incomplete"
+    assert caught.value.error.resource_id == stopped.run_id
+    assert not callbacks and not factory.calls and source.cancellation_requested(stopped.run_id)
+    assert service.show(stopped.run_id).state == "interrupted"
+    resumed = asyncio.run(service.resume(stopped.run_id, operation_id="new-explicit-resume"))
+    assert resumed.exit_code == 0 and len(factory.calls) == 1

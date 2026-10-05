@@ -37,7 +37,8 @@ The planner bounds selected/all dataset cases at 10,000 and copied run evidence 
 32 MiB. The source adapter imposes its own record and project limits. Request timeout
 is a positive integral number of seconds capped at 600; concurrency is capped at 64.
 The normal settings are 100 lifetime attempts, concurrency 2, timeout 60 seconds,
-segment scheduling window 600 seconds, and at most one documented rate/overload retry.
+segment scheduling window 600 seconds (supported range 1–86,400), and at most one
+documented rate/overload retry.
 
 ## Ownership and state transitions
 
@@ -66,7 +67,12 @@ new requests and require a new logical run rather than changing frozen configura
 Cancellation appends a `RunControl`; no source record is overwritten. Resume writes
 its new segment and acknowledged cancellation sequence atomically. Later cancellation
 is still observed. Existing legacy storage cancellation flags are acknowledged only
-while the execution owner is held and before dispatch. A cap extension is a durable
+while the execution owner is held and before dispatch. A separate `segment_ready`
+event records successful acknowledgement before any resume notification. If a crash or
+write failure leaves the segment unready, replay returns a safe retained-run error
+and recovers an inactive lifecycle; it does not acknowledge newer requests. A new
+explicit resume operation ID is required. The readiness event is not a lifecycle
+status or answer. A cap extension is a durable
 control, never a reset or a mutation of the original manifest.
 
 Every segment gets the original scheduling-window duration. A monotonic deadline
@@ -106,7 +112,8 @@ provider evidence.
 ## Evidence and research
 
 Offline tests exercise real filesystem transactions and separate OS processes:
-SIGKILL at durable intent, dispatch, and received-unsaved boundaries; active-owner
+SIGKILL at durable intent, the pre-transport dispatch marker, actual transport entry,
+received-unsaved response, and resume acknowledgement boundaries; active-owner
 contention; cancellation while settling; lifetime cap extension; callback failure;
 source persistence failure; exact frozen requests; and the 12-case recovery oracle
 (8 valid, 1 invalid input, 1 response error, 1 unknown, 1 pending; 10/100 attempts used).

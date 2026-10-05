@@ -19,7 +19,7 @@ Labels and case metadata never become model input.
 Execution defaults to 100 lifetime attempts, concurrency 2, a 60-second aggregate
 request timeout, and a 600-second scheduling window. Change these with
 `--attempt-limit`, `--concurrency`, `--timeout-seconds`, and `--deadline-seconds`.
-`--rate-retries 0` disables the one permitted automatic documented rate/overload retry.
+Scheduling windows accept 1–86,400 seconds. `--rate-retries 0` disables the one permitted automatic documented rate/overload retry.
 All attempts, including uncertain outcomes, count toward the lifetime limit.
 
 ```sh
@@ -43,6 +43,9 @@ snapshots remain available. A provider-wide failure requires a new run.
 An operation ID identifies the requested action. Repeating the same start or resume
 with that ID retrieves its original logical run without dispatching again. Reusing
 an ID for different arguments is an error. Use a new ID for a new recovery action.
+If resume reports `resume_acknowledgement_incomplete`, its acknowledgement did not
+finish durably. Inspect the retained run ID, then use a new operation ID for an
+explicit resume; repeating the incomplete operation cannot consume a newer cancellation.
 
 Add the global `--json` option for one structured stdout envelope. Progress stays on
 stderr. Run and resume return 4 for incomplete execution, otherwise 3 for input or

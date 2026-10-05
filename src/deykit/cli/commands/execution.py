@@ -61,7 +61,7 @@ def run(
     attempt_limit: Annotated[int, typer.Option("--attempt-limit", min=1)] = 100,
     concurrency: Annotated[int, typer.Option("--concurrency", min=1, max=64)] = 2,
     timeout_seconds: Annotated[int, typer.Option("--timeout-seconds", min=1, max=600)] = 60,
-    deadline_seconds: Annotated[int, typer.Option("--deadline-seconds", min=1)] = 600,
+    deadline_seconds: Annotated[int, typer.Option("--deadline-seconds", min=1, max=86_400)] = 600,
     rate_retries: Annotated[int, typer.Option("--rate-retries", min=0, max=1)] = 1,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     operation_id: Annotated[str | None, typer.Option("--operation-id")] = None,

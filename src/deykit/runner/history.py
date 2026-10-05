@@ -68,7 +68,8 @@ class RunHistory:
         lifecycle = [
             event
             for event in self.events
-            if not event.state.startswith("attempt_") and event.state != "cap_extended"
+            if not event.state.startswith("attempt_")
+            and event.state not in {"cap_extended", "segment_ready"}
         ]
         return lifecycle[-1].state if lifecycle else "preparing"
 

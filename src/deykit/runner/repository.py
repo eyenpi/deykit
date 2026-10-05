@@ -51,6 +51,7 @@ RunState = Literal[
     "attempt_dispatched",
     "attempt_settled",
     "cap_extended",
+    "segment_ready",
 ]
 
 
@@ -66,12 +67,15 @@ def change(collection: Collection, record: Record, scope: tuple[str, ...] = ()) 
 
 
 def deadline_at(start: str, seconds: int) -> str:
-    return (
-        (datetime.fromisoformat(start.replace("Z", "+00:00")) + timedelta(seconds=seconds))
-        .astimezone(UTC)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    try:
+        return (
+            (datetime.fromisoformat(start.replace("Z", "+00:00")) + timedelta(seconds=seconds))
+            .astimezone(UTC)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    except (ValueError, OverflowError):
+        fail("invalid_segment_deadline", "preflight_failed")
 
 
 @dataclass(frozen=True)
@@ -298,6 +302,10 @@ class RunRepository:
             # here leaves a durable segment but never starts work; explicit resume recovers.
             if acknowledge_cancellation:
                 self.execution.acknowledge_cancel(run_id, segment.id)
+            # The segment receipt alone is not an acknowledgement: legacy storage
+            # acknowledgement can fail after that commit. Persist its completed boundary.
+            ready = self.event(self.history(run_id), "segment_ready", segment_id=segment.id)
+            self.source.commit(self.identity(), (change("run_events", ready, (run_id,)),))
             return StartedSegment(segment, deadline)
 
     def cancelled(self, history: RunHistory, segment: RunSegment) -> bool:

@@ -335,7 +335,7 @@ class ExecutionSettings(FrozenModel):
     max_attempts: PositiveInt = 100
     concurrency: PositiveInt = 2
     timeout_seconds: PositiveInt = 60
-    deadline_seconds: PositiveInt = 600
+    deadline_seconds: Annotated[int, Field(ge=1, le=86_400)] = 600
     max_retries_per_case: Annotated[int, Field(ge=0, le=1)] = 1
 
 
@@ -430,6 +430,7 @@ class RunEvent(Record):
         "attempt_dispatched",
         "attempt_settled",
         "cap_extended",
+        "segment_ready",
     ]
     created_at: UtcTimestamp
     reason: ServiceError | None = None

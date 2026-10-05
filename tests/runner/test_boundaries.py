@@ -357,3 +357,62 @@ def test_live_backend_uses_frozen_reference_credentials_without_network(setup, m
     monkeypatch.setattr(backends, "credentials_for", credentials)
     backend = ProviderBackends(source, clock).resolve(profile, None)
     assert backend.preflight("decision", "data") is None and observed == [profile]
+
+
+@pytest.mark.parametrize("seconds", [0, -1, 86_401, 10**18, True])
+def test_unsupported_deadline_is_safe_zero_write_preflight(setup, seconds):
+    source, service, factory, _ = setup(1)
+    malformed = request().model_copy(
+        update={"settings": ExecutionSettings().model_copy(update={"deadline_seconds": seconds})}
+    )
+    before = source.capture_snapshot()
+    with pytest.raises(ServiceFailure):
+        service.preview(malformed)
+    with pytest.raises(ServiceFailure):
+        asyncio.run(service.start(malformed, operation_id="invalid-deadline"))
+    assert source.capture_snapshot() == before and not factory.calls
+
+
+def test_deadline_arithmetic_failure_is_structured():
+    from deykit.runner.repository import deadline_at
+
+    with pytest.raises(ServiceFailure) as caught:
+        deadline_at("9999-12-31T23:59:59Z", 86_400)
+    assert caught.value.error.reason == "invalid_segment_deadline"
+
+
+def test_legacy_ack_write_failure_cannot_emit_replayed_resume_notification(setup, monkeypatch):
+    source, service, factory, _ = setup(1)
+    stopped = asyncio.run(
+        service.start(
+            request(),
+            operation_id="start",
+            on_created=lambda created: service.cancel(created.run_id, operation_id="cancel"),
+        )
+    )
+    source.request_cancel(stopped.run_id)
+    original_replace = source.files.replace
+
+    def fail_ack(path, body):
+        if path[:2] == ("history", "cancel_ack"):
+            raise OSError("PRIVATE_ACK_SENTINEL")
+        return original_replace(path, body)
+
+    monkeypatch.setattr(source.files, "replace", fail_ack)
+    with pytest.raises(ServiceFailure) as caught:
+        asyncio.run(service.resume(stopped.run_id, operation_id="failed-resume"))
+    assert caught.value.error.reason == "storage_io"
+    monkeypatch.setattr(source.files, "replace", original_replace)
+    service.cancel(stopped.run_id, operation_id="later-cancel")
+    callbacks = []
+    with pytest.raises(ServiceFailure) as caught:
+        asyncio.run(
+            service.resume(
+                stopped.run_id, operation_id="failed-resume", on_resumed=callbacks.append
+            )
+        )
+    assert caught.value.error.reason == "resume_acknowledgement_incomplete"
+    assert not callbacks and not factory.calls and source.cancellation_requested(stopped.run_id)
+    history = read_history(source, stopped.run_id)
+    assert service.repository.cancelled(history, history.segments[-1])
+    assert history.state == "interrupted"

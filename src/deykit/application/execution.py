@@ -247,6 +247,19 @@ class ExecutionService:
         )
         if segment_id is None:
             fail("incomplete_resume_receipt", "internal_error")
+        if not any(
+            event.state == "segment_ready" and event.segment_id == segment_id
+            for event in history.events
+        ):
+            if not self.execution.execution_active():
+                self.show(history.manifest.id)  # Safe recovery; never acknowledges cancellations.
+            raise ServiceFailure(
+                ServiceError(
+                    code="run_incomplete",
+                    resource_id=history.manifest.id,
+                    reason="resume_acknowledgement_incomplete",
+                )
+            )
         self._resumed(history, segment_id, True, callback)
         return progress_view(history, replayed=True, active=self.execution.execution_active())
 
