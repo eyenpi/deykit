@@ -45,6 +45,31 @@ def test_keyring_operations_use_injected_store_only():
     assert CredentialReference.parse(ref).encode() == ref
 
 
+def test_forget_missing_secret_requires_a_healthy_read():
+    class MissingStore(MemoryStore):
+        def delete_password(self, service, username):
+            raise AssertionError("an absent secret must not be deleted again")
+
+    Credentials({}, MissingStore()).forget("keyring:deykit/user")
+
+
+@pytest.mark.parametrize("stage", ["read", "delete"])
+def test_forget_preserves_backend_failures_and_sanitizes_them(stage):
+    class BrokenStore(MemoryStore):
+        def get_password(self, service, username):
+            if stage == "read":
+                raise PermissionError("SECRET_SENTINEL")
+            return "SECRET_SENTINEL"
+
+        def delete_password(self, service, username):
+            raise PermissionError("SECRET_SENTINEL")
+
+    with pytest.raises(CredentialUnavailable) as failure:
+        Credentials({}, BrokenStore()).forget("keyring:deykit/user")
+    assert "SECRET_SENTINEL" not in str(failure.value)
+    assert failure.value.__suppress_context__
+
+
 @pytest.mark.parametrize("reference", ["SENTINEL", "env:", "env:BAD NAME", "keyring:a/b/c"])
 def test_invalid_references_never_echo_input(reference):
     with pytest.raises(ValueError) as failure:

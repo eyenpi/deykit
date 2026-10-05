@@ -81,6 +81,10 @@ def _human_page(value: object) -> str | None:
             )
             rows.append((review["case_id"], review["question_id"], status))
             columns = ("CASE ID", "QUESTION ID", "STATUS")
+        elif "profile" in item:
+            profile = item["profile"]
+            rows.append((profile["id"], profile["adapter"], profile["requested_model"]))
+            columns = ("PROFILE ID", "ADAPTER", "MODEL")
         elif "record" in item:
             record = item["record"]
             if "dataset_id" in record:

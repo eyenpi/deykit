@@ -30,9 +30,8 @@ def validate_profile(profile: ProviderProfile) -> ProviderProfile:
         or profile.requested_model in {"jev-latest", "jev-preview"}
     ):
         raise ValueError("Unsupported Jev model identity.")
-    if profile.credential_ref is None:
-        raise ValueError("A credential reference is required.")
-    CredentialReference.parse(profile.credential_ref)
+    if profile.credential_ref is not None:
+        CredentialReference.parse(profile.credential_ref)
     return profile
 
 
@@ -84,8 +83,10 @@ class JevProvider:
         self._http = http or OneShotHttp()
 
     def preflight(self) -> ServiceError | None:
+        if self.profile.credential_ref is None:
+            return ServiceError(code="preflight_failed", reason="credential_unavailable")
         try:
-            self._credentials.resolve(self.profile.credential_ref or "")
+            self._credentials.resolve(self.profile.credential_ref)
         except CredentialUnavailable:
             return ServiceError(code="preflight_failed", reason="credential_unavailable")
         return None
@@ -118,8 +119,14 @@ class JevProvider:
                 error=ServiceError(code="preflight_failed", reason="request_profile_mismatch"),
                 provider_wide=True,
             )
+        if self.profile.credential_ref is None:
+            return DispatchOutcome(
+                state="not_sent",
+                error=ServiceError(code="preflight_failed", reason="credential_unavailable"),
+                provider_wide=True,
+            )
         try:
-            credential = self._credentials.resolve(self.profile.credential_ref or "")
+            credential = self._credentials.resolve(self.profile.credential_ref)
         except CredentialUnavailable:
             return DispatchOutcome(
                 state="not_sent",
@@ -162,7 +169,9 @@ class JevProvider:
 
     async def models(self, *, timeout_seconds: float = 60) -> tuple[dict[str, str], ...]:
         """Explicit network diagnostic: one GET, zero inference requests."""
-        credential = self._credentials.resolve(self.profile.credential_ref or "")
+        if self.profile.credential_ref is None:
+            raise CredentialUnavailable()
+        credential = self._credentials.resolve(self.profile.credential_ref)
         reply = await self._http.send("GET", MODELS_DESTINATION, None, credential, timeout_seconds)
         if reply.status != 200:
             raise ValueError(

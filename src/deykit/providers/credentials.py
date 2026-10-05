@@ -99,7 +99,11 @@ class Credentials:
         if ref.kind != "keyring" or self._store is None:
             raise ValueError("Credential forget requires an available OS-store reference.")
         try:
-            self._store.delete_password(ref.name, ref.account or "")
+            # The native deletion can finish before a project-reference write fails.
+            # A healthy read proving absence makes that explicit retry safe; backend
+            # read/delete failures still block unlinking instead of pretending success.
+            if self._store.get_password(ref.name, ref.account or "") is not None:
+                self._store.delete_password(ref.name, ref.account or "")
         except Exception:
             raise CredentialUnavailable() from None
 
