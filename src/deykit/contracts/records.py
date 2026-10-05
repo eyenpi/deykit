@@ -495,6 +495,18 @@ class EvaluationRecord(HashedRecord):
     created_at: UtcTimestamp
 
 
+class ResultAnnotation(HashedRecord):
+    """Append-only user note against a run/case, never part of model evidence."""
+
+    id: ResourceId
+    run_id: ResourceId
+    case_id: ResourceId
+    operation_id: ResourceId
+    note: Nonempty
+    content_hash: ContentHash
+    created_at: UtcTimestamp
+
+
 class ComparisonRecord(HashedRecord):
     id: ResourceId
     left_evaluation_id: ResourceId

@@ -64,6 +64,7 @@ Collection = Literal[
     "attempt_events",
     "result_snapshots",
     "evaluations",
+    "annotations",
     "comparisons",
     "regressions",
     "reports",
