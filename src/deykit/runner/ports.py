@@ -8,7 +8,7 @@ from deykit.contracts.ports import (
     ChoiceCompiler,
     ProviderTransport,
 )
-from deykit.contracts.records import ProviderProfile
+from deykit.contracts.records import ChoiceDefinition, ProviderProfile
 
 
 class ExecutionProject(Protocol):
@@ -21,7 +21,9 @@ class ExecutionProject(Protocol):
 class Backend(Protocol):
     @property
     def compiler(self) -> ChoiceCompiler: ...
-    def preflight(self, decision_id: str, dataset_id: str) -> ServiceError | None: ...
+    def preflight(
+        self, decision_id: str, dataset_id: str, definition: ChoiceDefinition | None = None
+    ) -> ServiceError | None: ...
     def for_case(self, case_id: str) -> ProviderTransport: ...
 
 

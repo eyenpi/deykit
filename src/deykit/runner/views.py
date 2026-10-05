@@ -52,6 +52,18 @@ class SegmentProgress:
 
 
 @dataclass(frozen=True)
+class RunSourceReferences:
+    decision_revision_id: str
+    dataset_snapshot_id: str
+    label_snapshot_id: str
+    development_dataset_snapshot_id: str
+    development_label_snapshot_id: str
+    provider_profile_id: str
+    fixture_set_id: str | None
+    option_order: tuple[str, ...] | None
+
+
+@dataclass(frozen=True)
 class RunProgress:
     run_id: str
     decision_id: str
@@ -64,6 +76,7 @@ class RunProgress:
     attempt_limit: int
     attempts_remaining: int
     settings: ExecutionSettings
+    sources: RunSourceReferences
     cases: tuple[CaseProgress, ...]
     attempts: tuple[AttemptProgress, ...]
     segment_ids: tuple[str, ...]
@@ -143,6 +156,16 @@ def progress_view(
         history.cap,
         max(0, history.cap - history.used),
         history.manifest.settings,
+        RunSourceReferences(
+            history.manifest.decision_revision_id,
+            history.manifest.dataset_snapshot_id,
+            history.manifest.label_snapshot_id,
+            history.manifest.baseline_dataset_snapshot_id or "",
+            history.manifest.baseline_label_snapshot_id or "",
+            history.manifest.provider_profile_id,
+            history.manifest.fixture_set_id,
+            history.manifest.option_order,
+        ),
         tuple(
             CaseProgress(item.case_id, item.status, item.attempt_id, item.error)
             for item in history.results()

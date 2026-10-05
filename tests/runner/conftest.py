@@ -73,7 +73,7 @@ class Factory:
         self.resolved_profile = profile
         return self
 
-    def preflight(self, decision_id, dataset_id):
+    def preflight(self, decision_id, dataset_id, definition=None):
         return self.error
 
     def for_case(self, case_id):

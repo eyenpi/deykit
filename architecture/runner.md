@@ -127,3 +127,11 @@ HTTPX 0.28.1, Typer 0.27.2, pytest 9.1.1, Ruff 0.16.10, and mypy 1.20.2. CI also
 the project's supported Python versions. Process tests establish local filesystem
 behavior on the test platform; they do not establish remote-filesystem guarantees or
 live provider behavior. Live smoke verification remains separately authorized.
+
+An installed-wheel walkthrough used a fresh virtual environment and project path
+containing spaces and `ü`, with the Jev environment key absent and socket/DNS
+operations blocked. It verified demo creation, 11-request dry-run planning, an
+authored full run with 11 attempts and exit 3, same-operation replay without added
+attempts, historical inspection, empty default resume planning, paginated history,
+and exit 0 for a selected authored incorrect prediction. This is offline packaging
+and fixture evidence only.

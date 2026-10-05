@@ -223,7 +223,7 @@ class Planner:
         if profile.adapter != ("fixture" if request.mode == "fixture" else "jev"):
             fail("provider_mode_mismatch", "preflight_failed")
         backend = self.backends.resolve(profile, request.fixture_set_id)
-        preflight_error = backend.preflight(request.decision_id, request.dataset_id)
+        preflight_error = backend.preflight(request.decision_id, request.dataset_id, definition)
         if preflight_error is not None:
             fail(preflight_error.reason or "provider_preflight_failed", "preflight_failed")
         prepared: list[PlannedCase] = []

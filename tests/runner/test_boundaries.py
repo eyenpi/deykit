@@ -61,6 +61,26 @@ def test_authored_sandbox_actual_factory_full_development_snapshot(tmp_path):
         assert len(selected.cases) == 3 and len(baseline.cases) > len(selected.cases)
         assert labels.labels and all(case.split == "development" for case in baseline.cases)
         assert service.show(result.run_id).segments[0].ended_at is not None
+        from deykit.contracts.records import DecisionRevision
+
+        revision = load_record(
+            DecisionRevision,
+            source.read(
+                ResourceKey("revisions", manifest.decision_revision_id, (demo.decision_id,))
+            ).body,
+        )
+        reordered = selection.model_copy(
+            update={
+                "case_ids": ("ex-001",),
+                "option_order": tuple(
+                    option.id for option in reversed(revision.definition.questions[0].options)
+                ),
+            }
+        )
+        unmatched = asyncio.run(service.start(reordered, operation_id="unmatched-order"))
+        assert unmatched.cases[0].status == "response_error"
+        assert unmatched.cases[0].error.code == "missing_fixture"
+        assert unmatched.attempts_used == 1 and unmatched.mode == "fixture"
 
 
 @pytest.mark.parametrize("callback", ["created", "progress"])
@@ -247,3 +267,69 @@ def test_resumed_callback_failure_leaves_durable_segment_without_dispatch(setup)
     assert history.state == "interrupted" and len(history.segments) == 2
     replay = asyncio.run(service.resume(stopped.run_id, operation_id="resume"))
     assert replay.replayed and not factory.calls
+
+
+def test_frozen_profile_hash_mismatch_fails_before_resume_dispatch(setup):
+    from dataclasses import replace
+
+    from deykit.contracts.codec import dump_record
+    from deykit.contracts.records import RunManifest
+
+    source, service, factory, _ = setup(1)
+    stopped = asyncio.run(
+        service.start(
+            request(),
+            operation_id="start",
+            on_created=lambda created: service.cancel(created.run_id, operation_id="cancel"),
+        )
+    )
+    original = source.capture_snapshot()
+    changed = []
+    for stored in original:
+        if stored.key.collection == "runs":
+            manifest = load_record(RunManifest, stored.body)
+            stored = replace(
+                stored,
+                body=dump_record(
+                    manifest.model_copy(
+                        update={
+                            "provider_config_hash": "0" * 64,
+                        }
+                    )
+                ),
+            )
+        changed.append(stored)
+
+    class TamperedCapture:
+        def capture_snapshot(self):
+            return tuple(changed)
+
+    with pytest.raises(ServiceFailure) as caught:
+        read_history(TamperedCapture(), stopped.run_id)
+    assert caught.value.error.reason == "invalid_frozen_run_context" and not factory.calls
+
+
+def test_adapter_capability_preflight_rejects_options_even_without_valid_cases(setup):
+    from unittest.mock import Mock
+
+    from deykit.contracts.records import ChoiceDefinition, ChoiceOption, ChoiceQuestion
+    from deykit.runner.backends import LiveBackend
+
+    _, _, _, _ = setup(1, invalid=(0,))
+    provider = Mock()
+    definition = ChoiceDefinition(
+        input_kind="text",
+        questions=(
+            ChoiceQuestion(
+                id="q",
+                instructions="Choose.",
+                options=tuple(
+                    ChoiceOption(id=f"option-{index}", name=f"Option {index}")
+                    for index in range(256)
+                ),
+            ),
+        ),
+    )
+    result = LiveBackend(provider).preflight("decision", "data", definition)
+    assert result.reason == "unsupported_option_count"
+    provider.preflight.assert_not_called()

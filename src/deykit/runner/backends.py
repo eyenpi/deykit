@@ -6,7 +6,7 @@ from deykit.application.dataset_support import fail, validated_model
 from deykit.application.fixtures import FixtureService
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import ChoiceCompiler, Clock, ProjectSource, ProviderTransport
-from deykit.contracts.records import ProviderProfile
+from deykit.contracts.records import ChoiceDefinition, ProviderProfile
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.providers.credentials import Credentials
 from deykit.providers.fixtures import FixtureInvalid, FixtureTransportFactory
@@ -23,7 +23,11 @@ class LiveBackend:
     def compiler(self) -> ChoiceCompiler:
         return JevChoiceCompiler()
 
-    def preflight(self, decision_id: str, dataset_id: str) -> ServiceError | None:
+    def preflight(
+        self, decision_id: str, dataset_id: str, definition: ChoiceDefinition | None = None
+    ) -> ServiceError | None:
+        if definition is not None and len(definition.questions[0].options) > 255:
+            return ServiceError(code="preflight_failed", reason="unsupported_option_count")
         return self.provider.preflight()
 
     def for_case(self, case_id: str) -> ProviderTransport:
@@ -38,7 +42,11 @@ class FixtureBackend:
     def compiler(self) -> ChoiceCompiler:
         return JevChoiceCompiler()
 
-    def preflight(self, decision_id: str, dataset_id: str) -> ServiceError | None:
+    def preflight(
+        self, decision_id: str, dataset_id: str, definition: ChoiceDefinition | None = None
+    ) -> ServiceError | None:
+        if definition is not None and len(definition.questions[0].options) > 255:
+            return ServiceError(code="preflight_failed", reason="unsupported_option_count")
         fixture = self.factory.fixture_set
         if fixture.decision_id != decision_id or fixture.dataset_id != dataset_id:
             return ServiceError(code="preflight_failed", reason="fixture_context_mismatch")

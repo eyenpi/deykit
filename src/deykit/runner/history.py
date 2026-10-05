@@ -5,7 +5,9 @@ from typing import Literal, TypeVar
 
 from deykit.application.dataset_support import decoded, fail
 from deykit.contracts.base import Record
+from deykit.contracts.codec import dump_record
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.ports import Collection, ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import (
     AttemptEvent,
@@ -196,7 +198,26 @@ def read_history(source: SnapshotSource, run_id: str) -> RunHistory:
         or manifest.baseline_label_snapshot_id is None
     ):
         fail("legacy_run_not_executable", "incompatible_data")
+    profile = manifest.provider
+    if (
+        manifest.provider_config_hash != bytes_hash(dump_record(profile))
+        or manifest.provider_profile_id != profile.id
+        or manifest.adapter != profile.adapter
+        or manifest.requested_model != profile.requested_model
+        or len(manifest.case_ids) != len(set(manifest.case_ids))
+    ):
+        fail("invalid_frozen_run_context", "incompatible_data")
     prepared = _records(records, PreparedCase, "prepared_cases", (run_id,))
+    if any(
+        item.request is not None
+        and (
+            item.request.adapter != profile.adapter
+            or item.request.destination != profile.destination
+            or item.request.requested_model != profile.requested_model
+        )
+        for item in prepared
+    ):
+        fail("invalid_frozen_run_context", "incompatible_data")
     by_id = {item.case_id: item for item in prepared}
     if set(by_id) != set(manifest.case_ids):
         fail("incomplete_prepared_plan", "incompatible_data")
@@ -242,6 +263,24 @@ def read_history(source: SnapshotSource, run_id: str) -> RunHistory:
             fail("invalid_attempt_sequence", "incompatible_data")
         if not ordered or ordered[0].state != "reserved":
             fail("missing_attempt_reservation", "incompatible_data")
+        states = tuple(event.state for event in ordered)
+        if states not in {
+            ("reserved",),
+            ("reserved", "dispatched"),
+            ("reserved", "unknown"),
+            ("reserved", "not_sent"),
+            ("reserved", "dispatched", "known"),
+            ("reserved", "dispatched", "unknown"),
+            ("reserved", "dispatched", "not_sent"),
+        } or any(
+            (event.state in {"reserved", "dispatched"} and event.outcome is not None)
+            or (
+                event.state not in {"reserved", "dispatched"}
+                and (event.outcome is None or event.outcome.state != event.state)
+            )
+            for event in ordered
+        ):
+            fail("invalid_attempt_transition", "incompatible_data")
         attempt_events.extend(ordered)
     snapshots = tuple(
         item
