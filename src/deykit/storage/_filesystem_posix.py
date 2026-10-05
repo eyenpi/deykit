@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 import sys
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from uuid import uuid4
 
 from deykit.storage._paths import Parts, check_component
+from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
 
 if sys.platform != "win32":
@@ -103,20 +105,91 @@ class PosixFiles:
                 self._check_spelling(parent, parts[-1])
                 fd = os.open(parts[-1], os.O_RDONLY | O_NOFOLLOW | O_NONBLOCK, dir_fd=parent)
                 try:
-                    info = os.fstat(fd)
-                    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                        fail("unsafe_source_path")
-                    if info.st_size > limit:
-                        fail("record_resource_limit")
-                    with os.fdopen(fd, "rb", closefd=False) as stream:
-                        body = stream.read(limit + 1)
-                    if len(body) > limit:
-                        fail("record_resource_limit")
-                    return body
+                    return self._read_open_file(fd, limit=limit)
                 finally:
                     os.close(fd)
         except FileNotFoundError:
             return None
+
+    @staticmethod
+    def _read_open_file(fd: int, *, limit: int) -> bytes:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            fail("unsafe_source_path")
+        if info.st_size > limit:
+            fail("record_resource_limit")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            body = stream.read(limit + 1)
+        if len(body) > limit:
+            fail("record_resource_limit")
+        return body
+
+    def read_tree(self, parts: Parts, visitor: TreeReadVisitor, *, limit: int = 16_777_216) -> None:
+        # Only a missing initial prefix is optional. A missing listed child conflicts.
+        with ExitStack() as stack:
+            if self.closed:
+                fail("storage_closed", "internal_error")
+            current = os.dup(self.fd)
+            stack.callback(os.close, current)
+            try:
+                for part in parts:
+                    check_component(part)
+                    self._check_spelling(current, part)
+                    current = os.open(part, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=current)
+                    stack.callback(os.close, current)
+            except FileNotFoundError:
+                return
+            except OSError as error:
+                if error.errno in (errno.ELOOP, errno.ENOTDIR):
+                    fail("unsafe_source_path")
+                raise
+            self._walk_tree(current, parts, visitor, limit=limit)
+
+    @staticmethod
+    def _tree_names(parent: int) -> tuple[str, ...]:
+        names = tuple(sorted(os.listdir(parent)))
+        if len({name.casefold() for name in names}) != len(names):
+            fail("casefold_collision", "conflict")
+        return names
+
+    def _walk_tree(
+        self, parent: int, parts: Parts, visitor: TreeReadVisitor, *, limit: int
+    ) -> None:
+        names = self._tree_names(parent)
+        for name in names:
+            child_parts = (*parts, name)
+            if not visitor.include(child_parts):
+                continue
+            check_component(name)
+            try:
+                hint = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                if stat.S_ISLNK(hint.st_mode):
+                    fail("unsafe_source_path")
+                directory = stat.S_ISDIR(hint.st_mode)
+                flags = os.O_RDONLY | O_NOFOLLOW | (O_DIRECTORY if directory else O_NONBLOCK)
+                child = os.open(name, flags, dir_fd=parent)
+                try:
+                    info = os.fstat(child)
+                    if directory:
+                        if not stat.S_ISDIR(info.st_mode):
+                            fail("unsafe_source_path")
+                    elif not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                        fail("unsafe_source_path")
+                    visitor.validate_entry(child_parts, directory=directory)
+                    if directory:
+                        self._walk_tree(child, child_parts, visitor, limit=limit)
+                    else:
+                        visitor.accept_file(child_parts, self._read_open_file(child, limit=limit))
+                finally:
+                    os.close(child)
+            except OSError as error:
+                if error.errno == errno.ELOOP:
+                    fail("unsafe_source_path")
+                if error.errno in (errno.ENOENT, errno.ENOTDIR, errno.EISDIR):
+                    fail("unstable_source", "conflict")
+                raise
+        if self._tree_names(parent) != names:
+            fail("unstable_source", "conflict")
 
     def replace(self, parts: Parts, body: bytes) -> None:
         with self.directory(parts[:-1], create=True) as parent:

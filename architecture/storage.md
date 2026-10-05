@@ -233,3 +233,30 @@ Primary references checked 2026-10-05:
 [LockFileEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex),
 [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers),
 [short-name aliases](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setfileshortnamew).
+
+## Batched fresh source walks (P18)
+
+`SafeFiles.read_tree(parts, visitor)` performs one synchronous, eagerly completed walk
+beneath retained directory handles. It re-enumerates each visited directory on exit,
+checks case-folded names before applying the source policy, and opens every accepted
+entry relative to its retained parent. Opened files are validated and read as exact
+bounded bytes through that same object. The facade lock and all traversal resources are
+released before the call returns, including visitor and filesystem errors. Only the
+`source/` collection traversal in `FileProjectSource._all` uses this path; project
+metadata, history checks, recovery, and the independent before/after snapshot walks
+remain fresh operations.
+
+POSIX uses directory descriptors and no-follow/nonblocking opens. Windows uses native
+handle-relative opens, existing type/reparse/link/name validation, and a fresh native
+name enumeration at both directory boundaries. Enumeration metadata selects an open
+shape only; the opened object supplies the safety decision. Entry/exit inventory changes
+conflict, including a change to ignored temporary membership. Stable `.tmp-` entries
+remain ignored. This does not promise an atomic view against an uncooperative writer
+that changes a tree and restores the exact observed state between checks.
+
+Automated local evidence includes exact-byte and hash inventories, real POSIX hardlink,
+symlink, FIFO and retained-ancestor races, fresh snapshot/commit conflict checks, cleanup,
+and linear operation counts on 10 and 1000 leaves. Case-sensitive collision injections
+run only when the actual filesystem supports two names differing only by case. Windows
+native traversal and handle-count acceptance still require the real Windows CI matrix;
+no Windows result is inferred from POSIX execution.

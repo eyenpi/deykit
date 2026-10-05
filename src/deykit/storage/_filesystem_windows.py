@@ -14,6 +14,7 @@ from uuid import uuid4
 from deykit.application.errors import ServiceFailure
 from deykit.storage import _win32 as win
 from deykit.storage._paths import Parts, check_component
+from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
 
 
@@ -84,6 +85,50 @@ class WindowsFiles:
                     return self.api.read(handle, limit)
         except FileNotFoundError:
             return None
+
+    def read_tree(self, parts: Parts, visitor: TreeReadVisitor, *, limit: int = 16_777_216) -> None:
+        with ExitStack() as stack:
+            try:
+                parent = stack.enter_context(self.directory(parts))
+            except FileNotFoundError:
+                return
+            self._walk_tree(parent, parts, visitor, limit=limit)
+
+    def _tree_entries(self, parent: win.Handle) -> tuple[tuple[str, bool], ...]:
+        entries = self.api.entries(parent)
+        if len({name.casefold() for name, _ in entries}) != len(entries):
+            fail("casefold_collision", "conflict")
+        return entries
+
+    def _walk_tree(
+        self, parent: win.Handle, parts: Parts, visitor: TreeReadVisitor, *, limit: int
+    ) -> None:
+        entries = self._tree_entries(parent)
+        for name, directory in entries:
+            child_parts = (*parts, name)
+            if not visitor.include(child_parts):
+                continue
+            check_component(name)
+            try:
+                with self.api.open(
+                    parent,
+                    name,
+                    directory=directory,
+                    access=win.DIRECTORY_ACCESS if directory else win.READ,
+                    share=win.SHARE_RW if directory else win.SHARE_ALL,
+                    disposition=win.OPEN,
+                ) as child:
+                    # Native.open freshly validates type, links, reparse and actual name.
+                    visitor.validate_entry(child_parts, directory=directory)
+                    if directory:
+                        self._walk_tree(child, child_parts, visitor, limit=limit)
+                    else:
+                        visitor.accept_file(child_parts, self.api.read(child, limit))
+            except FileNotFoundError:
+                fail("unstable_source", "conflict")
+        after = self._tree_entries(parent)
+        if tuple(name for name, _ in after) != tuple(name for name, _ in entries):
+            fail("unstable_source", "conflict")
 
     def _check_target(self, parent: win.Handle, name: str) -> None:
         self._check_spelling(parent, name)

@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 from deykit.application.errors import ServiceFailure
@@ -46,6 +47,34 @@ class HistoryEntry:
     operation_id: str
     before: StoredRecord | None
     after: StoredRecord | None
+
+
+class _SourceTreeVisitor:
+    def __init__(self, records: list[StoredRecord]) -> None:
+        self.records = records
+
+    def include(self, parts: Parts) -> bool:
+        return not parts[-1].startswith(".tmp-")
+
+    def validate_entry(self, parts: Parts, *, directory: bool) -> None:
+        if not directory:
+            path_key(parts)
+            return
+        if parts[1] not in TYPES or parts[1] == "project":
+            fail("invalid_source_path")
+        collection = cast(Collection, parts[1])
+        if len(parts) > 2 + len(SCOPES.get(collection, ())):
+            fail("invalid_source_path")
+        for component in parts[2:]:
+            try:
+                validate_resource_id(component)
+            except ValueError:
+                fail("invalid_source_path")
+
+    def accept_file(self, parts: Parts, body: bytes) -> None:
+        key = path_key(parts)
+        validate_body(key, body)
+        self.records.append(StoredRecord(key, body, bytes_hash(body)))
 
 
 class FileProjectSource:
@@ -129,37 +158,7 @@ class FileProjectSource:
                     ResourceKey("project", project_record.id), project, bytes_hash(project)
                 )
             )
-        pending: list[Parts] = [("source",)]
-        while pending:
-            directory = pending.pop()
-            names = self.files.names(directory)
-            if len({name.casefold() for name in names}) != len(names):
-                fail("casefold_collision", "conflict")
-            for name in names:
-                if name.startswith(".tmp-"):
-                    # An interrupted atomic replacement leaves only an unreferenced temporary.
-                    continue
-                path = (*directory, name)
-                if self.files.is_directory(path):
-                    if path[1] not in TYPES or path[1] == "project":
-                        fail("invalid_source_path")
-                    from typing import cast
-
-                    collection = cast(Collection, path[1])
-                    if len(path) > 2 + len(SCOPES.get(collection, ())):
-                        fail("invalid_source_path")
-                    for component in path[2:]:
-                        try:
-                            validate_resource_id(component)
-                        except ValueError:
-                            fail("invalid_source_path")
-                    pending.append(path)
-                else:
-                    key = path_key(path)
-                    record = self._read(key)
-                    if record is None:
-                        fail("unstable_source", "conflict")
-                    records.append(record)
+        self.files.read_tree(("source",), _SourceTreeVisitor(records))
         return tuple(sorted(records, key=lambda item: key_path(item.key)))
 
     def list_ids(self, collection: Collection, scope: tuple[str, ...] = ()) -> tuple[str, ...]:

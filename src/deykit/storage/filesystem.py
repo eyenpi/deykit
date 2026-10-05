@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 from deykit.storage._paths import Parts, check_component
+from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
 
 __all__ = ["Parts", "SafeFiles"]
@@ -23,6 +24,7 @@ class _Files(Protocol):
     def names(self, parts: Parts) -> tuple[str, ...]: ...
     def is_directory(self, parts: Parts) -> bool: ...
     def read(self, parts: Parts, *, limit: int) -> bytes | None: ...
+    def read_tree(self, parts: Parts, visitor: TreeReadVisitor, *, limit: int) -> None: ...
     def replace(self, parts: Parts, body: bytes) -> None: ...
     def unlink(self, parts: Parts) -> None: ...
     def rename_directory(self, old: Parts, new: Parts) -> None: ...
@@ -83,6 +85,12 @@ class SafeFiles:
             if limit < 0:
                 fail("record_resource_limit")
             return backend.read(parts, limit=limit)
+
+    def read_tree(self, parts: Parts, visitor: TreeReadVisitor, *, limit: int = 16_777_216) -> None:
+        with self._access(parts) as backend:
+            if limit < 0:
+                fail("record_resource_limit")
+            backend.read_tree(parts, visitor, limit=limit)
 
     def replace(self, parts: Parts, body: bytes) -> None:
         with self._access(parts) as backend:

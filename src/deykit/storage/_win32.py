@@ -332,7 +332,10 @@ class Native:
         return FileInfo(is_directory, (int(info.size_high) << 32) | int(info.size_low))
 
     def names(self, handle: Handle) -> tuple[str, ...]:
-        names: list[str] = []
+        return tuple(name for name, _ in self.entries(handle))
+
+    def entries(self, handle: Handle) -> tuple[tuple[str, bool], ...]:
+        names: list[tuple[str, bool]] = []
         restart = True
         while True:
             buffer = c.create_string_buffer(65536)
@@ -352,7 +355,8 @@ class Native:
                     raise OSError("Invalid directory information")
                 name = raw[offset + 104 : end].decode("utf-16-le")
                 if name not in {".", ".."}:
-                    names.append(name)
+                    attributes = struct.unpack_from("<I", raw, offset + 56)[0]
+                    names.append((name, bool(attributes & 0x10)))
                 if not next_offset:
                     break
                 if next_offset < 104 + length or offset + next_offset + 104 > len(raw):
