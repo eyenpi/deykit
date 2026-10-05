@@ -174,3 +174,32 @@ def majority_baseline(
         ),
         unavailable_reason="no_eligible_development_labels" if winner is None else None,
     )
+
+
+def unavailable_regression_baseline(
+    fit_dataset: DatasetSnapshot,
+    fit_labels: LabelSnapshot,
+    dataset: DatasetSnapshot,
+    labels: LabelSnapshot,
+    selected_count: int,
+    paired_count: int,
+) -> MajorityBaseline:
+    """Explicitly unavailable fitting evidence; never fit current or selected regressions."""
+    if fit_dataset.cases or fit_labels.labels:
+        raise MetricsInvalid("regression_baseline_must_be_empty")
+    return MajorityBaseline(
+        option_id=None,
+        fit_support=0,
+        fit_excluded_acceptable_sets=0,
+        fit_dataset_snapshot_id=fit_dataset.id,
+        fit_label_snapshot_id=fit_labels.id,
+        evaluation_dataset_snapshot_id=dataset.id,
+        evaluation_label_snapshot_id=labels.id,
+        evaluation_splits=tuple(sorted({case.split for case in dataset.cases})),
+        overlap_case_ids=(),
+        selected_count=selected_count,
+        paired_count=paired_count,
+        scored_count=0,
+        accuracy=Rate.counts(0, 0, "frozen_regression_selection"),
+        unavailable_reason="frozen_regression_selection",
+    )

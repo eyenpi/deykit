@@ -4,6 +4,13 @@ from typing import cast
 
 from deykit.contracts.base import Record
 from deykit.contracts.codec import load_record
+from deykit.contracts.execution_groups import (
+    CheckSnapshot,
+    DiagnosticSnapshot,
+    ExecutionGroup,
+    ExecutionGroupSegment,
+    RegressionRemoval,
+)
 from deykit.contracts.json_value import JsonError
 from deykit.contracts.ports import Collection, ResourceKey
 from deykit.contracts.records import (
@@ -60,9 +67,16 @@ TYPES: dict[Collection, type[Record]] = {
     "annotations": ResultAnnotation,
     "comparisons": ComparisonRecord,
     "regressions": RegressionRecord,
+    "execution_groups": ExecutionGroup,
+    "group_segments": ExecutionGroupSegment,
+    "diagnostic_snapshots": DiagnosticSnapshot,
+    "check_snapshots": CheckSnapshot,
+    "regression_removals": RegressionRemoval,
     "reports": ReportRecord,
 }
 SCOPES: dict[Collection, tuple[str, ...]] = {
+    "group_segments": ("group_id",),
+    "regression_removals": ("decision_id",),
     "cases": ("dataset_id",),
     "labels": ("decision_id", "dataset_id"),
     "label_history": ("decision_id", "dataset_id"),
@@ -93,6 +107,12 @@ IMMUTABLE = frozenset(
         "evaluations",
         "comparisons",
         "reports",
+        "regressions",
+        "execution_groups",
+        "group_segments",
+        "diagnostic_snapshots",
+        "check_snapshots",
+        "regression_removals",
     }
 )
 

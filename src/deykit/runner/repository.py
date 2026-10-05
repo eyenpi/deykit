@@ -33,7 +33,7 @@ from deykit.contracts.records import (
     RunManifest,
     RunSegment,
 )
-from deykit.runner.history import RunHistory, WorkItem, read_history
+from deykit.runner.history import RunHistory, WorkItem, history_from_records, read_history
 from deykit.runner.planner import MAX_PLAN_BYTES, RunPlan, evidence_hash
 from deykit.runner.ports import ExecutionProject
 
@@ -147,8 +147,17 @@ class RunRepository:
 
     def freeze(self, plan: RunPlan, operation_id: str, intent_hash: str) -> str:
         """Caller holds the short source lock after checking the captured context."""
-        run_id, revision_id, dataset_id, label_id, dev_id, dev_label_id = (
-            self.identity() for _ in range(6)
+        run_id = self.identity()
+        changes = self.stage_freeze(plan, operation_id, run_id=run_id)
+        self.source.commit(operation_id, changes, intent_hash=intent_hash)
+        return run_id
+
+    def stage_freeze(
+        self, plan: RunPlan, operation_id: str, *, run_id: str, group_id: str | None = None
+    ) -> tuple[SourceChange, ...]:
+        """Build immutable evidence without writing, for an atomic multi-plan freeze."""
+        revision_id, dataset_id, label_id, dev_id, dev_label_id = (
+            self.identity() for _ in range(5)
         )
         stamp = self.clock.utc_now()
         revision = DecisionRevision(
@@ -197,6 +206,11 @@ class RunRepository:
         )
         manifest = RunManifest(
             id=run_id,
+            execution_group_id=group_id,
+            regression_ids=plan.selection.regression_ids,
+            baseline_unavailable_reason=(
+                "frozen_regression_selection" if plan.selection.regression_ids else None
+            ),
             decision_id=plan.selection.decision_id,
             dataset_id=plan.selection.dataset_id,
             decision_revision_id=revision_id,
@@ -250,8 +264,7 @@ class RunRepository:
         )
         if sum(len(item.body or b"") for item in changes) > MAX_PLAN_BYTES:
             fail("run_resource_limit", "preflight_failed")
-        self.source.commit(operation_id, changes, intent_hash=intent_hash)
-        return run_id
+        return changes
 
     def segment(
         self,
@@ -265,6 +278,8 @@ class RunRepository:
     ) -> StartedSegment:
         with self.source.consistent_read():
             history = self.history(run_id)
+            if history.manifest.execution_group_id:
+                fail("resume_execution_group_required", "preflight_failed")
             changes: list[SourceChange] = []
             through = len(history.controls)
             if max_attempts is not None:
@@ -309,10 +324,36 @@ class RunRepository:
             return StartedSegment(segment, deadline)
 
     def cancelled(self, history: RunHistory, segment: RunSegment) -> bool:
-        return any(
-            control.action == "cancel" and control.sequence > segment.cancel_through_sequence
-            for control in history.controls
-        ) or self.execution.cancellation_requested(history.manifest.id)
+        def requested(member: RunHistory, cutoff: RunSegment) -> bool:
+            return any(
+                control.action == "cancel" and control.sequence > cutoff.cancel_through_sequence
+                for control in member.controls
+            ) or self.execution.cancellation_requested(member.manifest.id)
+
+        if history.group and history.group.segments:
+            with self.source.consistent_read():
+                records = self.source.capture_snapshot()
+                # Preserve the caller segment's acknowledgement epoch, never a newer one.
+                group_segment = next(
+                    (
+                        s
+                        for s in history.group.segments
+                        if any(
+                            m.run_id == history.manifest.id and m.segment_id == segment.id
+                            for m in s.member_segments
+                        )
+                    ),
+                    None,
+                )
+                if group_segment is None:
+                    fail("unowned_group_child_segment", "incompatible_data")
+                for linked in group_segment.member_segments:
+                    member = history_from_records(records, linked.run_id, verify_group=False)
+                    cutoff = next(s for s in member.segments if s.id == linked.segment_id)
+                    if requested(member, cutoff):
+                        return True
+            return False
+        return requested(history, segment)
 
     def cancel(self, run_id: str, operation_id: str) -> RunHistory:
         identifier(run_id)
@@ -353,8 +394,22 @@ class RunRepository:
     ) -> AttemptRecord | None:
         with self.source.consistent_read():
             history = self.history(run_id)
+            if history.group:
+                latest = history.group.segments[-1] if history.group.segments else None
+                if (
+                    latest is None
+                    or not any(
+                        item.run_id == run_id and item.segment_id == segment.id
+                        for item in latest.member_segments
+                    )
+                    or not any(
+                        event.state == "segment_ready" and event.segment_id == segment.id
+                        for event in history.events
+                    )
+                ):
+                    fail("execution_group_not_ready", "run_incomplete")
             if (
-                history.used >= history.cap
+                history.remaining <= 0
                 or self.clock.monotonic() >= deadline
                 or self.cancelled(history, segment)
             ):

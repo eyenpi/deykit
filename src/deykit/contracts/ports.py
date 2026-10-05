@@ -66,6 +66,11 @@ Collection = Literal[
     "evaluations",
     "annotations",
     "comparisons",
+    "execution_groups",
+    "group_segments",
+    "diagnostic_snapshots",
+    "check_snapshots",
+    "regression_removals",
     "regressions",
     "reports",
 ]

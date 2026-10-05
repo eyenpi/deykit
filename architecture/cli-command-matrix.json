@@ -570,52 +570,52 @@
     },
     {
       "path": "diagnose choice-order",
-      "service": "ChoiceOrderService",
+      "service": "DiagnosticService.start/preview",
       "owner": "P12",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
       }
     },
     {
       "path": "regression add",
       "service": "RegressionService.add",
       "owner": "P12",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
       }
     },
     {
       "path": "regression list",
       "service": "RegressionService.list",
       "owner": "P12",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
       }
     },
     {
       "path": "regression remove",
       "service": "RegressionService.remove",
       "owner": "P12",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
       }
     },
     {
       "path": "check",
-      "service": "RegressionService.check",
+      "service": "CheckService.start/preview",
       "owner": "P12",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
       }
     },
     {
@@ -626,6 +626,46 @@
       "verification": {
         "registration": "pending",
         "behavior": "pending"
+      }
+    },
+    {
+      "path": "diagnose show",
+      "service": "DiagnosticService.read",
+      "owner": "P12",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
+      }
+    },
+    {
+      "path": "diagnose resume",
+      "service": "DiagnosticService.resume",
+      "owner": "P12",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
+      }
+    },
+    {
+      "path": "checks show",
+      "service": "CheckService.read",
+      "owner": "P12",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
+      }
+    },
+    {
+      "path": "checks resume",
+      "service": "CheckService.resume",
+      "owner": "P12",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
+        "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
       }
     }
   ]

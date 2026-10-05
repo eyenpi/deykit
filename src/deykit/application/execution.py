@@ -196,6 +196,14 @@ class ExecutionService:
 
     @staticmethod
     def _resume_cap(history: RunHistory, total: int | None) -> int:
+        if history.manifest.execution_group_id:
+            raise ServiceFailure(
+                ServiceError(
+                    code="preflight_failed",
+                    resource_id=history.manifest.execution_group_id,
+                    reason="resume_execution_group_required",
+                )
+            )
         if total is None:
             return history.cap
         if type(total) is not int or total < max(history.cap, history.used):
@@ -340,6 +348,7 @@ class ExecutionService:
             if replay is not None:
                 return self._resume_replay(replay, on_resumed)
             with self.source.consistent_read():
+                self._resume_cap(self.repository.history(run_id), max_attempts)
                 history = self.repository.recover(run_id)
                 self._resume_cap(history, max_attempts)
                 if any(

@@ -84,6 +84,9 @@ class RunProgress:
     result_snapshot_ids: tuple[str, ...]
     latest_result_snapshot_id: str | None
     replayed: bool = False
+    execution_group_id: str | None = None
+    group_attempts_remaining: int | None = None
+    reason: ServiceError | None = None
 
     @property
     def exit_code(self) -> Literal[0, 3, 4]:
@@ -154,7 +157,7 @@ def progress_view(
         active and history.state in {"preparing", "running", "cancelling"},
         history.used,
         history.cap,
-        max(0, history.cap - history.used),
+        history.remaining,
         history.manifest.settings,
         RunSourceReferences(
             history.manifest.decision_revision_id,
@@ -200,6 +203,9 @@ def progress_view(
         tuple(snapshot.id for snapshot in history.snapshots),
         history.snapshots[-1].id if history.snapshots else None,
         replayed,
+        history.manifest.execution_group_id,
+        history.group.remaining if history.group else None,
+        next((e.reason for e in reversed(history.events) if e.reason is not None), None),
     )
 
 

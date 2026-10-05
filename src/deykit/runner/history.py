@@ -20,6 +20,7 @@ from deykit.contracts.records import (
     RunManifest,
     RunSegment,
 )
+from deykit.runner.group_evidence import GroupBudget, group_budget
 
 R = TypeVar("R", bound=Record)
 AttemptKind = Literal["initial", "rate_retry", "unknown_retry"]
@@ -43,6 +44,12 @@ class RunHistory:
     attempt_events: tuple[AttemptEvent, ...]
     controls: tuple[RunControl, ...]
     snapshots: tuple[ResultSnapshot, ...]
+    group: GroupBudget | None = None
+
+    @property
+    def remaining(self) -> int:
+        own = max(0, self.cap - self.used)
+        return min(own, self.group.remaining) if self.group else own
 
     @property
     def cap(self) -> int:
@@ -187,7 +194,9 @@ def read_history(source: SnapshotSource, run_id: str) -> RunHistory:
     return history_from_records(source.capture_snapshot(), run_id)
 
 
-def history_from_records(records: tuple[StoredRecord, ...], run_id: str) -> RunHistory:
+def history_from_records(
+    records: tuple[StoredRecord, ...], run_id: str, *, verify_group: bool = True
+) -> RunHistory:
     """Validate a run from one captured source epoch without performing source reads.
 
     Evaluation and inspection consumers can reuse runner validation while retaining
@@ -305,6 +314,9 @@ def history_from_records(records: tuple[StoredRecord, ...], run_id: str) -> RunH
         tuple(attempt_events),
         controls,
         tuple(sorted(snapshots, key=lambda item: (item.through_event_sequence, item.id))),
+        group_budget(records, manifest.execution_group_id)
+        if verify_group and manifest.execution_group_id
+        else None,
     )
     previous = manifest.settings.max_attempts
     for control in controls:

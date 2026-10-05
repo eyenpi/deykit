@@ -341,6 +341,9 @@ class ExecutionSettings(FrozenModel):
 
 class RunManifest(HashedRecord):
     id: ResourceId
+    execution_group_id: ResourceId | None = None
+    regression_ids: tuple[ResourceId, ...] = ()
+    baseline_unavailable_reason: Literal["frozen_regression_selection"] | None = None
     option_order: tuple[ResourceId, ...] | None = None
     # Optional only for decoding pre-runner records; executable runs require these.
     decision_id: ResourceId | None = None
@@ -362,6 +365,14 @@ class RunManifest(HashedRecord):
     settings: ExecutionSettings
     created_at: UtcTimestamp
     operation_id: ResourceId
+
+    @model_validator(mode="after")
+    def regression_context(self) -> Self:
+        if len(self.regression_ids) != len(set(self.regression_ids)):
+            raise ValueError("duplicate_run_regression")
+        if bool(self.regression_ids) != (self.baseline_unavailable_reason is not None):
+            raise ValueError("invalid_regression_baseline_context")
+        return self
 
 
 class PreparedCase(HashedRecord):
@@ -521,6 +532,16 @@ class ComparisonRecord(HashedRecord):
 
 class RegressionRecord(HashedRecord):
     id: ResourceId
+    content_hash: ContentHash | None = None
+    # Legacy records remain readable; execution requires this full immutable evidence.
+    decision_id: ResourceId | None = None
+    source_run_id: ResourceId | None = None
+    source_result_snapshot_id: ResourceId | None = None
+    source_attempt_id: ResourceId | None = None
+    source_case: CaseRecord | None = None
+    provenance: (
+        Literal["human", "authored_fixture", "imported_unknown", "model_generated"] | None
+    ) = None
     decision_revision_id: ResourceId
     dataset_id: ResourceId
     case_id: ResourceId

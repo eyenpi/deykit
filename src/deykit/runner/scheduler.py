@@ -187,9 +187,14 @@ class Scheduler:
                 elif clock.monotonic() >= deadline and queue:
                     stop.state = "budget_exhausted"
                     stop.reason = ServiceError(code="run_incomplete", reason="segment_deadline")
-                elif current.used >= current.cap and queue:
+                elif current.remaining <= 0 and queue:
                     stop.state = "budget_exhausted"
-                    stop.reason = ServiceError(code="run_incomplete", reason="attempt_cap")
+                    stop.reason = ServiceError(
+                        code="run_incomplete",
+                        reason="execution_group_cap"
+                        if current.group and current.group.remaining == 0
+                        else "attempt_cap",
+                    )
                 if stop.state is None:
                     queue.sort(key=lambda entry: entry[0])
                     while (

@@ -36,6 +36,7 @@ from deykit.contracts.records import (
 from deykit.domain.definitions import definition_hash
 from deykit.domain.label_identity import label_id
 from deykit.metrics import assess_results, live_latency, majority_baseline, reported_usage
+from deykit.metrics.baseline import unavailable_regression_baseline
 from deykit.metrics.summary import MetricsInvalid
 from deykit.runner.planner import evidence_hash
 
@@ -193,6 +194,8 @@ def frozen_evaluation_from_records(
         or tuple(result.case_id for result in results.results) != manifest.case_ids
     ):
         fail("frozen_context_mismatch", "incompatible_data")
+    if manifest.baseline_unavailable_reason and (baseline_dataset.cases or baseline_labels.labels):
+        fail("regression_baseline_must_be_empty", "incompatible_data")
     frozen = FrozenEvaluation(
         manifest,
         revision,
@@ -217,15 +220,25 @@ def _metrics(frozen: FrozenEvaluation, evaluation_mode: EvaluationMode) -> dict[
             frozen.manifest.case_ids,
         )
         paired = tuple(item.case_id for item in summary.cases if item.set_correct is not None)
-        baseline = majority_baseline(
-            frozen.revision.definition,
-            frozen.baseline_dataset,
-            frozen.baseline_labels,
-            frozen.dataset,
-            frozen.labels,
-            frozen.manifest.case_ids,
-            paired,
-        )
+        if frozen.manifest.baseline_unavailable_reason:
+            baseline = unavailable_regression_baseline(
+                frozen.baseline_dataset,
+                frozen.baseline_labels,
+                frozen.dataset,
+                frozen.labels,
+                len(frozen.manifest.case_ids),
+                len(paired),
+            )
+        else:
+            baseline = majority_baseline(
+                frozen.revision.definition,
+                frozen.baseline_dataset,
+                frozen.baseline_labels,
+                frozen.dataset,
+                frozen.labels,
+                frozen.manifest.case_ids,
+                paired,
+            )
         latency = live_latency(
             frozen.manifest.mode,
             tuple(
