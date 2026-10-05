@@ -291,3 +291,84 @@ def test_reentrant_reads_recover_a_failed_commit_within_outer_context(tmp_path):
             with pytest.raises(ServiceFailure):
                 source.commit("write", (SourceChange(key, draft("recover me"), None),))
             assert load_record(DecisionDraft, source.read(key).body).editor_source == "recover me"
+
+
+@pytest.mark.parametrize("interleave", [False, True])
+def test_project_create_rechecks_replay_inside_source_context(tmp_path, interleave):
+    from contextlib import contextmanager
+
+    from deykit.contracts.records import ProjectRecord
+
+    root = tmp_path / "Race project"
+    calls = []
+    original = None
+
+    class InterceptingSource:
+        def __init__(self, path, create):
+            self.source = FileProjectSource(path, create=create)
+            self.depth = 0
+            self.lookups = 0
+
+        def __getattr__(self, name):
+            return getattr(self.source, name)
+
+        @contextmanager
+        def consistent_read(self):
+            with self.source.consistent_read():
+                self.depth += 1
+                try:
+                    yield self
+                finally:
+                    self.depth -= 1
+
+        def operation_receipt(self, operation_id, *, intent_hash):
+            nonlocal original
+            self.lookups += 1
+            assert self.depth == (0 if self.lookups == 1 else 1)
+            receipt = self.source.operation_receipt(operation_id, intent_hash=intent_hash)
+            if self.lookups == 1 and interleave:
+                assert receipt is None
+                original = service().create(root, "Project", "create")
+                with FileProjectSource(root) as other:
+                    key = ResourceKey("project", "project")
+                    current = other.read(key)
+                    renamed = ProjectRecord(id="project", name="Later name", created_at=STAMP)
+                    other.commit(
+                        "later-edit", (SourceChange(key, dump_record(renamed), current.etag),)
+                    )
+            return receipt
+
+        def list_ids(self, collection, scope=()):
+            assert self.depth == 1
+            return self.source.list_ids(collection, scope)
+
+        def commit(self, *args, **kwargs):
+            assert self.depth == 1
+            return self.source.commit(*args, **kwargs)
+
+        def execution_active(self):
+            assert self.depth == 0
+            return self.source.execution_active()
+
+    def generated_id():
+        assert not interleave, "replay must precede generated identity"
+        calls.append("id")
+        return "project"
+
+    class ObservedClock(Clock):
+        def utc_now(self):
+            assert not interleave, "replay must precede generated timestamp"
+            calls.append("clock")
+            return STAMP
+
+    result = ProjectService(InterceptingSource, ObservedClock(), generated_id).create(
+        root, "Project", "create"
+    )
+    assert result.project.name == "Project"
+    if interleave:
+        assert result.project == original.project
+        assert result.etag == original.etag
+        assert calls == []
+        assert service().open(root).project.name == "Later name"
+    else:
+        assert calls == ["id", "clock"]
