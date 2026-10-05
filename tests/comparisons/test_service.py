@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from deykit.application.comparisons import ComparisonService, _prepared, comparison_hash
 from deykit.application.datasets import CaseInput, DatasetService
+from deykit.application.definitions import DecisionService
 from deykit.application.demo import DemoService
 from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import EvaluationService
@@ -18,7 +19,9 @@ from deykit.application.fixtures import FixtureService
 from deykit.application.labels import LabelService
 from deykit.cli.context import SystemClock
 from deykit.cli.main import app
+from deykit.comparisons.pairing import pair_cases
 from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.json_value import dump_json, parse_json
 from deykit.contracts.ports import ResourceKey
 from deykit.contracts.records import NormalizedAnswer, PreparedCase
 from deykit.runner.backends import ProviderBackends
@@ -123,7 +126,17 @@ def test_a36_exact_sandbox_counts_and_idempotent_immutable_comparison(sandbox, m
         return "comparison"
 
     service = ComparisonService(source, clock, new_id)
-    saved = service.create(left.record.id, right.record.id, operation_id="compare")
+    captured = []
+    original_capture = source.capture_snapshot
+
+    def capture():
+        captured.append(True)
+        return original_capture()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(source, "capture_snapshot", capture)
+        saved = service.create(left.record.id, right.record.id, operation_id="compare")
+    assert len(captured) == 2  # One original batch plus deliberate pre-commit drift check.
     outcomes = saved.outcomes
     assert outcomes.quality_denominator == 8
     assert {key: value for key, value in outcomes.primary_counts.items() if value} == {
@@ -167,12 +180,30 @@ def test_a36_exact_sandbox_counts_and_idempotent_immutable_comparison(sandbox, m
     assert service.read(saved.record.id).outcomes == outcomes
     from deykit.application import comparisons
 
-    monkeypatch.setattr(
-        comparisons,
-        "assess_results",
-        lambda *args: (_ for _ in ()).throw(AssertionError("saved reads must not recompute")),
-    )
-    assert service.read(saved.record.id).outcomes == outcomes
+    original_assess = comparisons.assess_results
+    validated = []
+
+    def original_only(definition, dataset, frozen_labels, results, selected):
+        validated.append((dataset.id, frozen_labels.id, results.id))
+        assert frozen_labels.id in (
+            outcomes.left.label_snapshot_id,
+            outcomes.right.label_snapshot_id,
+        )
+        return original_assess(definition, dataset, frozen_labels, results, selected)
+
+    monkeypatch.setattr(comparisons, "assess_results", original_only)
+    captured.clear()
+    with monkeypatch.context() as patch:
+        patch.setattr(source, "capture_snapshot", capture)
+        assert service.read(saved.record.id).outcomes == outcomes
+        assert len(captured) == 1
+        captured.clear()
+        assert (
+            service.create(left.record.id, right.record.id, operation_id="compare").record
+            == saved.record
+        )
+        assert len(captured) == 1
+    assert len(validated) == 4
     with pytest.raises(ServiceFailure) as changed:
         service.create(right.record.id, left.record.id, operation_id="compare")
     assert changed.value.error.code == "conflict"
@@ -183,6 +214,7 @@ def test_saved_request_and_compiler_links_reject_rehashed_wrong_context(sandbox,
     service = ComparisonService(source, clock)
     saved = service.create(left.record.id, right.record.id, operation_id="binding-test")
     original_read = source.read
+    original_capture = source.capture_snapshot
     stored = original_read(ResourceKey("comparisons", saved.record.id))
     # Only the comparison payload is altered. All answers and attempt evidence
     # remain genuine runner records. A valid new content hash cannot repair links.
@@ -212,8 +244,10 @@ def test_saved_request_and_compiler_links_reject_rehashed_wrong_context(sandbox,
         with monkeypatch.context() as patch:
             patch.setattr(
                 source,
-                "read",
-                lambda key, altered=altered: altered if key == stored.key else original_read(key),
+                "capture_snapshot",
+                lambda altered=altered: tuple(
+                    altered if item.key == stored.key else item for item in original_capture()
+                ),
             )
             with pytest.raises(ServiceFailure) as rejected:
                 service.read(saved.record.id)
@@ -232,6 +266,116 @@ def test_saved_request_and_compiler_links_reject_rehashed_wrong_context(sandbox,
         with pytest.raises(ServiceFailure) as rejected:
             _prepared(tuple(altered if item == prepared else item for item in records), frozen)
         assert rejected.value.error.reason == "comparison_prepared_context_mismatch"
+
+
+def test_rehashed_bucket_and_frozen_label_assessment_forgeries_are_rejected(sandbox, monkeypatch):
+    source, info, clock, left, right, run = sandbox
+    service = ComparisonService(source, clock)
+    saved = service.create(left.record.id, right.record.id, operation_id="assessment-binding")
+
+    def reject(saved, source_text, reason):
+        records = source.capture_snapshot()
+        stored = next(
+            item for item in records if item.key == ResourceKey("comparisons", saved.record.id)
+        )
+        record = saved.record.model_copy(update={"outcomes_source": source_text})
+        record = record.model_copy(update={"content_hash": comparison_hash(record)})
+        altered = replace(stored, body=dump_record(record))
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                source,
+                "capture_snapshot",
+                lambda: tuple(altered if item.key == stored.key else item for item in records),
+            )
+            with pytest.raises(ServiceFailure) as rejected:
+                service.read(saved.record.id)
+            assert rejected.value.error.reason == reason
+
+    raw = parse_json(saved.record.outcomes_source)
+    raw["cases"][0]["bucket"] = "both_wrong"
+    raw["primary_counts"]["both_correct"] -= 1
+    raw["primary_counts"]["both_wrong"] += 1
+    raw["left_correct_count"] -= 1
+    raw["right_correct_count"] -= 1
+    reject(saved, dump_json(raw).decode(), "invalid_comparison_record")
+
+    def forged_side(saved, case_id, changes):
+        left_cases = {
+            case.case_id: case.left for case in saved.outcomes.cases if case.left is not None
+        }
+        right_cases = {
+            case.case_id: case.right for case in saved.outcomes.cases if case.right is not None
+        }
+        left_cases[case_id] = left_cases[case_id].model_copy(update=changes)
+        # Reclassify and recount so the forged payload is internally coherent.
+        outcomes = pair_cases(saved.outcomes.left, saved.outcomes.right, left_cases, right_cases)
+        reject(saved, dump_record(outcomes).decode(), "comparison_assessment_link_mismatch")
+
+    for changes in (
+        {"expected_option_ids": ("report",), "correct": False},
+        {"correct": False},
+        {"label_provenance": "synthetic"},
+        {"exclusion_reasons": ("disputed",), "correct": None},
+    ):
+        forged_side(saved, "ex-001", changes)
+
+    labels = LabelService(source, clock)
+    labels.set(
+        labels.read(info.decision_id, info.dataset_id, "ex-001").review,
+        ("question", "report"),
+        provenance="human",
+        operation_id="acceptable-set",
+    )
+    evaluations = EvaluationService(source, clock)
+    updated = evaluations.reevaluate_current_labels(
+        left.record.run_id, left.record.result_snapshot_id, operation_id="acceptable-eval"
+    )
+    acceptable = service.create(
+        updated.record.id, updated.record.id, operation_id="acceptable-compare"
+    )
+    assert acceptable.outcomes.quality_denominator == 8
+    case = next(case for case in acceptable.outcomes.cases if case.case_id == "ex-001")
+    assert case.left.correct and case.left.exclusion_reasons == (
+        "acceptable_set_excluded_from_class_metrics",
+    )
+    forged_side(acceptable, "ex-001", {"exclusion_reasons": ()})
+    forged_side(acceptable, "ex-001", {"expected_option_ids": ("report", "question")})
+
+    decisions = DecisionService(source, clock)
+    definition = decisions.validate(info.decision_id)
+    definition = definition.model_copy(
+        update={"questions": (definition.questions[0].model_copy(update={"id": "replacement"}),)}
+    )
+    view = decisions.read(info.decision_id)
+    draft = decisions.update_draft(
+        info.decision_id,
+        dump_record(definition).decode(),
+        expected_etag=view.draft.etag,
+        operation_id="retire-question-draft",
+    )
+    decisions.save(
+        info.decision_id,
+        expected_draft_etag=draft.etag,
+        expected_decision_etag=view.decision.etag,
+        operation_id="retire-question-save",
+    )
+    legacy = run(info.fixture_set_id, "legacy-label-run", case_ids=("ex-001",))
+    comparison = service.create(
+        legacy.record.id, legacy.record.id, operation_id="legacy-comparison"
+    )
+    side = comparison.outcomes.cases[0].left
+    assert "incompatible_question_label" in side.exclusion_reasons and side.correct is None
+    forged_side(
+        comparison,
+        "ex-001",
+        {
+            "exclusion_reasons": tuple(
+                reason
+                for reason in side.exclusion_reasons
+                if reason != "incompatible_question_label"
+            )
+        },
+    )
 
 
 def test_changed_expectations_and_partial_results_never_silently_pair(sandbox):

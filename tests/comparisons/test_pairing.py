@@ -157,7 +157,7 @@ def test_no_shared_resource_context_and_untrusted_nested_values():
         pair_cases(context(values), context(values), {"case": malformed}, values)
 
 
-@pytest.mark.parametrize("change", ["version", "counts", "scope", "unknown"])
+@pytest.mark.parametrize("change", ["version", "counts", "scope", "unknown", "bucket"])
 def test_persisted_source_rejects_invalid_versions_counts_scope_and_fields(change):
     values = {"case": side()}
     result = pair_cases(context(values), context(values), values, values)
@@ -168,6 +168,11 @@ def test_persisted_source_rejects_invalid_versions_counts_scope_and_fields(chang
         raw["quality_denominator"] = 2
     elif change == "scope":
         raw["left"]["selected_case_ids"] = []
+    elif change == "bucket":
+        raw["cases"][0]["bucket"] = "both_wrong"
+        raw["primary_counts"]["both_correct"] = 0
+        raw["primary_counts"]["both_wrong"] = 1
+        raw["left_correct_count"] = raw["right_correct_count"] = 0
     else:
         raw["secret"] = "unknown field"
     with pytest.raises(JsonError):

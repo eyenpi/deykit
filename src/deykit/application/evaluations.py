@@ -140,13 +140,14 @@ def _verify_hashes(frozen: FrozenEvaluation) -> None:
         fail("result_snapshot_hash_mismatch", "incompatible_data")
 
 
-def _frozen(
+def frozen_evaluation_from_records(
     records: tuple[StoredRecord, ...],
     run_id: str,
     result_snapshot_id: str,
     label_snapshot_id: str | None,
     mode: EvaluationMode,
 ) -> FrozenEvaluation:
+    """Admit original immutable context from one already captured source batch."""
     index = {record.key: record for record in records}
     manifest = _required(index, RunManifest, "runs", run_id)
     if (
@@ -267,7 +268,8 @@ def _metrics(frozen: FrozenEvaluation, evaluation_mode: EvaluationMode) -> dict[
     }
 
 
-def _view(stored: StoredRecord, *, replayed: bool = False) -> EvaluationView:
+def admit_evaluation_record(stored: StoredRecord, *, replayed: bool = False) -> EvaluationView:
+    """Decode and verify an evaluation without reading source or mutable state."""
     record = _typed(stored, EvaluationRecord)
     try:
         if record.content_hash != evaluation_hash(record):
@@ -281,6 +283,12 @@ def _view(stored: StoredRecord, *, replayed: bool = False) -> EvaluationView:
     if not isinstance(metrics, dict):
         fail("invalid_evaluation_metrics", "incompatible_data")
     return EvaluationView(record, stored.etag, metrics, replayed)
+
+
+# Existing result inspection imports these names; both point to the same pure
+# implementations rather than maintaining a second admission path.
+_frozen = frozen_evaluation_from_records
+_view = admit_evaluation_record
 
 
 class EvaluationService:
@@ -303,7 +311,7 @@ class EvaluationService:
         if mode not in ("original", "saved_answer_reevaluation"):
             fail("invalid_evaluation_mode")
         with self.source.consistent_read() as source:
-            return _frozen(
+            return frozen_evaluation_from_records(
                 cast(SnapshotSource, source).capture_snapshot(),
                 run_id,
                 result_snapshot_id,
@@ -347,7 +355,7 @@ class EvaluationService:
         with self.source.consistent_read() as source:
             records = cast(SnapshotSource, source).capture_snapshot()
             matches = tuple(
-                _view(item, replayed=True)
+                admit_evaluation_record(item, replayed=True)
                 for item in records
                 if item.key.collection == "evaluations"
                 and _typed(item, EvaluationRecord).execution_operation_id == execution_operation_id
@@ -360,7 +368,7 @@ class EvaluationService:
                 ):
                     fail("execution_evaluation_conflict", "incompatible_data")
                 record = matches[0].record
-                _frozen(
+                frozen_evaluation_from_records(
                     records, run_id, record.result_snapshot_id, record.label_snapshot_id, "original"
                 )
                 return matches[0]
@@ -408,9 +416,11 @@ class EvaluationService:
         with self.source.consistent_read() as source:
             replay = source.operation_receipt(operation_id, intent_hash=digest)
             if replay is not None:
-                return _view(replay.changes[0], replayed=True)
+                return admit_evaluation_record(replay.changes[0], replayed=True)
             before = cast(SnapshotSource, source).capture_snapshot()
-            frozen = _frozen(before, run_id, result_snapshot_id, label_snapshot_id, mode)
+            frozen = frozen_evaluation_from_records(
+                before, run_id, result_snapshot_id, label_snapshot_id, mode
+            )
             try:
                 metrics_source = dump_json(_metrics(frozen, mode))
                 content_hash = _evaluation_hash(
@@ -442,7 +452,7 @@ class EvaluationService:
                 (SourceChange(ResourceKey("evaluations", record.id), body, None),),
                 intent_hash=digest,
             )
-            return _view(receipt.changes[0], replayed=receipt.replayed)
+            return admit_evaluation_record(receipt.changes[0], replayed=receipt.replayed)
 
     def reevaluate_current_labels(
         self, run_id: str, result_snapshot_id: str, *, operation_id: str
@@ -465,7 +475,7 @@ class EvaluationService:
                 )
                 if saved is None:
                     fail("incomplete_evaluation_receipt", "incompatible_data")
-                return _view(saved, replayed=True)
+                return admit_evaluation_record(saved, replayed=True)
             captured = cast(SnapshotSource, source).capture_snapshot()
             index = {item.key: item for item in captured}
             manifest = _required(index, RunManifest, "runs", run_id)
@@ -508,7 +518,7 @@ class EvaluationService:
                     dump_record(label_snapshot),
                     "",
                 )
-                frozen = _frozen(
+                frozen = frozen_evaluation_from_records(
                     (*captured, provisional),
                     run_id,
                     result_snapshot_id,
@@ -550,7 +560,7 @@ class EvaluationService:
             )
             if saved is None:
                 fail("incomplete_evaluation_receipt", "incompatible_data")
-            return _view(saved, replayed=receipt.replayed)
+            return admit_evaluation_record(saved, replayed=receipt.replayed)
 
     def read(self, evaluation_id: str) -> EvaluationView:
         key = ResourceKey("evaluations", identifier(evaluation_id))
@@ -558,7 +568,7 @@ class EvaluationService:
             stored = source.read(key)
             if stored is None:
                 fail("evaluation_missing", "not_found")
-            return _view(stored)
+            return admit_evaluation_record(stored)
 
     def list(
         self,
@@ -574,7 +584,7 @@ class EvaluationService:
                 stored.key.resource_id: view
                 for stored in records
                 if stored.key.collection == "evaluations"
-                if (view := _view(stored)).record.run_id == run_id
+                if (view := admit_evaluation_record(stored)).record.run_id == run_id
             }
             chosen, next_cursor = page(tuple(views), cursor, limit)
             return EvaluationPage(tuple(views[key] for key in chosen), len(views), next_cursor)

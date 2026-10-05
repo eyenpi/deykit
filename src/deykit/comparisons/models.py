@@ -4,6 +4,7 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
+from deykit.comparisons.rules import classify
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.identities import ContentHash, ResourceId
 
@@ -142,6 +143,14 @@ class ComparisonOutcomes(Record):
             sorted(set(self.left.selected_case_ids) | set(self.right.selected_case_ids))
         ):
             raise ValueError("comparison_union_mismatch")
+        compatible = self.left.question_id == self.right.question_id and set(
+            self.left.option_ids
+        ) == set(self.right.option_ids)
+        if any(
+            case.bucket != classify(case.left, case.right, compatible_options=compatible)
+            for case in self.cases
+        ):
+            raise ValueError("comparison_bucket_mismatch")
         counts = {bucket: sum(case.bucket == bucket for case in self.cases) for bucket in BUCKETS}
         if self.primary_counts != counts:
             raise ValueError("comparison_counts_mismatch")

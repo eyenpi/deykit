@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from typing import cast
 
 from deykit.application.dataset_support import fail, identifier
-from deykit.application.evaluations import EvaluationService, EvaluationView, FrozenEvaluation
+from deykit.application.evaluations import (
+    EvaluationView,
+    FrozenEvaluation,
+    admit_evaluation_record,
+    frozen_evaluation_from_records,
+)
 from deykit.comparisons.models import (
     ComparisonCaseSide,
     ComparisonContext,
@@ -173,29 +178,46 @@ def _context(
     )
 
 
+def _evaluation(
+    records: tuple[StoredRecord, ...], index: dict[ResourceKey, StoredRecord], evaluation_id: str
+) -> tuple[EvaluationView, FrozenEvaluation]:
+    stored = index.get(ResourceKey("evaluations", evaluation_id))
+    if stored is None:
+        fail("evaluation_missing", "not_found")
+    evaluation = admit_evaluation_record(stored)
+    if evaluation.record.id != evaluation_id:
+        fail("comparison_evaluation_link_mismatch", "incompatible_data")
+    frozen = frozen_evaluation_from_records(
+        records,
+        evaluation.record.run_id,
+        evaluation.record.result_snapshot_id,
+        evaluation.record.label_snapshot_id,
+        evaluation.record.mode,
+    )
+    return evaluation, frozen
+
+
 class ComparisonService:
     def __init__(
         self, source: SnapshotSource, clock: Clock, id_factory: Callable[[], str] = new_id
     ) -> None:
         self.source, self.clock, self.id_factory = source, clock, id_factory
 
-    def _bound_view(self, stored: StoredRecord, *, replayed: bool = False) -> ComparisonView:
+    def _bound_view(
+        self, stored: StoredRecord, records: tuple[StoredRecord, ...], *, replayed: bool = False
+    ) -> ComparisonView:
         saved = _view(stored, replayed=replayed)
-        evaluations = EvaluationService(self.source, self.clock)
-        records = self.source.capture_snapshot()
+        index = {item.key: item for item in records}
         for position, context in enumerate((saved.outcomes.left, saved.outcomes.right)):
-            evaluation = evaluations.read(context.evaluation_id)
-            frozen = evaluations.frozen_context(
-                evaluation.record.run_id,
-                evaluation.record.result_snapshot_id,
-                label_snapshot_id=evaluation.record.label_snapshot_id,
-                mode=evaluation.record.mode,
-            )
+            evaluation, frozen = _evaluation(records, index, context.evaluation_id)
             prepared = _prepared(records, frozen)
-            if _context(evaluation, frozen, prepared) != context:
+            try:
+                original_context, original_sides = _side(evaluation, frozen, prepared)
+            except (MetricsInvalid, ModelInvalid, JsonError):
+                fail("invalid_comparison_assessment", "incompatible_data")
+            if original_context != context:
                 fail("comparison_context_mismatch", "incompatible_data")
             prepared_index = {item.case_id: item for item in prepared}
-            result_index = {item.case_id: item for item in frozen.results.results}
             for case in saved.outcomes.cases:
                 side = case.left if position == 0 else case.right
                 if side is not None:
@@ -204,14 +226,8 @@ class ComparisonService:
                         item.request.body_hash if item.request is not None else None
                     ):
                         fail("comparison_request_link_mismatch", "incompatible_data")
-                    result = result_index[case.case_id]
-                    if (
-                        side.input_hash != result.input_hash
-                        or side.status != result.status
-                        or side.answer_option_id
-                        != (result.answer.option_id if result.answer is not None else None)
-                    ):
-                        fail("comparison_result_link_mismatch", "incompatible_data")
+                    if side != original_sides[case.case_id]:
+                        fail("comparison_assessment_link_mismatch", "incompatible_data")
         return saved
 
     def create(
@@ -230,23 +246,20 @@ class ComparisonService:
             if replay is not None:
                 if len(replay.changes) != 1:
                     fail("invalid_comparison_receipt", "incompatible_data")
-                return self._bound_view(replay.changes[0], replayed=True)
+                return self._bound_view(
+                    replay.changes[0],
+                    cast(SnapshotSource, source).capture_snapshot(),
+                    replayed=True,
+                )
             before = cast(SnapshotSource, source).capture_snapshot()
-            evaluations = EvaluationService(self.source, self.clock)
-            left, right = (
-                evaluations.read(left_evaluation_id),
-                evaluations.read(right_evaluation_id),
-            )
+            index = {item.key: item for item in before}
             try:
-                sides = []
-                for saved in (left, right):
-                    frozen = evaluations.frozen_context(
-                        saved.record.run_id,
-                        saved.record.result_snapshot_id,
-                        label_snapshot_id=saved.record.label_snapshot_id,
-                        mode=saved.record.mode,
-                    )
-                    sides.append(_side(saved, frozen, _prepared(before, frozen)))
+                left, left_frozen = _evaluation(before, index, left_evaluation_id)
+                right, right_frozen = _evaluation(before, index, right_evaluation_id)
+                sides = (
+                    _side(left, left_frozen, _prepared(before, left_frozen)),
+                    _side(right, right_frozen, _prepared(before, right_frozen)),
+                )
                 outcomes = pair_cases(sides[0][0], sides[1][0], sides[0][1], sides[1][1])
                 provisional = ComparisonRecord(
                     id=identifier(self.id_factory()),
@@ -276,7 +289,8 @@ class ComparisonService:
     def read(self, comparison_id: str) -> ComparisonView:
         key = ResourceKey("comparisons", identifier(comparison_id))
         with self.source.consistent_read() as source:
-            saved = source.read(key)
+            records = cast(SnapshotSource, source).capture_snapshot()
+            saved = next((item for item in records if item.key == key), None)
             if saved is None:
                 fail("comparison_missing", "not_found")
-            return self._bound_view(saved)
+            return self._bound_view(saved, records)
