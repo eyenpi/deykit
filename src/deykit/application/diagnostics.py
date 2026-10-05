@@ -6,7 +6,7 @@ from typing import Annotated, cast
 from pydantic import Field
 
 from deykit.application.dataset_support import fail, validated_model
-from deykit.application.evaluations import FrozenEvaluation, _frozen
+from deykit.application.evaluations import FrozenEvaluation, frozen_evaluation_from_records
 from deykit.application.execution import ExecutionService
 from deykit.application.execution_groups import GroupExecutionService
 from deykit.contracts.base import FrozenModel
@@ -137,7 +137,8 @@ def diagnostic_snapshot_from_records(
     ):
         fail("diagnostic_snapshot_mismatch", "incompatible_data")
     members = tuple(
-        _frozen(records, r.run_id, r.result_snapshot_id, None, "original") for r in snapshot.results
+        frozen_evaluation_from_records(records, r.run_id, r.result_snapshot_id, None, "original")
+        for r in snapshot.results
     )
     first = members[0]
     if any(

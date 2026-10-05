@@ -41,10 +41,10 @@ def admit_regression_origin(
     records: tuple[StoredRecord, ...], record: RegressionRecord
 ) -> CaseRecord:
     """Bind self-contained evidence to its immutable source run and selected result."""
-    from deykit.application.evaluations import _frozen
+    from deykit.application.evaluations import frozen_evaluation_from_records
 
     case = frozen_case(record)
-    frozen = _frozen(
+    frozen = frozen_evaluation_from_records(
         records,
         record.source_run_id or "",
         record.source_result_snapshot_id or "",

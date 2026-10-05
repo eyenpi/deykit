@@ -86,6 +86,7 @@ class RunProgress:
     replayed: bool = False
     execution_group_id: str | None = None
     group_attempts_remaining: int | None = None
+    reason: ServiceError | None = None
 
     @property
     def exit_code(self) -> Literal[0, 3, 4]:
@@ -204,6 +205,7 @@ def progress_view(
         replayed,
         history.manifest.execution_group_id,
         history.group.remaining if history.group else None,
+        next((e.reason for e in reversed(history.events) if e.reason is not None), None),
     )
 
 

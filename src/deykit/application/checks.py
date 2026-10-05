@@ -6,7 +6,7 @@ from typing import Literal, Self, cast
 from pydantic import model_validator
 
 from deykit.application.dataset_support import decoded, fail, validated_model
-from deykit.application.evaluations import FrozenEvaluation, _frozen
+from deykit.application.evaluations import FrozenEvaluation, frozen_evaluation_from_records
 from deykit.application.execution import ExecutionService
 from deykit.application.execution_groups import GroupExecutionService
 from deykit.application.regressions import visible_regressions
@@ -16,6 +16,7 @@ from deykit.contracts.identities import ResourceId
 from deykit.contracts.json_value import JsonValue, dump_json
 from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.contracts.records import ExecutionSettings, RegressionRecord
+from deykit.contracts.redaction import Sanitizer
 from deykit.regressions.evidence import admit_regression_origin, frozen_case
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.group_models import GroupPlan, GroupPreview, GroupProgress
@@ -55,6 +56,13 @@ class CheckCase:
     expected_option_ids: tuple[str, ...]
     actual_option_id: str | None
     passed: bool | None
+    provenance: str = ""
+    original_split: str = ""
+    input_hash: str = ""
+    source_run_id: str | None = None
+    source_result_snapshot_id: str | None = None
+    source_attempt_id: str | None = None
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -195,7 +203,8 @@ def check_snapshot_from_records(
     ):
         fail("check_snapshot_mismatch", "incompatible_data")
     members = tuple(
-        _frozen(records, r.run_id, r.result_snapshot_id, None, "original") for r in snapshot.results
+        frozen_evaluation_from_records(records, r.run_id, r.result_snapshot_id, None, "original")
+        for r in snapshot.results
     )
     cases: list[CheckCase] = []
     regressions: list[RegressionRecord] = []
@@ -233,6 +242,13 @@ def check_snapshot_from_records(
                     regression.acceptable_option_ids,
                     actual,
                     actual in regression.acceptable_option_ids if actual else None,
+                    regression.provenance or "",
+                    case.split,
+                    regression.input_hash,
+                    regression.source_run_id,
+                    regression.source_result_snapshot_id,
+                    regression.source_attempt_id,
+                    Sanitizer().text(regression.reason),
                 )
             )
     return FrozenCheckSnapshot(

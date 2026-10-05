@@ -58,7 +58,9 @@ def test_pinned_diagnostic_and_all_retained_corruption_admitted_before_repair(se
         # Remove final summary too: malformed retained graph must reject before repair.
         batch = tuple(r for r in batch if r.key != ResourceKey("diagnostic_snapshots", later.id))
         with monkeypatch.context() as patch:
-            patch.setattr(source, "capture_snapshot", lambda *args, **kwargs: batch)
+            patch.setattr(
+                source, "capture_snapshot", lambda *args, retained=batch, **kwargs: retained
+            )
             with pytest.raises(ServiceFailure):
                 service.read(result.group.group_id)
         assert source.capture_snapshot() == records
@@ -195,3 +197,254 @@ def test_resume_receipt_inside_source_lock_leaves_lock_before_render(setup, monk
     replay = asyncio.run(service.resume(result.group.group_id, operation_id="resume"))
     assert replay.group.replayed and len(factory.calls) == 2
     assert source.capture_snapshot() == before
+
+
+def test_pinned_check_preserves_multiple_oracles_after_removal_and_later_resume(setup):
+    from deykit.application.checks import CheckRequest, CheckService, check_snapshot_from_records
+
+    source, runner, factory, clock = setup(count=1)
+    origin = asyncio.run(runner.start(request(), operation_id="origin"))
+    names = iter(("reg-a", "reg-b", "removal"))
+    regressions = RegressionService(source, clock, lambda: next(names))
+    for expected in (("yes", "no"), ("no",)):
+        regressions.add(
+            RegressionAdd(
+                run_id=origin.run_id,
+                case_id="case-00",
+                acceptable_option_ids=expected,
+                reason="Explicit separate oracle",
+            ),
+            operation_id="save-" + expected[0] + str(len(expected)),
+        )
+    checks = CheckService(runner)
+    result = asyncio.run(
+        checks.start(
+            CheckRequest(decision_id="decision", mode="fixture", fixture_set_id="set"),
+            operation_id="check",
+        )
+    )
+    assert result.exit_code == 5 and result.expectation_failures == 1
+    assert len(result.cases) == 2 and len(factory.calls) == 2
+    assert result.group.independent_case_count == 1 and result.group.initial_requests == 1
+    before = check_snapshot_from_records(source.capture_snapshot(), result.group.snapshot_id)
+    regressions.remove("reg-a", decision_id="decision", operation_id="remove")
+    asyncio.run(checks.resume(result.group.group_id, operation_id="resume"))
+    capture = source.capture_snapshot()
+    assert check_snapshot_from_records(capture, before.snapshot.id) == before
+    assert source.capture_snapshot() == capture and len(factory.calls) == 2
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_regression_removed_between_prepare_and_freeze_conflicts_without_group_write(
+    setup, monkeypatch, explicit
+):
+    from deykit.application.checks import CheckRequest, CheckService
+
+    source, runner, factory, clock = setup(count=1)
+    origin = asyncio.run(runner.start(request(), operation_id="origin"))
+    regressions = RegressionService(source, clock, lambda: "reg")
+    regressions.add(
+        RegressionAdd(
+            run_id=origin.run_id, case_id="case-00", acceptable_option_ids=("yes",), reason="Oracle"
+        ),
+        operation_id="save",
+    )
+    checks = CheckService(runner)
+    plan = checks._plan
+    after_removal = []
+
+    def prepare(request):
+        prepared = plan(request)
+        regressions.remove("reg", decision_id="decision", operation_id="remove")
+        after_removal.append(source.capture_snapshot())
+        return prepared
+
+    monkeypatch.setattr(checks, "_plan", prepare)
+    with pytest.raises(ServiceFailure) as error:
+        asyncio.run(
+            checks.start(
+                CheckRequest(
+                    decision_id="decision",
+                    mode="fixture",
+                    fixture_set_id="set",
+                    regression_ids=("reg",) if explicit else (),
+                ),
+                operation_id="check",
+            )
+        )
+    assert error.value.error.code == "conflict"
+    assert source.capture_snapshot() == after_removal[0] and len(factory.calls) == 1
+    assert not source.list_ids("execution_groups")
+
+
+def test_legacy_regression_metadata_visible_but_never_current_input_execution(setup):
+    from deykit.application.checks import CheckRequest, CheckService
+    from deykit.runner.repository import change
+
+    source, runner, factory, clock = setup(count=1)
+    origin = asyncio.run(runner.start(request(), operation_id="origin"))
+    manifest = runner.repository.history(origin.run_id).manifest
+    legacy = RegressionRecord(
+        id="legacy",
+        decision_revision_id=manifest.decision_revision_id,
+        dataset_id="data",
+        case_id="case-00",
+        question_id="q",
+        input_source='{"text":"old"}',
+        input_hash="0" * 64,
+        acceptable_option_ids=("yes",),
+        reason="Legacy oracle",
+        created_at=clock.utc_now(),
+    )
+    source.commit("legacy-save", (change("regressions", legacy),))
+    view = RegressionService(source, clock).list("decision")[0]
+    assert view.decision_id == "decision" and not view.executable
+    assert view.unavailable_reason == "legacy_regression_not_executable"
+    before = source.capture_snapshot()
+    with pytest.raises(ServiceFailure) as error:
+        CheckService(runner).preview(
+            CheckRequest(decision_id="decision", mode="fixture", fixture_set_id="set")
+        )
+    assert error.value.error.reason == "legacy_regression_not_executable"
+    assert source.capture_snapshot() == before and len(factory.calls) == 1
+
+
+def test_production_32mib_whole_freeze_boundary_includes_segment_ready_bytes(setup):
+    from deykit.contracts.json_value import JsonDocument, dump_json
+    from deykit.runner.group_models import GroupPlan
+    from deykit.runner.planner import MAX_PLAN_BYTES
+
+    source, runner, factory, _ = setup(count=20)
+    service = DiagnosticService(runner).groups
+    small = runner.planner.prepare_orders(request(cap=100), orders=2, seed=0)
+
+    def stage(padding, trailing=0):
+        plans = []
+        for plan in small:
+            cases = tuple(
+                c.model_copy(
+                    update={
+                        "input_source": dump_json({"text": f"Text {i}", "pad": "x" * padding}),
+                        "split": "test",
+                    }
+                )
+                for i, c in enumerate(plan.cases)
+            )
+            prepared = tuple(
+                replace(c, input_hash=JsonDocument(case.input_source).content_hash)
+                for c, case in zip(plan.prepared, cases, strict=True)
+            )
+            plans.append(
+                replace(
+                    plan,
+                    cases=cases,
+                    prepared=prepared,
+                    development_cases=(),
+                    development_labels=(),
+                )
+            )
+        group, changes = service.store.stage_freeze(
+            GroupPlan("choice_order", tuple(plans), 100, 600),
+            "boundary",
+            "0" * 64,
+            "{}" + " " * trailing,
+        )
+        segment, operational = service.store.stage_segment(
+            group, "boundary", 1, False, service._staged(changes), initial=True
+        )
+        ready = service.store.stage_ready(segment, service._staged((*changes, *operational)))
+        return (*changes, *operational, *ready)
+
+    base = stage(800_000)
+    base_size = sum(len(c.body or b"") for c in base)
+    increase, remainder = divmod(MAX_PLAN_BYTES - base_size, 40)
+    exact = stage(800_000 + increase, remainder)
+    assert sum(len(c.body or b"") for c in exact) == 32 * 1024 * 1024
+    service._check_size(exact)
+    with pytest.raises(ServiceFailure) as error:
+        service._check_size((*exact, replace(exact[-1], body=b"x")))
+    assert error.value.error.reason == "execution_group_resource_limit"
+    assert not source.list_ids("runs") and not source.list_ids("execution_groups")
+    assert not factory.calls
+
+
+def test_concurrent_group_reservations_compete_for_last_lifetime_slot(setup):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from deykit.application.dataset_support import safe_hash
+    from deykit.contracts.json_value import dump_json
+    from deykit.runner.group_models import GroupPlan
+
+    source, runner, factory, _ = setup(count=1)
+    request_value = ChoiceOrderRequest(run=request(cap=3))
+    selection = {"kind": "choice_order", "request": request_value.model_dump(mode="json")}
+    service = DiagnosticService(runner).groups
+    plans = runner.planner.prepare_orders(request_value.run, orders=4, seed=0)
+    digest = safe_hash({"command": "execution_group.start", "selection": selection})
+    with source.execution_owner():
+        with source.consistent_read():
+            group, changes = service.store.stage_freeze(
+                GroupPlan("choice_order", plans, 3, 600), "start", digest, dump_json(selection)
+            )
+            segment, operational = service.store.stage_segment(
+                group, "start", 1, False, service._staged(changes), initial=True
+            )
+            source.commit("start", (*changes, *operational), intent_hash=digest)
+            service.store.ready(segment, acknowledge=False)
+        first = segment.member_segments[0]
+        history = runner.repository.history(first.run_id)
+        child = history.segments[-1]
+        assert (
+            runner.repository.reserve(first.run_id, child, history.work()[0], deadline=600)
+            is not None
+        )
+        # A new explicit unknown-retry segment retains the first reservation.
+        with source.consistent_read():
+            second, changes = service.store.stage_segment(
+                group, "resume", 2, True, source.capture_snapshot(), initial=False
+            )
+            source.commit("resume", changes)
+            service.store.ready(second, acknowledge=True)
+        history = runner.repository.history(first.run_id)
+        child = history.segments[-1]
+        assert (
+            runner.repository.reserve(
+                first.run_id, child, history.work(retry_unknown=True)[0], deadline=600
+            )
+            is not None
+        )
+        selections = []
+        for member in second.member_segments:
+            h = runner.repository.history(member.run_id)
+            selections.append((member.run_id, h.segments[-1], h.work(retry_unknown=True)[0]))
+
+        def reserve(item):
+            try:
+                return runner.repository.reserve(*item, deadline=600)
+            except ServiceFailure as error:
+                assert error.error.reason == "source_busy"
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = tuple(pool.map(reserve, selections))
+        assert sum(item is not None for item in outcomes) == 1
+        assert runner.repository.history(first.run_id).group.used == 3
+        assert runner.repository.history(first.run_id).remaining == 0
+    assert not factory.calls
+
+
+def test_group_readiness_legacy_acknowledgement_retains_source_boundary(setup, monkeypatch):
+    source, runner, factory, _ = setup(count=1)
+    service = DiagnosticService(runner)
+    result = asyncio.run(service.start(ChoiceOrderRequest(run=request()), operation_id="start"))
+    observed = []
+    real_ack = source.acknowledge_cancel
+
+    def acknowledge(run_id, segment_id):
+        observed.append(getattr(source._local, "source_depth", 0))
+        return real_ack(run_id, segment_id)
+
+    monkeypatch.setattr(source, "acknowledge_cancel", acknowledge)
+    asyncio.run(service.resume(result.group.group_id, operation_id="resume"))
+    assert len(observed) == 2 and min(observed) > 0
+    assert len(factory.calls) == 2

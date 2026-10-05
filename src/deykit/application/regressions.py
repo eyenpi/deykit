@@ -7,7 +7,7 @@ from typing import Annotated, Literal, cast
 from pydantic import Field
 
 from deykit.application.dataset_support import decoded, fail, identifier, safe_hash, validated_model
-from deykit.application.evaluations import _frozen
+from deykit.application.evaluations import frozen_evaluation_from_records
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.execution_groups import RegressionRemoval
 from deykit.contracts.identities import ResourceId, new_id
@@ -165,7 +165,9 @@ class RegressionService:
             records = self.source.capture_snapshot()
             history = history_from_records(records, request.run_id)
             snapshot_id = request.result_snapshot_id or history.snapshots[-1].id
-            frozen = _frozen(records, request.run_id, snapshot_id, None, "original")
+            frozen = frozen_evaluation_from_records(
+                records, request.run_id, snapshot_id, None, "original"
+            )
             question = frozen.revision.definition.questions[0]
             if not set(request.acceptable_option_ids).issubset(
                 option.id for option in question.options

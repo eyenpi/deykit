@@ -148,7 +148,7 @@ def admit_group_snapshots(
     records: tuple[StoredRecord, ...], group_id: str
 ) -> tuple[GroupSnapshot, ...]:
     """Admit every retained boundary before any recovery mutation; no source access."""
-    from deykit.application.evaluations import _frozen
+    from deykit.application.evaluations import frozen_evaluation_from_records
     from deykit.runner.history import history_from_records
 
     budget = group_budget(records, group_id)
@@ -157,6 +157,8 @@ def admit_group_snapshots(
     )
     kind = DiagnosticSnapshot if budget.group.kind == "choice_order" else CheckSnapshot
     segments = {s.id: s for s in budget.segments}
+    if not segments:
+        fail("group_segment_missing", "incompatible_data")
     # Missing group summaries do not relax admission of frozen child context.
     contexts = []
     for execution_member in budget.group.members:
@@ -164,7 +166,35 @@ def admit_group_snapshots(
         if not history.snapshots:
             fail("group_member_result_missing", "incompatible_data")
         for result in history.snapshots:
-            frozen = _frozen(records, execution_member.run_id, result.id, None, "original")
+            frozen = frozen_evaluation_from_records(
+                records, execution_member.run_id, result.id, None, "original"
+            )
+        if (
+            frozen.revision.id != frozen.manifest.decision_revision_id
+            or frozen.dataset.id != frozen.manifest.dataset_snapshot_id
+            or frozen.labels.id != frozen.manifest.label_snapshot_id
+            or frozen.baseline_dataset.id != frozen.manifest.baseline_dataset_snapshot_id
+            or frozen.baseline_labels.id != frozen.manifest.baseline_label_snapshot_id
+            or any(c.dataset_id != frozen.manifest.dataset_id for c in frozen.dataset.cases)
+        ):
+            fail("group_frozen_identity_mismatch", "incompatible_data")
+        for values, collection_name, scope in (
+            (history.prepared, "prepared_cases", (execution_member.run_id,)),
+            (history.segments, "segments", (execution_member.run_id,)),
+            (history.events, "run_events", (execution_member.run_id,)),
+            (history.attempts, "attempts", (execution_member.run_id,)),
+            (history.controls, "run_controls", (execution_member.run_id,)),
+        ):
+            actual_keys = {
+                r.key.resource_id
+                for r in records
+                if r.key.collection == collection_name and r.key.scope == scope
+            }
+            ids = tuple(v.id for v in values)
+            if set(ids) != actual_keys or len(ids) != len(set(ids)):
+                fail("group_child_path_mismatch", "incompatible_data")
+        if any(s.cancel_through_sequence > len(history.controls) for s in history.segments):
+            fail("group_cancel_cutoff_mismatch", "incompatible_data")
         contexts.append(frozen)
     first = contexts[0]
     if budget.group.kind == "choice_order" and any(
@@ -275,8 +305,12 @@ def admit_group_snapshots(
         if record.sequence != segment.sequence:
             fail("group_snapshot_segment_sequence_mismatch", "incompatible_data")
         for member in record.results:
-            frozen = _frozen(records, member.run_id, member.result_snapshot_id, None, "original")
+            frozen = frozen_evaluation_from_records(
+                records, member.run_id, member.result_snapshot_id, None, "original"
+            )
             history = history_from_records(records, member.run_id, verify_group=False)
+            if frozen.results.id != member.result_snapshot_id:
+                fail("group_result_path_mismatch", "incompatible_data")
             boundary = frozen.results.through_event_sequence
             child_id = next(
                 m.segment_id for m in segment.member_segments if m.run_id == member.run_id
