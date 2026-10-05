@@ -297,7 +297,7 @@ def test_rehashed_bucket_and_frozen_label_assessment_forgeries_are_rejected(sand
     raw["primary_counts"]["both_wrong"] += 1
     raw["left_correct_count"] -= 1
     raw["right_correct_count"] -= 1
-    reject(saved, dump_json(raw).decode(), "invalid_comparison_record")
+    reject(saved, dump_json(raw), "invalid_comparison_record")
 
     def forged_side(saved, case_id, changes):
         left_cases = {
