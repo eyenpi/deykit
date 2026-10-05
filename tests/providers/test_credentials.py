@@ -1,6 +1,13 @@
 import pytest
 
-from deykit.providers.credentials import CredentialReference, Credentials, CredentialUnavailable
+from deykit.contracts.records import ProviderProfile
+from deykit.providers.choice import JEV_DESTINATION
+from deykit.providers.credentials import (
+    CredentialReference,
+    Credentials,
+    CredentialUnavailable,
+    credentials_for,
+)
 
 
 class MemoryStore:
@@ -77,3 +84,33 @@ def test_missing_optional_os_store_dependency_is_safe_and_local(monkeypatch):
     with pytest.raises(CredentialUnavailable) as failure:
         credentials.os_secret_store()
     assert "SECRET_SENTINEL" not in str(failure.value)
+
+
+def test_credentials_for_profile_loads_os_store_only_for_keyring_reference(monkeypatch):
+    from deykit.providers import credentials
+
+    profile = ProviderProfile(
+        id="p",
+        adapter="jev",
+        requested_model="jev-1.13.0",
+        destination=JEV_DESTINATION,
+        credential_ref="env:OFFLINE_KEY",
+    )
+    monkeypatch.setenv("OFFLINE_KEY", "TEST_SENTINEL")
+    monkeypatch.setattr(
+        credentials,
+        "os_secret_store",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected keyring import")),
+    )
+    assert credentials_for(profile).status("env:OFFLINE_KEY") is True
+    store = MemoryStore()
+    store.set_password("deykit", "p", "TEST_SENTINEL")
+    monkeypatch.setattr(credentials, "os_secret_store", lambda: store)
+    keyring = profile.model_copy(update={"credential_ref": "keyring:deykit/p"})
+    assert credentials_for(keyring).status("keyring:deykit/p") is True
+    monkeypatch.setattr(
+        credentials,
+        "os_secret_store",
+        lambda: (_ for _ in ()).throw(CredentialUnavailable()),
+    )
+    assert credentials_for(keyring).status("keyring:deykit/p") is False
