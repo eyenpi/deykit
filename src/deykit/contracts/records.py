@@ -188,14 +188,19 @@ class LabelChange(Record):
     dataset_id: ResourceId
     case_id: ResourceId
     question_id: ResourceId
-    action: Literal["set", "clear"]
+    action: Literal["set", "clear", "dispute", "resolve"]
     label: LabelRecord | None
     created_at: UtcTimestamp
 
     @model_validator(mode="after")
     def consistent_change(self) -> Self:
-        if (self.action == "set") != (self.label is not None):
+        if (self.action != "clear") != (self.label is not None):
             raise ValueError("invalid_label_change")
+        if self.label is not None and (
+            (self.action == "dispute" and self.label.status != "disputed")
+            or (self.action == "resolve" and self.label.status != "active")
+        ):
+            raise ValueError("invalid_label_transition")
         if self.label is not None and any(
             getattr(self, key) != getattr(self.label, key)
             for key in ("decision_id", "dataset_id", "case_id", "question_id")
