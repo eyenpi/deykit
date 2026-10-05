@@ -5,8 +5,11 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from urllib.parse import quote, unquote
+
+if TYPE_CHECKING:
+    from deykit.contracts.records import ProviderProfile
 
 
 class CredentialUnavailable(Exception):
@@ -117,3 +120,21 @@ def os_secret_store() -> SecretStore:
         return cast(SecretStore, backend)
     except Exception:
         raise CredentialUnavailable() from None
+
+
+def credentials_for(profile: "ProviderProfile") -> Credentials:
+    """Resolve a frozen profile lazily; environment profiles never load keyring."""
+    from deykit.contracts.records import ProviderProfile
+
+    if type(profile) is not ProviderProfile or profile.credential_ref is None:
+        return Credentials()
+    try:
+        reference = CredentialReference.parse(profile.credential_ref)
+    except ValueError:
+        return Credentials()
+    if reference.kind != "keyring":
+        return Credentials()
+    try:
+        return Credentials(store=os_secret_store())
+    except CredentialUnavailable:
+        return Credentials()
