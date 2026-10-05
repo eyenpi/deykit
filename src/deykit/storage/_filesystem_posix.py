@@ -251,13 +251,8 @@ class PosixFiles:
         except OSError as error:
             if post_commit_error is None:
                 post_commit_error = error
-        try:
-            os.unlink(temporary, dir_fd=parent)
-        except FileNotFoundError:
-            pass
-        except OSError as error:
-            if post_commit_error is None:
-                post_commit_error = error
+        # A successful replace consumed our temporary entry. Do not unlink its
+        # former name: another writer may already own a newly created entry there.
         return _ReplaceResult(parent_flush, post_commit_error)
 
     @staticmethod

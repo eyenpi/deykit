@@ -70,6 +70,41 @@ def test_callback_runs_before_replace_and_receipt_reports_commit(files):
     assert result.parent_flush == ("confirmed" if os.name == "posix" else "unavailable")
 
 
+@pytest.mark.parametrize("public_replace", [False, True])
+@POSIX
+def test_recreated_temporary_name_survives_after_real_rename(files, monkeypatch, public_replace):
+    original_replace, original_open = os.replace, os.open
+    recreated = []
+
+    def replace_then_recreate(source, destination, **kwargs):
+        result = original_replace(source, destination, **kwargs)
+        if not recreated:
+            name = os.fspath(source)
+            assert name.startswith(".tmp-")
+            descriptor = original_open(
+                name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=kwargs["src_dir_fd"],
+            )
+            try:
+                os.write(descriptor, b"owned by another writer")
+            finally:
+                os.close(descriptor)
+            recreated.append(name)
+        return result
+
+    monkeypatch.setattr(os, "replace", replace_then_recreate)
+    if public_replace:
+        files.replace(("source", "target"), b"new artifact")
+    else:
+        result = _replace(files, b"new artifact")
+        assert result.post_commit_error is None
+    assert files.read(("source", "target")) == b"new artifact"
+    assert len(recreated) == 1
+    assert files.read(("source", recreated[0])) == b"owned by another writer"
+
+
 @POSIX
 def test_parent_flush_failure_returns_committed_receipt_and_legacy_replace_raises(
     files, monkeypatch
