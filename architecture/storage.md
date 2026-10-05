@@ -2,14 +2,14 @@
 
 ## Public interface and ownership
 
-`storage.FileProjectSource(root: Path, *, create=False)` is the POSIX filesystem
+`storage.FileProjectSource(root: Path, *, create=False)` is the platform filesystem
 adapter for `contracts.ports.ProjectSource`. Use it as a context manager or call
 `close()`; descriptors have explicit lifetimes. Domain/services depend on the narrow
 protocol, never on SQLite or filesystem implementation. `filesystem.SafeFiles`,
 `locks.acquire`, the private journal schema, disposable index, and source transaction
-orchestrator are separate modules. A Windows adapter can replace filesystem/locking
-without changing application contracts; this implementation rejects unsupported
-platforms explicitly and makes no Windows compatibility claim.
+orchestrator are separate modules. Private POSIX and Windows backends sit beneath SafeFiles without changing application
+contracts. Windows uses native handles; POSIX retains directory descriptors. Closing
+the facade rejects every later operation before an OS identifier can be recycled.
 
 `application.errors.ServiceFailure` exposes `.error: ServiceError`; its string is the
 fixed safe message. Raw filesystem/SQLite/Pydantic exception data is not a service
@@ -78,14 +78,16 @@ contains new StoredRecords plus `deleted_keys`, and a replay flag.
 1. Acquire the OS-held source lock; recover any earlier journal before exposing reads.
 2. Validate source, identities, versions, immutable evidence, expected hashes and all
    proposed records. Freeze a deterministic change digest and chronological sequence.
-3. Durably stage old/new bytes and a versioned manifest using file fsync and directory
-   fsync. Recheck source fingerprints against the captured state.
-4. Durably persist the commit decision, bound to the manifest hash. Only then replace
-   source files atomically one by one, syncing each affected directory.
-5. Move the completed journal into essential operation history; sync both parents.
+3. Stage old/new bytes and a versioned manifest with checked file flushes (and
+   parent-directory fsync on POSIX). Recheck source fingerprints against the captured state.
+4. Persist and flush the commit decision, bound to the manifest hash. Only then replace
+   source files atomically one by one; POSIX also syncs each affected directory.
+5. Move the completed journal into essential operation history; POSIX syncs both parents.
    Only after that update the disposable index.
 
-Before a durable decision, recovery discards staging and leaves old source. After the
+These are checked file-flush and atomic-namespace steps. On Windows they establish
+the tested process-crash protocol, not directory-fsync or power-loss ordering.
+Before a committed decision, recovery discards staging and leaves old source. After the
 decision, recovery finishes the full new state. Every staged body and current target
 is validated before recovery writes: targets must match the saved old or new hash.
 An unrelated external edit or corrupt blob blocks recovery without overwriting it.
@@ -140,15 +142,15 @@ then atomically replaced through the safe filesystem adapter. It holds only scop
 IDs and ETags. Deleting/corrupting it changes no source or history; rebuild is explicit.
 No source operation reads SQLite to decide truth or replay an operation.
 
-Internal filesystem traversal uses anchored directory descriptors and O_NOFOLLOW;
+POSIX traversal uses anchored directory descriptors and O_NOFOLLOW;
 symlinked internal directories/files, nonregular source files, and multiply linked
 source files are rejected. Reads open nonblocking and check the opened descriptor
 before consuming bytes, so a FIFO cannot hang validation while holding the source
 lock. Files use owner-only creation permissions. This blocks
 path escape through supplied IDs and static/internal symlinks. The project directory
 is an explicit trusted user selection; same-user hostile mutation of every internal
-file is not a security isolation boundary. Physical power-loss guarantees ultimately
-depend on the OS/filesystem honoring fsync. Tests establish software crash behavior,
+file is not a security isolation boundary. Physical power-loss ordering has not been verified on any platform. Tests establish
+software crash behavior,
 not disk-controller power-loss behavior or network-filesystem lock support.
 
 ## Evidence and primary references
@@ -166,3 +168,106 @@ Research checked 2026-10-05: [Python flock](https://docs.python.org/3/library/fc
 and [SQLite atomic commit assumptions](https://www.sqlite.org/atomiccommit.html).
 Tests run with the locked Python dependency set, CPython 3.11.16 with SQLite 3.53.1 on macOS ARM64;
 CI checks Ubuntu Python 3.11/3.13. Actual CI status must be read from the PR.
+
+## Windows adapter and evidence boundary (P18 storage subtask)
+
+`_filesystem_windows.py` owns traversal and resource lifetime; `_win32.py` alone owns
+ctypes bindings. Internal components are opened with `NtCreateFile` relative to a
+retained directory HANDLE, `OBJ_DONT_REPARSE` and `FILE_OPEN_REPARSE_POINT`. The opened
+object must be a disk object, have the required type, have no reparse attribute, and
+have one hard link if it is a file. Reads enforce size limits before and during I/O.
+Enumeration uses `GetFileInformationByHandleEx`; normalized long-name queries verify
+opened names as well as the shared casefold policy (including custom 8.3 aliases).
+No checked absolute path is subsequently reopened for internal operations.
+
+Parent guards omit delete sharing and remain alive throughout traversal and lock
+ownership. Readers allow read/write/delete sharing; lock handles allow read/write
+sharing only. Fresh same-directory temporaries are exclusive, binary, flushed with
+`FlushFileBuffers`, and renamed using `NtSetInformationFile(FileRenameInformation)` with a destination
+directory handle. The tested Win32 wrapper call rejected the relative-root form
+with error 87; the native call retains the anchor and uses the documented native
+buffer sizing. No absolute-path rename fallback is used.
+Archival renames prohibit replacement. Deletion is through a validated handle.
+Handles are non-inheritable, never converted to CRT descriptors, and closed exactly
+once, including validation failures. Windows inherits the selected directory's ACL;
+POSIX creation uses owner-only mode bits. Choose a private project directory.
+
+`LockFileEx` locks byte zero exclusively with FAIL_IMMEDIATELY. Only
+ERROR_LOCK_VIOLATION means contention; permission/invalid-handle/I/O failures remain
+errors. Unlock/close occurs on every normal exception path. Process termination
+releases ownership, with bounded polling in acceptance tests where Windows may delay
+release. Lock ordering and source/execution independence are unchanged.
+
+The intended Windows evidence is **process-crash recovery on tested local NTFS**.
+There is no assumed Windows equivalent to parent-directory fsync. Physical
+power-loss and OS-crash ordering remain **unverified on every platform**. Network,
+cloud-synchronized and other filesystems are outside the tested guarantee. The
+trusted project selection is not a security sandbox against arbitrary hostile
+same-user mutation. Full P18 packaging, bundled browser assets, physical keyboard/UI
+acceptance, and authorized provider evidence remain separate integration gates.
+
+`portability.yml` runs the full offline suite on `ubuntu-24.04`, `macos-15` and
+`windows-2025`, Python 3.11/3.13. It records OS/build, Python patch, architecture,
+filesystem, SQLite, commit and lockfile identity, and archives JUnit skip/results.
+Ubuntu creates a quiescent source/history archive; every matrix host verifies its
+exact byte hashes, idempotent replay and index rebuild. Clean wheel/sdist checks run
+outside the checkout without Node on PATH, but cover only the current basic installed
+CLI/codec check, not the later full browser/demo/CLI packaging gate.
+Windows hosted Server CI does not demonstrate a physical Windows 11 desktop. Read
+actual PR checks for results; a workflow definition is not platform evidence.
+
+The dedicated cases cover closed-object/recycled descriptor sentinels, Unicode/long
+roots, exact binary bytes, device/ADS/traversal aliases, empty-scope collisions,
+hardlinks in each file role, junctions/reparse roots, Windows sharing, failure
+cleanup, separate process contention and kill release, and child inheritance.
+Existing journal tests interrupt commits and recovery. Runner process tests use
+parent-issued `Popen.kill()` after observed checkpoints on both platforms, preserving
+in-flight unknown-outcome, cancellation and explicit-resume assertions. Synthetic
+native failure injection is unit software evidence, not Windows platform evidence.
+
+Primary references checked 2026-10-05:
+[NtCreateFile](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile),
+[handle enumeration](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex),
+[native handle rename](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile),
+[rename buffer and relative anchor](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information),
+[LockFileEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex),
+[FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers),
+[short-name aliases](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setfileshortnamew).
+
+## Batched fresh source walks (P18)
+
+`SafeFiles.read_tree(parts, visitor)` performs one synchronous, eagerly completed walk
+beneath retained directory handles. It re-enumerates each visited directory on exit,
+checks case-folded names before applying the source policy, and opens every accepted
+entry relative to its retained parent. Opened files are validated and read as exact
+bounded bytes through that same object. The facade lock and all traversal resources are
+released before the call returns, including visitor and filesystem errors. Only the
+`source/` collection traversal in `FileProjectSource._all` uses this path; project
+metadata, history checks, recovery, and the independent before/after snapshot walks
+remain fresh operations.
+
+POSIX uses directory descriptors and no-follow/nonblocking opens. Windows uses native
+handle-relative opens, existing type/reparse/link/name validation, and a fresh native
+name enumeration at both directory boundaries. Enumeration metadata selects an open
+shape only; the opened object supplies the safety decision. Entry/exit inventory changes
+conflict, including a change to ignored temporary membership. Stable `.tmp-` entries
+remain ignored. This does not promise an atomic view against an uncooperative writer
+that changes a tree and restores the exact observed state between checks.
+
+Automated local evidence includes exact-byte and hash inventories, real POSIX hardlink,
+symlink, FIFO and retained-ancestor races, fresh snapshot/commit conflict checks, cleanup,
+and linear operation counts on 10 and 1000 leaves. Case-sensitive collision injections
+run only when the actual filesystem supports two names differing only by case. Windows
+native traversal and handle-count acceptance still require the real Windows CI matrix;
+no Windows result is inferred from POSIX execution.
+
+
+The private `_replace_in` storage primitive now exposes whether the parent flush was
+confirmed, unavailable, or failed after an atomic rename. The existing `replace()`
+interface preserves its error behavior, including an error after visible replacement.
+The normalized path and file identity queries reuse P18's bound Windows APIs; Windows
+reports no parent-directory flush equivalent. POSIX descriptor anchoring pins the
+opened directory object, but an uncooperative same-user process can rename that object
+after a final namespace check. Any caller protecting external destinations must account
+for that location-change limit and must not claim redirected-path protection in that
+race window.

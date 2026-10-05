@@ -15,7 +15,9 @@ from deykit.contracts.json_value import (
     semantic_hash,
 )
 
-VECTORS = json.loads((Path(__file__).parent / "fixtures/hash-vectors.json").read_text())
+VECTORS = json.loads(
+    (Path(__file__).parent / "fixtures/hash-vectors.json").read_text(encoding="utf-8")
+)
 
 
 @pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["id"])

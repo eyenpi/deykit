@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -34,7 +35,7 @@ def test_actual_process_ownership_and_process_death_release(tmp_path):
         stderr=subprocess.PIPE,
     )
     try:
-        assert process.stdout.readline() == b"owned\n"
+        assert process.stdout.readline().splitlines() == [b"owned"]
         with FileProjectSource(tmp_path) as source:
             assert source.execution_active()
             with pytest.raises(ServiceFailure) as error:
@@ -44,6 +45,9 @@ def test_actual_process_ownership_and_process_death_release(tmp_path):
         process.kill()
         process.wait(timeout=10)
         with FileProjectSource(tmp_path) as source:
+            deadline = time.monotonic() + 10
+            while source.execution_active() and time.monotonic() < deadline:
+                time.sleep(0.02)
             assert not source.execution_active()
             with source.execution_owner():
                 pass

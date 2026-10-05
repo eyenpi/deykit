@@ -326,8 +326,8 @@ def test_aggregate_snapshot_record_limit_is_explicit():
 @pytest.mark.parametrize(
     "source",
     [
-        '{"rows":[' + ",".join(["0"] * 99998) + "]}",
-        '{"deep":' + "[" * 63 + "0" + "]" * 63 + "}",
+        pytest.param('{"rows":[' + ",".join(["0"] * 99998) + "]}", id="maximum_nodes"),
+        pytest.param('{"deep":' + "[" * 63 + "0" + "]" * 63 + "}", id="maximum_depth"),
     ],
 )
 def test_full_source_depth_node_boundaries_allow_fixed_request_and_record_wrappers(source):
