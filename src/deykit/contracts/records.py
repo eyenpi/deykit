@@ -485,12 +485,25 @@ class ResultSnapshot(HashedRecord):
 
 
 class EvaluationRecord(HashedRecord):
+    execution_operation_id: ResourceId | None = None
     id: ResourceId
     run_id: ResourceId
     result_snapshot_id: ResourceId
     label_snapshot_id: ResourceId
     mode: Literal["original", "saved_answer_reevaluation"]
     metrics_source: JsonSource
+    content_hash: ContentHash
+    created_at: UtcTimestamp
+
+
+class ResultAnnotation(HashedRecord):
+    """Append-only user note against a run/case, never part of model evidence."""
+
+    id: ResourceId
+    run_id: ResourceId
+    case_id: ResourceId
+    operation_id: ResourceId
+    note: Nonempty
     content_hash: ContentHash
     created_at: UtcTimestamp
 

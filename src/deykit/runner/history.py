@@ -184,7 +184,15 @@ def _records(
 
 
 def read_history(source: SnapshotSource, run_id: str) -> RunHistory:
-    records = source.capture_snapshot()
+    return history_from_records(source.capture_snapshot(), run_id)
+
+
+def history_from_records(records: tuple[StoredRecord, ...], run_id: str) -> RunHistory:
+    """Validate a run from one captured source epoch without performing source reads.
+
+    Evaluation and inspection consumers can reuse runner validation while retaining
+    their own consistent-read boundary and immutable historical snapshot selection.
+    """
     manifest_source = next(
         (record for record in records if record.key == ResourceKey("runs", run_id)), None
     )

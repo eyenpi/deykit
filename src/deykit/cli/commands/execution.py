@@ -7,9 +7,12 @@ from typing import Annotated, Literal, cast
 
 import typer
 
+from deykit.application.errors import ServiceFailure
+from deykit.application.evaluations import EvaluationService
 from deykit.application.execution import ExecutionService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
@@ -46,6 +49,44 @@ def _progress(value: RunProgress) -> None:
         f"{value.attempts_used}/{value.attempt_limit} attempts",
         err=True,
     )
+
+
+def _evaluated(source: FileProjectSource, result: RunProgress, operation_id: str) -> CommandOutcome:
+    """Save metrics after settlement; a scoring failure never redispatches a run."""
+    data: dict[str, object] = {"operation_id": operation_id, "run": result}
+    try:
+        if result.latest_result_snapshot_id is None:
+            raise ServiceFailure(
+                ServiceError(code="internal_error", reason="result_snapshot_missing")
+            )
+        evaluation = EvaluationService(source, SystemClock()).evaluate_execution(
+            result.run_id,
+            result.latest_result_snapshot_id,
+            execution_operation_id=operation_id,
+            allow_create=not result.execution_active,
+        )
+    except Exception as failure:
+        # Keep the durable run identity even when an adapter or metric fails.
+        error = ServiceError(
+            code=failure.error.code if isinstance(failure, ServiceFailure) else "internal_error",
+            reason=failure.error.reason
+            if isinstance(failure, ServiceFailure)
+            else "evaluation_failed",
+            resource_id=result.run_id,
+        )
+        if result.exit_code in (3, 4):
+            data["evaluation_error"] = error.safe_dict()
+            return CommandOutcome(data, result.exit_code, (error,))
+        raise ServiceFailure(error) from None
+    if evaluation is None:
+        data["evaluation_pending"] = True
+        return CommandOutcome(data, result.exit_code)
+    data.update(
+        evaluation_id=evaluation.record.id,
+        evaluation_result_snapshot_id=evaluation.record.result_snapshot_id,
+        evaluation_replayed=evaluation.replayed,
+    )
+    return CommandOutcome(data, result.exit_code)
 
 
 def run(
@@ -96,7 +137,7 @@ def run(
                     request, operation_id=actual, on_created=_created, on_progress=_progress
                 )
             )
-            return CommandOutcome({"operation_id": actual, "run": result}, result.exit_code)
+            return _evaluated(source, result, actual)
 
     execute_outcome(ctx, work)
 
@@ -173,6 +214,6 @@ def resume_run(
                     on_progress=_progress,
                 )
             )
-            return CommandOutcome({"operation_id": actual, "run": result}, result.exit_code)
+            return _evaluated(source, result, actual)
 
     execute_outcome(ctx, work)
