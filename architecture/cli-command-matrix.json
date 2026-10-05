@@ -189,7 +189,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+        "behavior": "tests/test_cli_authoring.py::test_cli_dataset_partial_edit_replays_original_intent_after_newer_metadata"
       }
     },
     {
@@ -219,7 +219,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_authoring.py::test_cli_import_preview_default_abort_and_explicit_partial"
+        "behavior": "tests/test_cli_authoring.py::test_cli_frozen_import_and_split_preview_commit_and_replay"
       }
     },
     {
@@ -229,7 +229,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_authoring.py::test_cli_split_exact_ratios_and_group_conflict"
+        "behavior": "tests/test_cli_authoring.py::test_cli_frozen_import_and_split_preview_commit_and_replay"
       }
     },
     {

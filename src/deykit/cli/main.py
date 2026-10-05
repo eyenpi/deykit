@@ -30,9 +30,17 @@ class SafeGroup(TyperGroup):
         **extra: Any,
     ) -> Any:
         supplied = tuple(args) if args is not None else tuple(sys.argv[1:])
-        json_mode = "--json" in supplied and not any(
-            option in supplied for option in ("--help", "--version", "--show-completion")
-        )
+        json_mode = False
+        position = 0
+        while position < len(supplied):
+            option = supplied[position]
+            if option == "--json":
+                json_mode = True
+            elif option == "--project":
+                position += 1
+            elif not option.startswith("-"):
+                break
+            position += 1
         if not json_mode:
             return super().main(
                 args=args,

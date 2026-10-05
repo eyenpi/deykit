@@ -17,6 +17,12 @@ serializes service DTOs and source strings. It never builds user input or
 provider request bytes from Pydantic's Decimal JSON serializer. Parser and
 service failures produce one safe error envelope in JSON mode. Unexpected
 failures produce `internal_error` without an exception or source body.
+An explicit `--preview FILE` for import/split decodes the versioned dry-run
+envelope with strict JSON admission, then passes the frozen typed preview to
+the same application commit service. Preview hashes, context ETags, and
+operation receipts remain owned by those services, including replay before
+fresh-state validation. Dataset partial edits likewise keep omitted values in
+the service's semantic intent and fill them only after replay lookup.
 
 `cli.commands` is an in-package extension point for later service owners.
 Each public module exports `register(root: typer.Typer) -> None`; the root

@@ -15,6 +15,7 @@ from deykit.application.imports import ImportService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
+from deykit.cli.preview import import_preview
 from deykit.cli.splits import split_dataset
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import parse_json
@@ -103,17 +104,12 @@ def edit_dataset(
     def work(cli: CliState, op: str) -> object:
         with cli.source() as source:
             service = DatasetService(source, SystemClock())
-            view = service.read(dataset_id)
-            metadata = (
-                source_text(file=file, stdin=stdin)
-                if file is not None or stdin
-                else view.record.metadata_source
-            )
+            metadata = source_text(file=file, stdin=stdin) if file is not None or stdin else None
             return service.update(
                 dataset_id,
-                name=name if name is not None else view.record.name,
+                name=name,
                 metadata_source=metadata,
-                expected_etag=if_hash if if_hash is not None else view.etag,
+                expected_etag=if_hash if if_hash is not None else service.read(dataset_id).etag,
                 operation_id=op,
             )
 
@@ -163,10 +159,11 @@ def restore_dataset(
 def import_dataset(
     ctx: typer.Context,
     dataset_id: str,
-    format: Annotated[str, typer.Option("--format")],
-    mapping: Annotated[Path, typer.Option("--mapping")],
+    format: Annotated[str | None, typer.Option("--format")] = None,
+    mapping: Annotated[Path | None, typer.Option("--mapping")] = None,
     file: Annotated[Path | None, typer.Option("--file")] = None,
     stdin: Annotated[bool, typer.Option("--stdin")] = False,
+    preview: Annotated[Path | None, typer.Option("--preview")] = None,
     decision: Annotated[str | None, typer.Option("--decision")] = None,
     revision: Annotated[str | None, typer.Option("--revision")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
@@ -174,12 +171,36 @@ def import_dataset(
     operation_id: Annotated[str | None, typer.Option("--operation-id")] = None,
 ) -> None:
     def work(cli: CliState, op: str) -> object:
+        if preview is not None:
+            if any(
+                (
+                    format is not None,
+                    mapping is not None,
+                    file is not None,
+                    stdin,
+                    decision is not None,
+                    revision is not None,
+                    dry_run,
+                )
+            ):
+                raise ServiceFailure(
+                    ServiceError(code="validation_error", reason="input_mode_conflict")
+                )
+            frozen = import_preview(preview, dataset_id)
+            with cli.source() as source:
+                return ImportService(source, SystemClock()).commit(
+                    frozen, operation_id=op, skip_invalid=skip_invalid
+                )
+        if format is None or mapping is None:
+            raise ServiceFailure(
+                ServiceError(code="validation_error", reason="import_options_required")
+            )
         text = source_text(file=file, stdin=stdin)
         mapping_text = mapping.read_text(encoding="utf-8")
         with cli.source() as source:
             service = ImportService(source, SystemClock())
             parsed = service.parse_mapping(mapping_text)
-            preview = service.preview(
+            plan = service.preview(
                 dataset_id,
                 text,
                 format=format,  # type: ignore[arg-type]
@@ -188,8 +209,8 @@ def import_dataset(
                 decision_selector=revision or "draft",
             )
             if dry_run:
-                return {"preview": preview, "would_import": len(preview.valid_rows)}
-            return service.commit(preview, operation_id=op, skip_invalid=skip_invalid)
+                return {"preview": plan, "would_import": len(plan.valid_rows)}
+            return service.commit(plan, operation_id=op, skip_invalid=skip_invalid)
 
     if dry_run:
         execute(ctx, lambda cli: work(cli, new_operation_id(operation_id)))

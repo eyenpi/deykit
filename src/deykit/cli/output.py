@@ -144,7 +144,7 @@ def execute_outcome(ctx: typer.Context, work: Callable[[CliState], CommandOutcom
         emit(cli, outcome.data, outcome.warnings)
     except ServiceFailure as failure:
         emit_error(cli, failure.error)
-        raise typer.Exit(2) from None
+        raise typer.Exit(1 if failure.error.code == "internal_error" else 2) from None
     except JsonError as error:
         emit_error(cli, ServiceError(code="validation_error", reason=error.code))
         raise typer.Exit(2) from None

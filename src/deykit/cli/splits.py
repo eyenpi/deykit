@@ -12,6 +12,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.application.splits import SplitService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import execute
+from deykit.cli.preview import split_preview
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import JsonValue, dump_json, parse_json
 from deykit.domain.splits import DEFAULT_RATIOS, Split
@@ -63,29 +64,52 @@ def _assignments(path: Path) -> tuple[tuple[str, Split], ...]:
 def split_dataset(
     ctx: typer.Context,
     dataset_id: str,
-    seed: Annotated[int, typer.Option("--seed")] = 0,
-    development: Annotated[str, typer.Option("--development")] = "0.8",
+    seed: Annotated[int | None, typer.Option("--seed")] = None,
+    development: Annotated[str | None, typer.Option("--development")] = None,
     calibration: Annotated[str | None, typer.Option("--calibration")] = None,
     test: Annotated[str | None, typer.Option("--test")] = None,
     assignments: Annotated[Path | None, typer.Option("--assignments")] = None,
+    preview: Annotated[Path | None, typer.Option("--preview")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     operation_id: Annotated[str | None, typer.Option("--operation-id")] = None,
 ) -> None:
     def work(cli: CliState, op: str) -> object:
-        if assignments is not None and (seed != 0 or development != "0.8" or calibration or test):
+        if preview is not None:
+            if any(
+                (
+                    seed is not None,
+                    development is not None,
+                    calibration is not None,
+                    test is not None,
+                    assignments is not None,
+                    dry_run,
+                )
+            ):
+                raise _invalid("input_mode_conflict")
+            frozen = split_preview(preview, dataset_id)
+            with cli.source() as source:
+                return SplitService(source, SystemClock()).commit(frozen, operation_id=op)
+        if assignments is not None and any(
+            (seed is not None, development is not None, calibration is not None, test is not None)
+        ):
             raise _invalid("assignments_exclude_seed_and_ratios")
         source_ratios = (
-            DEFAULT_RATIOS if assignments is not None else _ratios(development, calibration, test)
+            DEFAULT_RATIOS
+            if assignments is not None
+            else _ratios(development if development is not None else "0.8", calibration, test)
         )
         chosen = _assignments(assignments) if assignments is not None else None
         with cli.source() as source:
             service = SplitService(source, SystemClock())
-            preview = service.preview(
-                dataset_id, seed=seed, ratios_source=source_ratios, assignments=chosen
+            plan = service.preview(
+                dataset_id,
+                seed=seed if seed is not None else 0,
+                ratios_source=source_ratios,
+                assignments=chosen,
             )
             if dry_run:
-                return {"preview": preview}
-            return service.commit(preview, operation_id=op)
+                return {"preview": plan}
+            return service.commit(plan, operation_id=op)
 
     if dry_run:
         execute(ctx, lambda cli: work(cli, new_operation_id(operation_id)))

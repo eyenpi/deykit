@@ -5,10 +5,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import typer
 from typer.testing import CliRunner
 
+from deykit.application.errors import ServiceFailure
+from deykit.cli.context import CliState
 from deykit.cli.main import app
+from deykit.cli.output import execute
 from deykit.contracts.codec import dump_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.records import ChoiceDefinition, ChoiceOption, ChoiceQuestion
 
 
@@ -595,3 +600,186 @@ def test_cli_demo_creates_actual_authored_project_ids(tmp_path: Path) -> None:
     assert dataset["data"]["cases"]["total"] == 12
     conflict = result(cli(tmp_path, "--json", "demo", "sandbox"), 2)
     assert conflict["error"]["reason"] == "demo_path_exists"
+
+
+def test_cli_dataset_partial_edit_replays_original_intent_after_newer_metadata(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    result(cli(tmp_path, "--json", "init", str(root), "--name", "P"))
+    created = result(cli(root, "--json", "dataset", "create", "data", "--name", "Original"))
+    original_etag = created["data"]["result"]["etag"]
+    args = (
+        "--json",
+        "dataset",
+        "edit",
+        "data",
+        "--name",
+        "Renamed",
+        "--if-hash",
+        original_etag,
+        "--operation-id",
+        "rename-one",
+    )
+    first = result(cli(root, *args))
+    metadata = tmp_path / "metadata.json"
+    metadata.write_text('{"later":true}', encoding="utf-8")
+    result(cli(root, "--json", "dataset", "edit", "data", "--file", str(metadata)))
+    replay = result(cli(root, *args))
+    assert replay["data"]["result"] == first["data"]["result"]
+    current = result(cli(root, "--json", "dataset", "show", "data"))
+    assert current["data"]["dataset"]["record"]["metadata_source"] == '{"later":true}'
+    changed = result(cli(root, *args[:-2], "--operation-id", "rename-one", "--name", "Other"), 2)
+    assert changed["error"]["code"] == "conflict"
+
+
+def test_cli_frozen_import_and_split_preview_commit_and_replay(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    result(cli(tmp_path, "--json", "init", str(root), "--name", "P"))
+    result(cli(root, "--json", "dataset", "create", "data", "--name", "Original"))
+    mapping = tmp_path / "mapping.json"
+    mapping.write_text(
+        '{"schema_version":1,"input_kind":"json","input_column":"input","id_column":"id"}',
+        encoding="utf-8",
+    )
+    rows = '{"id":"case-one","input":{"shown":9007199254740993}}\n'
+    preview = result(
+        cli(
+            root,
+            "--json",
+            "dataset",
+            "import",
+            "data",
+            "--format",
+            "jsonl",
+            "--mapping",
+            str(mapping),
+            "--stdin",
+            "--dry-run",
+            input_text=rows,
+        )
+    )
+    import_file = tmp_path / "import-preview.json"
+    import_file.write_text(json.dumps(preview), encoding="utf-8")
+    args = (
+        "--json",
+        "dataset",
+        "import",
+        "data",
+        "--preview",
+        str(import_file),
+        "--operation-id",
+        "import-once",
+    )
+    imported = result(cli(root, *args))
+    assert imported["data"]["result"]["imported_case_ids"] == ["case-one"]
+    shown = result(cli(root, "--json", "case", "show", "case-one", "--dataset", "data"))
+    assert shown["data"]["record"]["input_source"] == '{"shown":9007199254740993}'
+    result(cli(root, "--json", "dataset", "edit", "data", "--name", "Later"))
+    imported_replay = result(cli(root, *args))["data"]["result"]
+    assert imported_replay == {**imported["data"]["result"], "replayed": True}
+    changed_intent = result(cli(root, *args, "--skip-invalid"), 2)
+    assert changed_intent["error"]["code"] == "conflict"
+    wrong_mode = result(cli(root, *args, "--format", "jsonl"), 2)
+    assert wrong_mode["error"]["reason"] == "input_mode_conflict"
+
+    split = result(cli(root, "--json", "dataset", "split", "data", "--seed", "17", "--dry-run"))
+    split_file = tmp_path / "split-preview.json"
+    split_file.write_text(json.dumps(split), encoding="utf-8")
+    split_args = (
+        "--json",
+        "dataset",
+        "split",
+        "data",
+        "--preview",
+        str(split_file),
+        "--operation-id",
+        "split-once",
+    )
+    applied = result(cli(root, *split_args))
+    result(cli(root, "--json", "dataset", "edit", "data", "--name", "After split"))
+    split_replay = result(cli(root, *split_args))["data"]["result"]
+    assert split_replay == {**applied["data"]["result"], "replayed": True}
+    assert (
+        result(cli(root, *split_args, "--seed", "17"), 2)["error"]["reason"]
+        == "input_mode_conflict"
+    )
+    corrupted = json.loads(split_file.read_text(encoding="utf-8"))
+    corrupted["data"]["preview"]["dataset_id"] = "other"
+    split_file.write_text(json.dumps(corrupted), encoding="utf-8")
+    assert result(cli(root, *split_args), 2)["error"]["reason"] == "invalid_preview_file"
+
+    fresh = result(cli(root, "--json", "dataset", "split", "data", "--dry-run"))
+    split_file.write_text(json.dumps(fresh), encoding="utf-8")
+    case_source = '{"input_kind":"text","input_source":"\\"new\\""}'
+    result(
+        cli(
+            root,
+            "--json",
+            "case",
+            "add",
+            "--dataset",
+            "data",
+            "--id",
+            "later-case",
+            "--stdin",
+            input_text=case_source,
+        )
+    )
+    stale = result(
+        cli(
+            root,
+            "--json",
+            "dataset",
+            "split",
+            "data",
+            "--preview",
+            str(split_file),
+            "--operation-id",
+            "stale-split",
+        ),
+        2,
+    )
+    assert stale["error"]["code"] == "conflict"
+
+
+def test_cli_json_parser_boundary_with_help_token_as_option_value(tmp_path: Path) -> None:
+    failure = result(
+        cli(
+            tmp_path,
+            "--json",
+            "decision",
+            "create",
+            "x",
+            "--name",
+            "--help",
+            "--bogus-sensitive-sentinel",
+        ),
+        2,
+    )
+    assert failure["error"]["reason"] == "invalid_command"
+    assert "bogus-sensitive-sentinel" not in json.dumps(failure)
+    help_result = cli(tmp_path, "--json", "--help")
+    version_result = cli(tmp_path, "--json", "--version")
+    assert help_result.returncode == version_result.returncode == 0
+    assert "Usage:" in help_result.stdout and not help_result.stdout.startswith("{")
+    assert version_result.stdout.strip() == "0.1.0"
+
+
+def test_cli_service_internal_failure_uses_exit_one_without_traceback() -> None:
+    sample = typer.Typer()
+
+    @sample.command()
+    def action(ctx: typer.Context) -> None:
+        ctx.obj = CliState(None, True)
+
+        def fail(_: CliState) -> object:
+            raise ServiceFailure(ServiceError(code="internal_error"))
+
+        execute(ctx, fail)
+
+    invoked = CliRunner().invoke(sample, [])
+    assert invoked.exit_code == 1
+    payload = json.loads(invoked.stdout)
+    assert payload["error"]["code"] == "internal_error"
+    assert "Traceback" not in invoked.output

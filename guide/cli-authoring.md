@@ -112,6 +112,15 @@ uv run deykit --project './My project' --json dataset import examples --format j
 uv run deykit --project './My project' --json dataset import examples --format jsonl --mapping mapping.json --file rows.jsonl --decision routing
 ```
 
+To commit exactly the reviewed import, save the full JSON `--dry-run` output
+as `import-preview.json`, then run `dataset import examples --preview
+import-preview.json --operation-id IMPORT_ID`. The frozen preview carries the
+source, mapping, generated case IDs, and context ETags. `--preview` excludes
+source, mapping, decision, revision, and format flags. A stale preview fails
+before writing; retrying a completed operation with the same preview and ID
+returns its original receipt even after later edits. A fresh command without
+`--preview` recomputes the preview against current state.
+
 The preview gives stable proposed case IDs, row numbers, source lines,
 exclusions, and a preview hash. Without `--skip-invalid`, any invalid row makes
 the commit write nothing. With `--skip-invalid`, only valid rows commit and the
@@ -160,4 +169,7 @@ groups, and derived cases together. To assign every current case manually,
 pass `--assignments assignments.json` with a JSON object mapping case IDs to
 `development`, `calibration`, or `test`. A conflicting or incomplete mapping
 fails without writing. Applying a split creates an immutable snapshot and a
-new dataset revision.
+new dataset revision. Save the full JSON `--dry-run` output as
+`split-preview.json`, then use `dataset split ID --preview split-preview.json
+--operation-id SPLIT_ID` for a reviewed commit that can be retried after later
+changes. `--preview` excludes seed, ratio, assignment, and dry-run flags.

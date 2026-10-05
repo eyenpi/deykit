@@ -128,8 +128,8 @@ class DatasetService:
         self,
         dataset_id: str,
         *,
-        name: str,
-        metadata_source: str,
+        name: str | None = None,
+        metadata_source: str | None = None,
         expected_etag: str,
         operation_id: str,
     ) -> DatasetView:
@@ -144,7 +144,7 @@ class DatasetService:
         return self._update(dataset_id, expected_etag, operation_id, archived=False)
 
     def _update(
-        self, dataset_id: str, expected_etag: str, operation_id: str, **updates: str | bool
+        self, dataset_id: str, expected_etag: str, operation_id: str, **updates: str | bool | None
     ) -> DatasetView:
         identifier(dataset_id)
         identifier(operation_id)
@@ -155,7 +155,11 @@ class DatasetService:
                 return self.from_receipt(replay)
             current = self.read(dataset_id)
             self.check_etag(current, expected_etag, allow_archived=True)
-            changed = self.bump(current.record, **updates)
+            resolved = {
+                key: (getattr(current.record, key) if value is None else value)
+                for key, value in updates.items()
+            }
+            changed = self.bump(current.record, **resolved)
             receipt = self.source.commit(
                 operation_id,
                 (
