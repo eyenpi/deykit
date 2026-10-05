@@ -259,6 +259,9 @@ def test_cancellation_history_is_validated_on_open_and_unrelated_commit(tmp_path
     assert target.read_bytes() == corrupted
 
 
+@pytest.mark.skipif(
+    os.name != "posix", reason="POSIX FIFO only; native Windows rejection has its own tests"
+)
 def test_fifo_source_rejection_is_bounded_and_releases_source_lock(tmp_path):
     root = initialized(tmp_path)
     folder = root / "source/drafts"

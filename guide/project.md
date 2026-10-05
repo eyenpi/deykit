@@ -44,9 +44,15 @@ removed only when no project process holds its locks. Reopen and rebuild the ind
 after copying the whole quiescent folder. Provider credential references do not copy
 actual credentials, and opening a project makes no inference request.
 
-The current filesystem adapter is tested on POSIX macOS/Linux CI. Windows support is
-an explicit later platform gate. Do not use network filesystem locks or claim
-power-loss behavior beyond the underlying OS/fsync guarantees.
+The filesystem adapter has POSIX and Windows implementations. The portability CI
+matrix exercises local macOS, Ubuntu and Windows Server filesystems; consult the
+actual PR results before treating a platform as verified. Windows acceptance targets
+local NTFS and process-crash recovery. It does not establish physical Windows 11
+desktop behavior. Power-loss and OS-crash recovery ordering remain unverified on
+all platforms. Use a private local project directory; network or cloud-synchronized
+folders are outside this tested storage guarantee. Internal links, Windows device
+names/alternate streams, and case-insensitive aliases are rejected. Spaces and
+Unicode characters in your selected project root are supported by the adapters.
 
 Storage checks:
 

@@ -1,0 +1,35 @@
+name: Storage portability
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  storage:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+        python: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.23'
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - name: Record actual platform and filesystem
+        run: uv run python tests/storage/platform_metadata.py
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - name: Full offline suite including storage and actual process death
+        run: uv run pytest -q -ra --junitxml=portability-results.xml
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: portability-${{ matrix.os }}-${{ matrix.python }}
+          path: portability-results.xml

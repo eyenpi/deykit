@@ -1,4 +1,3 @@
-import os
 import subprocess
 import sys
 
@@ -116,18 +115,15 @@ def test_process_death_during_recovery_itself(tmp_path, checkpoint):
 def test_fsync_failure_before_decision_does_not_mutate_source(tmp_path, monkeypatch):
     root = tmp_path / "project"
     seed(root)
-    original = os.fsync
 
-    def fail_staging(fd):
-        if os.fstat(fd).st_mode & 0o170000 == 0o100000:
-            raise OSError("SECRET disk failure")
-        return original(fd)
+    def fail_staging(handle):
+        raise OSError("SECRET disk failure")
 
     with FileProjectSource(root) as source:
         current = source.read(CASE)
         a, _ = pair("new")
         with monkeypatch.context() as context:
-            context.setattr(os, "fsync", fail_staging)
+            context.setattr(source.files._backend, "_flush_file", fail_staging)
             with pytest.raises(ServiceFailure) as error:
                 source.commit("failure", (SourceChange(CASE, a, current.etag),))
             assert error.value.error.reason == "storage_io"

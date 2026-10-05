@@ -3,6 +3,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.runner.history import read_history
 
 CHILD = r"""
-import asyncio, os, signal, sys, time
+import asyncio, sys, time
 from pathlib import Path
 from conftest import Clock, Factory
 from deykit.application.execution import ExecutionService
@@ -33,7 +34,8 @@ def hook(stage, attempt):
             while not Path(release).exists():
                 time.sleep(.01)
         else:
-            os.kill(os.getpid(), signal.SIGKILL)
+            while True:
+                time.sleep(.01)
 with FileProjectSource(Path(root)) as source:
     service = ExecutionService(source,source,factory,clock,waiter=clock,hook=hook)
     request = RunRequest(
@@ -47,14 +49,38 @@ with FileProjectSource(Path(root)) as source:
         def acknowledge(run_id, segment_id):
             if boundary == 'resume_segment_commit':
                 Path(marker).write_text('0')
-                os.kill(os.getpid(), signal.SIGKILL)
+                while True:
+                    time.sleep(.01)
             original_ack(run_id, segment_id)
             if boundary == 'resume_legacy_ack':
                 Path(marker).write_text('0')
-                os.kill(os.getpid(), signal.SIGKILL)
+                while True:
+                    time.sleep(.01)
         source.acknowledge_cancel = acknowledge
         result = asyncio.run(service.resume(resume_id, operation_id='child-resume'))
 """
+
+
+def killed_exit_code():
+    return 1 if os.name == "nt" else -signal.SIGKILL
+
+
+def kill_at_checkpoint(command, environment, marker):
+    child = subprocess.Popen(
+        command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    try:
+        deadline = time.monotonic() + 30
+        while not marker.exists() and child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert marker.exists(), "child did not reach the crash checkpoint"
+        child.kill()
+        _, stderr = child.communicate(timeout=10)
+        assert child.returncode == killed_exit_code(), stderr.decode()
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate(timeout=10)
 
 
 def child_command(source, stage, marker, release="-", resume_id="-"):
@@ -80,8 +106,7 @@ def test_a23_actual_process_death_preserves_unknown_and_no_open_dispatch(
     source, service, factory, _ = setup(1)
     marker = tmp_path / "killed"
     command, environment = child_command(source, boundary, marker)
-    child = subprocess.run(command, env=environment, capture_output=True, timeout=30)
-    assert child.returncode == -signal.SIGKILL, child.stderr.decode()
+    kill_at_checkpoint(command, environment, marker)
     assert marker.read_text() == str(actual_calls)
     run_id = source.list_ids("runs")[0]
     before = read_history(source, run_id)
@@ -223,7 +248,7 @@ def test_a23_kill_with_transport_entered_before_response(setup, tmp_path):
         assert marker.read_text() == "1"
         child.kill()
         child.communicate(timeout=5)
-        assert child.returncode == -signal.SIGKILL
+        assert child.returncode == killed_exit_code()
         run_id = source.list_ids("runs")[0]
         recovered = service.show(run_id)
         assert recovered.cases[0].status == "unknown" and recovered.attempts_used == 1
@@ -254,8 +279,7 @@ def test_resume_death_before_readiness_never_replays_ack_or_consumes_new_cancel(
     source.request_cancel(stopped.run_id)
     marker = tmp_path / "resume-death"
     command, environment = child_command(source, boundary, marker, resume_id=stopped.run_id)
-    child = subprocess.run(command, env=environment, capture_output=True, timeout=30)
-    assert child.returncode == -signal.SIGKILL, child.stderr.decode()
+    kill_at_checkpoint(command, environment, marker)
     assert marker.read_text() == "0"
     # After a completed legacy ack this creates a distinct new request; otherwise
     # it preserves the still-pending request. Replay must acknowledge neither.
