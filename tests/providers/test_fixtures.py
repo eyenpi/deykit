@@ -99,9 +99,12 @@ def test_question_order_model_and_input_edits_are_missing_fixtures():
         request(instructions="Changed"),
         request(order=("no", "yes")),
         request(text="different"),
+        request().model_copy(update={"compiler_version": "2"}),
         compile_choice(choice(), {"text": "hello"}, "authored-other", adapter="fixture"),
     ):
-        assert edited.body_hash != compiled.body_hash
+        assert edited.body_hash != compiled.body_hash or edited.compiler_version != (
+            compiled.compiler_version
+        )
         result = dispatch(factory, "case", edited)
         assert result.state == "not_sent" and result.error.code == "missing_fixture"
 
