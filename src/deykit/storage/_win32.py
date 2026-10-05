@@ -195,6 +195,12 @@ class Native:
                 DWORD,
             ],
         )
+        self._nt_set = self._bind(
+            self._nt,
+            "NtSetInformationFile",
+            c.c_int32,
+            [HANDLE, c.POINTER(_IoStatus), c.c_void_p, DWORD, c.c_int],
+        )
         self._dos_error = self._bind(self._nt, "RtlNtStatusToDosError", DWORD, [c.c_int32])
 
     @staticmethod
@@ -382,12 +388,17 @@ class Native:
 
     def rename(self, handle: Handle, parent: Handle, name: str, *, replace: bool) -> None:
         encoded = name.encode("utf-16-le")
-        size = max(c.sizeof(_Rename), _Rename.name.offset + len(encoded) + 2)
+        size = c.sizeof(_Rename) + len(encoded)
         buffer = c.create_string_buffer(size)
         info = _Rename.from_buffer(buffer)
         info.replace, info.root, info.length = int(replace), parent.value, len(encoded)
         c.memmove(c.addressof(buffer) + _Rename.name.offset, encoded, len(encoded))
-        self._check(self._set(handle.value, 3, buffer, size))
+        status = _IoStatus()
+        # The native information class preserves the relative destination anchor.
+        # The Win32 wrapper rejected our RootDirectory form on Windows Server CI.
+        code = self._nt_set(handle.value, c.byref(status), buffer, size, 10)
+        if code < 0:
+            raise self._error(int(self._dos_error(code)))
 
     def delete(self, handle: Handle) -> None:
         delete = c.c_uint8(1)

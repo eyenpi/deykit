@@ -68,7 +68,7 @@ class PosixFiles:
                 if create:
                     try:
                         os.mkdir(part, mode=0o700, dir_fd=fd)
-                        self._flush_file(fd)
+                        os.fsync(fd)
                     except FileExistsError:
                         pass
                 child = os.open(part, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=fd)

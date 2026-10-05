@@ -285,15 +285,14 @@ def test_reparse_root_is_rejected(tmp_path):
 
 
 @WINDOWS
-def test_sharing_and_parent_guards(files):
-    from deykit.storage import _win32 as win
-
+@pytest.mark.parametrize("sharing", [3, 7])
+def test_sharing_and_parent_guards(files, sharing):
     files.replace(("scope", "record"), b"old")
     backend = files._backend
     with backend.directory(("scope",)) as parent:
         with pytest.raises(OSError):
             os.rename(files.root / "scope", files.root / "moved")
-        with backend.api.open(parent, "record", share=win.SHARE_RW):
+        with backend.api.open(parent, "record", share=sharing):
             with pytest.raises(OSError):
                 files.replace(("scope", "record"), b"blocked")
         assert files.read(("scope", "record")) == b"old"

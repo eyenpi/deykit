@@ -44,6 +44,8 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
+      - name: Real native storage gate
+        run: uv run pytest -q -ra tests/storage --junitxml=storage-results.xml
       - name: Full offline suite including storage and actual process death
         run: uv run pytest -q -ra --junitxml=portability-results.xml
       - uses: actions/download-artifact@v4
@@ -58,4 +60,6 @@ jobs:
         if: always()
         with:
           name: portability-${{ matrix.os }}-${{ matrix.python }}
-          path: portability-results.xml
+          path: |
+            storage-results.xml
+            portability-results.xml

@@ -183,7 +183,10 @@ No checked absolute path is subsequently reopened for internal operations.
 Parent guards omit delete sharing and remain alive throughout traversal and lock
 ownership. Readers allow read/write/delete sharing; lock handles allow read/write
 sharing only. Fresh same-directory temporaries are exclusive, binary, flushed with
-`FlushFileBuffers`, and renamed by handle with a destination directory handle.
+`FlushFileBuffers`, and renamed using `NtSetInformationFile(FileRenameInformation)` with a destination
+directory handle. The tested Win32 wrapper call rejected the relative-root form
+with error 87; the native call retains the anchor and uses the documented native
+buffer sizing. No absolute-path rename fallback is used.
 Archival renames prohibit replacement. Deletion is through a validated handle.
 Handles are non-inheritable, never converted to CRT descriptors, and closed exactly
 once, including validation failures. Windows inherits the selected directory's ACL;
@@ -225,7 +228,8 @@ native failure injection is unit software evidence, not Windows platform evidenc
 Primary references checked 2026-10-05:
 [NtCreateFile](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile),
 [handle enumeration](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex),
-[handle rename](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info),
+[native handle rename](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile),
+[rename buffer and relative anchor](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information),
 [LockFileEx](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex),
 [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers),
 [short-name aliases](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setfileshortnamew).
