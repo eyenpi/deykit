@@ -1,5 +1,6 @@
 """Validate immutable group membership and shared lifetime reservations from one epoch."""
 
+import hashlib
 import json
 from dataclasses import dataclass
 from decimal import Decimal
@@ -18,10 +19,54 @@ from deykit.contracts.json_value import (
     JsonDocument,
     JsonValue,
     bytes_hash,
+    canonical_bytes,
     semantic_hash,
 )
 from deykit.contracts.ports import Collection, ResourceKey, StoredRecord
-from deykit.contracts.records import HashedRecord
+from deykit.contracts.records import (
+    DatasetSnapshot,
+    DecisionRevision,
+    HashedRecord,
+    RunManifest,
+)
+from deykit.domain.definitions import definition_hash
+
+PREPARED_EVIDENCE_PROFILE = "deykit-group-member-prepared-v1"
+
+
+def member_prepared_hash(
+    run_id: str, case_ids: tuple[str, ...], records: tuple[StoredRecord, ...]
+) -> str:
+    """Hash ordered exact prepared record bodies and their scoped source keys."""
+    scoped = tuple(
+        record
+        for record in records
+        if record.key.collection == "prepared_cases" and record.key.scope == (run_id,)
+    )
+    by_id = {record.key.resource_id: record for record in scoped}
+    if (
+        len(by_id) != len(scoped)
+        or len(case_ids) != len(set(case_ids))
+        or set(by_id) != set(case_ids)
+    ):
+        raise ValueError("prepared_member_scope_mismatch")
+    prepared: list[JsonValue] = [
+        {
+            "key": {
+                "collection": "prepared_cases",
+                "scope": [run_id],
+                "resource_id": case_id,
+            },
+            "body_sha256": bytes_hash(by_id[case_id].body),
+        }
+        for case_id in case_ids
+    ]
+    payload: JsonValue = {
+        "profile": PREPARED_EVIDENCE_PROFILE,
+        "run_id": run_id,
+        "prepared": prepared,
+    }
+    return hashlib.sha256(canonical_bytes(payload)).hexdigest()
 
 
 def content_hash(record: HashedRecord) -> str:
@@ -41,6 +86,101 @@ class GroupBudget:
         return max(0, self.group.max_attempts - self.used)
 
 
+def _selection_allocation(group: ExecutionGroup) -> int:
+    try:
+        selection = JsonDocument(group.selection_source).value
+    except ValueError:
+        fail("invalid_group_selection", "incompatible_data")
+    if (
+        not isinstance(selection, dict)
+        or selection.get("kind") != group.kind
+        or not isinstance(selection.get("request"), dict)
+        or safe_hash({"command": "execution_group.start", "selection": selection})
+        != group.intent_hash
+    ):
+        fail("group_selection_intent_mismatch", "incompatible_data")
+    request = selection.get("request")
+    if not isinstance(request, dict):
+        fail("invalid_group_selection", "incompatible_data")
+    settings: object
+    if group.kind == "choice_order":
+        run = request.get("run")
+        if not isinstance(run, dict):
+            fail("invalid_group_selection", "incompatible_data")
+        settings = run.get("settings")
+    else:
+        settings = request.get("settings")
+    if not isinstance(settings, dict):
+        fail("invalid_group_selection", "incompatible_data")
+    allocation = settings.get("max_attempts")
+    if isinstance(allocation, Decimal):
+        exponent = allocation.as_tuple().exponent
+        if not isinstance(exponent, int) or exponent < 0 or allocation != int(allocation):
+            fail("invalid_group_attempt_allocation", "incompatible_data")
+        allocation = int(allocation)
+    if type(allocation) is not int or allocation <= 0:
+        fail("invalid_group_attempt_allocation", "incompatible_data")
+    return allocation
+
+
+def _admit_profile_revision(
+    records: tuple[StoredRecord, ...],
+    *,
+    decision_id: str,
+    mode: str,
+    provider_id: str | None,
+    revision_id: str | None,
+    members: tuple[tuple[RunManifest, DecisionRevision], ...],
+) -> None:
+    expected_adapter = "fixture" if mode == "fixture" else "jev"
+    for manifest, _frozen_revision in members:
+        profile = manifest.provider
+        if profile is None or profile.adapter != expected_adapter:
+            fail("group_provider_selection_mismatch", "incompatible_data")
+        if provider_id is not None and (
+            provider_id != manifest.provider_profile_id or provider_id != profile.id
+        ):
+            fail("group_provider_selection_mismatch", "incompatible_data")
+    if revision_id is None:
+        return
+    index = {record.key: record for record in records}
+    stored = index.get(ResourceKey("revisions", revision_id, (decision_id,)))
+    if stored is None:
+        fail("group_revision_selection_mismatch", "incompatible_data")
+    revision = decoded(DecisionRevision, stored)
+    if (
+        revision.id != revision_id
+        or revision.decision_id != decision_id
+        or definition_hash(revision.definition) != revision.content_hash
+        or any(
+            revision.definition != frozen_revision.definition
+            or revision.content_hash != frozen_revision.content_hash
+            for _, frozen_revision in members
+        )
+    ):
+        fail("group_revision_selection_mismatch", "incompatible_data")
+
+
+def _admit_diagnostic_scope(
+    split: str, case_ids: tuple[str, ...], datasets: tuple[DatasetSnapshot, ...]
+) -> None:
+    expected: JsonValue = {"split": split, "case_ids": list(case_ids)}
+    for dataset in datasets:
+        try:
+            selected = JsonDocument(dataset.selection_source).value
+        except ValueError:
+            fail("diagnostic_scope_selection_mismatch", "incompatible_data")
+        if selected != expected:
+            fail("diagnostic_scope_selection_mismatch", "incompatible_data")
+        selected_ids = set(case_ids)
+        if any(
+            (selected_ids and case.id not in selected_ids)
+            or (split != "all" and case.split != split)
+            for case in dataset.cases
+        ):
+            fail("diagnostic_scope_selection_mismatch", "incompatible_data")
+
+
 def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudget:
     # Local import avoids coupling plain run records to group orchestration.
     from deykit.runner.history import history_from_records
@@ -55,12 +195,24 @@ def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudge
     group = decoded(ExecutionGroup, stored)
     if group.id != group_id or group.content_hash != content_hash(group):
         fail("execution_group_hash_mismatch", "incompatible_data")
+    allocation = _selection_allocation(group)
+    if group.max_attempts != allocation:
+        fail("execution_group_cap_selection_mismatch", "incompatible_data")
     used = 0
     histories = {}
     for member in group.members:
         stored = index.get(ResourceKey("runs", member.run_id))
         if stored is None or bytes_hash(stored.body) != member.manifest_hash:
             fail("execution_group_member_mismatch", "incompatible_data")
+        manifest = decoded(RunManifest, stored)
+        if manifest.settings.max_attempts != allocation:
+            fail("execution_group_member_cap_mismatch", "incompatible_data")
+        try:
+            actual_prepared_hash = member_prepared_hash(member.run_id, manifest.case_ids, records)
+        except ValueError:
+            fail("execution_group_prepared_scope_mismatch", "incompatible_data")
+        if actual_prepared_hash != member.prepared_hash:
+            fail("execution_group_prepared_hash_mismatch", "incompatible_data")
         history = history_from_records(records, member.run_id, verify_group=False)
         if (
             history.manifest.id != member.run_id
@@ -79,8 +231,6 @@ def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudge
         fail("execution_group_cap_exceeded", "incompatible_data")
     # Orphan manifests must not claim membership or borrow this group's budget.
     members = {member.run_id for member in group.members}
-    from deykit.contracts.records import RunManifest
-
     for record in records:
         if record.key.collection == "runs":
             manifest = decoded(RunManifest, record)
@@ -208,15 +358,9 @@ def admit_group_snapshots(
         for f in contexts
     ):
         fail("diagnostic_source_mismatch", "incompatible_data")
+    _selection_allocation(budget.group)
     selection = JsonDocument(budget.group.selection_source).value
-    if (
-        not isinstance(selection, dict)
-        or selection.get("kind") != budget.group.kind
-        or not isinstance(selection.get("request"), dict)
-        or safe_hash({"command": "execution_group.start", "selection": selection})
-        != budget.group.intent_hash
-    ):
-        fail("group_selection_intent_mismatch", "incompatible_data")
+    assert isinstance(selection, dict) and isinstance(selection.get("request"), dict)
     if budget.group.kind == "choice_order":
         from deykit.application.diagnostics import ChoiceOrderRequest
         from deykit.diagnostics.orders import choice_orders
@@ -227,6 +371,21 @@ def admit_group_snapshots(
             )
         except ValidationError:
             fail("invalid_group_selection", "incompatible_data")
+        if requested.run.option_order is not None or requested.run.regression_ids:
+            fail("diagnostic_selection_override", "incompatible_data")
+        _admit_profile_revision(
+            records,
+            decision_id=requested.run.decision_id,
+            mode=requested.run.mode,
+            provider_id=requested.run.provider_id,
+            revision_id=requested.run.revision_id,
+            members=tuple((f.manifest, f.revision) for f in contexts),
+        )
+        _admit_diagnostic_scope(
+            requested.run.split,
+            requested.run.case_ids,
+            tuple(f.dataset for f in contexts),
+        )
         expected_orders = choice_orders(
             tuple(o.id for o in first.revision.definition.questions[0].options),
             orders=requested.orders,
@@ -252,6 +411,14 @@ def admit_group_snapshots(
             )
         except ValidationError:
             fail("invalid_group_selection", "incompatible_data")
+        _admit_profile_revision(
+            records,
+            decision_id=requested_check.decision_id,
+            mode=requested_check.mode,
+            provider_id=requested_check.provider_id,
+            revision_id=requested_check.revision_id,
+            members=tuple((f.manifest, f.revision) for f in contexts),
+        )
         ids = tuple(key for f in contexts for key in f.manifest.regression_ids)
         if len(ids) != len(set(ids)) or (
             requested_check.regression_ids and set(ids) != set(requested_check.regression_ids)

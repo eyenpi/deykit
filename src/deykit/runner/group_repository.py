@@ -14,7 +14,11 @@ from deykit.contracts.execution_groups import (
 from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.ports import SourceChange, StoredRecord
 from deykit.contracts.records import RunSegment
-from deykit.runner.group_evidence import admit_group_snapshots, content_hash
+from deykit.runner.group_evidence import (
+    admit_group_snapshots,
+    content_hash,
+    member_prepared_hash,
+)
 from deykit.runner.group_models import GroupPlan
 from deykit.runner.history import history_from_records
 from deykit.runner.planner import MAX_PLAN_BYTES
@@ -38,10 +42,22 @@ class GroupRepository:
             body = next(item.body for item in staged if item.key.collection == "runs")
             if body is None:
                 fail("invalid_staged_group", "internal_error")
+            staged_records = tuple(
+                StoredRecord(item.key, item.body, bytes_hash(item.body))
+                for item in staged
+                if item.body is not None
+            )
+            try:
+                prepared_hash = member_prepared_hash(
+                    run_id, tuple(case.id for case in child.cases), staged_records
+                )
+            except ValueError:
+                fail("invalid_staged_group_prepared_evidence", "internal_error")
             members.append(
                 ExecutionMember(
                     run_id=run_id,
                     manifest_hash=bytes_hash(body),
+                    prepared_hash=prepared_hash,
                     initial_requests=child.initial_requests,
                 )
             )

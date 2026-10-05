@@ -46,6 +46,8 @@ class GroupPlan:
             fail("invalid_segment_deadline", "preflight_failed")
         if any(p.selection.settings.deadline_seconds != self.deadline_seconds for p in self.plans):
             fail("group_deadline_mismatch", "preflight_failed")
+        if any(p.selection.settings.max_attempts != self.max_attempts for p in self.plans):
+            fail("group_attempt_allocation_mismatch", "preflight_failed")
         if any(
             bool(p.selection.regression_ids) != (self.kind == "regression_check")
             for p in self.plans

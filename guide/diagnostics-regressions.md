@@ -24,7 +24,7 @@ deykit --json --project "$PROJECT" diagnose show "$GROUP_ID"
 deykit --json --project "$PROJECT" diagnose resume "$GROUP_ID" --operation-id "$RESUME_ID"
 ```
 
-All members share one fixed lifetime attempt cap and one scheduling deadline per segment.
+All members share the attempt cap you supplied and one scheduling deadline per segment.
 Retries and unknown outcomes consume capacity. Resume retains the cap and uses the
 original duration for a new segment. Add `--retry-unknown` only when deliberately choosing
 a fresh attempt for ambiguous outcomes. Direct child resume/cap extension is blocked.

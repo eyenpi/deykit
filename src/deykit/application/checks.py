@@ -124,7 +124,15 @@ class CheckService:
 
     def preview(self, request: CheckRequest) -> GroupPreview:
         request = validated_model(CheckRequest, request, "invalid_check_request")
-        return self.groups.preview(lambda: self._plan(request))
+        return self.groups.preview(
+            lambda: self._plan(request),
+            selection_source=dump_json(
+                {
+                    "kind": "regression_check",
+                    "request": cast(JsonValue, request.model_dump(mode="json")),
+                }
+            ),
+        )
 
     async def start(self, request: CheckRequest, *, operation_id: str) -> CheckView:
         request = validated_model(CheckRequest, request, "invalid_check_request")

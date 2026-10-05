@@ -7,9 +7,11 @@ The summary keeps the independent case denominator separate from expanded result
 Only cases with at least two valid semantic answers enter disagreement measurement.
 Missing outcomes remain unavailable; authored fixtures establish software behavior.
 
-An immutable `ExecutionGroup` binds exact member manifest hashes, original selection,
-a fixed lifetime attempt cap and a segment deadline duration. All members are prepared
-from one source epoch and frozen in one transaction. Preview accounts for the same
+An immutable `ExecutionGroup` binds exact member manifest hashes, ordered hashes of each
+member's exact prepared-record bodies, original selection, a fixed lifetime attempt cap
+and a segment deadline duration. Admission checks the cap against the original selection
+and every member manifest before recovery or pinned reads. All members are prepared from
+one source epoch and frozen in one transaction. Preview accounts for the same
 32 MiB serialized evidence boundary, including initial segments and readiness markers.
 Each reservation counts against both its child limit and the fixed group cap. Retries,
 unknown outcomes and not-sent reservations consume capacity permanently. Direct child
@@ -31,6 +33,10 @@ cancellation; retained receipts are rendered after leaving the source lock.
 
 Captured admission verifies group/member hashes, segment ownership and time windows,
 all retained group snapshots and their exact result/event boundaries before recovery.
+A pinned selector is checked against the admitted frozen provider and revision evidence,
+plus the original dataset snapshot's split and case filter. An omitted revision retains
+the original draft-based run semantics; admission never resolves today's draft, labels or
+default regression membership.
 A missing final summary is repaired only under actual execution ownership, after another
 captured admission, with no new child segment or request. The group/segment/ordered result
 references deduplicate repair. Corrupt retained evidence produces no repair mutation.

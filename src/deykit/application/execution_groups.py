@@ -41,11 +41,14 @@ class GroupExecutionService:
         self.repo = execution.repository
         self.store = GroupRepository(self.repo)
 
-    def preview(self, prepare: Callable[[], GroupPlan]) -> GroupPreview:
+    def preview(self, prepare: Callable[[], GroupPlan], *, selection_source: str) -> GroupPreview:
         plan = prepare()
         plan.validate()
         # Include the same initial segment and readiness footprints as start.
-        group, changes = self.store.stage_freeze(plan, "preview", "0" * 64, "{}")
+        digest = safe_hash(
+            {"command": "execution_group.start", "selection": JsonDocument(selection_source).value}
+        )
+        group, changes = self.store.stage_freeze(plan, "preview", digest, selection_source)
         records = self._staged(changes)
         segment, segment_changes = self.store.stage_segment(
             group, "preview", 1, False, records, initial=True

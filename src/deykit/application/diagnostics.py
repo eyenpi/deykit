@@ -57,7 +57,15 @@ class DiagnosticService:
     def preview(self, request: ChoiceOrderRequest) -> GroupPreview:
         request = validated_model(ChoiceOrderRequest, request, "invalid_diagnostic_request")
         return replace(
-            self.groups.preview(lambda: self._plan(request)),
+            self.groups.preview(
+                lambda: self._plan(request),
+                selection_source=dump_json(
+                    {
+                        "kind": "choice_order",
+                        "request": cast(JsonValue, request.model_dump(mode="json")),
+                    }
+                ),
+            ),
             algorithm="deykit-choice-order-v1",
             seed=request.seed,
         )

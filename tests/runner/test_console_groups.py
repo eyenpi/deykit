@@ -1,6 +1,7 @@
 """The real console binary and exact FixtureSet adapter; no service monkeypatch."""
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -38,4 +39,6 @@ def test_group_commands_registered_with_explicit_help():
     ):
         result = runner.invoke(app, [*command, "--help"])
         assert result.exit_code == 0, result.output
-    assert "--provenance" in runner.invoke(app, ["regression", "add", "--help"]).output
+    result = runner.invoke(app, ["regression", "add", "--help"])
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--provenance" in plain_output

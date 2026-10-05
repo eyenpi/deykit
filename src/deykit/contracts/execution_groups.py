@@ -13,6 +13,7 @@ from deykit.contracts.records import HashedRecord, NonnegativeInt, PositiveInt, 
 class ExecutionMember(FrozenModel):
     run_id: ResourceId
     manifest_hash: ContentHash
+    prepared_hash: ContentHash
     initial_requests: NonnegativeInt
 
 
