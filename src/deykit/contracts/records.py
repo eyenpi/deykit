@@ -279,6 +279,58 @@ class DispatchOutcome(Record):
         return self
 
 
+class FixtureBinding(Record):
+    """One authored outcome for one case and one exact compiled request."""
+
+    id: ResourceId
+    case_id: ResourceId
+    request: CompiledRequest
+    answer: NormalizedAnswer | None = None
+    error: ServiceError | None = None
+
+    @model_validator(mode="after")
+    def one_outcome(self) -> Self:
+        if (self.answer is None) == (self.error is None):
+            raise ValueError("fixture_requires_one_outcome")
+        return self
+
+
+class FixtureSet(HashedRecord):
+    """Immutable, explicitly authored bindings; every edit creates a new set ID."""
+
+    id: ResourceId
+    decision_id: ResourceId
+    dataset_id: ResourceId
+    name: Nonempty
+    model_identity: Nonempty
+    bindings: Annotated[tuple[FixtureBinding, ...], Field(min_length=1)]
+    content_hash: ContentHash
+    created_at: UtcTimestamp
+    note: str = ""
+    evidence_mode: Literal["authored_fixture"] = "authored_fixture"
+
+    @model_validator(mode="after")
+    def unique_bindings(self) -> Self:
+        if not self.model_identity.startswith("authored-"):
+            raise ValueError("authored_model_identity_required")
+        if len({binding.id for binding in self.bindings}) != len(self.bindings):
+            raise ValueError("duplicate_fixture_binding_id")
+        keys = {
+            (
+                binding.case_id,
+                binding.request.compiler,
+                binding.request.compiler_version,
+                binding.request.body_hash,
+            )
+            for binding in self.bindings
+        }
+        if len(keys) != len(self.bindings):
+            raise ValueError("duplicate_fixture_request_binding")
+        if any(binding.request.requested_model != self.model_identity for binding in self.bindings):
+            raise ValueError("fixture_model_mismatch")
+        return self
+
+
 class ExecutionSettings(FrozenModel):
     max_attempts: PositiveInt = 100
     concurrency: PositiveInt = 2

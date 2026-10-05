@@ -54,6 +54,7 @@ Collection = Literal[
     "dataset_snapshots",
     "label_snapshots",
     "providers",
+    "fixtures",
     "runs",
     "segments",
     "run_events",
