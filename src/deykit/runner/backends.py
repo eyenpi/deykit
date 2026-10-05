@@ -8,7 +8,7 @@ from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import ChoiceCompiler, Clock, ProjectSource, ProviderTransport
 from deykit.contracts.records import ChoiceDefinition, ProviderProfile
 from deykit.providers.choice import JevChoiceCompiler
-from deykit.providers.credentials import Credentials
+from deykit.providers.credentials import Credentials, credentials_for
 from deykit.providers.fixtures import FixtureInvalid, FixtureTransportFactory
 from deykit.providers.jev import JevProvider
 from deykit.providers.profiles import ProviderProfiles
@@ -62,7 +62,7 @@ class ProviderBackends:
     ) -> None:
         self.source = source
         self.fixtures = FixtureService(source, clock)
-        self.credentials = credentials or Credentials()
+        self.credentials = credentials
 
     def profile(self, provider_id: str | None, fixture_set_id: str | None) -> ProviderProfile:
         if fixture_set_id is not None:
@@ -94,6 +94,6 @@ class ProviderBackends:
         if profile.adapter != "jev":
             fail("fixture_set_required", "preflight_failed")
         try:
-            return LiveBackend(JevProvider(profile, self.credentials))
+            return LiveBackend(JevProvider(profile, self.credentials or credentials_for(profile)))
         except ValueError:
             fail("invalid_provider_profile", "preflight_failed")

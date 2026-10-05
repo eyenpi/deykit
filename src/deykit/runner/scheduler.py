@@ -238,7 +238,7 @@ class Scheduler:
                         stop.state = "interrupted"
         if stop.persistence_failed:
             raise ServiceFailure(
-                ServiceError(code="internal_error", reason="persistence_failed")
+                ServiceError(code="internal_error", resource_id=run_id, reason="persistence_failed")
             ) from None
         current = repo.history(run_id)
         if (

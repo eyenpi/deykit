@@ -333,3 +333,27 @@ def test_adapter_capability_preflight_rejects_options_even_without_valid_cases(s
     result = LiveBackend(provider).preflight("decision", "data", definition)
     assert result.reason == "unsupported_option_count"
     provider.preflight.assert_not_called()
+
+
+def test_live_backend_uses_frozen_reference_credentials_without_network(setup, monkeypatch):
+    from deykit.contracts.records import ProviderProfile
+    from deykit.providers.credentials import Credentials
+    from deykit.runner import backends
+
+    source, _, _, clock = setup(1)
+    observed = []
+    profile = ProviderProfile(
+        id="live",
+        adapter="jev",
+        requested_model="jev-latest",
+        destination="https://api.typesafe.ai/v1/systemone",
+        credential_ref="env:OFFLINE_SENTINEL",
+    )
+
+    def credentials(value):
+        observed.append(value)
+        return Credentials({"OFFLINE_SENTINEL": "PRIVATE_OFFLINE_CREDENTIAL"})
+
+    monkeypatch.setattr(backends, "credentials_for", credentials)
+    backend = ProviderBackends(source, clock).resolve(profile, None)
+    assert backend.preflight("decision", "data") is None and observed == [profile]
