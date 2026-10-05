@@ -24,6 +24,7 @@ def cli(cwd: Path, *args: str, input_text: str | None = None) -> subprocess.Comp
         [str(executable), *args],
         cwd=cwd,
         input=input_text,
+        stdin=subprocess.DEVNULL if input_text is None else None,
         text=True,
         capture_output=True,
         check=False,

@@ -74,7 +74,7 @@ def test_jsonl_unicode_separators_and_crlf_preserve_data(project):
         (",text\na,b\n", "invalid_csv_header"),
         ('text\n"unterminated', "malformed_csv"),
         ('text\n"a"afterquote\n', "malformed_csv"),
-        ("text\n" + "x" * 131073, "csv_field_resource_limit"),
+        pytest.param("text\n" + "x" * 131073, "csv_field_resource_limit", id="field_over_limit"),
         ("\ufefftext\nx", "unexpected_byte_order_mark"),
         ("text\n", "empty_import"),
     ],
