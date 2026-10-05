@@ -70,7 +70,9 @@ class RevisionPage:
 
 
 @dataclass(frozen=True)
-class CurrentDefinition:
+class LatestSavedDefinition:
+    """Explicit immutable saved context; authoring defaults to the current draft."""
+
     decision: Versioned[DecisionRecord]
     revision: Versioned[DecisionRevision]
 
@@ -79,6 +81,10 @@ class CurrentDefinition:
 class IncompatibleReference:
     kind: str
     resource_id: str
+    decision_id: str
+    dataset_id: str
+    case_id: str
+    question_id: str
     missing_option_ids: tuple[str, ...]
 
 
@@ -216,6 +222,10 @@ class DecisionService:
             stored = replay.changes[0]
             return Versioned(_decoded(DecisionDraft, stored), stored.etag)
         with self.source.consistent_read() as source:
+            replay = source.operation_receipt(operation_id, intent_hash=intent)
+            if replay is not None:
+                stored = replay.changes[0]
+                return Versioned(_decoded(DecisionDraft, stored), stored.etag)
             decision, _ = _required(source, DecisionRecord, _key("decisions", decision_id))
             draft, _ = _required(source, DecisionDraft, _key("drafts", decision_id))
             if decision.archived:
@@ -269,47 +279,51 @@ class DecisionService:
             stored = next(item for item in replay.changes if item.key.collection == "revisions")
             return Versioned(_decoded(DecisionRevision, stored), stored.etag)
         with self.source.consistent_read() as source:
+            replay = source.operation_receipt(operation_id, intent_hash=intent)
+            if replay is not None:
+                stored = next(item for item in replay.changes if item.key.collection == "revisions")
+                return Versioned(_decoded(DecisionRevision, stored), stored.etag)
             decision, _ = _required(source, DecisionRecord, _key("decisions", decision_id))
             draft, _ = _required(source, DecisionDraft, _key("drafts", decision_id))
-        if decision.archived:
-            raise _failure("conflict", decision_id, "decision_archived")
-        definition = self._definition(draft.editor_source, decision_id)
-        revision_id = _valid_id(self.id_factory())
-        try:
-            revision = DecisionRevision(
-                id=revision_id,
-                decision_id=decision_id,
-                definition=definition,
-                content_hash=definition_hash(definition),
-                created_at=self.clock.utc_now(),
-                note=note,
-            )
-            pointer = DecisionRecord(
-                id=decision.id,
-                name=decision.name,
-                archived=decision.archived,
-                latest_revision_id=revision_id,
-            )
-            updated_draft = DecisionDraft(
-                decision_id=decision_id,
-                editor_source=draft.editor_source,
-                updated_at=draft.updated_at,
-                base_revision_id=revision_id,
-            )
-            changes = (
-                SourceChange(
-                    _key("revisions", revision_id, (decision_id,)), dump_record(revision), None
-                ),
-                SourceChange(
-                    _key("decisions", decision_id), dump_record(pointer), expected_decision_etag
-                ),
-                SourceChange(
-                    _key("drafts", decision_id), dump_record(updated_draft), expected_draft_etag
-                ),
-            )
-        except (ValidationError, JsonError):
-            raise _failure("validation_error", decision_id, "invalid_revision") from None
-        receipt = self.source.commit(operation_id, changes, intent_hash=intent)
+            if decision.archived:
+                raise _failure("conflict", decision_id, "decision_archived")
+            definition = self._definition(draft.editor_source, decision_id)
+            revision_id = _valid_id(self.id_factory())
+            try:
+                revision = DecisionRevision(
+                    id=revision_id,
+                    decision_id=decision_id,
+                    definition=definition,
+                    content_hash=definition_hash(definition),
+                    created_at=self.clock.utc_now(),
+                    note=note,
+                )
+                pointer = DecisionRecord(
+                    id=decision.id,
+                    name=decision.name,
+                    archived=decision.archived,
+                    latest_revision_id=revision_id,
+                )
+                updated_draft = DecisionDraft(
+                    decision_id=decision_id,
+                    editor_source=draft.editor_source,
+                    updated_at=draft.updated_at,
+                    base_revision_id=revision_id,
+                )
+                changes = (
+                    SourceChange(
+                        _key("revisions", revision_id, (decision_id,)), dump_record(revision), None
+                    ),
+                    SourceChange(
+                        _key("decisions", decision_id), dump_record(pointer), expected_decision_etag
+                    ),
+                    SourceChange(
+                        _key("drafts", decision_id), dump_record(updated_draft), expected_draft_etag
+                    ),
+                )
+            except (ValidationError, JsonError):
+                raise _failure("validation_error", decision_id, "invalid_revision") from None
+            receipt = source.commit(operation_id, changes, intent_hash=intent)
         stored = next(item for item in receipt.changes if item.key.collection == "revisions")
         return Versioned(_decoded(DecisionRevision, stored), stored.etag)
 
@@ -323,8 +337,8 @@ class DecisionService:
             raise _failure("validation_error", revision_id, "revision_hash_mismatch")
         return Versioned(record, etag)
 
-    def current_revision(self, decision_id: str) -> CurrentDefinition:
-        """Capture the current validated immutable definition at one source boundary."""
+    def latest_saved_revision(self, decision_id: str) -> LatestSavedDefinition:
+        """Capture the latest saved revision explicitly at one source boundary."""
         decision_id = _valid_id(decision_id)
         with self.source.consistent_read() as source:
             decision, etag = _required(source, DecisionRecord, _key("decisions", decision_id))
@@ -333,7 +347,7 @@ class DecisionService:
             if decision.latest_revision_id is None:
                 raise _failure("validation_error", decision_id, "unsaved_decision")
             revision = self._versioned_revision(source, decision_id, decision.latest_revision_id)
-            return CurrentDefinition(Versioned(decision, etag), revision)
+            return LatestSavedDefinition(Versioned(decision, etag), revision)
 
     def history(
         self, decision_id: str, *, cursor: str | None = None, limit: int = 50
@@ -426,6 +440,10 @@ class DecisionService:
             stored = replay.changes[0]
             return Versioned(_decoded(DecisionDraft, stored), stored.etag)
         with self.source.consistent_read() as source:
+            replay = source.operation_receipt(operation_id, intent_hash=intent)
+            if replay is not None:
+                stored = replay.changes[0]
+                return Versioned(_decoded(DecisionDraft, stored), stored.etag)
             view = self._read_view(source, decision_id)
             decision = view.decision.record
             if decision.archived:
@@ -471,6 +489,10 @@ class DecisionService:
             stored = replay.changes[0]
             return Versioned(_decoded(DecisionRecord, stored), stored.etag)
         with self.source.consistent_read() as source:
+            replay = source.operation_receipt(operation_id, intent_hash=intent)
+            if replay is not None:
+                stored = replay.changes[0]
+                return Versioned(_decoded(DecisionRecord, stored), stored.etag)
             view = self._read_view(source, decision_id)
             decision = view.decision.record
         try:
@@ -558,7 +580,17 @@ class DecisionService:
                         definition, label.question_id, label.acceptable_option_ids
                     )
                     if missing:
-                        found.append(IncompatibleReference("label", label.id, missing))
+                        found.append(
+                            IncompatibleReference(
+                                kind="label",
+                                resource_id=label.id,
+                                decision_id=decision_id,
+                                dataset_id=label.dataset_id,
+                                case_id=label.case_id,
+                                question_id=label.question_id,
+                                missing_option_ids=missing,
+                            )
+                        )
             for regression_id in source.list_ids("regressions"):
                 regression, _ = _required(
                     source, RegressionRecord, _key("regressions", regression_id)
@@ -571,5 +603,26 @@ class DecisionService:
                     definition, regression.question_id, regression.acceptable_option_ids
                 )
                 if missing:
-                    found.append(IncompatibleReference("regression", regression.id, missing))
-        return tuple(sorted(found, key=lambda item: (item.kind, item.resource_id)))
+                    found.append(
+                        IncompatibleReference(
+                            kind="regression",
+                            resource_id=regression.id,
+                            decision_id=decision_id,
+                            dataset_id=regression.dataset_id,
+                            case_id=regression.case_id,
+                            question_id=regression.question_id,
+                            missing_option_ids=missing,
+                        )
+                    )
+        return tuple(
+            sorted(
+                found,
+                key=lambda item: (
+                    item.kind,
+                    item.dataset_id,
+                    item.case_id,
+                    item.question_id,
+                    item.resource_id,
+                ),
+            )
+        )

@@ -255,9 +255,17 @@ def test_option_rename_and_deletion_keep_references_visible(authoring):
     diff = service.diff("d", "rev2", "draft")
     assert diff.removed_option_ids == ("one",)
     assert [
-        (item.kind, item.resource_id, item.missing_option_ids)
+        (
+            item.kind,
+            item.resource_id,
+            item.decision_id,
+            item.dataset_id,
+            item.case_id,
+            item.question_id,
+            item.missing_option_ids,
+        )
         for item in diff.incompatible_references
-    ] == [("label", "label", ("one",))]
+    ] == [("label", "label", "d", "data", "case", "q", ("one",))]
     assert label.acceptable_option_ids == ("one",)
 
 
@@ -372,11 +380,11 @@ def test_order_only_edit_is_explicit_in_diff(authoring):
     assert diff.before_hash != diff.after_hash
 
 
-def test_current_revision_exposes_one_saved_identity(authoring):
+def test_latest_saved_revision_exposes_one_saved_identity(authoring):
     service, _ = authoring
     created = service.create("d", "D", definition_source(), operation_id="create")
     with pytest.raises(ServiceFailure) as unsaved:
-        service.current_revision("d")
+        service.latest_saved_revision("d")
     assert unsaved.value.error.reason == "unsaved_decision"
     saved = service.save(
         "d",
@@ -384,12 +392,12 @@ def test_current_revision_exposes_one_saved_identity(authoring):
         expected_decision_etag=created.decision.etag,
         operation_id="save",
     )
-    current = service.current_revision("d")
+    current = service.latest_saved_revision("d")
     assert current.decision.record.latest_revision_id == saved.record.id
     assert current.revision == saved
     service.archive("d", expected_etag=current.decision.etag, operation_id="archive")
     with pytest.raises(ServiceFailure) as archived:
-        service.current_revision("d")
+        service.latest_saved_revision("d")
     assert archived.value.error.reason == "decision_archived"
 
 

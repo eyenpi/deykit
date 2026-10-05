@@ -23,6 +23,8 @@ and revision IDs. Requested strings are hashed as exact UTF-8 before the bounded
 canonical intent envelope, so large incomplete drafts retain repeatable identity.
 `operation_receipt` recovers the original committed result after a
 retry, even after a later edit, and rejects reusing the ID for a changed request.
+Mutations recheck the receipt after acquiring the source boundary: another writer
+may commit the same operation between the first lookup and local validation.
 `ProjectSource.commit` checks ETags and commits all changes as one durable operation.
 Callers must retain the ETags returned by reads and report `conflict` on stale writes.
 
@@ -32,7 +34,10 @@ the full case input before selecting fields. The selected `JsonDocument` retains
 numbers and omits labels, metadata, and unselected fields. Option/question IDs stay
 stable across display-name edits. A diff reports removed IDs and references in
 current labels and regressions that became incompatible; it never rewrites either
-historical record.
+historical record. Each reference includes decision, dataset, case and question IDs
+because a label ID may appear in more than one dataset scope. `latest_saved_revision`
+provides an explicit immutable saved context; ordinary authoring uses the current
+validated draft.
 
 Draft update and revision-to-draft restore hold the source boundary from the
 archive-state read through commit. A simultaneous archive therefore waits or reports

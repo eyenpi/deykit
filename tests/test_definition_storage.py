@@ -136,6 +136,7 @@ def test_real_source_option_deletion_reports_label_and_regression(tmp_path):
             operation_id="save",
         )
         dataset = DatasetRecord(id="data", name="Data", created_at=STAMP)
+        other_dataset = DatasetRecord(id="data-two", name="Other data", created_at=STAMP)
         label = LabelRecord(
             id="label",
             decision_id="d",
@@ -143,6 +144,17 @@ def test_real_source_option_deletion_reports_label_and_regression(tmp_path):
             case_id="case",
             question_id="q",
             input_hash="a" * 64,
+            acceptable_option_ids=("one",),
+            provenance="human",
+            updated_at=STAMP,
+        )
+        other_label = LabelRecord(
+            id="label",
+            decision_id="d",
+            dataset_id="data-two",
+            case_id="other-case",
+            question_id="q",
+            input_hash="b" * 64,
             acceptable_option_ids=("one",),
             provenance="human",
             updated_at=STAMP,
@@ -163,8 +175,14 @@ def test_real_source_option_deletion_reports_label_and_regression(tmp_path):
             "expectations",
             (
                 SourceChange(ResourceKey("datasets", "data"), dump_record(dataset), None),
+                SourceChange(ResourceKey("datasets", "data-two"), dump_record(other_dataset), None),
                 SourceChange(
                     ResourceKey("labels", "label", ("d", "data")), dump_record(label), None
+                ),
+                SourceChange(
+                    ResourceKey("labels", "label", ("d", "data-two")),
+                    dump_record(other_label),
+                    None,
                 ),
                 SourceChange(
                     ResourceKey("regressions", "regression"), dump_record(regression), None
@@ -180,13 +198,24 @@ def test_real_source_option_deletion_reports_label_and_regression(tmp_path):
         diff = service.diff("d", saved.record.id, "draft")
         assert diff.removed_option_ids == ("one",)
         assert [
-            (ref.kind, ref.resource_id, ref.missing_option_ids)
+            (
+                ref.kind,
+                ref.resource_id,
+                ref.dataset_id,
+                ref.case_id,
+                ref.question_id,
+                ref.missing_option_ids,
+            )
             for ref in diff.incompatible_references
         ] == [
-            ("label", "label", ("one",)),
-            ("regression", "regression", ("one",)),
+            ("label", "label", "data", "case", "q", ("one",)),
+            ("label", "label", "data-two", "other-case", "q", ("one",)),
+            ("regression", "regression", "data", "case", "q", ("one",)),
         ]
         assert source.read(ResourceKey("labels", "label", ("d", "data"))).body == dump_record(label)
+        assert source.read(ResourceKey("labels", "label", ("d", "data-two"))).body == dump_record(
+            other_label
+        )
 
 
 def test_archive_waits_for_draft_update_source_boundary(tmp_path):
@@ -235,3 +264,84 @@ def test_archive_waits_for_draft_update_source_boundary(tmp_path):
                 "d", "later", expected_etag=draft.etag, operation_id="late-edit"
             )
         assert archived.value.error.reason == "decision_archived"
+
+
+def test_replay_lookup_is_rechecked_after_concurrent_edit_and_archive(tmp_path):
+    root = initialized(tmp_path)
+    with opened(root) as competing:
+        base = DecisionService(competing, Clock()).create(
+            "d", "D", definition(), operation_id="create"
+        )
+
+        class InterleavingSource(FileProjectSource):
+            triggered = False
+
+            def operation_receipt(self, operation_id: str, *, intent_hash: str):
+                receipt = super().operation_receipt(operation_id, intent_hash=intent_hash)
+                if operation_id == "edit" and not self.triggered:
+                    self.triggered = True
+                    assert receipt is None
+                    prior = DecisionService(competing, Clock()).update_draft(
+                        "d", "edited", expected_etag=base.draft.etag, operation_id="edit"
+                    )
+                    assert prior.record.editor_source == "edited"
+                    DecisionService(competing, Clock()).archive(
+                        "d", expected_etag=base.decision.etag, operation_id="archive"
+                    )
+                    return None
+                return receipt
+
+        with InterleavingSource(root) as interleaved:
+            replay = DecisionService(interleaved, Clock()).update_draft(
+                "d", "edited", expected_etag=base.draft.etag, operation_id="edit"
+            )
+        assert replay.record.editor_source == "edited"
+        assert DecisionService(competing, Clock()).read("d").decision.record.archived
+
+
+def test_save_replay_lookup_precedes_new_invalid_draft(tmp_path):
+    root = initialized(tmp_path)
+    with opened(root) as competing:
+        base = DecisionService(competing, Clock()).create(
+            "d", "D", definition(), operation_id="create"
+        )
+        committed = []
+
+        class InterleavingSource(FileProjectSource):
+            triggered = False
+
+            def operation_receipt(self, operation_id: str, *, intent_hash: str):
+                receipt = super().operation_receipt(operation_id, intent_hash=intent_hash)
+                if operation_id == "save" and not self.triggered:
+                    self.triggered = True
+                    assert receipt is None
+                    other = DecisionService(competing, Clock(), lambda: "revision")
+                    saved = other.save(
+                        "d",
+                        expected_draft_etag=base.draft.etag,
+                        expected_decision_etag=base.decision.etag,
+                        operation_id="save",
+                    )
+                    committed.append(saved)
+                    other.update_draft(
+                        "d",
+                        "invalid after save",
+                        expected_etag=other.read("d").draft.etag,
+                        operation_id="later-edit",
+                    )
+                    return None
+                return receipt
+
+        with InterleavingSource(root) as interleaved:
+
+            def unexpected_id() -> str:
+                raise AssertionError("replay must not mint a new revision ID")
+
+            replay = DecisionService(interleaved, Clock(), unexpected_id).save(
+                "d",
+                expected_draft_etag=base.draft.etag,
+                expected_decision_etag=base.decision.etag,
+                operation_id="save",
+            )
+        assert replay.record.id == committed[0].record.id
+        assert replay.record.content_hash == committed[0].record.content_hash
