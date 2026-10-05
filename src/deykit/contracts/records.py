@@ -485,6 +485,7 @@ class ResultSnapshot(HashedRecord):
 
 
 class EvaluationRecord(HashedRecord):
+    execution_operation_id: ResourceId | None = None
     id: ResourceId
     run_id: ResourceId
     result_snapshot_id: ResourceId

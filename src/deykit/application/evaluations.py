@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Literal, TypeVar, cast
 
 from deykit.application.dataset_support import fail, identifier, page
+from deykit.application.evaluation_evidence import snapshot_attempts
 from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.identities import new_id
@@ -29,9 +30,7 @@ from deykit.contracts.records import (
     EvaluationRecord,
     LabelRecord,
     LabelSnapshot,
-    PreparedCase,
     ResultSnapshot,
-    RunEvent,
     RunManifest,
 )
 from deykit.domain.definitions import definition_hash
@@ -78,11 +77,17 @@ def evaluation_hash(record: EvaluationRecord) -> str:
         record.label_snapshot_id,
         record.mode,
         record.metrics_source,
+        record.execution_operation_id,
     )
 
 
 def _evaluation_hash(
-    run_id: str, result_snapshot_id: str, label_snapshot_id: str, mode: str, metrics_source: str
+    run_id: str,
+    result_snapshot_id: str,
+    label_snapshot_id: str,
+    mode: str,
+    metrics_source: str,
+    execution_operation_id: str | None = None,
 ) -> str:
     return semantic_hash(
         {
@@ -91,6 +96,9 @@ def _evaluation_hash(
             "label_snapshot_id": label_snapshot_id,
             "mode": mode,
             "metrics": parse_json(metrics_source),
+            **(
+                {"execution_operation_id": execution_operation_id} if execution_operation_id else {}
+            ),
         }
     )
 
@@ -130,55 +138,6 @@ def _verify_hashes(frozen: FrozenEvaluation) -> None:
         tuple(item.model_dump_json().encode("utf-8") for item in frozen.results.results)
     ):
         fail("result_snapshot_hash_mismatch", "incompatible_data")
-
-
-def _dispatched_attempts(
-    index: dict[ResourceKey, StoredRecord], run_id: str, boundary: int
-) -> tuple[tuple[AttemptRecord, AttemptEvent], ...]:
-    run_events = sorted(
-        (
-            _typed(stored, RunEvent)
-            for key, stored in index.items()
-            if key.collection == "run_events" and key.scope == (run_id,)
-        ),
-        key=lambda item: item.sequence,
-    )
-    if boundary and boundary not in {event.sequence for event in run_events}:
-        fail("invalid_result_boundary", "incompatible_data")
-    dispatched = {
-        item.attempt_id
-        for item in run_events
-        if item.state == "attempt_dispatched" and item.sequence <= boundary
-    }
-    settled = {
-        item.attempt_id
-        for item in run_events
-        if item.state == "attempt_settled" and item.sequence <= boundary
-    }
-    attempts = sorted(
-        (
-            _typed(stored, AttemptRecord)
-            for key, stored in index.items()
-            if key.collection == "attempts" and key.scope == (run_id,)
-        ),
-        key=lambda item: item.number,
-    )
-    paired: list[tuple[AttemptRecord, AttemptEvent]] = []
-    for attempt in attempts:
-        if attempt.id not in dispatched or attempt.id not in settled:
-            continue
-        events = sorted(
-            (
-                _typed(stored, AttemptEvent)
-                for key, stored in index.items()
-                if key.collection == "attempt_events" and key.scope == (attempt.id,)
-            ),
-            key=lambda item: item.sequence,
-        )
-        if not events or events[-1].outcome is None:
-            fail("attempt_outcome_missing", "incompatible_data")
-        paired.append((attempt, events[-1]))
-    return tuple(paired)
 
 
 def _frozen(
@@ -233,13 +192,6 @@ def _frozen(
         or tuple(result.case_id for result in results.results) != manifest.case_ids
     ):
         fail("frozen_context_mismatch", "incompatible_data")
-    prepared = tuple(
-        _typed(stored, PreparedCase)
-        for stored in records
-        if stored.key.collection == "prepared_cases" and stored.key.scope == (run_id,)
-    )
-    if {item.case_id for item in prepared} != set(manifest.case_ids):
-        fail("incomplete_prepared_plan", "incompatible_data")
     frozen = FrozenEvaluation(
         manifest,
         revision,
@@ -248,7 +200,7 @@ def _frozen(
         results,
         baseline_dataset,
         baseline_labels,
-        _dispatched_attempts(index, run_id, results.through_event_sequence),
+        snapshot_attempts(records, results),
     )
     _verify_hashes(frozen)
     return frozen
@@ -368,6 +320,72 @@ class EvaluationService:
         mode: EvaluationMode = "original",
         operation_id: str,
     ) -> EvaluationView:
+        return self._evaluate(
+            run_id,
+            result_snapshot_id,
+            label_snapshot_id=label_snapshot_id,
+            mode=mode,
+            operation_id=operation_id,
+        )
+
+    def evaluate_execution(
+        self,
+        run_id: str,
+        result_snapshot_id: str,
+        *,
+        execution_operation_id: str,
+        allow_create: bool = True,
+    ) -> EvaluationView | None:
+        """Bind one execution action to its first frozen original-label evaluation.
+
+        Replaying a start/resume after later segments returns this same evaluation,
+        even when the runner's current latest result snapshot has advanced.
+        """
+        identifier(run_id), identifier(result_snapshot_id), identifier(execution_operation_id)
+        if type(allow_create) is not bool:
+            fail("invalid_evaluation_creation_setting")
+        with self.source.consistent_read() as source:
+            records = cast(SnapshotSource, source).capture_snapshot()
+            matches = tuple(
+                _view(item, replayed=True)
+                for item in records
+                if item.key.collection == "evaluations"
+                and _typed(item, EvaluationRecord).execution_operation_id == execution_operation_id
+            )
+            if matches:
+                if (
+                    len(matches) != 1
+                    or matches[0].record.run_id != run_id
+                    or matches[0].record.mode != "original"
+                ):
+                    fail("execution_evaluation_conflict", "incompatible_data")
+                record = matches[0].record
+                _frozen(
+                    records, run_id, record.result_snapshot_id, record.label_snapshot_id, "original"
+                )
+                return matches[0]
+            if not allow_create:
+                return None
+            operation_id = "evaluation-" + semantic_hash(
+                [execution_operation_id, result_snapshot_id]
+            )
+            return self._evaluate(
+                run_id,
+                result_snapshot_id,
+                operation_id=operation_id,
+                execution_operation_id=execution_operation_id,
+            )
+
+    def _evaluate(
+        self,
+        run_id: str,
+        result_snapshot_id: str,
+        *,
+        label_snapshot_id: str | None = None,
+        mode: EvaluationMode = "original",
+        operation_id: str,
+        execution_operation_id: str | None = None,
+    ) -> EvaluationView:
         identifier(run_id), identifier(result_snapshot_id), identifier(operation_id)
         if label_snapshot_id is not None:
             identifier(label_snapshot_id)
@@ -376,6 +394,11 @@ class EvaluationService:
         digest = semantic_hash(
             {
                 "command": "evaluation.evaluate_saved",
+                **(
+                    {"execution_operation_id": execution_operation_id}
+                    if execution_operation_id
+                    else {}
+                ),
                 "run_id": run_id,
                 "result_snapshot_id": result_snapshot_id,
                 "label_snapshot_id": label_snapshot_id,
@@ -391,9 +414,15 @@ class EvaluationService:
             try:
                 metrics_source = dump_json(_metrics(frozen, mode))
                 content_hash = _evaluation_hash(
-                    run_id, result_snapshot_id, frozen.labels.id, mode, metrics_source
+                    run_id,
+                    result_snapshot_id,
+                    frozen.labels.id,
+                    mode,
+                    metrics_source,
+                    execution_operation_id,
                 )
                 record = EvaluationRecord(
+                    execution_operation_id=execution_operation_id,
                     id=identifier(self.id_factory()),
                     run_id=run_id,
                     result_snapshot_id=result_snapshot_id,
