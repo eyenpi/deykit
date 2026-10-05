@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import httpx
 from typer.testing import CliRunner
 
 from deykit.cli.main import app
@@ -128,9 +129,12 @@ def test_provider_profile_commands_and_credential_refs_are_offline(
     )
     assert linked_replay["data"]["replayed"] is True
     assert linked_replay["data"]["profile"] == linked["data"]["profile"]
-    assert result(cli(root, "--json", "provider", "show", "jev-main"))["data"]["view"][
-        "profile"
-    ]["requested_model"] == "jev-latest"
+    assert (
+        result(cli(root, "--json", "provider", "show", "jev-main"))["data"]["view"]["profile"][
+            "requested_model"
+        ]
+        == "jev-latest"
+    )
     forgotten = result(
         cli(
             root,
@@ -186,9 +190,12 @@ def test_provider_profile_commands_and_credential_refs_are_offline(
     )
     assert replay["data"]["replayed"] is True
     assert replay["data"]["profile"] == forgotten["data"]["profile"]
-    assert result(cli(root, "--json", "provider", "show", "jev-main"))["data"]["view"][
-        "profile"
-    ]["requested_model"] == "jev-preview"
+    assert (
+        result(cli(root, "--json", "provider", "show", "jev-main"))["data"]["view"]["profile"][
+            "requested_model"
+        ]
+        == "jev-preview"
+    )
 
 
 def test_fixture_profile_file_and_deterministic_pagination(tmp_path: Path) -> None:
@@ -275,6 +282,56 @@ def test_explicit_model_list_and_network_doctor_use_fake_zero_inference(
     assert checked.exit_code == 0
     assert json.loads(checked.stdout)["data"]["network"] == {"model_count": 1, "inference_calls": 0}
     assert calls == ["constructed", "GET models", "constructed", "GET models"]
+
+
+def test_models_cli_uses_one_authenticated_get_and_redacts_fake_secret(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = project(tmp_path)
+    result(
+        cli(
+            root,
+            "--json",
+            "provider",
+            "configure",
+            "jev-main",
+            "--adapter",
+            "jev",
+            "--model",
+            "jev-1.13.0",
+        )
+    )
+    monkeypatch.setenv("JEV_API_KEY", "SECRET_SENTINEL")
+    from deykit.providers import jev
+    from deykit.providers.http import OneShotHttp
+
+    calls: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "jev-1.13.0",
+                        "description": "SECRET_SENTINEL",
+                        "release_date": "2026-10-01",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(jev, "OneShotHttp", lambda: OneShotHttp(httpx.MockTransport(handle)))
+    invoked = CliRunner().invoke(
+        app, ["--project", str(root), "--json", "provider", "models", "jev-main"]
+    )
+    assert invoked.exit_code == 0
+    assert len(calls) == 1 and calls[0].method == "GET"
+    assert calls[0].url.path == "/v1/models"
+    assert not calls[0].content
+    assert "SECRET_SENTINEL" not in invoked.output
+    assert json.loads(invoked.stdout)["data"]["models"][0]["description"] == "[REDACTED]"
 
 
 def test_stdin_secret_store_failure_is_redacted_and_does_not_change_profile(
