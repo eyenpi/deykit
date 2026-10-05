@@ -11,7 +11,7 @@ import typer
 from typer.core import TyperGroup
 
 from deykit import __version__
-from deykit.cli import authoring, commands, data, projects
+from deykit.cli import authoring, commands, data, labels, projects
 from deykit.cli.context import CliState
 from deykit.cli.output import emit_error
 from deykit.contracts.errors import ServiceError
@@ -88,6 +88,7 @@ def main(
 projects.register(app)
 authoring.register(app)
 data.register(app)
+labels.register(app)
 
 # Later service owners add one narrow module with register(app) under cli/commands.
 for module_info in sorted(iter_modules(commands.__path__), key=lambda item: item.name):

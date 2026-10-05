@@ -15,6 +15,7 @@ from deykit.application.imports import ImportService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
+from deykit.cli.splits import split_dataset
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import parse_json
 
@@ -24,6 +25,7 @@ T = TypeVar("T")
 
 
 def register(root: typer.Typer) -> None:
+    dataset_app.command("split")(split_dataset)
     root.add_typer(dataset_app, name="dataset")
     root.add_typer(case_app, name="case")
 

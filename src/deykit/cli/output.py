@@ -45,6 +45,61 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _human_page(value: object) -> str | None:
+    page = _plain(value)
+    if not isinstance(page, dict) or not {"items", "total", "next_cursor"} <= set(page):
+        return None
+    items = page["items"]
+    if not isinstance(items, list):
+        return None
+    columns = ("ID", "NAME", "STATUS")
+    rows: list[tuple[str, str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            return None
+        if "decision" in item:
+            decision = item["decision"]["record"]
+            rows.append(
+                (
+                    decision["id"],
+                    decision["name"],
+                    "archived"
+                    if decision["archived"]
+                    else "saved"
+                    if decision["latest_revision_id"]
+                    else "draft",
+                )
+            )
+        elif "review" in item:
+            review = item["review"]
+            status = (
+                "unlabelled"
+                if item["label"] is None
+                else "excluded"
+                if item["reasons"]
+                else "applicable"
+            )
+            rows.append((review["case_id"], review["question_id"], status))
+            columns = ("CASE ID", "QUESTION ID", "STATUS")
+        elif "record" in item:
+            record = item["record"]
+            if "dataset_id" in record:
+                rows.append((record["id"], record["input_kind"], record["split"]))
+                columns = ("CASE ID", "INPUT", "SPLIT")
+            elif "content_hash" in record:
+                rows.append((record["id"], record["created_at"], record["content_hash"]))
+                columns = ("REVISION ID", "CREATED", "HASH")
+            else:
+                rows.append(
+                    (record["id"], record["name"], "archived" if record["archived"] else "active")
+                )
+        else:
+            return None
+    lines = ["\t".join(columns), *("\t".join(row) for row in rows)]
+    lines.append(f"total={page['total']} next_cursor={page['next_cursor'] or '-'}")
+    return "\n".join(lines)
+
+
 def emit(cli: CliState, data: object, warnings: tuple[ServiceError, ...] = ()) -> None:
     if cli.json_output:
         payload = {
@@ -54,7 +109,10 @@ def emit(cli: CliState, data: object, warnings: tuple[ServiceError, ...] = ()) -
         }
         typer.echo(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
     else:
-        typer.echo(json.dumps(_plain(data), sort_keys=True, ensure_ascii=False, indent=2))
+        typer.echo(
+            _human_page(data)
+            or json.dumps(_plain(data), sort_keys=True, ensure_ascii=False, indent=2)
+        )
         for warning in warnings:
             typer.echo(f"Warning: {warning.message} ({warning.reason})", err=True)
 

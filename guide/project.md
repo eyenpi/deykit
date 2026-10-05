@@ -1,7 +1,8 @@
 # Portable projects
 
-Project authoring CLI integration follows P02. Python callers can already create,
-open, validate and snapshot a portable project through injected application services:
+Use the [authoring CLI](cli-authoring.md) to create and inspect portable projects
+without a browser. Python callers can also create, open, validate and snapshot
+a project through injected application services:
 
 ```python
 from datetime import datetime, timezone

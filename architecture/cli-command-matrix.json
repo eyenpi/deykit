@@ -1,0 +1,616 @@
+{
+  "schema_version": 1,
+  "scope": "local-first-milestone",
+  "commands": [
+    {
+      "path": "init",
+      "service": "ProjectService.create",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_project_discovery_exact_source_conflict_and_replay"
+      }
+    },
+    {
+      "path": "project show",
+      "service": "ProjectService.open",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "project validate",
+      "service": "ProjectService.validate",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_project_discovery_exact_source_conflict_and_replay"
+      }
+    },
+    {
+      "path": "project rebuild-index",
+      "service": "ProjectService.rebuild_index",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "decision list",
+      "service": "DecisionService.list",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_project_discovery_exact_source_conflict_and_replay"
+      }
+    },
+    {
+      "path": "decision show",
+      "service": "DecisionService.read/revision",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_project_discovery_exact_source_conflict_and_replay"
+      }
+    },
+    {
+      "path": "decision create",
+      "service": "DecisionService.create",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_project_discovery_exact_source_conflict_and_replay"
+      }
+    },
+    {
+      "path": "decision edit",
+      "service": "DecisionService.update_draft/restore_revision_to_draft",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_project_discovery_exact_source_conflict_and_replay"
+      }
+    },
+    {
+      "path": "decision validate",
+      "service": "DecisionService.validate",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "decision save",
+      "service": "DecisionService.save",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_project_discovery_exact_source_conflict_and_replay"
+      }
+    },
+    {
+      "path": "decision history",
+      "service": "DecisionService.history",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "decision diff",
+      "service": "DecisionService.diff",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "decision rename",
+      "service": "DecisionService.rename",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "decision archive",
+      "service": "DecisionService.archive",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "decision restore",
+      "service": "DecisionService.restore",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "dataset list",
+      "service": "DatasetService.list",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_split_exact_ratios_and_group_conflict"
+      }
+    },
+    {
+      "path": "dataset show",
+      "service": "DatasetService.read/list_cases",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "dataset create",
+      "service": "DatasetService.create",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_case_file_and_stdin_preserve_precise_input"
+      }
+    },
+    {
+      "path": "dataset edit",
+      "service": "DatasetService.update",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "dataset archive",
+      "service": "DatasetService.archive",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "dataset restore",
+      "service": "DatasetService.restore",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "dataset import",
+      "service": "ImportService.preview/commit",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_import_preview_default_abort_and_explicit_partial"
+      }
+    },
+    {
+      "path": "dataset split",
+      "service": "SplitService.preview/commit",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_split_exact_ratios_and_group_conflict"
+      }
+    },
+    {
+      "path": "case list",
+      "service": "DatasetService.list_cases",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_import_preview_default_abort_and_explicit_partial"
+      }
+    },
+    {
+      "path": "case show",
+      "service": "DatasetService.case",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_case_file_and_stdin_preserve_precise_input"
+      }
+    },
+    {
+      "path": "case add",
+      "service": "DatasetService.add_case",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_case_file_and_stdin_preserve_precise_input"
+      }
+    },
+    {
+      "path": "case edit",
+      "service": "DatasetService.edit_case",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "case remove",
+      "service": "DatasetService.remove_case",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_remaining_authoring_transitions_and_pagination"
+      }
+    },
+    {
+      "path": "label list",
+      "service": "LabelService.list",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_label_review_replay_batch_and_transitions"
+      }
+    },
+    {
+      "path": "label show",
+      "service": "LabelService.read",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_label_review_replay_batch_and_transitions"
+      }
+    },
+    {
+      "path": "label history",
+      "service": "LabelService.history",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_label_review_replay_batch_and_transitions"
+      }
+    },
+    {
+      "path": "label set",
+      "service": "LabelService.set/batch",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_label_review_replay_batch_and_transitions"
+      }
+    },
+    {
+      "path": "label clear",
+      "service": "LabelService.clear",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_label_review_replay_batch_and_transitions"
+      }
+    },
+    {
+      "path": "label dispute",
+      "service": "LabelService.dispute",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_label_review_replay_batch_and_transitions"
+      }
+    },
+    {
+      "path": "label resolve",
+      "service": "LabelService.resolve",
+      "owner": "P07",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "tests/test_cli_authoring.py::test_cli_label_review_replay_batch_and_transitions"
+      }
+    },
+    {
+      "path": "demo",
+      "service": "DemoService.create",
+      "owner": "P07/P06",
+      "status": "pending_dependency",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "serve",
+      "service": "LocalAPI",
+      "owner": "P15",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "provider list",
+      "service": "ProviderService.list",
+      "owner": "P09",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "provider show",
+      "service": "ProviderService.read",
+      "owner": "P09",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "provider configure",
+      "service": "ProviderService.configure",
+      "owner": "P09",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "provider models",
+      "service": "ProviderService.models",
+      "owner": "P09",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "credential set",
+      "service": "CredentialService.set",
+      "owner": "P09",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "credential status",
+      "service": "CredentialService.status",
+      "owner": "P09",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "credential forget",
+      "service": "CredentialService.forget",
+      "owner": "P09",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "doctor",
+      "service": "DiagnosticsService",
+      "owner": "P09/P14",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "run",
+      "service": "RunService.start",
+      "owner": "P08",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "runs list",
+      "service": "RunService.list",
+      "owner": "P08",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "runs show",
+      "service": "RunService.read",
+      "owner": "P08",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "runs cancel",
+      "service": "RunService.cancel",
+      "owner": "P08",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "runs resume",
+      "service": "RunService.resume",
+      "owner": "P08",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "results list",
+      "service": "ResultService.list",
+      "owner": "P10",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "results show",
+      "service": "ResultService.read",
+      "owner": "P10",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "results annotate",
+      "service": "ResultService.annotate",
+      "owner": "P10",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "compare",
+      "service": "ComparisonService",
+      "owner": "P11",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "reevaluate",
+      "service": "EvaluationService",
+      "owner": "P10",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "diagnose choice-order",
+      "service": "ChoiceOrderService",
+      "owner": "P12",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "regression add",
+      "service": "RegressionService.add",
+      "owner": "P12",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "regression list",
+      "service": "RegressionService.list",
+      "owner": "P12",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "regression remove",
+      "service": "RegressionService.remove",
+      "owner": "P12",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "check",
+      "service": "RegressionService.check",
+      "owner": "P12",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "report export",
+      "service": "ReportService.export",
+      "owner": "P13",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    }
+  ]
+}
