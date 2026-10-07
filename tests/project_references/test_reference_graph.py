@@ -5,6 +5,7 @@ import pytest
 from deykit.application.errors import ServiceFailure
 from deykit.application.project_references import validate_project_references
 from deykit.contracts.codec import dump_record
+from deykit.contracts.json_value import JsonDocument
 from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.contracts.records import (
     CaseRecord,
@@ -16,14 +17,13 @@ from deykit.contracts.records import (
     DecisionDraft,
     DecisionRecord,
     DecisionRevision,
-    LabelRecord,
     LabelChange,
+    LabelRecord,
     ProjectRecord,
     RegressionRecord,
 )
 from deykit.domain.definitions import definition_hash
 from deykit.domain.label_identity import label_id
-from deykit.contracts.json_value import JsonDocument
 from deykit.regressions.evidence import regression_hash
 
 STAMP = "2026-10-05T12:00:00Z"
@@ -268,9 +268,7 @@ def _legacy_regression_project(record: RegressionRecord) -> tuple[StoredRecord, 
     return (
         project_record(),
         *decision_records(),
-        item(
-            "datasets", "dataset", DatasetRecord(id="dataset", name="Data", created_at=STAMP)
-        ),
+        item("datasets", "dataset", DatasetRecord(id="dataset", name="Data", created_at=STAMP)),
         item("revisions", "revision", revision, ("decision",)),
         item("regressions", record.id, record),
     )
@@ -279,9 +277,7 @@ def _legacy_regression_project(record: RegressionRecord) -> tuple[StoredRecord, 
 def test_legacy_regression_warns_only_after_original_hashes_and_question_bind() -> None:
     valid = _legacy_regression(content_hash="computed")
     result = validate_project_references(_legacy_regression_project(valid))
-    assert [warning.reason for warning in result.warnings] == [
-        "legacy_regression_not_executable"
-    ]
+    assert [warning.reason for warning in result.warnings] == ["legacy_regression_not_executable"]
 
     for invalid in (
         _legacy_regression(input_hash="0" * 64),

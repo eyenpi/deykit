@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import NoReturn, cast
 
 from deykit.application.annotations import annotation_hash
+from deykit.application.comparisons import admit_comparison_from_records
 from deykit.application.errors import ServiceFailure
 from deykit.application.labels import admit_label_record
-from deykit.application.comparisons import admit_comparison_from_records
 from deykit.application.reports import admit_report_from_records
 from deykit.application.splits import admit_dataset_snapshot
 from deykit.contracts.base import Record
@@ -462,7 +462,7 @@ def _validate_hard_references(captured: _CapturedProject) -> None:
             if not isinstance(attempt_value, AttemptRecord):
                 _failure("project_reference_wrong_owner", attempt_stored)
             captured.get(stored, "attempts", value.attempt_id, (attempt_value.run_id,))
-    for stored, value in captured.all("result_snapshots"):
+    for _stored, value in captured.all("result_snapshots"):
         if isinstance(value, ResultSnapshot):
             captured.get(stored, "runs", value.run_id)
             run_value = captured.values[ResourceKey("runs", value.run_id)]

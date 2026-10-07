@@ -144,8 +144,11 @@ def test_split_snapshot_counts_are_bounded_before_integer_conversion():
         '"algorithm":"connected-greedy-squared-v1","seed":4,'
         '"ratios":{"development":1},"assignments":[["frozen","development"]],'
         '"groups":[["frozen"]],"counts":{"development":999999999999999999999,'
-        '"calibration":0,"test":0},"input_identity":"' + "0" * 64
-        + '","dataset_etag":"' + "1" * 64 + '"}'
+        '"calibration":0,"test":0},"input_identity":"'
+        + "0" * 64
+        + '","dataset_etag":"'
+        + "1" * 64
+        + '"}'
     )
     snapshot = DatasetSnapshot(
         id="bad-count-snapshot",

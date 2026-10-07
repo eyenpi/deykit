@@ -20,7 +20,6 @@ from deykit.contracts.records import (
     DecisionRecord,
     EvaluationRecord,
     LabelRecord,
-    ProjectRecord,
     RegressionRecord,
     ReportRecord,
 )
@@ -48,9 +47,7 @@ def _init_project(path: Path) -> None:
 
 def _change(collection: str, value: Record, scope: tuple[str, ...] = ()) -> SourceChange:
     resource_id = getattr(value, "decision_id" if collection == "drafts" else "id")
-    return SourceChange(
-        ResourceKey(collection, resource_id, scope), dump_record(value), None
-    )
+    return SourceChange(ResourceKey(collection, resource_id, scope), dump_record(value), None)
 
 
 def _seed(path: Path, *changes: SourceChange) -> None:
@@ -61,9 +58,7 @@ def _seed(path: Path, *changes: SourceChange) -> None:
 def _base_decision(
     latest_revision_id: str | None = "missing-revision",
 ) -> tuple[SourceChange, SourceChange]:
-    decision = DecisionRecord(
-        id="decision", name="Decision", latest_revision_id=latest_revision_id
-    )
+    decision = DecisionRecord(id="decision", name="Decision", latest_revision_id=latest_revision_id)
     draft = DecisionDraft(
         decision_id="decision", editor_source="{", updated_at="2026-10-05T12:00:00Z"
     )

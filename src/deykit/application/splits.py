@@ -259,10 +259,7 @@ def _admit_split_snapshot_selection(
     expected_counts = {
         split: sum(case.split == split for case in snapshot.cases) for split in SPLITS
     }
-    counts = {
-        name: _source_count(count, len(snapshot.cases))
-        for name, count in raw_counts.items()
-    }
+    counts = {name: _source_count(count, len(snapshot.cases)) for name, count in raw_counts.items()}
     if counts != expected_counts:
         fail("split_snapshot_counts_mismatch")
 

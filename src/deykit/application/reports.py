@@ -207,11 +207,7 @@ def admit_report_from_records(
         for saved_evaluation in admitted.content.evaluations:
             evaluation_id = saved_evaluation.context.evaluation_id
             linked = next(
-                (
-                    item
-                    for item in records
-                    if item.key == ResourceKey("evaluations", evaluation_id)
-                ),
+                (item for item in records if item.key == ResourceKey("evaluations", evaluation_id)),
                 None,
             )
             if linked is None:
@@ -253,7 +249,6 @@ def admit_report_from_records(
             fail("report_redaction_context_mismatch", "incompatible_data")
         fail("report_link_mismatch", "incompatible_data")
     return ReportView(admitted.record, admitted.etag, admitted.content, replayed)
-
 
 
 class ReportService:

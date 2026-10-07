@@ -202,9 +202,7 @@ class CaptureFailureSource(RetainedSource):
     ) -> tuple[StoredRecord, ...]:
         self.captures += 1
         self.order.append("capture")
-        raise ServiceFailure(
-            ServiceError(code="internal_error", reason="capture_failed")
-        )
+        raise ServiceFailure(ServiceError(code="internal_error", reason="capture_failed"))
 
 
 def test_validate_opened_uses_one_capture_and_returns_graph_warnings(monkeypatch) -> None:

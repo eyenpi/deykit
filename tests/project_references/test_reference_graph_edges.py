@@ -28,8 +28,8 @@ from deykit.contracts.records import (
     PreparedCase,
     ProjectRecord,
     ProviderProfile,
-    ReportRecord,
     RegressionRecord,
+    ReportRecord,
     ResultSnapshot,
     RunEvent,
     RunManifest,
@@ -42,9 +42,7 @@ STAMP = "2026-10-05T12:00:00Z"
 
 
 def item(collection: str, resource_id: str, value: object, scope: tuple[str, ...] = ()):
-    return StoredRecord(
-        ResourceKey(collection, resource_id, scope), dump_record(value), "0" * 64
-    )
+    return StoredRecord(ResourceKey(collection, resource_id, scope), dump_record(value), "0" * 64)
 
 
 def project() -> StoredRecord:
@@ -112,9 +110,7 @@ def captured_legacy_project() -> tuple[StoredRecord, ...]:
         item(
             "decisions",
             "decision",
-            DecisionRecord(
-                id="decision", name="Decision", latest_revision_id=revision.id
-            ),
+            DecisionRecord(id="decision", name="Decision", latest_revision_id=revision.id),
         ),
         item(
             "drafts",
@@ -216,9 +212,7 @@ def test_orphan_attempt_event_and_foreign_run_segment_are_hard_failures() -> Non
 def test_modern_child_cannot_be_hidden_under_incomplete_legacy_run() -> None:
     base = captured_legacy_project()
     run = next(
-        load_record(RunManifest, record.body)
-        for record in base
-        if record.key.collection == "runs"
+        load_record(RunManifest, record.body) for record in base if record.key.collection == "runs"
     )
     segment = RunSegment(id="segment", run_id=run.id, started_at=STAMP, deadline_at=STAMP)
     records = (*base, item("segments", segment.id, segment, (run.id,)))
@@ -326,9 +320,7 @@ def test_typed_comparison_graph_delegates_to_captured_comparison_reader(monkeypa
 
     base = captured_legacy_project()
     legacy_run = next(
-        load_record(RunManifest, record.body)
-        for record in base
-        if record.key.collection == "runs"
+        load_record(RunManifest, record.body) for record in base if record.key.collection == "runs"
     )
     provider_record = next(record for record in base if record.key.collection == "providers")
     run = legacy_run.model_copy(
@@ -524,9 +516,7 @@ def test_complete_regression_without_attempt_still_enters_origin_admission() -> 
         reason="Retained frozen evidence",
         created_at=STAMP,
     )
-    regression = provisional.model_copy(
-        update={"content_hash": regression_hash(provisional)}
-    )
+    regression = provisional.model_copy(update={"content_hash": regression_hash(provisional)})
     captured = (
         *(
             record
