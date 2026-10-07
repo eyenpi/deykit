@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from typing import cast
+from typing import Literal, cast
 
 from deykit.application.dataset_support import fail
 from deykit.application.evaluation_evidence import snapshot_attempts
@@ -62,6 +62,7 @@ def project_opaque_response_bytes(
 ) -> RawMaterial:
     """Project admitted opaque bytes while retaining exact source and sanitized hashes."""
     sanitized = sanitizer.bytes(value)
+    encoding: Literal["utf8", "base64"]
     try:
         source = sanitized.decode("utf-8", "strict")
         encoding = "utf8"
