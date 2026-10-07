@@ -327,9 +327,7 @@ def test_console_saved_export_and_metadata_pagination(cli_report_project):
     assert shown["report_id"] == report_id
     assert "content" not in shown and "raw_material" not in shown
 
-    first_page = _payload(
-        _console(project.root, "report", "list", "--limit", "1")
-    )["data"]
+    first_page = _payload(_console(project.root, "report", "list", "--limit", "1"))["data"]
     assert len(first_page["items"]) == 1
     assert first_page["next_cursor"] is not None
     assert "content" not in first_page["items"][0]
@@ -585,6 +583,7 @@ def test_all_raw_flag_combinations_reach_the_service_independently(tmp_path, mon
             for enabled, flag in zip(
                 expected,
                 ("--include-raw-inputs", "--include-raw-requests", "--include-raw-responses"),
+                strict=True,
             )
             if enabled
         )
