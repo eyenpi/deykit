@@ -162,6 +162,24 @@ def test_split_snapshot_counts_are_bounded_before_integer_conversion():
     assert invalid_count.value.error.reason == "invalid_split_counts"
 
 
+def test_unknown_snapshot_hash_profile_is_not_admitted_as_ordinary_legacy_hash():
+    frozen_cases = (case("frozen", split="development"),)
+    selection_source = '{"snapshot_hash_profile":"deykit-split-snapshot-v99"}'
+    snapshot = DatasetSnapshot(
+        id="unknown-profile-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=evidence_hash(tuple(dump_record(item) for item in frozen_cases)),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as unknown_profile:
+        admit_dataset_snapshot(snapshot)
+
+    assert unknown_profile.value.error.reason == "unknown_snapshot_hash_profile"
+
+
 def split_service(project):
     source, datasets, _, _ = project
     return SplitService(source, datasets.clock, datasets.id_factory)

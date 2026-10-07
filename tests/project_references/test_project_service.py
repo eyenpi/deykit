@@ -12,6 +12,7 @@ from deykit.application.projects import ProjectBackend, ProjectService
 from deykit.cli import projects as project_commands
 from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.ports import Collection, ResourceKey, StoredRecord
 from deykit.contracts.records import (
@@ -195,6 +196,17 @@ class Clock:
         return 0.0
 
 
+class CaptureFailureSource(RetainedSource):
+    def capture_snapshot(
+        self, keys: tuple[ResourceKey, ...] | None = None
+    ) -> tuple[StoredRecord, ...]:
+        self.captures += 1
+        self.order.append("capture")
+        raise ServiceFailure(
+            ServiceError(code="internal_error", reason="capture_failed")
+        )
+
+
 def test_validate_opened_uses_one_capture_and_returns_graph_warnings(monkeypatch) -> None:
     source = RetainedSource(captured_legacy_project())
 
@@ -278,3 +290,26 @@ def test_path_open_preserves_metadata_behavior_and_path_validate_closes_after_fa
     assert invalid_source.captures == 1
     assert invalid_source.read_entries == invalid_source.read_exits == 1
     assert invalid_source.closes == 1
+
+
+def test_capture_failure_releases_read_and_path_owner_but_not_retained_handle() -> None:
+    retained = CaptureFailureSource(captured_legacy_project())
+    with pytest.raises(ServiceFailure) as retained_failure:
+        ProjectService.validate_opened(cast(ProjectBackend, retained))
+    assert retained_failure.value.error.reason == "capture_failed"
+    assert retained.captures == 1
+    assert retained.read_entries == retained.read_exits == 1
+    assert retained.closes == 0
+
+    path_source = CaptureFailureSource(captured_legacy_project())
+    service = ProjectService(
+        lambda _path, _create: cast(ProjectBackend, path_source),
+        Clock(),
+        lambda: "unused",
+    )
+    with pytest.raises(ServiceFailure) as path_failure:
+        service.validate(Path("project"))
+    assert path_failure.value.error.reason == "capture_failed"
+    assert path_source.captures == 1
+    assert path_source.read_entries == path_source.read_exits == 1
+    assert path_source.closes == 1

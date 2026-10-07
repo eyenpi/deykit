@@ -22,6 +22,7 @@ from deykit.contracts.records import (
     RegressionRecord,
 )
 from deykit.domain.definitions import definition_hash
+from deykit.domain.label_identity import label_id
 from deykit.contracts.json_value import JsonDocument
 from deykit.regressions.evidence import regression_hash
 
@@ -188,6 +189,46 @@ def test_label_history_survives_current_case_removal() -> None:
         project_record(),
         *decision_records(),
         item("datasets", "dataset", DatasetRecord(id="dataset", name="Data", created_at=STAMP)),
+        item("label_history", history.id, history, ("decision", "dataset")),
+    )
+
+    assert validate_project_references(records).warnings == ()
+
+
+def test_readded_case_does_not_rebind_old_label_history_input() -> None:
+    old_label = LabelRecord(
+        id=label_id("removed-case", "q"),
+        decision_id="decision",
+        dataset_id="dataset",
+        case_id="removed-case",
+        question_id="q",
+        input_hash=JsonDocument('{"value":"old input"}').content_hash,
+        acceptable_option_ids=("yes",),
+        provenance="human",
+        updated_at=STAMP,
+    )
+    history = LabelChange(
+        id="change-set",
+        operation_id="set-before-removal",
+        decision_id="decision",
+        dataset_id="dataset",
+        case_id=old_label.case_id,
+        question_id=old_label.question_id,
+        action="set",
+        label=old_label,
+        created_at=STAMP,
+    )
+    current_case = CaseRecord(
+        id="removed-case",
+        dataset_id="dataset",
+        input_kind="json",
+        input_source='{"value":"new input"}',
+    )
+    records = (
+        project_record(),
+        *decision_records(),
+        item("datasets", "dataset", DatasetRecord(id="dataset", name="Data", created_at=STAMP)),
+        item("cases", current_case.id, current_case, ("dataset",)),
         item("label_history", history.id, history, ("decision", "dataset")),
     )
 
