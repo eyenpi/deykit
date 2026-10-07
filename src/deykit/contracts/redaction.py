@@ -11,7 +11,12 @@ _SENSITIVE_KEY = re.compile(
     r"authorization|proxy.authorization|api.?key|access.?token|password|secret|cookie|headers",
     re.IGNORECASE,
 )
-_BEARER = re.compile(r"\bBearer\s+[^\s\"',;\]}]+", re.IGNORECASE)
+_BEARER = re.compile(
+    r"\bBearer\s+(?!\[REDACTED\](?=\s|$|[\"',;\]}]))"
+    r"(?:\[REDACTED\][^\s\"',;]*|[^\s\"',;\]}]+)",
+    re.IGNORECASE,
+)
+_PLACEHOLDER = "[REDACTED]"
 
 
 class Sanitizer:
@@ -25,8 +30,14 @@ class Sanitizer:
 
     def text(self, value: str) -> str:
         for secret in self._secrets:
-            value = value.replace(secret, "[REDACTED]")
+            value = _replace_outside_placeholder(value, secret, _PLACEHOLDER)
         return _BEARER.sub("Bearer [REDACTED]", value)
+
+    def bytes(self, value: bytes) -> bytes:
+        """Redact known UTF-8 values and Bearer tokens without decoding opaque bytes."""
+        for secret in self._secrets:
+            value = _replace_bytes_outside_placeholder(value, secret.encode("utf-8"), b"[REDACTED]")
+        return _BEARER_BYTES.sub(b"Bearer [REDACTED]", value)
 
     def value(self, value: Any) -> Any:
         if isinstance(value, str):
@@ -44,6 +55,28 @@ class Sanitizer:
             return value
         # Arbitrary objects may have credential-bearing repr/str implementations.
         return "[REDACTED]"
+
+
+_BEARER_BYTES = re.compile(_BEARER.pattern.encode("ascii"), re.IGNORECASE)
+_PLACEHOLDER_BYTES = b"[REDACTED]"
+
+
+def _replace_outside_placeholder(value: str, secret: str, replacement: str) -> str:
+    return (
+        replacement.join(part.replace(secret, replacement) for part in value.split(_PLACEHOLDER))
+        if secret
+        else value
+    )
+
+
+def _replace_bytes_outside_placeholder(value: bytes, secret: bytes, replacement: bytes) -> bytes:
+    return (
+        replacement.join(
+            part.replace(secret, replacement) for part in value.split(_PLACEHOLDER_BYTES)
+        )
+        if secret
+        else value
+    )
 
 
 def safe_choice_response(value: JsonValue, sanitizer: Sanitizer) -> JsonValue:

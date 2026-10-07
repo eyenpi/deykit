@@ -560,6 +560,10 @@ class ReportRecord(HashedRecord):
     label_snapshot_ids: tuple[ResourceId, ...]
     comparison_id: ResourceId | None = None
     includes_raw_input: bool = False
+    includes_raw_request: bool = False
+    includes_raw_response: bool = False
+    diagnostic_snapshot_id: ResourceId | None = None
+    check_snapshot_id: ResourceId | None = None
     content_source: JsonSource
     content_hash: ContentHash
     created_at: UtcTimestamp

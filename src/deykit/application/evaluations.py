@@ -284,6 +284,8 @@ def _metrics(frozen: FrozenEvaluation, evaluation_mode: EvaluationMode) -> dict[
 def admit_evaluation_record(stored: StoredRecord, *, replayed: bool = False) -> EvaluationView:
     """Decode and verify an evaluation without reading source or mutable state."""
     record = _typed(stored, EvaluationRecord)
+    if stored.key != ResourceKey("evaluations", record.id):
+        fail("evaluation_record_identity_mismatch", "incompatible_data")
     try:
         if record.content_hash != evaluation_hash(record):
             fail("evaluation_hash_mismatch", "incompatible_data")

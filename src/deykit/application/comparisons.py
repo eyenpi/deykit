@@ -206,29 +206,7 @@ class ComparisonService:
     def _bound_view(
         self, stored: StoredRecord, records: tuple[StoredRecord, ...], *, replayed: bool = False
     ) -> ComparisonView:
-        saved = _view(stored, replayed=replayed)
-        index = {item.key: item for item in records}
-        for position, context in enumerate((saved.outcomes.left, saved.outcomes.right)):
-            evaluation, frozen = _evaluation(records, index, context.evaluation_id)
-            prepared = _prepared(records, frozen)
-            try:
-                original_context, original_sides = _side(evaluation, frozen, prepared)
-            except (MetricsInvalid, ModelInvalid, JsonError):
-                fail("invalid_comparison_assessment", "incompatible_data")
-            if original_context != context:
-                fail("comparison_context_mismatch", "incompatible_data")
-            prepared_index = {item.case_id: item for item in prepared}
-            for case in saved.outcomes.cases:
-                side = case.left if position == 0 else case.right
-                if side is not None:
-                    item = prepared_index[case.case_id]
-                    if side.request_hash != (
-                        item.request.body_hash if item.request is not None else None
-                    ):
-                        fail("comparison_request_link_mismatch", "incompatible_data")
-                    if side != original_sides[case.case_id]:
-                        fail("comparison_assessment_link_mismatch", "incompatible_data")
-        return saved
+        return admit_comparison_from_records(stored, records, replayed=replayed)
 
     def create(
         self, left_evaluation_id: str, right_evaluation_id: str, *, operation_id: str
@@ -294,3 +272,32 @@ class ComparisonService:
             if saved is None:
                 fail("comparison_missing", "not_found")
             return self._bound_view(saved, records)
+
+
+def admit_comparison_from_records(
+    stored: StoredRecord, records: tuple[StoredRecord, ...], *, replayed: bool = False
+) -> ComparisonView:
+    """Admit a captured comparison against its immutable evaluation evidence."""
+    saved = _view(stored, replayed=replayed)
+    index = {item.key: item for item in records}
+    for position, context in enumerate((saved.outcomes.left, saved.outcomes.right)):
+        evaluation, frozen = _evaluation(records, index, context.evaluation_id)
+        prepared = _prepared(records, frozen)
+        try:
+            original_context, original_sides = _side(evaluation, frozen, prepared)
+        except (MetricsInvalid, ModelInvalid, JsonError):
+            fail("invalid_comparison_assessment", "incompatible_data")
+        if original_context != context:
+            fail("comparison_context_mismatch", "incompatible_data")
+        prepared_index = {item.case_id: item for item in prepared}
+        for case in saved.outcomes.cases:
+            side = case.left if position == 0 else case.right
+            if side is not None:
+                item = prepared_index[case.case_id]
+                if side.request_hash != (
+                    item.request.body_hash if item.request is not None else None
+                ):
+                    fail("comparison_request_link_mismatch", "incompatible_data")
+                if side != original_sides[case.case_id]:
+                    fail("comparison_assessment_link_mismatch", "incompatible_data")
+    return saved
