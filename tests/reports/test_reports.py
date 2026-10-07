@@ -54,6 +54,7 @@ from deykit.contracts.records import (
     ComparisonRecord,
     DispatchOutcome,
     EvaluationRecord,
+    FixtureBinding,
     NormalizedAnswer,
     PreparedCase,
     ProviderProfile,
@@ -102,6 +103,18 @@ class GroupReportGraph:
     case_ids: tuple[str, ...]
     reused_saved_graph: bool
     lifecycle_reports_created_before_resume: bool
+
+
+_GROUP_FIXTURE_ID = "m03-group-report-fixtures-v2"
+_GROUP_FIXTURE_OPERATION = "m03groupv2-fixtures-create"
+_DIAGNOSTIC_GROUP_OPERATION = "m03groupv2-diagnostic-start"
+_DIAGNOSTIC_RESUME_OPERATION = "m03groupv2-diagnostic-resume"
+_CHECK_GROUP_OPERATION = "m03groupv2-check-start"
+_CHECK_RESUME_OPERATION = "m03groupv2-check-resume"
+_DIAGNOSTIC_REPORT_ID = "group-diagnostic-v2-initial-report"
+_DIAGNOSTIC_REPORT_OPERATION = "m03groupv2-diagnostic-report-create"
+_CHECK_REPORT_ID = "group-check-v2-initial-report"
+_CHECK_REPORT_OPERATION = "m03groupv2-check-report-create"
 
 
 class ReplayGuardClock:
@@ -186,8 +199,22 @@ def group_report_graph(
             for item in records
             if item.key.collection == "execution_groups"
         )
-        diagnostic_group = next((item for item in groups if item.kind == "choice_order"), None)
-        check_group = next((item for item in groups if item.kind == "regression_check"), None)
+        diagnostic_group = next(
+            (
+                item
+                for item in groups
+                if item.kind == "choice_order" and item.operation_id == _DIAGNOSTIC_GROUP_OPERATION
+            ),
+            None,
+        )
+        check_group = next(
+            (
+                item
+                for item in groups
+                if item.kind == "regression_check" and item.operation_id == _CHECK_GROUP_OPERATION
+            ),
+            None,
+        )
         diagnostic_snapshots = tuple(
             load_record(DiagnosticSnapshot, item.body)
             for item in records
@@ -233,8 +260,8 @@ def group_report_graph(
                 for item in records
                 if item.key.collection == "reports"
             }
-            diagnostic_report = reports.get("group-diagnostic-initial-report")
-            check_report = reports.get("group-check-initial-report")
+            diagnostic_report = reports.get(_DIAGNOSTIC_REPORT_ID)
+            check_report = reports.get(_CHECK_REPORT_ID)
             lifecycle_reports_saved = (
                 diagnostic_report is not None
                 and diagnostic_report.diagnostic_snapshot_id == diagnostic_history[0].id
@@ -256,6 +283,9 @@ def group_report_graph(
                 lifecycle_reports_saved,
             )
 
+        failed_diagnostic_group = next(
+            (item for item in groups if item.kind == "choice_order"), None
+        )
         base_manifest = load_record(
             RunManifest,
             next(
@@ -282,28 +312,107 @@ def group_report_graph(
         assert base_manifest.dataset_id is not None
         assert base_manifest.fixture_set_id is not None
         assert base_manifest.decision_revision_id is not None
-        selected_case_ids = valid_case_ids[:2]
         clock = SystemClock()
         backends = UnknownOnceBackends(source, clock)
         execution = ExecutionService(source, source, backends, clock)
         diagnostic_service = DiagnosticService(execution)
+        prepared_requests: list[tuple[str, CompiledRequest]] = []
+        if failed_diagnostic_group is not None:
+            failed_manifests = tuple(
+                load_record(
+                    RunManifest,
+                    next(
+                        item.body
+                        for item in records
+                        if item.key == ResourceKey("runs", member.run_id)
+                    ),
+                )
+                for member in failed_diagnostic_group.members
+            )
+            selected_case_ids = failed_manifests[0].case_ids
+            assert len(selected_case_ids) == 2
+            assert all(item.case_ids == selected_case_ids for item in failed_manifests)
+            for member in failed_diagnostic_group.members:
+                for case_id in selected_case_ids:
+                    prepared = load_record(
+                        PreparedCase,
+                        next(
+                            item.body
+                            for item in records
+                            if item.key == ResourceKey("prepared_cases", case_id, (member.run_id,))
+                        ),
+                    )
+                    assert prepared.request is not None
+                    prepared_requests.append((case_id, prepared.request))
+        else:
+            selected_case_ids = valid_case_ids[:2]
+            original_run_request = RunRequest(
+                decision_id=base_manifest.decision_id,
+                dataset_id=base_manifest.dataset_id,
+                mode="fixture",
+                fixture_set_id=base_manifest.fixture_set_id,
+                revision_id=base_manifest.decision_revision_id,
+                case_ids=selected_case_ids,
+                settings=base_manifest.settings,
+            )
+            for plan in execution.planner.prepare_orders(original_run_request, orders=2, seed=19):
+                prepared_requests.extend(
+                    (item.case_id, item.request)
+                    for item in plan.prepared
+                    if item.request is not None
+                )
+        assert len(prepared_requests) == 4
+        assert all(
+            len({request.body_hash for case, request in prepared_requests if case == case_id}) == 2
+            for case_id in selected_case_ids
+        )
+        fixture_service = FixtureService(source, clock)
+        original_fixture = fixture_service.read(base_manifest.fixture_set_id).fixture_set
+        authored_by_case = {
+            item.case_id: item for item in original_fixture.bindings if item.answer is not None
+        }
+        bindings = tuple(
+            FixtureBinding(
+                id=f"m03-{case_id}-{request.body_hash[:16]}",
+                case_id=case_id,
+                request=request,
+                answer=authored_by_case[case_id].answer,
+            )
+            for case_id, request in prepared_requests
+            if case_id in authored_by_case
+        )
+        assert len(bindings) == 4
+        group_fixture = fixture_service.create(
+            _GROUP_FIXTURE_ID,
+            base_manifest.decision_id,
+            base_manifest.dataset_id,
+            "M03 authored option-order report fixture",
+            original_fixture.model_identity,
+            tuple(dump_record(item) for item in bindings),
+            operation_id=_GROUP_FIXTURE_OPERATION,
+            note=(
+                "Binds exact saved compiler requests for both option orders; answers are copied "
+                "from the original authored fixture."
+            ),
+        )
+        run_request = RunRequest(
+            decision_id=base_manifest.decision_id,
+            dataset_id=base_manifest.dataset_id,
+            mode="fixture",
+            fixture_set_id=group_fixture.fixture_set.id,
+            revision_id=base_manifest.decision_revision_id,
+            case_ids=selected_case_ids,
+            settings=base_manifest.settings,
+        )
         backends.unknown_case_id = selected_case_ids[0]
         initial_diagnostic = asyncio.run(
             diagnostic_service.start(
                 ChoiceOrderRequest(
-                    run=RunRequest(
-                        decision_id=base_manifest.decision_id,
-                        dataset_id=base_manifest.dataset_id,
-                        mode="fixture",
-                        fixture_set_id=base_manifest.fixture_set_id,
-                        revision_id=base_manifest.decision_revision_id,
-                        case_ids=selected_case_ids,
-                        settings=base_manifest.settings,
-                    ),
+                    run=run_request,
                     orders=2,
                     seed=19,
                 ),
-                operation_id="report-group-diagnostic-start",
+                operation_id=_DIAGNOSTIC_GROUP_OPERATION,
             )
         )
         assert initial_diagnostic.group.snapshot_id is not None
@@ -318,12 +427,10 @@ def group_report_graph(
             target_kind="diagnostic",
             group_snapshot_id=diagnostic_partial_id,
         )
-        diagnostic_history_service = ReportService(
-            source, clock, lambda: "group-diagnostic-initial-report"
-        )
+        diagnostic_history_service = ReportService(source, clock, lambda: _DIAGNOSTIC_REPORT_ID)
         diagnostic_history_report = diagnostic_history_service.create(
             diagnostic_history_request,
-            operation_id="group-diagnostic-initial-report-create",
+            operation_id=_DIAGNOSTIC_REPORT_OPERATION,
         )
         diagnostic_history_hash = diagnostic_history_report.record.content_hash
         diagnostic_history_json = diagnostic_history_service.render(
@@ -335,7 +442,7 @@ def group_report_graph(
         completed_diagnostic = asyncio.run(
             diagnostic_service.resume(
                 initial_diagnostic.group.group_id,
-                operation_id="report-group-diagnostic-resume",
+                operation_id=_DIAGNOSTIC_RESUME_OPERATION,
                 retry_unknown=True,
             )
         )
@@ -365,7 +472,7 @@ def group_report_graph(
                         result_snapshot_id=source_member.results.id,
                         provenance="authored_fixture",
                     ),
-                    operation_id=f"report-group-regression-{index}",
+                    operation_id=f"m03groupv2-regression-{index}",
                 )
             )
         check_service = CheckService(execution)
@@ -376,11 +483,11 @@ def group_report_graph(
                 CheckRequest(
                     decision_id=base_manifest.decision_id,
                     mode="fixture",
-                    fixture_set_id=base_manifest.fixture_set_id,
+                    fixture_set_id=group_fixture.fixture_set.id,
                     regression_ids=tuple(item.id for item in regressions),
                     settings=base_manifest.settings,
                 ),
-                operation_id="report-group-check-start",
+                operation_id=_CHECK_GROUP_OPERATION,
             )
         )
         assert initial_check.group.snapshot_id is not None
@@ -393,10 +500,10 @@ def group_report_graph(
             target_kind="check",
             group_snapshot_id=partial_check_id,
         )
-        check_history_service = ReportService(source, clock, lambda: "group-check-initial-report")
+        check_history_service = ReportService(source, clock, lambda: _CHECK_REPORT_ID)
         check_history_report = check_history_service.create(
             check_history_request,
-            operation_id="group-check-initial-report-create",
+            operation_id=_CHECK_REPORT_OPERATION,
         )
         check_history_hash = check_history_report.record.content_hash
         check_history_json = check_history_service.render(
@@ -408,7 +515,7 @@ def group_report_graph(
         completed_check = asyncio.run(
             check_service.resume(
                 initial_check.group.group_id,
-                operation_id="report-group-check-resume",
+                operation_id=_CHECK_RESUME_OPERATION,
                 retry_unknown=True,
             )
         )
@@ -443,11 +550,11 @@ def group_report_graph(
             )
         diagnostic_replay = ReportService(source, ReplayGuardClock(), _replay_guard_id).create(
             diagnostic_history_request,
-            operation_id="group-diagnostic-initial-report-create",
+            operation_id=_DIAGNOSTIC_REPORT_OPERATION,
         )
         check_replay = ReportService(source, ReplayGuardClock(), _replay_guard_id).create(
             check_history_request,
-            operation_id="group-check-initial-report-create",
+            operation_id=_CHECK_REPORT_OPERATION,
         )
         assert (
             diagnostic_replay.replayed
