@@ -399,7 +399,7 @@ def test_saved_run_report_copies_independent_fixture_facts_and_renders(
         "- Fitting support: 9; excluded acceptable sets:",
         "- Evaluation snapshots: `",
         "- Evaluation splits:",
-        "- Selected: 12; scoring population: provider_valid_applicable_labels; scored:",
+        "- Selected: 12; scoring population: provider\\_valid\\_applicable\\_labels; scored:",
         "- Dispatched attempts:",
         "- Usage source:",
         "reported at:",
@@ -600,12 +600,13 @@ def test_comparison_report_retains_both_admitted_contexts(fixture_graph: Fixture
     assert comparison_markdown.index("## Evaluation contexts") < comparison_markdown.index(
         "- Results:"
     )
+    evaluation_markdown = comparison_markdown.split("## Comparison", maxsplit=1)[0]
     assert (
-        comparison_markdown.index("### Class metrics")
-        < comparison_markdown.index("### Confusion matrix")
-        < comparison_markdown.index("### Baseline")
-        < comparison_markdown.index("### Latency and usage")
-        < comparison_markdown.rindex("### Case outcomes")
+        evaluation_markdown.index("### Class metrics")
+        < evaluation_markdown.index("### Confusion matrix")
+        < evaluation_markdown.index("### Baseline")
+        < evaluation_markdown.index("### Latency and usage")
+        < evaluation_markdown.rindex("### Case outcomes")
         < comparison_markdown.index("## Comparison")
         < comparison_markdown.index("## Explicitly included raw material")
     )
@@ -793,7 +794,7 @@ def test_renderer_fences_raw_material_and_enforces_artifact_bound(
         f"### input: run `{raw.run_id}`, case `{raw.case_id}`, attempt `none`\n"
         f"Encoding: `json_source_utf8`; original hash: `{raw.original_hash}`; "
         f"sanitized hash: `{raw.sanitized_hash}`\n"
-        "````\ntrusted payload ```\n# injected heading\nnext\n````"
+        "````\ntrusted payload ```\n# injected heading\nnext\n````\n"
     )
     assert markdown.endswith(expected_raw)
     assert report.content.raw_material[0].source != raw.source
