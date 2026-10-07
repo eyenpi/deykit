@@ -462,7 +462,7 @@ def _validate_hard_references(captured: _CapturedProject) -> None:
             if not isinstance(attempt_value, AttemptRecord):
                 _failure("project_reference_wrong_owner", attempt_stored)
             captured.get(stored, "attempts", value.attempt_id, (attempt_value.run_id,))
-    for _stored, value in captured.all("result_snapshots"):
+    for stored, value in captured.all("result_snapshots"):
         if isinstance(value, ResultSnapshot):
             captured.get(stored, "runs", value.run_id)
             run_value = captured.values[ResourceKey("runs", value.run_id)]
@@ -780,7 +780,7 @@ def _validate_evaluations_and_comparisons(captured: _CapturedProject) -> None:
         frozen_evaluation_from_records,
     )
 
-    for stored, value in captured.all("result_snapshots"):
+    for _stored, value in captured.all("result_snapshots"):
         if isinstance(value, ResultSnapshot):
             frozen_evaluation_from_records(
                 captured.records, value.run_id, value.id, None, "original"
