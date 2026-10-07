@@ -297,9 +297,7 @@ def test_typed_report_graph_uses_the_captured_report_reader(monkeypatch) -> None
 
     def reject_report(stored, _records):
         calls.append(stored.key.resource_id)
-        raise ServiceFailure(
-            ServiceError(code="incompatible_data", reason="report_hash_mismatch")
-        )
+        raise ServiceFailure(ServiceError(code="incompatible_data", reason="report_hash_mismatch"))
 
     monkeypatch.setattr(
         project_references,
