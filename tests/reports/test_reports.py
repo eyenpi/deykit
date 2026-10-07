@@ -8,6 +8,7 @@ import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from pydantic import ValidationError
@@ -32,25 +33,37 @@ from deykit.cli.context import SystemClock
 from deykit.contracts.artifacts import ArtifactWriteOutcome
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.execution_groups import (
+    CheckSnapshot,
+    DiagnosticSnapshot,
+    ExecutionGroup,
+)
 from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
 from deykit.contracts.ports import (
+    ChoiceCompiler,
     CommitReceipt,
+    ProviderTransport,
     ResourceKey,
     SourceChange,
     StoredRecord,
 )
 from deykit.contracts.records import (
     CaseRecord,
+    ChoiceDefinition,
+    CompiledRequest,
     ComparisonRecord,
+    DispatchOutcome,
     EvaluationRecord,
     NormalizedAnswer,
     PreparedCase,
+    ProviderProfile,
     RegressionRecord,
     ReportRecord,
     ResultSnapshot,
     RunManifest,
 )
 from deykit.contracts.redaction import Sanitizer
+from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
 from deykit.reports.admission import report_hash
 from deykit.reports.models import RawChoices, RawMaterial, ReportContent, ReportRequest
@@ -58,6 +71,7 @@ from deykit.reports.projection import project_json_source, project_opaque_respon
 from deykit.reports.render import render_content
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
+from deykit.runner.ports import Backend, BackendFactory
 from deykit.storage import FileProjectSource
 from deykit.storage.artifact_export import NativeArtifactWriter
 
@@ -70,6 +84,282 @@ class FixtureGraph:
     reevaluation_id: str
     comparison_id: str
     records: tuple[StoredRecord, ...]
+
+
+@dataclass(frozen=True)
+class GroupReportGraph:
+    """One authored native project with partial and resumed P12 group snapshots."""
+
+    root: Path
+    records: tuple[StoredRecord, ...]
+    diagnostic_group_id: str
+    diagnostic_partial_snapshot_id: str
+    diagnostic_complete_snapshot_id: str
+    check_group_id: str
+    check_partial_snapshot_id: str
+    check_complete_snapshot_id: str
+    regression_ids: tuple[str, ...]
+    case_ids: tuple[str, ...]
+
+
+class UnknownOnceBackends(BackendFactory):
+    """Wrap local fixture transports with one controlled unknown dispatch."""
+
+    def __init__(self, source: FileProjectSource, clock: SystemClock) -> None:
+        self.inner = ProviderBackends(source, clock)
+        self.unknown_case_id: str | None = None
+        self.unknown_delivered = False
+
+    def profile(self, provider_id: str | None, fixture_set_id: str | None) -> ProviderProfile:
+        return self.inner.profile(provider_id, fixture_set_id)
+
+    def resolve(self, profile: ProviderProfile, fixture_set_id: str | None) -> Backend:
+        backend = self.inner.resolve(profile, fixture_set_id)
+        parent = self
+
+        class ControlledBackend:
+            @property
+            def compiler(self) -> ChoiceCompiler:
+                return backend.compiler
+
+            def preflight(
+                self,
+                decision_id: str,
+                dataset_id: str,
+                definition: ChoiceDefinition | None = None,
+            ) -> ServiceError | None:
+                return backend.preflight(decision_id, dataset_id, definition)
+
+            def for_case(self, case_id: str) -> ProviderTransport:
+                transport = backend.for_case(case_id)
+
+                class ControlledTransport:
+                    async def dispatch(
+                        self, request: CompiledRequest, *, timeout_seconds: float
+                    ) -> DispatchOutcome:
+                        if parent.unknown_case_id == case_id and not parent.unknown_delivered:
+                            parent.unknown_delivered = True
+                            return DispatchOutcome(
+                                state="unknown",
+                                error=ServiceError(code="provider_rejected", reason="timeout"),
+                            )
+                        return await transport.dispatch(request, timeout_seconds=timeout_seconds)
+
+                return ControlledTransport()
+
+        return ControlledBackend()
+
+
+@pytest.fixture(scope="session")
+def group_report_graph(
+    fixture_graph: FixtureGraph, tmp_path_factory: pytest.TempPathFactory
+) -> GroupReportGraph:
+    """Build once, or reuse DEYKIT_TEST_REPORT_GROUP_PROJECT from a prior authored run."""
+    configured_root = os.environ.get("DEYKIT_TEST_REPORT_GROUP_PROJECT")
+    root = (
+        Path(configured_root).resolve()
+        if configured_root is not None
+        else tmp_path_factory.mktemp("saved-group-report-project") / "Deykit Fixture"
+    )
+    if not (root / "deykit.project.json").exists():
+        root.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(fixture_graph.root, root, dirs_exist_ok=True)
+
+    with FileProjectSource(root) as source:
+        records = source.capture_snapshot()
+        groups = tuple(
+            load_record(ExecutionGroup, item.body)
+            for item in records
+            if item.key.collection == "execution_groups"
+        )
+        diagnostic_group = next((item for item in groups if item.kind == "choice_order"), None)
+        check_group = next((item for item in groups if item.kind == "regression_check"), None)
+        diagnostic_snapshots = tuple(
+            load_record(DiagnosticSnapshot, item.body)
+            for item in records
+            if item.key.collection == "diagnostic_snapshots"
+        )
+        check_snapshots = tuple(
+            load_record(CheckSnapshot, item.body)
+            for item in records
+            if item.key.collection == "check_snapshots"
+        )
+
+        if diagnostic_group is not None and check_group is not None:
+            diagnostic_history = sorted(
+                (item for item in diagnostic_snapshots if item.group_id == diagnostic_group.id),
+                key=lambda item: item.sequence,
+            )
+            check_history = sorted(
+                (item for item in check_snapshots if item.group_id == check_group.id),
+                key=lambda item: item.sequence,
+            )
+            assert len(diagnostic_history) >= 2 and len(check_history) >= 2
+            check_member = check_group
+            regression_ids = tuple(
+                regression_id
+                for member in check_member.members
+                for regression_id in load_record(
+                    RunManifest,
+                    next(
+                        stored.body
+                        for stored in records
+                        if stored.key == ResourceKey("runs", member.run_id)
+                    ),
+                ).regression_ids
+            )
+            case_ids = tuple(
+                load_record(RegressionRecord, item.body).case_id
+                for item in records
+                if item.key.collection == "regressions" and item.key.resource_id in regression_ids
+            )
+            assert len(regression_ids) == 2 and len(set(case_ids)) == 2
+            return GroupReportGraph(
+                root,
+                records,
+                diagnostic_group.id,
+                diagnostic_history[0].id,
+                diagnostic_history[-1].id,
+                check_group.id,
+                check_history[0].id,
+                check_history[-1].id,
+                regression_ids,
+                case_ids,
+            )
+
+        base_manifest = load_record(
+            RunManifest,
+            next(
+                item.body
+                for item in records
+                if item.key == ResourceKey("runs", fixture_graph.run_id)
+            ),
+        )
+        base_snapshots = tuple(
+            load_record(ResultSnapshot, item.body)
+            for item in records
+            if item.key.collection == "result_snapshots"
+            and load_record(ResultSnapshot, item.body).run_id == fixture_graph.run_id
+        )
+        base_snapshot = max(
+            base_snapshots,
+            key=lambda item: (item.through_event_sequence, item.created_at, item.id),
+        )
+        valid_case_ids = tuple(
+            item.case_id for item in base_snapshot.results if item.status == "valid"
+        )
+        assert len(valid_case_ids) >= 2
+        assert base_manifest.decision_id is not None
+        assert base_manifest.dataset_id is not None
+        assert base_manifest.fixture_set_id is not None
+        assert base_manifest.decision_revision_id is not None
+        selected_case_ids = valid_case_ids[:2]
+        clock = SystemClock()
+        backends = UnknownOnceBackends(source, clock)
+        execution = ExecutionService(source, source, backends, clock)
+        diagnostic_service = DiagnosticService(execution)
+        backends.unknown_case_id = selected_case_ids[0]
+        initial_diagnostic = asyncio.run(
+            diagnostic_service.start(
+                ChoiceOrderRequest(
+                    run=RunRequest(
+                        decision_id=base_manifest.decision_id,
+                        dataset_id=base_manifest.dataset_id,
+                        mode="fixture",
+                        fixture_set_id=base_manifest.fixture_set_id,
+                        revision_id=base_manifest.decision_revision_id,
+                        case_ids=selected_case_ids,
+                        settings=base_manifest.settings,
+                    ),
+                    orders=2,
+                    seed=19,
+                ),
+                operation_id="report-group-diagnostic-start",
+            )
+        )
+        assert initial_diagnostic.group.snapshot_id is not None
+        diagnostic_partial_id = initial_diagnostic.group.snapshot_id
+        partial_records = source.capture_snapshot()
+        partial_diagnostic = diagnostic_snapshot_from_records(
+            partial_records, diagnostic_partial_id
+        )
+        assert partial_diagnostic.summary.fully_observed_case_count == 1
+        backends.unknown_delivered = False
+        completed_diagnostic = asyncio.run(
+            diagnostic_service.resume(
+                initial_diagnostic.group.group_id,
+                operation_id="report-group-diagnostic-resume",
+                retry_unknown=True,
+            )
+        )
+        assert completed_diagnostic.group.snapshot_id is not None
+
+        source_member = partial_diagnostic.members[0]
+        result_by_case = {item.case_id: item for item in base_snapshot.results}
+        revision = source_member.revision
+        option_ids = tuple(option.id for option in revision.definition.questions[0].options)
+        regression_service = RegressionService(source, clock)
+        regressions = []
+        for index, case_id in enumerate(selected_case_ids):
+            answer = result_by_case.get(case_id)
+            expected = answer.answer.option_id if answer and answer.answer else option_ids[0]
+            if index == 1:
+                expected = next(option for option in option_ids if option != expected)
+            regressions.append(
+                regression_service.add(
+                    RegressionAdd(
+                        run_id=source_member.manifest.id,
+                        case_id=case_id,
+                        acceptable_option_ids=(expected,),
+                        reason=f"Authored group oracle {index}",
+                        result_snapshot_id=source_member.results.id,
+                        provenance="authored_fixture",
+                    ),
+                    operation_id=f"report-group-regression-{index}",
+                )
+            )
+        check_service = CheckService(execution)
+        backends.unknown_case_id = selected_case_ids[1]
+        backends.unknown_delivered = False
+        initial_check = asyncio.run(
+            check_service.start(
+                CheckRequest(
+                    decision_id=base_manifest.decision_id,
+                    mode="fixture",
+                    fixture_set_id=base_manifest.fixture_set_id,
+                    regression_ids=tuple(item.id for item in regressions),
+                    settings=base_manifest.settings,
+                ),
+                operation_id="report-group-check-start",
+            )
+        )
+        assert initial_check.group.snapshot_id is not None
+        partial_check_id = initial_check.group.snapshot_id
+        partial_check = check_snapshot_from_records(source.capture_snapshot(), partial_check_id)
+        assert {item.passed for item in partial_check.cases} == {True, None}
+        assert next(item for item in partial_check.cases if item.passed is None).status == "unknown"
+        backends.unknown_delivered = False
+        completed_check = asyncio.run(
+            check_service.resume(
+                initial_check.group.group_id,
+                operation_id="report-group-check-resume",
+                retry_unknown=True,
+            )
+        )
+        assert completed_check.group.snapshot_id is not None
+        records = source.capture_snapshot()
+        return GroupReportGraph(
+            root,
+            records,
+            initial_diagnostic.group.group_id,
+            diagnostic_partial_id,
+            completed_diagnostic.group.snapshot_id,
+            initial_check.group.group_id,
+            partial_check_id,
+            completed_check.group.snapshot_id,
+            tuple(item.id for item in regressions),
+            selected_case_ids,
+        )
 
 
 @pytest.fixture(scope="session")
@@ -1059,198 +1349,339 @@ def test_file_project_report_export_writes_rendered_bytes_after_source_read(
         assert source.read(ResourceKey("reports", report.record.id)) is not None
 
 
-def test_pinned_group_reports_use_actual_p12_snapshots_and_no_evaluations(
-    fixture_graph: FixtureGraph, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def _group_report_request(
+    graph: GroupReportGraph,
+    kind: Literal["diagnostic", "check"],
+    snapshot_id: str,
+    *,
+    raw: RawChoices | None = None,
+) -> ReportRequest:
+    group_id = graph.diagnostic_group_id if kind == "diagnostic" else graph.check_group_id
+    return ReportRequest(
+        target_id=group_id,
+        target_kind=kind,
+        group_snapshot_id=snapshot_id,
+        raw=raw or RawChoices(),
+    )
+
+
+def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
+    group_report_graph: GroupReportGraph,
 ) -> None:
-    """One copied authored project supplies both group kinds and a real export."""
-    project_root = tmp_path / "authored group report project"
-    shutil.copytree(fixture_graph.root, project_root)
+    graph = group_report_graph
+    all_records = graph.records
+    diagnostic_partial = diagnostic_snapshot_from_records(
+        all_records, graph.diagnostic_partial_snapshot_id
+    )
+    diagnostic_latest = diagnostic_snapshot_from_records(
+        all_records, graph.diagnostic_complete_snapshot_id
+    )
+    assert diagnostic_partial.summary.independent_case_count == 2
+    assert diagnostic_partial.summary.order_count == 2
+    assert diagnostic_partial.summary.expanded_result_count == 4
+    assert diagnostic_partial.summary.fully_observed_case_count == 1
+    assert diagnostic_partial.summary.disagreement.numerator == 0
+    assert diagnostic_partial.summary.disagreement.denominator == 1
+    assert diagnostic_latest.summary.fully_observed_case_count == 2
+    check_partial = check_snapshot_from_records(all_records, graph.check_partial_snapshot_id)
+    check_latest = check_snapshot_from_records(all_records, graph.check_complete_snapshot_id)
+    assert {item.passed for item in check_partial.cases} == {True, None}
+    assert next(item for item in check_partial.cases if item.passed is None).status == "unknown"
+    assert {item.passed for item in check_latest.cases} == {True, False}
+    assert tuple(item.content_hash for item in check_latest.regressions) == tuple(
+        item.content_hash for item in check_partial.regressions
+    )
+
+    # Create the first report before exposing the later snapshot, then replay it after resume.
+    latest_record = next(
+        item
+        for item in all_records
+        if item.key == ResourceKey("diagnostic_snapshots", graph.diagnostic_complete_snapshot_id)
+    )
+    before_resume = tuple(item for item in all_records if item != latest_record)
+    source = MemorySnapshotSource.from_records(before_resume)
+    clock = SystemClock()
+    service = ReportService(source, clock, lambda: "group-history-report")
+    request = _group_report_request(graph, "diagnostic", graph.diagnostic_partial_snapshot_id)
+    first = service.create(request, operation_id="group-history-report-create")
+    first_json = service.render(first.record.id, format="json").body
+    first_markdown = service.render(first.record.id, format="markdown").body
+    assert first.record.diagnostic_snapshot_id == graph.diagnostic_partial_snapshot_id
+    source.records[latest_record.key] = latest_record
+
+    class ThrowingClock:
+        def utc_now(self) -> str:
+            raise AssertionError("replay must not ask for time")
+
+        def monotonic(self) -> float:
+            raise AssertionError("replay must not ask for monotonic time")
+
+    replay = ReportService(
+        source,
+        ThrowingClock(),
+        lambda: (_ for _ in ()).throw(AssertionError("replay must not allocate an ID")),
+    ).create(request, operation_id="group-history-report-create")
+    assert replay.replayed is True
+    assert replay.record.content_hash == first.record.content_hash
+    assert ReportService(source, clock).render(replay.record.id, format="json").body == first_json
+    assert (
+        ReportService(source, clock).render(replay.record.id, format="markdown").body
+        == first_markdown
+    )
+
+
+def test_group_raw_switches_cover_all_combinations_with_pinned_lineage(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    members = diagnostic_snapshot_from_records(
+        graph.records, graph.diagnostic_complete_snapshot_id
+    ).members
+    for mask in range(8):
+        raw = RawChoices(inputs=bool(mask & 1), requests=bool(mask & 2), responses=bool(mask & 4))
+        source = MemorySnapshotSource.from_records(graph.records)
+        report = ReportService(source, SystemClock(), lambda: f"group-raw-{mask}").create(
+            _group_report_request(
+                graph, "diagnostic", graph.diagnostic_complete_snapshot_id, raw=raw
+            ),
+            operation_id=f"group-raw-create-{mask}",
+        )
+        assert report.record.evaluation_ids == ()
+        assert report.record.result_snapshot_ids == tuple(member.results.id for member in members)
+        assert report.record.label_snapshot_ids == tuple(member.labels.id for member in members)
+        expected_categories = {
+            category
+            for selected, category in (
+                (raw.inputs, "input"),
+                (raw.requests, "request"),
+                (raw.responses, "response"),
+            )
+            if selected
+        }
+        assert {item.category for item in report.content.raw_material} == expected_categories
+        for item in report.content.raw_material:
+            assert item.run_id in {member.manifest.id for member in members}
+            assert item.case_id in graph.case_ids
+            if item.source is None:
+                assert item.unavailable_reason is not None
+                assert item.original_hash is None
+                assert item.sanitized_hash is None
+            else:
+                assert item.original_hash is not None
+                assert item.encoding is not None
+                assert item.sanitized_hash is not None
+                assert item.changed_by_redaction is False
+            if item.category == "input":
+                assert item.identity_kind == "input_semantic_hash"
+            elif item.category == "request":
+                assert item.identity_kind == "prepared_request_bytes_hash"
+            else:
+                assert item.identity_kind in {
+                    "stored_response_utf8_hash",
+                    "stored_response_bytes_hash",
+                }
+
+
+def test_group_report_context_and_regression_lineage_render_before_raw_material(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    source = MemorySnapshotSource.from_records(graph.records)
+    service = ReportService(source, SystemClock(), lambda: "group-context-report")
+    check_report = service.create(
+        _group_report_request(
+            graph,
+            "check",
+            graph.check_partial_snapshot_id,
+            raw=RawChoices(inputs=True),
+        ),
+        operation_id="group-context-report-create",
+    )
+    markdown = service.render(check_report.record.id, format="markdown").body.decode()
+    required = (
+        "- Requested model:",
+        "- Answering models:",
+        "- Compiler IDs and version:",
+        "- Option order:",
+        "- Run:",
+        "manifest hash:",
+        "- Mode:",
+        "Provider profile:",
+        "configuration hash:",
+        "- Decision:",
+        "definition hash:",
+        "- Dataset:",
+        "- Label snapshot:",
+        "- Result snapshot:",
+        "event sequence:",
+        "- Question:",
+        "- Selected cases:",
+        "Baseline dataset snapshot:",
+        "Baseline label snapshot:",
+        "### Regression source lineage",
+        "original input hash",
+        "source run",
+        "source result",
+        "source attempt",
+        "## Frozen source context",
+        "## Explicitly included raw material",
+    )
+    positions = tuple(markdown.index(item) for item in required)
+    assert positions == tuple(sorted(positions))
+    assert "unavailable" in markdown
+    assert check_report.content.check is not None
+    assert {item.passed for item in check_report.content.check.cases} == {True, None}
+
+
+def test_group_report_creation_never_evaluates_compiles_or_resolves_a_backend(
+    group_report_graph: GroupReportGraph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    graph = group_report_graph
+    source = MemorySnapshotSource.from_records(graph.records)
+    before_evaluations = tuple(key for key in source.records if key.collection == "evaluations")
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("group report creation is read-only over pinned evidence")
+
+    monkeypatch.setattr(EvaluationService, "evaluate_saved", forbidden)
+    monkeypatch.setattr(JevChoiceCompiler, "compile", forbidden)
+    monkeypatch.setattr(ProviderBackends, "resolve", forbidden)
+    report = ReportService(source, SystemClock(), lambda: "group-read-only-report").create(
+        _group_report_request(graph, "diagnostic", graph.diagnostic_complete_snapshot_id),
+        operation_id="group-read-only-report-create",
+    )
+    assert report.record.evaluation_ids == ()
+    assert (
+        tuple(key for key in source.records if key.collection == "evaluations")
+        == before_evaluations
+    )
+
+
+def test_group_selectors_cross_binding_and_original_regression_hash_are_enforced(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    source = MemorySnapshotSource.from_records(graph.records)
+    service = ReportService(source, SystemClock(), lambda: "group-link-report")
+    invalid = (
+        ReportRequest(
+            target_id=graph.diagnostic_group_id,
+            target_kind="diagnostic",
+            group_snapshot_id=graph.check_partial_snapshot_id,
+        ),
+        ReportRequest(
+            target_id=graph.check_group_id,
+            target_kind="check",
+            group_snapshot_id=graph.diagnostic_partial_snapshot_id,
+        ),
+    )
+    for index, request in enumerate(invalid):
+        with pytest.raises((ServiceFailure, ValidationError)):
+            service.create(request, operation_id=f"group-invalid-selector-{index}")
+    with pytest.raises(ValidationError):
+        ReportRequest(
+            target_id=graph.check_group_id,
+            target_kind="check",
+            group_snapshot_id=graph.check_partial_snapshot_id,
+            result_snapshot_id="unrelated-result",
+        )
+    assert source.commit_calls == 0
+
+    original_key = ResourceKey("regressions", graph.regression_ids[0])
+    original = source.records[original_key]
+    regression = load_record(RegressionRecord, original.body)
+    replacement_reason = regression.reason + " changed"
+    service = ReportService(
+        source,
+        SystemClock(),
+        lambda: "group-regression-link-report",
+        sanitizer=Sanitizer((regression.reason, replacement_reason)),
+    )
+    report = service.create(
+        _group_report_request(graph, "check", graph.check_complete_snapshot_id),
+        operation_id="group-regression-link-create",
+    )
+    frozen = report.content.check
+    assert frozen is not None
+    assert any(item.reason == "[REDACTED]" for item in frozen.cases)
+    changed = regression.model_copy(update={"reason": replacement_reason, "content_hash": None})
+    changed = changed.model_copy(update={"content_hash": regression_hash(changed)})
+    changed_body = dump_record(changed)
+    source.records[original_key] = StoredRecord(
+        original_key, changed_body, bytes_hash(changed_body)
+    )
+    with pytest.raises(ServiceFailure) as failure:
+        service.read(report.record.id)
+    assert failure.value.error.reason == "report_link_mismatch"
+
+
+def test_sensitive_group_and_snapshot_identities_fail_before_commit(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    diagnostic_group = load_record(
+        ExecutionGroup,
+        next(
+            item.body
+            for item in graph.records
+            if item.key == ResourceKey("execution_groups", graph.diagnostic_group_id)
+        ),
+    )
+    diagnostic_snapshot = load_record(
+        DiagnosticSnapshot,
+        next(
+            item.body
+            for item in graph.records
+            if item.key == ResourceKey("diagnostic_snapshots", graph.diagnostic_partial_snapshot_id)
+        ),
+    )
+    values = (
+        (graph.diagnostic_group_id, "diagnostic", graph.diagnostic_partial_snapshot_id),
+        (diagnostic_group.content_hash, "diagnostic", graph.diagnostic_partial_snapshot_id),
+        (graph.diagnostic_partial_snapshot_id, "diagnostic", graph.diagnostic_partial_snapshot_id),
+        (diagnostic_snapshot.content_hash, "diagnostic", graph.diagnostic_partial_snapshot_id),
+        (diagnostic_snapshot.segment_id, "diagnostic", graph.diagnostic_partial_snapshot_id),
+        (diagnostic_group.members[0].run_id, "diagnostic", graph.diagnostic_partial_snapshot_id),
+        (graph.regression_ids[0], "check", graph.check_partial_snapshot_id),
+    )
+    for index, (value, kind, snapshot_id) in enumerate(values):
+        assert value is not None
+        source = MemorySnapshotSource.from_records(graph.records)
+        service = ReportService(
+            source,
+            SystemClock(),
+            lambda: "group-sensitive-report",
+            sanitizer=Sanitizer((value,)),
+        )
+        with pytest.raises(ServiceFailure) as failure:
+            service.create(
+                _group_report_request(graph, kind, snapshot_id),
+                operation_id=f"group-sensitive-{index}",
+            )
+        assert failure.value.error.reason == "report_sensitive_identity"
+        assert source.commit_calls == 0
+
+
+def test_file_group_report_export_uses_resumed_saved_graph(
+    group_report_graph: GroupReportGraph, tmp_path: Path
+) -> None:
+    graph = group_report_graph
+    project_root = tmp_path / "copied authored group graph"
+    shutil.copytree(graph.root, project_root)
     clock = SystemClock()
     with FileProjectSource(project_root) as source:
-        records = source.capture_snapshot()
-        manifest = load_record(
-            RunManifest,
-            next(
-                item.body
-                for item in records
-                if item.key == ResourceKey("runs", fixture_graph.run_id)
-            ),
+        report = ReportService(source, clock, lambda: "group-export-report").create(
+            _group_report_request(graph, "diagnostic", graph.diagnostic_complete_snapshot_id),
+            operation_id="group-export-report-create",
         )
-        result_snapshots = tuple(
-            load_record(ResultSnapshot, item.body)
-            for item in records
-            if item.key.collection == "result_snapshots"
-            and load_record(ResultSnapshot, item.body).run_id == fixture_graph.run_id
-        )
-        base_results = max(
-            result_snapshots,
-            key=lambda item: (item.through_event_sequence, item.created_at, item.id),
-        )
-        selected_case_ids = tuple(
-            item.case_id for item in base_results.results if item.status == "valid"
-        )[:2]
-        assert len(selected_case_ids) == 2
-        run_request = RunRequest(
-            decision_id=manifest.decision_id,
-            dataset_id=manifest.dataset_id,
-            mode="fixture",
-            fixture_set_id=manifest.fixture_set_id,
-            revision_id=manifest.decision_revision_id,
-            case_ids=selected_case_ids,
-            settings=manifest.settings,
-        )
-        diagnostic_view = asyncio.run(
-            DiagnosticService(
-                ExecutionService(source, source, ProviderBackends(source, clock), clock)
-            ).start(
-                ChoiceOrderRequest(run=run_request, orders=2, seed=19),
-                operation_id="report-group-diagnostic",
-            )
-        )
-        assert diagnostic_view.group.snapshot_id is not None
-        after_diagnostic = source.capture_snapshot()
-        diagnostic = diagnostic_snapshot_from_records(
-            after_diagnostic, diagnostic_view.group.snapshot_id
-        )
-        assert diagnostic.summary.independent_case_count == 2
-        assert diagnostic.summary.order_count == 2
-        assert diagnostic.summary.expanded_result_count == 4
-        assert diagnostic.summary.fully_observed_case_count == 2
-        assert diagnostic.summary.disagreement.numerator == 0
-        assert diagnostic.summary.disagreement.denominator == 2
-        assert len({member.manifest.option_order for member in diagnostic.members}) == 2
-
-        source_member = diagnostic.members[0]
-        result_by_case = {item.case_id: item for item in source_member.results.results}
-        revision = source_member.revision
-        option_ids = tuple(option.id for option in revision.definition.questions[0].options)
-        regression_service = RegressionService(source, clock)
-        regressions = []
-        for index, case_id in enumerate(selected_case_ids):
-            answer = result_by_case[case_id].answer
-            expected = answer.option_id if answer is not None else option_ids[0]
-            if index == 1:
-                expected = next(option for option in option_ids if option != expected)
-            regressions.append(
-                regression_service.add(
-                    RegressionAdd(
-                        run_id=source_member.manifest.id,
-                        case_id=case_id,
-                        acceptable_option_ids=(expected,),
-                        reason=f"Authored group oracle {index}",
-                        result_snapshot_id=source_member.results.id,
-                        provenance="authored_fixture",
-                    ),
-                    operation_id=f"report-group-regression-{index}",
-                )
-            )
-        check_view = asyncio.run(
-            CheckService(
-                ExecutionService(source, source, ProviderBackends(source, clock), clock)
-            ).start(
-                CheckRequest(
-                    decision_id=manifest.decision_id,
-                    mode="fixture",
-                    fixture_set_id=manifest.fixture_set_id,
-                    regression_ids=tuple(item.id for item in regressions),
-                    settings=manifest.settings,
-                ),
-                operation_id="report-group-check",
-            )
-        )
-        assert check_view.group.snapshot_id is not None
-        after_groups = source.capture_snapshot()
-        check = check_snapshot_from_records(after_groups, check_view.group.snapshot_id)
-        assert len(check.cases) == 2
-        assert check.baseline_unavailable == "frozen_regression_selection"
-        assert all(item.content_hash is not None for item in check.regressions)
-
-        evaluation_ids_before_reports = tuple(
-            item.key.resource_id for item in after_groups if item.key.collection == "evaluations"
-        )
-        monkeypatch.setattr(
-            reports_module.EvaluationService,
-            "evaluate_saved",
-            lambda *args, **kwargs: pytest.fail("group reports must not create evaluations"),
-        )
-        reports = ReportService(source, clock)
-        diagnostic_report = reports.create(
-            ReportRequest(
-                target_id=diagnostic.group.id,
-                target_kind="diagnostic",
-                group_snapshot_id=diagnostic.snapshot.id,
-                raw=RawChoices(inputs=True, requests=True, responses=True),
-            ),
-            operation_id="report-group-diagnostic-create",
-        )
-        assert diagnostic_report.record.evaluation_ids == ()
-        assert diagnostic_report.record.diagnostic_snapshot_id == diagnostic.snapshot.id
-        assert len(diagnostic_report.content.raw_material) == 12
-        assert diagnostic_report.content.diagnostic is not None
-        assert diagnostic_report.content.diagnostic.summary.independent_case_count == 2
-        assert set(item.category for item in diagnostic_report.content.raw_material) == {
-            "input",
-            "request",
-            "response",
-        }
-        markdown = reports.render(diagnostic_report.record.id, format="markdown")
-        assert b"Independent cases: 2; orders: 2; expanded results: 4" in markdown.body
-
         destination = tmp_path / "diagnostic-group-report.json"
-        export = reports.export(
-            diagnostic_report.record.id,
+        exported = ReportService(source, clock).export(
+            report.record.id,
             format="json",
             destination=str(destination),
-            writer=NativeArtifactWriter(),
+            writer=NativeArtifactWriter(protected_project_roots=(project_root,)),
         )
-        assert export.success is True
-        assert (
-            destination.read_bytes()
-            == reports.render(diagnostic_report.record.id, format="json").body
-        )
-
-        check_report = reports.create(
-            ReportRequest(
-                target_id=check.group.id,
-                target_kind="check",
-                group_snapshot_id=check.snapshot.id,
-            ),
-            operation_id="report-group-check-create",
-        )
-        assert check_report.record.evaluation_ids == ()
-        assert check_report.record.check_snapshot_id == check.snapshot.id
-        assert check_report.content.check is not None
-        assert tuple(item.regression_hash for item in check_report.content.check.cases) == tuple(
-            item.content_hash for item in check.regressions
-        )
-        RegressionService(source, clock).remove(
-            regressions[0].id,
-            decision_id=manifest.decision_id,
-            operation_id="report-group-regression-remove",
-        )
-        old_check = reports.read(check_report.record.id)
-        assert old_check.content.check == check_report.content.check
-        assert reports.metadata(check_report.record.id).target_kind == "check"
-        assert (
-            tuple(
-                item.key.resource_id
-                for item in source.capture_snapshot()
-                if item.key.collection == "evaluations"
-            )
-            == evaluation_ids_before_reports
-        )
-
-        original = source.read(ResourceKey("regressions", regressions[0].id))
-        assert original is not None
-        saved_regression = load_record(RegressionRecord, original.body)
-        changed = saved_regression.model_copy(
-            update={"reason": "Rehashed regression reason", "content_hash": None}
-        )
-        changed = changed.model_copy(update={"content_hash": regression_hash(changed)})
-        source.commit(
-            "report-group-regression-tamper",
-            (SourceChange(original.key, dump_record(changed), original.etag),),
-        )
-        with pytest.raises(ServiceFailure) as tampered:
-            reports.read(check_report.record.id)
-        assert tampered.value.error.reason == "report_link_mismatch"
+        rendered = ReportService(source, clock).render(report.record.id, format="json")
+        assert exported.success is True
+        assert destination.read_bytes() == rendered.body
+        assert exported.artifact_hash == rendered.bytes_hash

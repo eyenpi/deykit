@@ -8,7 +8,12 @@ import re
 from deykit.comparisons.models import BUCKETS
 from deykit.contracts.json_value import JsonValue, dump_json, parse_json
 from deykit.contracts.records import ReportRecord
-from deykit.reports.models import RenderedArtifact, ReportContent, ReportFormat
+from deykit.reports.models import (
+    MemberEvidenceContext,
+    RenderedArtifact,
+    ReportContent,
+    ReportFormat,
+)
 
 _MAX_MARKDOWN_BYTES = 8 * 1024 * 1024
 
@@ -34,6 +39,39 @@ def _rate(value: object) -> str:
             f"{numerator}/{denominator})"
         )
     return f"{_inline(display)} ({numerator}/{denominator})"
+
+
+def _group_member_context(number: int, member: MemberEvidenceContext) -> list[str]:
+    """Render every stored member provenance link before the shared source index."""
+    lines = [
+        f"### Member {number}",
+        "",
+        f"- Requested model: {_inline(member.requested_model)}",
+        f"- Answering models: {_inline(member.answering_models or 'unavailable')}",
+        f"- Compiler IDs and version: {_inline(member.compiler_ids)} / "
+        f"{_inline(member.compiler_version or 'unavailable')}",
+        f"- Option order: {_inline(member.option_order)}",
+        f"- Run: `{_inline(member.run_id)}`; manifest hash: `{member.manifest_hash}`",
+        f"- Mode: {_inline(member.evidence_mode)}; fixture set: "
+        f"{_inline(member.fixture_set_id or 'unavailable')}",
+        f"- Provider profile: `{_inline(member.provider_profile_id)}`; configuration hash: "
+        f"`{member.provider_config_hash}`; adapter: `{_inline(member.adapter)}`",
+        f"- Decision: `{_inline(member.decision_id)}`; revision: "
+        f"`{_inline(member.decision_revision_id)}`; definition hash: `{member.definition_hash}`",
+        f"- Dataset: `{_inline(member.dataset_id)}`; snapshot: "
+        f"`{_inline(member.dataset_snapshot_id)}`; hash: `{member.dataset_hash}`",
+        f"- Label snapshot: `{_inline(member.label_snapshot_id)}`; hash: `{member.label_hash}`",
+        f"- Result snapshot: `{_inline(member.result_snapshot_id)}`; hash: "
+        f"`{member.result_hash}`; event sequence: {member.through_event_sequence}",
+        f"- Question: `{_inline(member.question_id)}`; options: {_inline(member.option_ids)}",
+        f"- Selected cases: {_inline(member.selected_case_ids)}",
+        f"- Baseline dataset snapshot: `{_inline(member.baseline_dataset_snapshot_id)}`; "
+        f"hash: `{member.baseline_dataset_hash}`",
+        f"- Baseline label snapshot: `{_inline(member.baseline_label_snapshot_id)}`; "
+        f"hash: `{member.baseline_label_hash}`",
+        "",
+    ]
+    return lines
 
 
 def _markdown(record: ReportRecord, content: ReportContent) -> str:
@@ -74,14 +112,15 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 f"- Option order: {_inline(context.option_order)}",
                 "",
             ]
-    lines += [
-        "",
-        "## Frozen source context",
-        "",
-        f"- Evaluations: {_inline(', '.join(target.evaluation_ids) or 'none')}",
-        f"- Results: {_inline(', '.join(target.result_snapshot_ids) or 'none')}",
-        f"- Labels: {_inline(', '.join(target.label_snapshot_ids) or 'none')}",
-    ]
+    if content.diagnostic is None and content.check is None:
+        lines += [
+            "",
+            "## Frozen source context",
+            "",
+            f"- Evaluations: {_inline(', '.join(target.evaluation_ids) or 'none')}",
+            f"- Results: {_inline(', '.join(target.result_snapshot_ids) or 'none')}",
+            f"- Labels: {_inline(', '.join(target.label_snapshot_ids) or 'none')}",
+        ]
     for number, evaluation in enumerate(content.evaluations, 1):
         metrics = evaluation.metrics
         summary = metrics.summary
@@ -283,27 +322,9 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             f"- Disagreement: {_rate(diagnostic_summary.disagreement.model_dump(mode='json'))}",
             "- Interpretation: observed request order sensitivity",
             "",
-            "### Pinned members",
-            "",
-            "| Run | Result snapshot | Label snapshot | Requested model | "
-            "Compilers | Option order |",
-            "| --- | --- | --- | --- | --- | --- |",
         ]
-        for member in diagnostic.members:
-            lines.append(
-                "| "
-                + " | ".join(
-                    (
-                        _inline(member.run_id),
-                        _inline(member.result_snapshot_id),
-                        _inline(member.label_snapshot_id),
-                        _inline(member.requested_model),
-                        _inline((member.compiler_ids, member.compiler_version)),
-                        _inline(member.option_order),
-                    )
-                )
-                + " |"
-            )
+        for number, member in enumerate(diagnostic.members, 1):
+            lines.extend(_group_member_context(number, member))
         lines += [
             "",
             "### Per case and order",
@@ -339,27 +360,9 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             f"- Baseline: {_inline(check.baseline_unavailable)}",
             f"- Expectation failures: {check.expectation_failures}",
             "",
-            "### Pinned members",
-            "",
-            "| Run | Result snapshot | Label snapshot | Requested model | "
-            "Compilers | Option order |",
-            "| --- | --- | --- | --- | --- | --- |",
         ]
-        for member in check.members:
-            lines.append(
-                "| "
-                + " | ".join(
-                    (
-                        _inline(member.run_id),
-                        _inline(member.result_snapshot_id),
-                        _inline(member.label_snapshot_id),
-                        _inline(member.requested_model),
-                        _inline((member.compiler_ids, member.compiler_version)),
-                        _inline(member.option_order),
-                    )
-                )
-                + " |"
-            )
+        for number, member in enumerate(check.members, 1):
+            lines.extend(_group_member_context(number, member))
         lines += [
             "",
             "### Frozen regression outcomes",
@@ -389,6 +392,24 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 )
                 + " |"
             )
+        lines += ["", "### Regression source lineage", ""]
+        for check_case in check.cases:
+            lines.append(
+                f"- Regression `{_inline(check_case.regression_id)}` original input hash "
+                f"`{check_case.input_hash}`; source run "
+                f"`{_inline(check_case.source_run_id or 'unavailable')}`, result "
+                f"`{_inline(check_case.source_result_snapshot_id or 'unavailable')}`, attempt "
+                f"`{_inline(check_case.source_attempt_id or 'unavailable')}`."
+            )
+    if content.diagnostic is not None or content.check is not None:
+        lines += [
+            "",
+            "## Frozen source context",
+            "",
+            f"- Evaluations: {_inline(', '.join(target.evaluation_ids) or 'none')}",
+            f"- Results: {_inline(', '.join(target.result_snapshot_ids) or 'none')}",
+            f"- Labels: {_inline(', '.join(target.label_snapshot_ids) or 'none')}",
+        ]
     if content.raw_material:
         lines += ["", "## Explicitly included raw material", ""]
         for item in content.raw_material:
