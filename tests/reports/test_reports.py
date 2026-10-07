@@ -69,7 +69,13 @@ from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
 from deykit.reports.admission import ReportAdmissionError, admit_report, report_hash
 from deykit.reports.group_projection import _selection
-from deykit.reports.models import RawChoices, RawMaterial, ReportContent, ReportRequest
+from deykit.reports.models import (
+    RawChoices,
+    RawMaterial,
+    ReportContent,
+    ReportRequest,
+    ReportView,
+)
 from deykit.reports.projection import project_json_source, project_opaque_response_bytes
 from deykit.reports.render import render_content
 from deykit.runner.backends import ProviderBackends
@@ -1638,7 +1644,14 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
         assert graph.lifecycle_reports_created_before_resume
     source = MemorySnapshotSource.from_records(all_records)
     clock = SystemClock()
-    service = ReportService(source, clock, lambda: "group-history-report")
+    history_ids = iter(
+        (
+            "group-history-report",
+            "group-history-latest-diagnostic",
+            "group-history-latest-check",
+        )
+    )
+    service = ReportService(source, clock, lambda: next(history_ids))
     request = _group_report_request(graph, "diagnostic", graph.diagnostic_partial_snapshot_id)
     first = service.create(request, operation_id="group-history-report-create")
     first_json = service.render(first.record.id, format="json").body
@@ -1719,6 +1732,77 @@ def test_group_report_admission_normalizes_only_exact_owned_integers(
     with pytest.raises(ReportAdmissionError) as failure:
         admit_report(stored_with_content(wrong_version))
     assert failure.value.reason == "missing_schema_version"
+
+
+def test_report_admission_preserves_exact_record_version_tokens(
+    fixture_graph: FixtureGraph,
+) -> None:
+    source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
+    report_ids = iter(("report-version-run", "report-version-comparison"))
+    service = ReportService(source, SystemClock(), lambda: next(report_ids))
+    run_report = service.create(
+        ReportRequest(target_id=fixture_graph.run_id, target_kind="run"),
+        operation_id="report-version-run-create",
+    )
+    comparison_report = service.create(
+        ReportRequest(target_id=fixture_graph.comparison_id, target_kind="comparison"),
+        operation_id="report-version-comparison-create",
+    )
+
+    def stored_with_source(view: ReportView, content_source: str) -> StoredRecord:
+        changed = view.record.model_copy(update={"content_source": content_source})
+        changed = changed.model_copy(
+            update={"content_hash": report_hash(changed, view.content)}
+        )
+        body = dump_record(changed)
+        return StoredRecord(ResourceKey("reports", changed.id), body, bytes_hash(body))
+
+    invalid_sources = [
+        (
+            run_report,
+            run_report.record.content_source.replace(
+                '{"schema_version":1', '{"schema_version":1e0', 1
+            ),
+        ),
+        (
+            run_report,
+            run_report.record.content_source.replace(
+                '"metrics":{"schema_version":1', '"metrics":{"schema_version":1e0', 1
+            ),
+        ),
+        (
+            comparison_report,
+            comparison_report.record.content_source.replace(
+                '"comparison":{"schema_version":1',
+                '"comparison":{"schema_version":1.0',
+                1,
+            ),
+        ),
+    ]
+    for collection in ("cases", "attempts"):
+        tree = parse_json(run_report.record.content_source)
+        assert isinstance(tree, dict)
+        evaluations = tree.get("evaluations")
+        assert isinstance(evaluations, list) and evaluations
+        evaluation = evaluations[0]
+        assert isinstance(evaluation, dict)
+        items = evaluation.get(collection)
+        assert isinstance(items, list) and items
+        first_item = items[0]
+        assert isinstance(first_item, dict)
+        first_item["error"] = {"schema_version": 1, "code": "provider_rejected"}
+        invalid_version = "1.0" if collection == "cases" else "1e0"
+        error_source = dump_json(tree).replace(
+            '"error":{"schema_version":1',
+            f'"error":{{"schema_version":{invalid_version}',
+            1,
+        )
+        invalid_sources.append((run_report, error_source))
+
+    for view, content_source in invalid_sources:
+        with pytest.raises(ReportAdmissionError) as failure:
+            admit_report(stored_with_source(view, content_source))
+        assert failure.value.reason == "invalid_report_content"
 
 
 def test_group_raw_switches_cover_all_combinations_with_pinned_lineage(

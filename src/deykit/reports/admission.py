@@ -50,6 +50,39 @@ def _validation_tree(value: JsonValue) -> JsonValue:
     return value
 
 
+def _require_integer_record_version(value: object) -> None:
+    if isinstance(value, dict) and "schema_version" in value:
+        if type(value["schema_version"]) is not int:
+            raise ReportAdmissionError("invalid_report_content")
+
+
+def _require_exact_record_versions(value: object) -> None:
+    """Preserve strict integer tokens at the owned Record boundaries only."""
+    if not isinstance(value, dict):
+        return
+    _require_integer_record_version(value)
+    comparison = value.get("comparison")
+    _require_integer_record_version(comparison)
+    evaluations = value.get("evaluations")
+    if not isinstance(evaluations, list):
+        return
+    for evaluation in evaluations:
+        if not isinstance(evaluation, dict):
+            continue
+        _require_integer_record_version(evaluation.get("metrics"))
+        for collection in ("cases", "attempts"):
+            items = evaluation.get(collection)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict):
+                    _require_integer_record_version(item.get("error"))
+
+
+def _reject_json_constant(_: str) -> None:
+    raise JsonError("nonfinite_number")
+
+
 def report_hash(record: ReportRecord, content: ReportContent) -> str:
     return semantic_hash(
         {
@@ -89,6 +122,13 @@ def admit_report(stored: StoredRecord) -> AdmittedReport:
             for item in evaluations
         ):
             raise ReportAdmissionError("missing_schema_version")
+        lexical = json.loads(
+            record.content_source,
+            parse_int=int,
+            parse_float=Decimal,
+            parse_constant=_reject_json_constant,
+        )
+        _require_exact_record_versions(lexical)
         validation_source = json.dumps(
             _validation_tree(parsed), ensure_ascii=False, separators=(",", ":"), allow_nan=False
         )
