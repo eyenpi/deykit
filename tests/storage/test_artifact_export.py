@@ -36,9 +36,7 @@ def test_writer_replaces_exact_bytes_and_missing_parent_fails(tmp_path):
     assert Path(outcome.destination) == destination
     assert destination.read_bytes() == b'{"report":1}\n\xff'
 
-    missing = NativeArtifactWriter().write(
-        str(tmp_path / "absent" / "report.json"), b"content"
-    )
+    missing = NativeArtifactWriter().write(str(tmp_path / "absent" / "report.json"), b"content")
     _failed(missing)
     assert missing.error.reason == "export_parent_missing"
 
@@ -224,9 +222,7 @@ def test_close_failure_after_rename_keeps_success_and_new_bytes(tmp_path, monkey
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Injects a POSIX replacement failure.")
-def test_replace_failure_preserves_old_bytes_and_cleans_owned_temporary(
-    tmp_path, monkeypatch
-):
+def test_replace_failure_preserves_old_bytes_and_cleans_owned_temporary(tmp_path, monkeypatch):
     destination = tmp_path / "report.bin"
     destination.write_bytes(b"old bytes")
     original_replace = os.replace
@@ -245,9 +241,7 @@ def test_replace_failure_preserves_old_bytes_and_cleans_owned_temporary(
 
 @pytest.mark.skipif(os.name != "posix", reason="Injects POSIX file staging faults.")
 @pytest.mark.parametrize("fault", ["short_write", "file_fsync"])
-def test_staging_faults_preserve_old_bytes_and_remove_temporary(
-    tmp_path, monkeypatch, fault
-):
+def test_staging_faults_preserve_old_bytes_and_remove_temporary(tmp_path, monkeypatch, fault):
     destination = tmp_path / "report.bin"
     destination.write_bytes(b"old bytes")
     if fault == "short_write":
@@ -352,9 +346,7 @@ def test_display_predicates_are_per_call_under_bounded_concurrency(tmp_path):
     )
     thread.start()
     assert first_entered.wait(timeout=5)
-    second = writer.write(
-        str(second_destination), b"second", display_is_safe=lambda _value: True
-    )
+    second = writer.write(str(second_destination), b"second", display_is_safe=lambda _value: True)
     release_first.set()
     thread.join(timeout=5)
 
@@ -368,6 +360,13 @@ def test_display_predicates_are_per_call_under_bounded_concurrency(tmp_path):
 
 def test_outcome_contract_rejects_failed_destination_and_post_failure_warning():
     safe_error = ServiceError(code="internal_error", reason="export_write_failed")
+    result = ArtifactWriteOutcome(success=False, destination=None, error=safe_error)
+    assert set(result.model_dump(mode="json")) == {
+        "success",
+        "destination",
+        "error",
+        "durability_warning",
+    }
     with pytest.raises(ValueError):
         ArtifactWriteOutcome(success=False, destination="/private/path", error=safe_error)
     with pytest.raises(ValueError):

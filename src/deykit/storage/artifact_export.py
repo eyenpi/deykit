@@ -14,16 +14,14 @@ from deykit.application.errors import ServiceFailure
 from deykit.contracts.artifacts import ArtifactWriteOutcome
 from deykit.contracts.errors import ErrorCode, ServiceError
 from deykit.contracts.redaction import Sanitizer
-from deykit.storage._filesystem_posix import PosixFiles
+from deykit.storage._filesystem_posix import O_DIRECTORY, O_NOFOLLOW, PosixFiles
 from deykit.storage._filesystem_windows import WindowsFiles
 from deykit.storage._paths import check_component
 from deykit.storage.filesystem import SafeFiles
 
 _MANIFEST = "deykit.project.json"
 _PROTECTED_DIRECTORIES = ("source", "history", ".deykit")
-_DURABILITY_WARNING = ServiceError(
-    code="internal_error", reason="export_durability_unverified"
-)
+_DURABILITY_WARNING = ServiceError(code="internal_error", reason="export_durability_unverified")
 
 
 @dataclass(frozen=True)
@@ -104,9 +102,7 @@ def _location(raw: str, *, directory: bool = False) -> _Location:
         raw_tail = spelling[2:] if len(spelling) >= 2 and spelling[1] == ":" else spelling
         if raw_tail.startswith("\\"):
             raw_tail = raw_tail[1:]
-        if raw_tail and any(
-            component in {"", ".", ".."} for component in raw_tail.split("\\")
-        ):
+        if raw_tail and any(component in {"", ".", ".."} for component in raw_tail.split("\\")):
             raise _invalid()
         path = PureWindowsPath(raw)
         if path.drive and not path.root:
@@ -267,7 +263,7 @@ class NativeArtifactWriter:
                 try:
                     child = os.open(
                         component,
-                        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW,
                         dir_fd=chain[-1],
                     )
                 except OSError as error:
@@ -310,9 +306,7 @@ class NativeArtifactWriter:
     ) -> tuple[int, int] | None:
         backend._check_spelling(parent, name)
         try:
-            fd = os.open(
-                name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent
-            )
+            fd = os.open(name, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=parent)
         except FileNotFoundError:
             return None
         except OSError as error:
@@ -358,12 +352,8 @@ class NativeArtifactWriter:
     ) -> None:
         destination_ids = tuple(NativeArtifactWriter._posix_identity(fd) for fd in chain)
         for guard in guards:
-            protected_ids = {
-                identity for identity in guard.nodes.values() if identity is not None
-            }
-            if any(
-                identity in protected_ids - {guard.nodes["."]} for identity in destination_ids
-            ):
+            protected_ids = {identity for identity in guard.nodes.values() if identity is not None}
+            if any(identity in protected_ids - {guard.nodes["."]} for identity in destination_ids):
                 raise _invalid("export_destination_protected")
             root_identity = guard.nodes["."]
             for index, identity in enumerate(destination_ids):
@@ -388,9 +378,7 @@ class NativeArtifactWriter:
         handles.clear()
         return failed
 
-    def _close_posix_guards(
-        self, destination_chain: list[int], guards: list[_PosixGuard]
-    ) -> bool:
+    def _close_posix_guards(self, destination_chain: list[int], guards: list[_PosixGuard]) -> bool:
         failed = False
         for guard in reversed(guards):
             failed = self._close_fds(guard.node_fds) or failed
@@ -488,9 +476,7 @@ class NativeArtifactWriter:
         return outcome or _failure("internal_error", "export_write_failed")
 
     @staticmethod
-    def _open_windows_chain(
-        backend: WindowsFiles, components: tuple[str, ...]
-    ) -> list[object]:
+    def _open_windows_chain(backend: WindowsFiles, components: tuple[str, ...]) -> list[object]:
         from deykit.storage import _win32 as win
 
         chain: list[object] = [backend.api.duplicate(backend.handle)]
@@ -518,9 +504,7 @@ class NativeArtifactWriter:
 
         return backend.api.identity(cast(win.Handle, handle))
 
-    def _open_windows_guard(
-        self, backend: WindowsFiles, location: _Location
-    ) -> _WindowsGuard:
+    def _open_windows_guard(self, backend: WindowsFiles, location: _Location) -> _WindowsGuard:
         chain = self._open_windows_chain(backend, location.components)
         node_handles: list[object] = []
         try:
@@ -596,12 +580,8 @@ class NativeArtifactWriter:
     ) -> None:
         destination_ids = tuple(self._windows_identity(backend, item) for item in chain)
         for guard in guards:
-            protected_ids = {
-                identity for identity in guard.nodes.values() if identity is not None
-            }
-            if any(
-                identity in protected_ids - {guard.nodes["."]} for identity in destination_ids
-            ):
+            protected_ids = {identity for identity in guard.nodes.values() if identity is not None}
+            if any(identity in protected_ids - {guard.nodes["."]} for identity in destination_ids):
                 raise _invalid("export_destination_protected")
             root_identity = guard.nodes["."]
             for index, identity in enumerate(destination_ids):
@@ -648,9 +628,7 @@ class NativeArtifactWriter:
             failed = self._close_windows_handles(guard.chain) or failed
         return self._close_windows_handles(destination_chain) or failed
 
-    def _safe_display(
-        self, value: str, display_is_safe: Callable[[str], bool] | None
-    ) -> None:
+    def _safe_display(self, value: str, display_is_safe: Callable[[str], bool] | None) -> None:
         try:
             value.encode("utf-8", "strict")
         except UnicodeEncodeError:

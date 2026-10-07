@@ -5,11 +5,11 @@ from typing import Protocol, Self
 
 from pydantic import model_validator
 
-from deykit.contracts.base import Record
+from deykit.contracts.base import FrozenModel
 from deykit.contracts.errors import ServiceError
 
 
-class ArtifactWriteOutcome(Record):
+class ArtifactWriteOutcome(FrozenModel):
     """Result of atomically replacing a destination with exact bytes."""
 
     success: bool
