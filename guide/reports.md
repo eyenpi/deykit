@@ -15,6 +15,32 @@ the complete saved report with `read(report_id)`. Use `metadata(report_id)` or
 To write an existing report, call `export(report_id, format=..., destination=...,
 writer=...)`; a failed destination write keeps the report available for retry.
 
+The installed CLI exposes the same service for local exports and metadata:
+
+```text
+deykit [--project PATH] [--json] report export TARGET_ID --output FILE [--format json|markdown]
+deykit [--project PATH] [--json] report export TARGET_ID --target-kind run --evaluation ID --output FILE
+deykit [--project PATH] [--json] report export TARGET_ID --target-kind run --result-snapshot ID --output FILE
+deykit [--project PATH] [--json] report export TARGET_ID --target-kind diagnostic --group-snapshot ID --output FILE
+deykit [--project PATH] [--json] report export --report-id REPORT_ID --output FILE [--format json|markdown]
+deykit [--project PATH] [--json] report show REPORT_ID
+deykit [--project PATH] [--json] report list [--cursor ID] [--limit 50]
+```
+
+For a new export, pass exactly one target ID or `--report-id`. New targets can
+select `--target-kind run|evaluation|comparison|diagnostic|check`, and accept
+`--evaluation`, `--result-snapshot`, `--group-snapshot`, and `--operation-id`
+selectors. The three independent `--include-raw-inputs`,
+`--include-raw-requests`, and `--include-raw-responses` switches default off.
+Saved-report exports use the frozen raw choices and reject creation selectors.
+Use `--output`, `--destination`, or `-o` for the local file. JSON mode prints
+one versioned envelope containing export metadata; report content is written
+only to the requested file. A failed destination returns the saved report ID
+and artifact metadata, prints a safe error, and exits with code 2 so the same
+report can be exported again. A successful write with a durability warning
+keeps exit code 0 and includes the warning in the JSON envelope or on stderr.
+`report show` and `report list` return metadata only.
+
 Group reports need an explicit target kind:
 
 ```python
