@@ -620,12 +620,32 @@
     },
     {
       "path": "report export",
-      "service": "ReportService.export",
+      "service": "ReportService.create/export",
       "owner": "P13",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_exports_each_target_and_pinned_group_snapshots"
+      }
+    },
+    {
+      "path": "report show",
+      "service": "ReportService.metadata",
+      "owner": "P13",
+      "status": "implemented",
+      "verification": {
+        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
+      }
+    },
+    {
+      "path": "report list",
+      "service": "ReportService.list",
+      "owner": "P13",
+      "status": "implemented",
+      "verification": {
+        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
       }
     },
     {
