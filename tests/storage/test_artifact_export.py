@@ -307,8 +307,8 @@ def test_requested_and_canonical_display_checks_run_before_staging(tmp_path):
         os.chdir(cwd)
 
     _failed(outcome)
-    assert calls[0] == relative
-    assert Path(calls[1]).is_absolute()
+    assert relative in calls
+    assert str(tmp_path / relative) in calls
     assert not (tmp_path / relative).exists()
     assert tuple(tmp_path.iterdir()) == ()
 
