@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from decimal import Decimal
 
 from pydantic import ValidationError
 
 from deykit.contracts.codec import load_record
-from deykit.contracts.json_value import JsonError, parse_json, semantic_hash
+from deykit.contracts.json_value import JsonError, JsonValue, parse_json, semantic_hash
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import ReportRecord
 from deykit.reports.models import RawChoices, ReportContent, ReportMetadata
@@ -34,6 +35,52 @@ def _has_persisted_version(value: object) -> bool:
         return False
     version = value.get("schema_version")
     return isinstance(version, Decimal) and version == 1 and version.as_tuple().exponent == 0
+
+
+def _validation_tree(value: JsonValue) -> JsonValue:
+    """Normalize exact numbers only in a copy used to validate the owned report envelope."""
+    if isinstance(value, dict):
+        return {key: _validation_tree(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_validation_tree(item) for item in value]
+    if isinstance(value, Decimal):
+        if value.is_finite() and value == value.to_integral_value():
+            return int(value)
+        raise ReportAdmissionError("invalid_report_content")
+    return value
+
+
+def _require_integer_record_version(value: object) -> None:
+    if isinstance(value, dict) and "schema_version" in value:
+        if type(value["schema_version"]) is not int:
+            raise ReportAdmissionError("invalid_report_content")
+
+
+def _require_exact_record_versions(value: object) -> None:
+    """Preserve strict integer tokens at the owned Record boundaries only."""
+    if not isinstance(value, dict):
+        return
+    _require_integer_record_version(value)
+    comparison = value.get("comparison")
+    _require_integer_record_version(comparison)
+    evaluations = value.get("evaluations")
+    if not isinstance(evaluations, list):
+        return
+    for evaluation in evaluations:
+        if not isinstance(evaluation, dict):
+            continue
+        _require_integer_record_version(evaluation.get("metrics"))
+        for collection in ("cases", "attempts"):
+            items = evaluation.get(collection)
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if isinstance(item, dict):
+                    _require_integer_record_version(item.get("error"))
+
+
+def _reject_json_constant(_: str) -> None:
+    raise JsonError("nonfinite_number")
 
 
 def report_hash(record: ReportRecord, content: ReportContent) -> str:
@@ -75,8 +122,18 @@ def admit_report(stored: StoredRecord) -> AdmittedReport:
             for item in evaluations
         ):
             raise ReportAdmissionError("missing_schema_version")
+        lexical = json.loads(
+            record.content_source,
+            parse_int=int,
+            parse_float=Decimal,
+            parse_constant=_reject_json_constant,
+        )
+        _require_exact_record_versions(lexical)
+        validation_source = json.dumps(
+            _validation_tree(parsed), ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        )
         content = ReportContent.model_validate_json(
-            record.content_source, context={"persisted": True}
+            validation_source, context={"persisted": True}, strict=True
         )
         target = content.target
         expected_evaluations = tuple(dict.fromkeys(target.evaluation_ids))
@@ -87,8 +144,10 @@ def admit_report(stored: StoredRecord) -> AdmittedReport:
             or record.result_snapshot_ids != expected_results
             or record.label_snapshot_ids != expected_labels
             or record.comparison_id != target.comparison_id
-            or record.diagnostic_snapshot_id is not None
-            or record.check_snapshot_id is not None
+            or record.diagnostic_snapshot_id
+            != (content.diagnostic.snapshot_id if content.diagnostic is not None else None)
+            or record.check_snapshot_id
+            != (content.check.snapshot_id if content.check is not None else None)
             or RawChoices(
                 inputs=record.includes_raw_input,
                 requests=record.includes_raw_request,
@@ -175,6 +234,11 @@ def metadata(admitted: AdmittedReport) -> ReportMetadata:
         mode = item.metrics.evidence_mode
         if mode not in modes:
             modes.append(mode)
+    group = content.diagnostic or content.check
+    if group is not None:
+        for member in group.members:
+            if member.evidence_mode not in modes:
+                modes.append(member.evidence_mode)
     return ReportMetadata(
         report_id=admitted.record.id,
         content_hash=admitted.record.content_hash,

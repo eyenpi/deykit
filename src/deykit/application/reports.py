@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Literal, cast
 
+from deykit.application.checks import FrozenCheckSnapshot
 from deykit.application.comparisons import admit_comparison_from_records
 from deykit.application.dataset_support import fail, identifier
+from deykit.application.diagnostics import FrozenDiagnosticSnapshot
 from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import (
     EvaluationService,
@@ -16,6 +18,7 @@ from deykit.application.evaluations import (
 from deykit.comparisons.models import ComparisonOutcomes
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.execution_groups import CheckSnapshot, DiagnosticSnapshot
 from deykit.contracts.identities import new_id
 from deykit.contracts.json_value import (
     JsonError,
@@ -41,7 +44,16 @@ from deykit.reports.admission import (
     admit_report_metadata,
     report_hash,
 )
+from deykit.reports.group_projection import (
+    project_check,
+    project_diagnostic,
+    project_group_raw,
+    read_check,
+    read_diagnostic,
+)
 from deykit.reports.models import (
+    CheckReport,
+    DiagnosticReport,
     ExportOutcome,
     FrozenTarget,
     RawMaterial,
@@ -56,6 +68,7 @@ from deykit.reports.models import (
 )
 from deykit.reports.ports import ArtifactWriter
 from deykit.reports.projection import (
+    expected_group_limitations,
     expected_limitations,
     project_evaluation,
     safe_comparison_outcomes,
@@ -97,6 +110,47 @@ def _stored(
     if value is None:
         fail("report_target_missing", "not_found")
     return value
+
+
+def _select_group_snapshot(
+    records: tuple[StoredRecord, ...],
+    kind: Literal["diagnostic", "check"],
+    group_id: str,
+    snapshot_id: str | None,
+) -> FrozenDiagnosticSnapshot | FrozenCheckSnapshot:
+    collection = "diagnostic_snapshots" if kind == "diagnostic" else "check_snapshots"
+    reader = read_diagnostic if kind == "diagnostic" else read_check
+    if snapshot_id is not None:
+        frozen = reader(records, snapshot_id)
+        if frozen.group.id != group_id or frozen.group.kind != (
+            "choice_order" if kind == "diagnostic" else "regression_check"
+        ):
+            fail("report_selector_conflict", "incompatible_data")
+        return frozen
+    candidates: list[DiagnosticSnapshot | CheckSnapshot] = []
+    for stored in records:
+        if stored.key.collection != collection or stored.key.scope:
+            continue
+        try:
+            if kind == "diagnostic":
+                candidate: DiagnosticSnapshot | CheckSnapshot = load_record(
+                    DiagnosticSnapshot, stored.body
+                )
+            else:
+                candidate = load_record(CheckSnapshot, stored.body)
+        except (JsonError, ValueError):
+            continue
+        if candidate.id == stored.key.resource_id and candidate.group_id == group_id:
+            candidates.append(candidate)
+    for snapshot_record in sorted(
+        candidates, key=lambda item: (item.sequence, item.created_at, item.id), reverse=True
+    ):
+        try:
+            return reader(records, snapshot_record.id)
+        except ServiceFailure:
+            continue
+    missing = "diagnostic_snapshot_missing" if kind == "diagnostic" else "check_snapshot_missing"
+    fail(missing, "not_found")
 
 
 class ReportService:
@@ -170,6 +224,13 @@ class ReportService:
             comparison_source: ComparisonOutcomes | None = None
             comparison_id: str | None = None
             comparison_hash: str | None = None
+            diagnostic_source: DiagnosticReport | None = None
+            check_source: CheckReport | None = None
+            diagnostic_snapshot_id: str | None = None
+            check_snapshot_id: str | None = None
+            group_snapshot: FrozenDiagnosticSnapshot | FrozenCheckSnapshot | None = None
+            result_ids: tuple[str, ...] = ()
+            label_ids: tuple[str, ...] = ()
             selected_target_id = request.target_id
             if target_kind in ("run", "evaluation"):
                 if target_kind == "evaluation":
@@ -286,6 +347,30 @@ class ReportService:
                         admit_evaluation_record(_stored(index, "evaluations", evaluation_id))
                     )
                 comparison_source = safe_comparison_outcomes(comparison.outcomes, self.sanitizer)
+            elif target_kind in ("diagnostic", "check"):
+                if request.evaluation_id is not None or request.result_snapshot_id is not None:
+                    fail("invalid_report_selector")
+                group_snapshot = _select_group_snapshot(
+                    records, target_kind, request.target_id, request.group_snapshot_id
+                )
+                if target_kind == "diagnostic":
+                    assert isinstance(group_snapshot, FrozenDiagnosticSnapshot)
+                    diagnostic_source = project_diagnostic(records, group_snapshot, self.sanitizer)
+                    diagnostic_snapshot_id = group_snapshot.snapshot.id
+                else:
+                    assert isinstance(group_snapshot, FrozenCheckSnapshot)
+                    check_source = project_check(records, group_snapshot, self.sanitizer)
+                    check_snapshot_id = group_snapshot.snapshot.id
+                raw_tuple = project_group_raw(records, group_snapshot, self.sanitizer, request.raw)
+                group_context = diagnostic_source or check_source
+                if group_context is None:
+                    fail("report_link_mismatch", "incompatible_data")
+                result_ids = tuple(
+                    dict.fromkeys(member.result_snapshot_id for member in group_context.members)
+                )
+                label_ids = tuple(
+                    dict.fromkeys(member.label_snapshot_id for member in group_context.members)
+                )
             else:
                 fail("report_target_missing", "not_found")
 
@@ -296,10 +381,17 @@ class ReportService:
                 evaluations.append(projected)
                 material.extend(raw_items)
             eval_ids = tuple(dict.fromkeys(view.record.id for view in eval_views))
-            result_ids = tuple(dict.fromkeys(view.record.result_snapshot_id for view in eval_views))
-            label_ids = tuple(dict.fromkeys(view.record.label_snapshot_id for view in eval_views))
-            raw_tuple = tuple(dict.fromkeys(material))
-            limitation_tuple = expected_limitations(tuple(evaluations), raw_tuple)
+            if group_snapshot is None:
+                result_ids = tuple(
+                    dict.fromkeys(view.record.result_snapshot_id for view in eval_views)
+                )
+                label_ids = tuple(
+                    dict.fromkeys(view.record.label_snapshot_id for view in eval_views)
+                )
+                raw_tuple = tuple(dict.fromkeys(material))
+                limitation_tuple = expected_limitations(tuple(evaluations), raw_tuple)
+            else:
+                limitation_tuple = ()
             content = ReportContent(
                 target=FrozenTarget(
                     kind=target_kind,
@@ -309,13 +401,22 @@ class ReportService:
                     label_snapshot_ids=label_ids,
                     comparison_id=comparison_id,
                     comparison_hash=comparison_hash,
+                    group_snapshot_id=(diagnostic_snapshot_id or check_snapshot_id),
                 ),
                 raw=request.raw,
                 evaluations=tuple(evaluations),
                 comparison=comparison_source,
+                diagnostic=diagnostic_source,
+                check=check_source,
                 raw_material=raw_tuple,
                 limitations=limitation_tuple,
             )
+            if group_snapshot is not None:
+                group_report = diagnostic_source or check_source
+                assert group_report is not None
+                content_fields = content.model_dump(mode="python")
+                content_fields["limitations"] = expected_group_limitations(group_report, content)
+                content = ReportContent.model_validate(content_fields)
             content_source = dump_json(_json_tree(content.model_dump(mode="python")))
             if len(content_source.encode("utf-8")) > 1_048_576:
                 fail("report_content_limit")
@@ -331,6 +432,8 @@ class ReportService:
                 content_source=content_source,
                 content_hash="0" * 64,
                 created_at=self.clock.utc_now(),
+                diagnostic_snapshot_id=diagnostic_snapshot_id,
+                check_snapshot_id=check_snapshot_id,
             )
             if self.sanitizer.text(provisional.id) != provisional.id:
                 fail("report_sensitive_identity", "validation_error")
@@ -344,12 +447,17 @@ class ReportService:
             validate_report_identity_value(bytes_hash(body), self.sanitizer)
             if cast(SnapshotSource, source).capture_snapshot() != records:
                 fail("report_source_changed", "conflict")
+            expected_key = ResourceKey("reports", record.id)
+            provisional_stored = StoredRecord(expected_key, body, bytes_hash(body))
+            try:
+                admit_report(provisional_stored)
+            except ReportAdmissionError as error:
+                fail(error.reason, "incompatible_data")
             receipt = source.commit(
                 operation_id,
-                (SourceChange(ResourceKey("reports", record.id), body, None),),
+                (SourceChange(expected_key, body, None),),
                 intent_hash=intent,
             )
-            expected_key = ResourceKey("reports", record.id)
             if (
                 receipt.operation_id != operation_id
                 or receipt.replayed
@@ -390,26 +498,61 @@ class ReportService:
             self.sanitizer,
         )
         expected_raw: list[RawMaterial] = []
-        for saved_evaluation in admitted.content.evaluations:
-            evaluation_id = saved_evaluation.context.evaluation_id
-            linked = next(
-                (item for item in records if item.key == ResourceKey("evaluations", evaluation_id)),
-                None,
-            )
-            if linked is None:
+        if admitted.content.target.kind in ("diagnostic", "check"):
+            frozen_group: FrozenDiagnosticSnapshot | FrozenCheckSnapshot
+            snapshot_id = admitted.content.target.group_snapshot_id
+            if snapshot_id is None:
                 fail("report_link_mismatch", "incompatible_data")
-            view = admit_evaluation_record(linked)
-            projected, raw_items = project_evaluation(
-                records, view, self.sanitizer, admitted.content.raw
+            if admitted.content.target.kind == "diagnostic":
+                frozen_group = read_diagnostic(records, snapshot_id)
+                if frozen_group.group.id != admitted.content.target.target_id:
+                    fail("report_link_mismatch", "incompatible_data")
+                diagnostic_projection = project_diagnostic(records, frozen_group, self.sanitizer)
+                if diagnostic_projection != admitted.content.diagnostic:
+                    fail("report_link_mismatch", "incompatible_data")
+                if admitted.record.diagnostic_snapshot_id != snapshot_id:
+                    fail("report_link_mismatch", "incompatible_data")
+            else:
+                frozen_group = read_check(records, snapshot_id)
+                if frozen_group.group.id != admitted.content.target.target_id:
+                    fail("report_link_mismatch", "incompatible_data")
+                check_projection = project_check(records, frozen_group, self.sanitizer)
+                if check_projection != admitted.content.check:
+                    fail("report_link_mismatch", "incompatible_data")
+                if admitted.record.check_snapshot_id != snapshot_id:
+                    fail("report_link_mismatch", "incompatible_data")
+            expected_raw.extend(
+                project_group_raw(records, frozen_group, self.sanitizer, admitted.content.raw)
             )
-            expected_raw.extend(raw_items)
-            if projected != saved_evaluation:
-                if sanitizer_would_change(admitted.content, self.sanitizer):
-                    fail("report_redaction_context_mismatch", "incompatible_data")
-                fail("report_link_mismatch", "incompatible_data")
-        if admitted.content.limitations != expected_limitations(
-            admitted.content.evaluations, admitted.content.raw_material
-        ):
+            group_context = admitted.content.diagnostic or admitted.content.check
+            assert group_context is not None
+            expected_limitations_value = expected_group_limitations(group_context, admitted.content)
+        else:
+            for saved_evaluation in admitted.content.evaluations:
+                evaluation_id = saved_evaluation.context.evaluation_id
+                linked = next(
+                    (
+                        item
+                        for item in records
+                        if item.key == ResourceKey("evaluations", evaluation_id)
+                    ),
+                    None,
+                )
+                if linked is None:
+                    fail("report_link_mismatch", "incompatible_data")
+                view = admit_evaluation_record(linked)
+                projected, raw_items = project_evaluation(
+                    records, view, self.sanitizer, admitted.content.raw
+                )
+                expected_raw.extend(raw_items)
+                if projected != saved_evaluation:
+                    if sanitizer_would_change(admitted.content, self.sanitizer):
+                        fail("report_redaction_context_mismatch", "incompatible_data")
+                    fail("report_link_mismatch", "incompatible_data")
+            expected_limitations_value = expected_limitations(
+                admitted.content.evaluations, admitted.content.raw_material
+            )
+        if admitted.content.limitations != expected_limitations_value:
             fail("report_link_mismatch", "incompatible_data")
         if admitted.record.comparison_id:
             linked = next(

@@ -8,7 +8,12 @@ import re
 from deykit.comparisons.models import BUCKETS
 from deykit.contracts.json_value import JsonValue, dump_json, parse_json
 from deykit.contracts.records import ReportRecord
-from deykit.reports.models import RenderedArtifact, ReportContent, ReportFormat
+from deykit.reports.models import (
+    MemberEvidenceContext,
+    RenderedArtifact,
+    ReportContent,
+    ReportFormat,
+)
 
 _MAX_MARKDOWN_BYTES = 8 * 1024 * 1024
 
@@ -36,10 +41,49 @@ def _rate(value: object) -> str:
     return f"{_inline(display)} ({numerator}/{denominator})"
 
 
+def _group_member_context(number: int, member: MemberEvidenceContext) -> list[str]:
+    """Render every stored member provenance link before the shared source index."""
+    lines = [
+        f"### Member {number}",
+        "",
+        f"- Requested model: {_inline(member.requested_model)}",
+        f"- Answering models: {_inline(member.answering_models or 'unavailable')}",
+        f"- Compiler IDs and version: {_inline(member.compiler_ids)} / "
+        f"{_inline(member.compiler_version or 'unavailable')}",
+        f"- Option order: {_inline(member.option_order)}",
+        f"- Run: `{_inline(member.run_id)}`; manifest hash: `{member.manifest_hash}`",
+        f"- Mode: {_inline(member.evidence_mode)}; fixture set: "
+        f"{_inline(member.fixture_set_id or 'unavailable')}",
+        f"- Provider profile: `{_inline(member.provider_profile_id)}`; configuration hash: "
+        f"`{member.provider_config_hash}`; adapter: `{_inline(member.adapter)}`",
+        f"- Decision: `{_inline(member.decision_id)}`; revision: "
+        f"`{_inline(member.decision_revision_id)}`; definition hash: `{member.definition_hash}`",
+        f"- Dataset: `{_inline(member.dataset_id)}`; snapshot: "
+        f"`{_inline(member.dataset_snapshot_id)}`; hash: `{member.dataset_hash}`",
+        f"- Label snapshot: `{_inline(member.label_snapshot_id)}`; hash: `{member.label_hash}`",
+        f"- Result snapshot: `{_inline(member.result_snapshot_id)}`; hash: "
+        f"`{member.result_hash}`; event sequence: {member.through_event_sequence}",
+        f"- Question: `{_inline(member.question_id)}`; options: {_inline(member.option_ids)}",
+        f"- Selected cases: {_inline(member.selected_case_ids)}",
+        f"- Baseline dataset snapshot: `{_inline(member.baseline_dataset_snapshot_id)}`; "
+        f"hash: `{member.baseline_dataset_hash}`",
+        f"- Baseline label snapshot: `{_inline(member.baseline_label_snapshot_id)}`; "
+        f"hash: `{member.baseline_label_hash}`",
+        "",
+    ]
+    return lines
+
+
 def _markdown(record: ReportRecord, content: ReportContent) -> str:
     target = content.target
     modes = (
         ", ".join(item.metrics.evidence_mode for item in content.evaluations)
+        or ", ".join(
+            member.evidence_mode
+            for group in (content.diagnostic, content.check)
+            if group is not None
+            for member in group.members
+        )
         or "comparison evidence"
     )
     lines = [
@@ -68,14 +112,15 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 f"- Option order: {_inline(context.option_order)}",
                 "",
             ]
-    lines += [
-        "",
-        "## Frozen source context",
-        "",
-        f"- Evaluations: {_inline(', '.join(target.evaluation_ids) or 'none')}",
-        f"- Results: {_inline(', '.join(target.result_snapshot_ids) or 'none')}",
-        f"- Labels: {_inline(', '.join(target.label_snapshot_ids) or 'none')}",
-    ]
+    if content.diagnostic is None and content.check is None:
+        lines += [
+            "",
+            "## Frozen source context",
+            "",
+            f"- Evaluations: {_inline(', '.join(target.evaluation_ids) or 'none')}",
+            f"- Results: {_inline(', '.join(target.result_snapshot_ids) or 'none')}",
+            f"- Labels: {_inline(', '.join(target.label_snapshot_ids) or 'none')}",
+        ]
     for number, evaluation in enumerate(content.evaluations, 1):
         metrics = evaluation.metrics
         summary = metrics.summary
@@ -254,6 +299,117 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 )
                 + " |"
             )
+    if content.diagnostic is not None:
+        diagnostic = content.diagnostic
+        diagnostic_summary = diagnostic.summary
+        lines += [
+            "",
+            "## Diagnostic snapshot",
+            "",
+            f"- Group: `{_inline(diagnostic.group_id)}` ({_inline(diagnostic.group_hash)})",
+            f"- Snapshot: `{_inline(diagnostic.snapshot_id)}` "
+            f"({_inline(diagnostic.snapshot_hash)}), "
+            f"sequence {diagnostic.snapshot_sequence}",
+            f"- Segment: `{_inline(diagnostic.segment_id or 'initial')}`",
+            f"- Attempt cap: {diagnostic.max_attempts}; deadline seconds: "
+            f"{diagnostic.deadline_seconds}",
+            f"- Selection: {_inline(diagnostic.algorithm)}, seed {_inline(diagnostic.seed)}, "
+            f"requested orders {len(diagnostic.orders)}",
+            f"- Independent cases: {diagnostic_summary.independent_case_count}; orders: "
+            f"{diagnostic_summary.order_count}; expanded results: "
+            f"{diagnostic_summary.expanded_result_count}; "
+            f"fully observed cases: {diagnostic_summary.fully_observed_case_count}",
+            f"- Disagreement: {_rate(diagnostic_summary.disagreement.model_dump(mode='json'))}",
+            "- Interpretation: observed request order sensitivity",
+            "",
+        ]
+        for number, member in enumerate(diagnostic.members, 1):
+            lines.extend(_group_member_context(number, member))
+        lines += [
+            "",
+            "### Per case and order",
+            "",
+            "| Case | Options by order | Statuses by order | Disagreement | Fully observed |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for diagnostic_case in diagnostic_summary.cases:
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _inline(diagnostic_case.case_id),
+                        _inline(diagnostic_case.option_ids),
+                        _inline(diagnostic_case.statuses),
+                        _inline(diagnostic_case.observed_disagreement),
+                        _inline(diagnostic_case.fully_observed),
+                    )
+                )
+                + " |"
+            )
+    if content.check is not None:
+        check = content.check
+        lines += [
+            "",
+            "## Regression check snapshot",
+            "",
+            f"- Group: `{_inline(check.group_id)}` ({_inline(check.group_hash)})",
+            f"- Snapshot: `{_inline(check.snapshot_id)}` ({_inline(check.snapshot_hash)}), "
+            f"sequence {check.snapshot_sequence}",
+            f"- Segment: `{_inline(check.segment_id or 'initial')}`",
+            f"- Attempt cap: {check.max_attempts}; deadline seconds: {check.deadline_seconds}",
+            f"- Baseline: {_inline(check.baseline_unavailable)}",
+            f"- Expectation failures: {check.expectation_failures}",
+            "",
+        ]
+        for number, member in enumerate(check.members, 1):
+            lines.extend(_group_member_context(number, member))
+        lines += [
+            "",
+            "### Frozen regression outcomes",
+            "",
+            "| Regression | Original hash | Case | Expected | Actual | Pass | Status | "
+            "Provenance | Split | Reason |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for check_case in check.cases:
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _inline(check_case.regression_id),
+                        _inline(check_case.regression_hash),
+                        _inline(check_case.case_id),
+                        _inline(check_case.expected_option_ids),
+                        _inline(check_case.actual_option_id or "unavailable"),
+                        _inline(
+                            check_case.passed if check_case.passed is not None else "unavailable"
+                        ),
+                        _inline(check_case.status),
+                        _inline(check_case.provenance),
+                        _inline(check_case.original_split),
+                        _inline(check_case.reason),
+                    )
+                )
+                + " |"
+            )
+        lines += ["", "### Regression source lineage", ""]
+        for check_case in check.cases:
+            lines.append(
+                f"- Regression `{_inline(check_case.regression_id)}` original input hash "
+                f"`{check_case.input_hash}`; source run "
+                f"`{_inline(check_case.source_run_id or 'unavailable')}`, result "
+                f"`{_inline(check_case.source_result_snapshot_id or 'unavailable')}`, attempt "
+                f"`{_inline(check_case.source_attempt_id or 'unavailable')}`."
+            )
+    if content.diagnostic is not None or content.check is not None:
+        lines += [
+            "",
+            "## Frozen source context",
+            "",
+            f"- Evaluations: {_inline(', '.join(target.evaluation_ids) or 'none')}",
+            f"- Results: {_inline(', '.join(target.result_snapshot_ids) or 'none')}",
+            f"- Labels: {_inline(', '.join(target.label_snapshot_ids) or 'none')}",
+        ]
     if content.raw_material:
         lines += ["", "## Explicitly included raw material", ""]
         for item in content.raw_material:

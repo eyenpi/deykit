@@ -29,6 +29,7 @@ from deykit.metrics import assess_results
 from deykit.reports.models import (
     AttemptEvidence,
     EvaluationMetrics,
+    GroupReportContext,
     RawChoices,
     RawMaterial,
     ReportCase,
@@ -277,6 +278,8 @@ def validate_report_identity_context(
         identities.append(target.comparison_id)
     if target.comparison_hash is not None:
         identities.append(target.comparison_hash)
+    if target.group_snapshot_id is not None:
+        identities.append(target.group_snapshot_id)
     for evaluation in content.evaluations:
         context = evaluation.context
         identities.extend(
@@ -415,6 +418,80 @@ def validate_report_identity_context(
                 if side.answer_option_id is not None:
                     identities.append(side.answer_option_id)
                 identities.extend(side.expected_option_ids)
+    group_report: GroupReportContext | None = content.diagnostic or content.check
+    if group_report is not None:
+        group_identities: list[str] = [
+            group_report.group_id,
+            group_report.group_hash,
+            group_report.snapshot_id,
+            group_report.snapshot_hash,
+        ]
+        if group_report.segment_id is not None:
+            group_identities.append(group_report.segment_id)
+        for member in group_report.members:
+            group_identities.extend(
+                (
+                    member.run_id,
+                    member.manifest_hash,
+                    member.decision_id,
+                    member.decision_revision_id,
+                    member.definition_hash,
+                    member.dataset_id,
+                    member.dataset_snapshot_id,
+                    member.dataset_hash,
+                    member.label_snapshot_id,
+                    member.label_hash,
+                    member.result_snapshot_id,
+                    member.result_hash,
+                    member.provider_profile_id,
+                    member.provider_config_hash,
+                    member.adapter,
+                    *member.compiler_ids,
+                    member.question_id,
+                    *member.option_ids,
+                    *member.option_order,
+                    *member.selected_case_ids,
+                    member.baseline_dataset_snapshot_id,
+                    member.baseline_dataset_hash,
+                    member.baseline_label_snapshot_id,
+                    member.baseline_label_hash,
+                )
+            )
+            if member.fixture_set_id is not None:
+                group_identities.append(member.fixture_set_id)
+        if content.diagnostic is not None:
+            for diagnostic_case in content.diagnostic.summary.cases:
+                group_identities.append(diagnostic_case.case_id)
+                group_identities.extend(
+                    item for item in diagnostic_case.option_ids if item is not None
+                )
+        if content.check is not None:
+            for check_case in content.check.cases:
+                group_identities.extend(
+                    (
+                        check_case.regression_id,
+                        check_case.regression_hash,
+                        check_case.dataset_id,
+                        check_case.case_id,
+                        check_case.run_id,
+                        check_case.result_snapshot_id,
+                        *check_case.expected_option_ids,
+                        check_case.input_hash,
+                    )
+                )
+                if check_case.actual_option_id is not None:
+                    group_identities.append(check_case.actual_option_id)
+                group_identities.extend(
+                    item
+                    for item in (
+                        check_case.source_run_id,
+                        check_case.source_result_snapshot_id,
+                        check_case.source_attempt_id,
+                    )
+                    if item is not None
+                )
+        for identity in group_identities:
+            _safe_identity(sanitizer, identity)
     for identity in identities:
         _safe_identity(sanitizer, identity)
 
@@ -471,6 +548,28 @@ def expected_limitations(
     return tuple(limitations)
 
 
+def expected_group_limitations(
+    group: GroupReportContext, content: ReportContent
+) -> tuple[str, ...]:
+    limitations: list[str] = []
+    if any(item.evidence_mode == "fixture" for item in group.members):
+        limitations.append("authored_fixture_not_provider_quality")
+    limitations.append("saved_answers_no_fresh_inference")
+    if content.diagnostic is not None and (
+        content.diagnostic.summary.fully_observed_case_count
+        != content.diagnostic.summary.independent_case_count
+    ):
+        limitations.append("partial_results")
+    if content.check is not None and any(
+        item.passed is None or item.status != "valid" for item in content.check.cases
+    ):
+        limitations.append("partial_results")
+    if any(item.changed_by_redaction for item in content.raw_material):
+        limitations.append("raw_material_sanitized")
+    limitations.append("unknown_plaintext_secrets_not_recognized")
+    return tuple(limitations)
+
+
 def _prepared(
     records: tuple[StoredRecord, ...], frozen: FrozenEvaluation
 ) -> tuple[PreparedCase, ...]:
@@ -508,6 +607,123 @@ def _prepared(
     return tuple(found[case_id] for case_id in frozen.manifest.case_ids)
 
 
+def project_frozen_raw_material(
+    records: tuple[StoredRecord, ...],
+    frozen: FrozenEvaluation,
+    sanitizer: Sanitizer,
+    raw: RawChoices,
+    prepared: tuple[PreparedCase, ...] | None = None,
+) -> tuple[RawMaterial, ...]:
+    """Project opted-in raw evidence through the one shared core/group path."""
+    prepared_by_case = {
+        item.case_id: item
+        for item in (prepared if prepared is not None else _prepared(records, frozen))
+    }
+    results_by_id = {item.case_id: item for item in frozen.results.results}
+    cases_by_id = {case.id: case for case in frozen.dataset.cases}
+    admitted_attempts = snapshot_attempts(records, frozen.results)
+    attempt_events = {event.attempt_id: event for _, event in admitted_attempts}
+    material: list[RawMaterial] = []
+    for case_id in frozen.manifest.case_ids:
+        _safe_identity(sanitizer, case_id)
+        result = results_by_id[case_id]
+        _safe_identity(sanitizer, result.input_hash)
+        if result.attempt_id is not None:
+            _safe_identity(sanitizer, result.attempt_id)
+        if raw.inputs:
+            case = cases_by_id[case_id]
+            source, changed = project_json_source(case.input_source, sanitizer)
+            material.append(
+                RawMaterial(
+                    category="input",
+                    run_id=frozen.manifest.id,
+                    case_id=case_id,
+                    encoding="json_source_utf8",
+                    source=source,
+                    identity_kind="input_semantic_hash",
+                    original_hash=result.input_hash,
+                    sanitized_hash=bytes_hash(source.encode("utf-8")),
+                    changed_by_redaction=changed,
+                )
+            )
+        if raw.requests:
+            request = prepared_by_case[case_id].request
+            if request is None:
+                material.append(
+                    RawMaterial(
+                        category="request",
+                        run_id=frozen.manifest.id,
+                        case_id=case_id,
+                        encoding=None,
+                        source=None,
+                        identity_kind="prepared_request_bytes_hash",
+                        original_hash=None,
+                        sanitized_hash=None,
+                        unavailable_reason="request_not_prepared",
+                    )
+                )
+            else:
+                _safe_identity(sanitizer, request.body_hash)
+                source, changed = project_json_source(
+                    request.body.decode("utf-8", "strict"), sanitizer
+                )
+                material.append(
+                    RawMaterial(
+                        category="request",
+                        run_id=frozen.manifest.id,
+                        case_id=case_id,
+                        attempt_id=None,
+                        encoding="json_source_utf8",
+                        source=source,
+                        identity_kind="prepared_request_bytes_hash",
+                        original_hash=request.body_hash,
+                        sanitized_hash=bytes_hash(source.encode("utf-8")),
+                        changed_by_redaction=changed,
+                    )
+                )
+        if raw.responses:
+            event = attempt_events.get(result.attempt_id or "")
+            outcome = event.outcome if event is not None else None
+            if outcome is None or outcome.raw_response_source is None:
+                material.append(
+                    RawMaterial(
+                        category="response",
+                        run_id=frozen.manifest.id,
+                        case_id=case_id,
+                        attempt_id=result.attempt_id,
+                        encoding=None,
+                        source=None,
+                        identity_kind="stored_response_utf8_hash",
+                        original_hash=None,
+                        sanitized_hash=None,
+                        unavailable_reason="stored_response_unavailable",
+                    )
+                )
+            else:
+                original = outcome.raw_response_source
+                response_hash = bytes_hash(original.encode("utf-8"))
+                _safe_identity(sanitizer, response_hash)
+                value = parse_json(original)
+                safe_value = safe_choice_response(value, sanitizer)
+                _validate_response_identities(value, safe_value)
+                source = original if safe_value == value else dump_json(safe_value)
+                material.append(
+                    RawMaterial(
+                        category="response",
+                        run_id=frozen.manifest.id,
+                        case_id=case_id,
+                        attempt_id=result.attempt_id,
+                        encoding="json_source_utf8",
+                        source=source,
+                        identity_kind="stored_response_utf8_hash",
+                        original_hash=response_hash,
+                        sanitized_hash=bytes_hash(source.encode("utf-8")),
+                        changed_by_redaction=source != original,
+                    )
+                )
+    return tuple(material)
+
+
 def project_evaluation(
     records: tuple[StoredRecord, ...], view: EvaluationView, sanitizer: Sanitizer, raw: RawChoices
 ) -> tuple[ReportEvaluation, tuple[RawMaterial, ...]]:
@@ -519,7 +735,6 @@ def project_evaluation(
         view.record.mode,
     )
     prepared = _prepared(records, frozen)
-    prepared_by_case = {item.case_id: item for item in prepared}
     definition = frozen.revision.definition
     summary = assess_results(
         definition, frozen.dataset, frozen.labels, frozen.results, frozen.manifest.case_ids
@@ -528,9 +743,8 @@ def project_evaluation(
     results_by_id = {item.case_id: item for item in frozen.results.results}
     assessment_by_id = {item.case_id: item for item in summary.cases}
     report_cases: list[JsonValue] = []
-    raw_material: list[RawMaterial] = []
+    raw_material = list(project_frozen_raw_material(records, frozen, sanitizer, raw, prepared))
     admitted_attempts = snapshot_attempts(records, frozen.results)
-    attempt_events = {event.attempt_id: event for _, event in admitted_attempts}
     for attempt, _event in admitted_attempts:
         for identity in (
             attempt.id,
@@ -614,99 +828,6 @@ def project_evaluation(
                 "error": safe_error,
             }
         )
-        if raw.inputs:
-            source, changed = project_json_source(case.input_source, sanitizer)
-            raw_material.append(
-                RawMaterial(
-                    category="input",
-                    run_id=frozen.manifest.id,
-                    case_id=case_id,
-                    encoding="json_source_utf8",
-                    source=source,
-                    identity_kind="input_semantic_hash",
-                    original_hash=result.input_hash,
-                    sanitized_hash=bytes_hash(source.encode("utf-8")),
-                    changed_by_redaction=changed,
-                )
-            )
-        if raw.requests:
-            prepared_case = prepared_by_case[case_id]
-            request = prepared_case.request
-            if request is None:
-                raw_material.append(
-                    RawMaterial(
-                        category="request",
-                        run_id=frozen.manifest.id,
-                        case_id=case_id,
-                        encoding=None,
-                        source=None,
-                        identity_kind="prepared_request_bytes_hash",
-                        original_hash=None,
-                        sanitized_hash=None,
-                        unavailable_reason="request_not_prepared",
-                    )
-                )
-            else:
-                _safe_identity(sanitizer, request.body_hash)
-                source, changed = project_json_source(
-                    request.body.decode("utf-8", "strict"), sanitizer
-                )
-                raw_material.append(
-                    RawMaterial(
-                        category="request",
-                        run_id=frozen.manifest.id,
-                        case_id=case_id,
-                        attempt_id=None,
-                        encoding="json_source_utf8",
-                        source=source,
-                        identity_kind="prepared_request_bytes_hash",
-                        original_hash=request.body_hash,
-                        sanitized_hash=bytes_hash(source.encode("utf-8")),
-                        changed_by_redaction=changed,
-                    )
-                )
-        if raw.responses:
-            event = attempt_events.get(result.attempt_id or "")
-            outcome = event.outcome if event is not None else None
-            if outcome is None or outcome.raw_response_source is None:
-                raw_material.append(
-                    RawMaterial(
-                        category="response",
-                        run_id=frozen.manifest.id,
-                        case_id=case_id,
-                        attempt_id=result.attempt_id,
-                        encoding=None,
-                        source=None,
-                        identity_kind="stored_response_utf8_hash",
-                        original_hash=None,
-                        sanitized_hash=None,
-                        unavailable_reason="stored_response_unavailable",
-                    )
-                )
-            else:
-                response_hash = bytes_hash(outcome.raw_response_source.encode("utf-8"))
-                _safe_identity(sanitizer, response_hash)
-                value = parse_json(outcome.raw_response_source)
-                safe_value = safe_choice_response(value, sanitizer)
-                _validate_response_identities(value, safe_value)
-                source = (
-                    outcome.raw_response_source if safe_value == value else dump_json(safe_value)
-                )
-                raw_material.append(
-                    RawMaterial(
-                        category="response",
-                        run_id=frozen.manifest.id,
-                        case_id=case_id,
-                        attempt_id=result.attempt_id,
-                        encoding="json_source_utf8",
-                        source=source,
-                        identity_kind="stored_response_utf8_hash",
-                        original_hash=bytes_hash(outcome.raw_response_source.encode("utf-8")),
-                        sanitized_hash=bytes_hash(source.encode("utf-8")),
-                        changed_by_redaction=source != outcome.raw_response_source,
-                    )
-                )
-
     question = definition.questions[0]
     for identity in (
         question.id,
