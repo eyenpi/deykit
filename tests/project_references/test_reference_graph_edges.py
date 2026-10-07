@@ -398,6 +398,7 @@ def test_hard_error_and_legacy_warning_order_ignore_source_tuple_order() -> None
             state="reserved",
             created_at=STAMP,
         ),
+        ("missing-a",),
     )
     orphan_b = item(
         "attempt_events",
@@ -409,6 +410,7 @@ def test_hard_error_and_legacy_warning_order_ignore_source_tuple_order() -> None
             state="reserved",
             created_at=STAMP,
         ),
+        ("missing-b",),
     )
     shuffled = (base[0], orphan_b, *base[1:], orphan_a)
     ordered = (base[0], orphan_a, *base[1:], orphan_b)
