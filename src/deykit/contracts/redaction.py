@@ -11,7 +11,10 @@ _SENSITIVE_KEY = re.compile(
     r"authorization|proxy.authorization|api.?key|access.?token|password|secret|cookie|headers",
     re.IGNORECASE,
 )
-_BEARER = re.compile(r"\bBearer\s+(?!\[REDACTED\])[^\s\"',;\]}]+", re.IGNORECASE)
+_BEARER = re.compile(
+    r"\bBearer\s+(?!\[REDACTED\](?=\s|$|[\"',;\]}]))[^\s\"',;\]}]+",
+    re.IGNORECASE,
+)
 _PLACEHOLDER = "[REDACTED]"
 
 

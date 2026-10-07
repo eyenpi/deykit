@@ -349,6 +349,17 @@ class ReportService:
                 (SourceChange(ResourceKey("reports", record.id), body, None),),
                 intent_hash=intent,
             )
+            expected_key = ResourceKey("reports", record.id)
+            if (
+                receipt.operation_id != operation_id
+                or receipt.replayed
+                or len(receipt.changes) != 1
+                or receipt.deleted_keys
+                or receipt.changes[0].key != expected_key
+                or receipt.changes[0].body != body
+                or receipt.changes[0].etag != bytes_hash(body)
+            ):
+                fail("invalid_report_receipt", "incompatible_data")
             try:
                 admitted = admit_report(receipt.changes[0])
             except ValueError:

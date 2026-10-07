@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
@@ -13,21 +13,35 @@ from pydantic import ValidationError
 from deykit.application.comparisons import ComparisonService
 from deykit.application.demo import DemoService
 from deykit.application.errors import ServiceFailure
-from deykit.application.evaluations import EvaluationService
+from deykit.application.evaluations import EvaluationService, evaluation_hash
 from deykit.application.execution import ExecutionService
+from deykit.application.fixtures import FixtureService
+from deykit.application.labels import LabelService
 from deykit.application.reports import ReportService
 from deykit.cli.context import SystemClock
 from deykit.contracts.artifacts import ArtifactWriteOutcome
+from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
-from deykit.contracts.json_value import bytes_hash
+from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
 from deykit.contracts.ports import (
     CommitReceipt,
     ResourceKey,
     SourceChange,
     StoredRecord,
 )
+from deykit.contracts.records import (
+    CaseRecord,
+    ComparisonRecord,
+    EvaluationRecord,
+    NormalizedAnswer,
+    PreparedCase,
+    ReportRecord,
+)
 from deykit.contracts.redaction import Sanitizer
-from deykit.reports.models import RawChoices, RawMaterial, ReportRequest
+from deykit.reports.admission import report_hash
+from deykit.reports.models import RawChoices, RawMaterial, ReportContent, ReportRequest
+from deykit.reports.projection import project_opaque_response_bytes
+from deykit.reports.render import render_content
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
@@ -39,6 +53,9 @@ class FixtureGraph:
     root: Path
     run_id: str
     evaluation_id: str
+    reevaluation_id: str
+    comparison_id: str
+    records: tuple[StoredRecord, ...]
 
 
 @pytest.fixture(scope="session")
@@ -49,23 +66,81 @@ def fixture_graph(tmp_path_factory: pytest.TempPathFactory) -> FixtureGraph:
         lambda path, create: FileProjectSource(path, create=create), clock
     ).create(root, operation_id="report-demo")
     with FileProjectSource(root) as source:
-        progress = asyncio.run(
-            ExecutionService(source, source, ProviderBackends(source, clock), clock).start(
-                RunRequest(
-                    decision_id=project.decision_id,
-                    dataset_id=project.dataset_id,
-                    mode="fixture",
-                    fixture_set_id=project.fixture_set_id,
-                ),
-                operation_id="report-fixture-run",
+        fixture_service = FixtureService(source, clock)
+        original = fixture_service.read(project.fixture_set_id).fixture_set
+        corrected_bindings = tuple(
+            binding.model_copy(
+                update={
+                    "answer": NormalizedAnswer(
+                        question_id="category",
+                        option_id="question",
+                        reported_model=original.model_identity,
+                    )
+                }
             )
+            if binding.case_id == "ex-003"
+            else binding
+            for binding in original.bindings
         )
-        evaluation = EvaluationService(source, clock).evaluate_saved(
-            progress.run_id,
-            progress.latest_result_snapshot_id,
-            operation_id="report-fixture-evaluation",
+        fixture_service.create(
+            "corrected",
+            project.decision_id,
+            project.dataset_id,
+            "Authored correction",
+            original.model_identity,
+            tuple(dump_record(binding) for binding in corrected_bindings),
+            operation_id="report-corrected-fixture",
         )
-    return FixtureGraph(root, progress.run_id, evaluation.record.id)
+        runner = ExecutionService(source, source, ProviderBackends(source, clock), clock)
+        evaluations = EvaluationService(source, clock)
+
+        def execute(fixture_id: str, run_operation: str):
+            progress = asyncio.run(
+                runner.start(
+                    RunRequest(
+                        decision_id=project.decision_id,
+                        dataset_id=project.dataset_id,
+                        mode="fixture",
+                        fixture_set_id=fixture_id,
+                    ),
+                    operation_id=run_operation,
+                )
+            )
+            assert progress.latest_result_snapshot_id is not None
+            return evaluations.evaluate_saved(
+                progress.run_id,
+                progress.latest_result_snapshot_id,
+                operation_id=f"evaluate-{run_operation}",
+            )
+
+        left = execute(project.fixture_set_id, "report-left-run")
+        right = execute("corrected", "report-right-run")
+        comparison = ComparisonService(source, clock, lambda: "report-a36-comparison").create(
+            left.record.id,
+            right.record.id,
+            operation_id="report-a36-comparison",
+        )
+        labels = LabelService(source, clock)
+        labels.set(
+            labels.read(project.decision_id, project.dataset_id, "ex-001").review,
+            ("question", "report"),
+            provenance="human",
+            operation_id="report-current-label-edit",
+        )
+        reevaluation = evaluations.reevaluate_current_labels(
+            left.record.run_id,
+            left.record.result_snapshot_id,
+            operation_id="report-current-label-evaluation",
+        )
+        records = source.capture_snapshot()
+    return FixtureGraph(
+        root,
+        left.record.run_id,
+        left.record.id,
+        reevaluation.record.id,
+        comparison.record.id,
+        records,
+    )
 
 
 @dataclass
@@ -74,6 +149,7 @@ class MemorySnapshotSource:
 
     records: dict[ResourceKey, StoredRecord]
     operations: dict[str, tuple[str, CommitReceipt]] = field(default_factory=dict)
+    commit_calls: int = 0
 
     @classmethod
     def from_records(cls, records: tuple[StoredRecord, ...]) -> MemorySnapshotSource:
@@ -103,6 +179,7 @@ class MemorySnapshotSource:
         *,
         intent_hash: str | None = None,
     ) -> CommitReceipt:
+        self.commit_calls += 1
         previous = self.operation_receipt(operation_id, intent_hash=intent_hash or "")
         if previous is not None:
             return previous
@@ -110,21 +187,23 @@ class MemorySnapshotSource:
             old = self.records.get(change.key)
             if (old.etag if old else None) != change.expected_etag:
                 raise ServiceFailure(ServiceError(code="conflict"))
+        deleted = tuple(change.key for change in changes if change.body is None)
         saved = tuple(
             StoredRecord(change.key, change.body, bytes_hash(change.body))
             for change in changes
             if change.body is not None
         )
+        for key in deleted:
+            self.records.pop(key, None)
         for item in saved:
             self.records[item.key] = item
-        receipt = CommitReceipt(operation_id, saved)
+        receipt = CommitReceipt(operation_id, saved, deleted_keys=deleted)
         self.operations[operation_id] = (intent_hash or "", receipt)
         return receipt
 
 
 def snapshot(graph: FixtureGraph) -> tuple[StoredRecord, ...]:
-    with FileProjectSource(graph.root) as source:
-        return source.capture_snapshot()
+    return graph.records
 
 
 def test_sanitizer_and_raw_material_keep_exact_source_and_opaque_bytes() -> None:
@@ -133,6 +212,44 @@ def test_sanitizer_and_raw_material_keep_exact_source_and_opaque_bytes() -> None
     assert sanitizer.text(sanitizer.text("Bearer secret-value")) == "Bearer [REDACTED]"
     assert sanitizer.bytes(b"Bearer secret-value") == b"Bearer [REDACTED]"
     assert sanitizer.bytes(sanitizer.bytes(b"Bearer secret-value")) == b"Bearer [REDACTED]"
+    assert sanitizer.bytes(b"secret-value\xff") == b"[REDACTED]\xff"
+    assert sanitizer.text("Bearer [REDACTED] TOKEN") == "Bearer [REDACTED] TOKEN"
+    assert sanitizer.text("Bearer [REDACTED]TOKEN") == "Bearer [REDACTED]"
+    assert sanitizer.bytes(b"Bearer [REDACTED]TOKEN\xff") == b"Bearer [REDACTED]\xff"
+
+    projected_opaque = project_opaque_response_bytes(
+        b"\xff\x00A\x80",
+        run_id="run-1",
+        case_id="case-1",
+        attempt_id="attempt-1",
+        sanitizer=Sanitizer(),
+    )
+    assert projected_opaque.source == "/wBBgA=="
+    assert projected_opaque.encoding == "base64"
+    assert projected_opaque.original_hash == bytes_hash(b"\xff\x00A\x80")
+    assert projected_opaque.sanitized_hash == bytes_hash(b"\xff\x00A\x80")
+    exact_utf8 = project_opaque_response_bytes(
+        "opaque-compatible λ".encode(),
+        run_id="run-1",
+        case_id="case-1",
+        attempt_id=None,
+        sanitizer=Sanitizer(),
+    )
+    assert exact_utf8.encoding == "utf8"
+    assert exact_utf8.source == "opaque-compatible λ"
+    assert exact_utf8.changed_by_redaction is False
+    redacted_opaque = project_opaque_response_bytes(
+        b"Bearer known-secret\xff",
+        run_id="run-1",
+        case_id="case-1",
+        attempt_id=None,
+        sanitizer=Sanitizer(("known-secret",)),
+    )
+    assert redacted_opaque.encoding == "utf8"
+    assert redacted_opaque.source == "Bearer [REDACTED]"
+    assert redacted_opaque.original_hash == bytes_hash(b"Bearer known-secret\xff")
+    assert redacted_opaque.sanitized_hash == bytes_hash(b"Bearer [REDACTED]")
+    assert redacted_opaque.changed_by_redaction is True
 
     exact = '{"n":9007199254740993,"d":0.123456789012345678901234567890}'
     source_hash = "0" * 64
@@ -227,6 +344,110 @@ def test_saved_run_report_copies_independent_fixture_facts_and_renders(
     assert service.list(limit=1).items[0].report_id == report.record.id
 
 
+def test_evaluation_and_historical_run_selectors_keep_pinned_labels(
+    fixture_graph: FixtureGraph,
+) -> None:
+    records = snapshot(fixture_graph)
+    source = MemorySnapshotSource.from_records(records)
+    clock = SystemClock()
+
+    evaluation_report = ReportService(source, clock, lambda: "report-evaluation").create(
+        ReportRequest(target_id=fixture_graph.evaluation_id, target_kind="evaluation"),
+        operation_id="report-evaluation-create",
+    )
+    historical_run = ReportService(source, clock, lambda: "report-historical").create(
+        ReportRequest(
+            target_id=fixture_graph.run_id,
+            target_kind="run",
+            evaluation_id=fixture_graph.evaluation_id,
+        ),
+        operation_id="report-historical-create",
+    )
+    reevaluated_run = ReportService(source, clock, lambda: "report-reevaluated").create(
+        ReportRequest(
+            target_id=fixture_graph.run_id,
+            target_kind="run",
+            evaluation_id=fixture_graph.reevaluation_id,
+        ),
+        operation_id="report-reevaluated-create",
+    )
+
+    assert evaluation_report.content.evaluations[0].context.label_snapshot_id == (
+        historical_run.content.evaluations[0].context.label_snapshot_id
+    )
+    assert historical_run.content.evaluations[0].context.evaluation_id == (
+        fixture_graph.evaluation_id
+    )
+    assert reevaluated_run.content.evaluations[0].context.evaluation_id == (
+        fixture_graph.reevaluation_id
+    )
+    assert reevaluated_run.content.evaluations[0].context.label_snapshot_id != (
+        historical_run.content.evaluations[0].context.label_snapshot_id
+    )
+
+
+def test_all_raw_switches_use_real_projection_and_preserve_original_sources(
+    fixture_graph: FixtureGraph,
+) -> None:
+    records = snapshot(fixture_graph)
+    cases = {
+        item.key.resource_id: load_record(CaseRecord, item.body)
+        for item in records
+        if item.key.collection == "cases"
+    }
+    prepared = {
+        item.key.resource_id: load_record(PreparedCase, item.body)
+        for item in records
+        if item.key.collection == "prepared_cases" and item.key.scope == (fixture_graph.run_id,)
+    }
+    for mask in range(8):
+        choices = RawChoices(
+            inputs=bool(mask & 1),
+            requests=bool(mask & 2),
+            responses=bool(mask & 4),
+        )
+        source = MemorySnapshotSource.from_records(records)
+        report = ReportService(
+            source, SystemClock(), lambda mask=mask: f"report-raw-{mask}"
+        ).create(
+            ReportRequest(
+                target_id=fixture_graph.run_id,
+                target_kind="run",
+                evaluation_id=fixture_graph.evaluation_id,
+                raw=choices,
+            ),
+            operation_id=f"report-raw-{mask}",
+        )
+        expected = {
+            category
+            for category, enabled in (
+                ("input", choices.inputs),
+                ("request", choices.requests),
+                ("response", choices.responses),
+            )
+            if enabled
+        }
+        assert {item.category for item in report.content.raw_material} == expected
+        for material in report.content.raw_material:
+            if material.category == "input":
+                assert material.source == cases[material.case_id].input_source
+                assert material.changed_by_redaction is False
+            elif material.category == "request":
+                request = prepared[material.case_id].request
+                assert request is not None
+                assert material.source == request.body.decode("utf-8", "strict")
+                assert material.original_hash == request.body_hash
+                assert material.sanitized_hash == bytes_hash(request.body)
+                assert material.changed_by_redaction is False
+                assert material.identity_kind == "prepared_request_bytes_hash"
+                assert material.attempt_id is None
+            elif material.category == "response":
+                assert material.encoding in (None, "json_source_utf8")
+        assert report.record.includes_raw_input is choices.inputs
+        assert report.record.includes_raw_request is choices.requests
+        assert report.record.includes_raw_response is choices.responses
+
+
 def test_replay_precedes_target_lookup_and_id_or_clock(fixture_graph: FixtureGraph) -> None:
     source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
     request = ReportRequest(target_id=fixture_graph.run_id, target_kind="run")
@@ -253,7 +474,7 @@ def test_replay_precedes_target_lookup_and_id_or_clock(fixture_graph: FixtureGra
     assert replay.replayed is True
     assert replay.record.id == first.record.id
     assert replay.record.content_hash == first.record.content_hash
-    with pytest.raises(ServiceFailure):
+    with pytest.raises(ServiceFailure) as intent_failure:
         ReportService(source, ThrowingClock(), forbidden_id).create(
             ReportRequest(
                 target_id=fixture_graph.run_id,
@@ -262,35 +483,262 @@ def test_replay_precedes_target_lookup_and_id_or_clock(fixture_graph: FixtureGra
             ),
             operation_id="report-replay-create",
         )
+    assert intent_failure.value.error.code == "conflict"
 
 
 def test_comparison_report_retains_both_admitted_contexts(fixture_graph: FixtureGraph) -> None:
     source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
     clock = SystemClock()
-    comparison = ComparisonService(source, clock, lambda: "comparison-self").create(
-        fixture_graph.evaluation_id,
-        fixture_graph.evaluation_id,
-        operation_id="comparison-self-create",
-    )
     report = ReportService(source, clock, lambda: "report-comparison").create(
-        ReportRequest(target_id=comparison.record.id, target_kind="comparison"),
+        ReportRequest(target_id=fixture_graph.comparison_id, target_kind="comparison"),
         operation_id="report-comparison-create",
     )
-    assert report.content.comparison == comparison.outcomes
+    assert report.content.comparison is not None
+    outcomes = report.content.comparison
+    assert outcomes.quality_denominator == 8
+    assert {key: value for key, value in outcomes.primary_counts.items() if value} == {
+        "both_correct": 6,
+        "improved": 1,
+        "both_wrong": 1,
+        "unlabelled_agreement": 2,
+        "unavailable_answer": 2,
+    }
+    assert outcomes.primary_counts["regressed"] == 0
+    assert outcomes.left_correct_count == 6
+    assert outcomes.right_correct_count == 7
+    assert len(outcomes.cases) == 12
+    assert sum(outcomes.primary_counts.values()) == 12
+    assert sum(item.bucket == "improved" for item in outcomes.cases) == 1
+    assert sum(item.bucket == "regressed" for item in outcomes.cases) == 0
+    assert sum(item.bucket == "both_wrong" for item in outcomes.cases) == 1
     assert tuple(item.context.evaluation_id for item in report.content.evaluations) == (
         fixture_graph.evaluation_id,
-        fixture_graph.evaluation_id,
+        load_record(
+            ComparisonRecord,
+            source.records[ResourceKey("comparisons", fixture_graph.comparison_id)].body,
+        ).right_evaluation_id,
     )
-    assert report.content.target.comparison_id == comparison.record.id
+    assert report.content.target.comparison_id == fixture_graph.comparison_id
     assert ReportService(source, clock).read(report.record.id).content == report.content
+
+
+def test_report_admission_rejects_rehashed_context_and_missing_persisted_version(
+    fixture_graph: FixtureGraph,
+) -> None:
+    for mutation in ("context", "content-version", "metrics-version"):
+        source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
+        service = ReportService(
+            source, SystemClock(), lambda mutation=mutation: f"report-admission-{mutation}"
+        )
+        view = service.create(
+            ReportRequest(target_id=fixture_graph.run_id, target_kind="run"),
+            operation_id=f"report-admission-{mutation}-create",
+        )
+        stored = source.records[ResourceKey("reports", view.record.id)]
+        if mutation == "context":
+            tree = parse_json(view.record.content_source)
+            assert isinstance(tree, dict)
+            evaluations = tree["evaluations"]
+            assert isinstance(evaluations, list)
+            context = evaluations[0]["context"]
+            assert isinstance(context, dict)
+            context["requested_model"] = "forged-model"
+            content_source = dump_json(tree)
+            changed = view.record.model_copy(update={"content_source": content_source})
+            changed = changed.model_copy(
+                update={"content_hash": report_hash(changed, view.content)}
+            )
+            expected_reason = "report_link_mismatch"
+        else:
+            tree = parse_json(view.record.content_source)
+            assert isinstance(tree, dict)
+            if mutation == "content-version":
+                del tree["schema_version"]
+            else:
+                evaluations = tree["evaluations"]
+                assert isinstance(evaluations, list)
+                metrics = evaluations[0]["metrics"]
+                assert isinstance(metrics, dict)
+                del metrics["schema_version"]
+            content_source = dump_json(tree)
+            changed = view.record.model_copy(update={"content_source": content_source})
+            changed = changed.model_copy(
+                update={"content_hash": report_hash(changed, view.content)}
+            )
+            expected_reason = "missing_schema_version"
+        body = dump_record(changed)
+        source.records[stored.key] = StoredRecord(stored.key, body, bytes_hash(body))
+        with pytest.raises(ServiceFailure) as failure:
+            service.read(view.record.id)
+        assert failure.value.error.code == "incompatible_data"
+        assert failure.value.error.reason == expected_reason
+
+
+def test_miskeyed_evaluation_body_cannot_be_reported(fixture_graph: FixtureGraph) -> None:
+    source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
+    key = ResourceKey("evaluations", fixture_graph.evaluation_id)
+    original = source.records[key]
+    evaluation = load_record(EvaluationRecord, original.body)
+    forged = evaluation.model_copy(update={"id": "different-evaluation"})
+    forged = forged.model_copy(update={"content_hash": evaluation_hash(forged)})
+    body = dump_record(forged)
+    source.records[key] = StoredRecord(key, body, bytes_hash(body))
+
+    with pytest.raises(ServiceFailure):
+        ReportService(source, SystemClock(), lambda: "report-miskeyed").create(
+            ReportRequest(
+                target_id=fixture_graph.run_id,
+                target_kind="run",
+                evaluation_id=fixture_graph.evaluation_id,
+            ),
+            operation_id="report-miskeyed-create",
+        )
+    assert source.commit_calls == 0
+    assert ResourceKey("reports", "report-miskeyed") not in source.records
+
+
+def test_sensitive_exact_body_etag_fails_before_report_commit(fixture_graph: FixtureGraph) -> None:
+    class FixedClock:
+        def utc_now(self) -> str:
+            return "2026-10-05T12:00:00Z"
+
+        def monotonic(self) -> float:
+            return 0.0
+
+    records = snapshot(fixture_graph)
+    request = ReportRequest(target_id=fixture_graph.run_id, target_kind="run")
+    baseline = ReportService(
+        MemorySnapshotSource.from_records(records), FixedClock(), lambda: "report-etag"
+    ).create(request, operation_id="report-etag-baseline")
+    body_etag = bytes_hash(dump_record(baseline.record))
+    source = MemorySnapshotSource.from_records(records)
+    service = ReportService(
+        source, FixedClock(), lambda: "report-etag", sanitizer=Sanitizer((body_etag,))
+    )
+
+    with pytest.raises(ServiceFailure) as failure:
+        service.create(request, operation_id="report-etag-sensitive")
+    assert failure.value.error.reason == "report_sensitive_identity"
+    assert source.commit_calls == 0
+    assert ResourceKey("reports", "report-etag") not in source.records
+
+
+@pytest.mark.parametrize(
+    "mutation", ("empty", "extra", "deleted", "key", "body", "etag", "operation")
+)
+def test_fresh_commit_receipt_must_match_exact_report_write(
+    fixture_graph: FixtureGraph, mutation: str
+) -> None:
+    class MutatingReceiptSource(MemorySnapshotSource):
+        def commit(self, operation_id, changes, *, intent_hash=None):
+            receipt = super().commit(operation_id, changes, intent_hash=intent_hash)
+            if mutation == "empty":
+                return replace(receipt, changes=())
+            if mutation == "extra":
+                return replace(receipt, changes=receipt.changes * 2)
+            if mutation == "deleted":
+                return replace(receipt, deleted_keys=(ResourceKey("reports", "deleted-report"),))
+            saved = receipt.changes[0]
+            if mutation == "key":
+                changed = replace(saved, key=ResourceKey("reports", "other-report"))
+                return replace(receipt, changes=(changed,))
+            if mutation == "body":
+                changed = replace(saved, body=b"forged report body")
+                return replace(receipt, changes=(changed,))
+            if mutation == "etag":
+                changed = replace(saved, etag="0" * 64)
+                return replace(receipt, changes=(changed,))
+            return replace(receipt, operation_id="other-operation")
+
+    source = MutatingReceiptSource.from_records(snapshot(fixture_graph))
+    with pytest.raises(ServiceFailure) as failure:
+        ReportService(source, SystemClock(), lambda: "report-receipt").create(
+            ReportRequest(target_id=fixture_graph.run_id, target_kind="run"),
+            operation_id="report-receipt-create",
+        )
+    assert failure.value.error.code == "incompatible_data"
+    assert failure.value.error.reason == "invalid_report_receipt"
+
+
+def test_strict_sanitizer_rejects_replay_and_read_that_change_frozen_evidence(
+    fixture_graph: FixtureGraph,
+) -> None:
+    source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
+    request = ReportRequest(target_id=fixture_graph.run_id, target_kind="run")
+    ReportService(source, SystemClock(), lambda: "report-sanitizer").create(
+        request, operation_id="report-sanitizer-create"
+    )
+    record = source.records[ResourceKey("reports", "report-sanitizer")]
+    saved = load_record(ReportRecord, record.body)
+    content = ReportContent.model_validate_json(saved.content_source, context={"persisted": True})
+    secret = content.evaluations[0].context.requested_model
+    assert secret
+    strict = ReportService(source, SystemClock(), sanitizer=Sanitizer((secret,)))
+    with pytest.raises(ServiceFailure) as read_failure:
+        strict.read(saved.id)
+    assert read_failure.value.error.reason == "report_redaction_context_mismatch"
+    with pytest.raises(ServiceFailure) as replay_failure:
+        strict.create(request, operation_id="report-sanitizer-create")
+    assert replay_failure.value.error.reason == "report_redaction_context_mismatch"
+
+
+def test_renderer_fences_raw_material_and_enforces_artifact_bound(
+    fixture_graph: FixtureGraph,
+) -> None:
+    source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
+    report = ReportService(source, SystemClock(), lambda: "report-render-bound").create(
+        ReportRequest(
+            target_id=fixture_graph.run_id,
+            target_kind="run",
+            raw=RawChoices(inputs=True),
+        ),
+        operation_id="report-render-bound-create",
+    )
+    assert report.content.raw_material
+    raw = report.content.raw_material[0].model_copy(
+        update={"source": "trusted payload ```\n# injected heading"}
+    )
+    changed = report.content.model_copy(update={"raw_material": (raw,)})
+    markdown = render_content(report.record, changed, "markdown").body.decode()
+    assert "````\ntrusted payload ```\n# injected heading\n````" in markdown
+
+    oversized = raw.model_copy(update={"source": "x" * (8 * 1024 * 1024)})
+    oversized_content = report.content.model_copy(update={"raw_material": (oversized,)})
+    with pytest.raises(ValueError, match="report_artifact_limit"):
+        render_content(report.record, oversized_content, "markdown")
 
 
 def test_file_project_report_export_writes_rendered_bytes_after_source_read(
     fixture_graph: FixtureGraph, tmp_path: Path
 ) -> None:
     clock = SystemClock()
+
+    class BoundaryTrackingSource:
+        def __init__(self, inner: FileProjectSource) -> None:
+            self.inner = inner
+            self.active_boundaries = 0
+
+        @contextmanager
+        def consistent_read(self):
+            self.active_boundaries += 1
+            try:
+                with self.inner.consistent_read():
+                    yield self
+            finally:
+                self.active_boundaries -= 1
+
+        def capture_snapshot(self, keys=None):
+            return self.inner.capture_snapshot(keys)
+
+        def operation_receipt(self, operation_id, *, intent_hash):
+            return self.inner.operation_receipt(operation_id, intent_hash=intent_hash)
+
+        def commit(self, operation_id, changes, *, intent_hash=None):
+            return self.inner.commit(operation_id, changes, intent_hash=intent_hash)
+
     with FileProjectSource(fixture_graph.root) as source:
-        report = ReportService(source, clock, lambda: "report-file").create(
+        tracked = BoundaryTrackingSource(source)
+        report = ReportService(tracked, clock, lambda: "report-file").create(
             ReportRequest(
                 target_id=fixture_graph.run_id,
                 target_kind="run",
@@ -302,17 +750,31 @@ def test_file_project_report_export_writes_rendered_bytes_after_source_read(
 
         class SourceProbingWriter:
             def write(self, path, body, *, display_is_safe=None) -> ArtifactWriteOutcome:
-                assert source.capture_snapshot()
+                assert tracked.active_boundaries == 0
                 return NativeArtifactWriter().write(path, body, display_is_safe=display_is_safe)
 
-        outcome = ReportService(source, clock).export(
+        writer = NativeArtifactWriter(protected_project_roots=(fixture_graph.root,))
+        blocked = ReportService(tracked, clock).export(
+            report.record.id,
+            format="json",
+            destination=str(fixture_graph.root / "source" / "blocked.json"),
+            writer=writer,
+        )
+        assert blocked.success is False
+        assert blocked.error is not None
+        assert blocked.error.reason == "export_destination_unsafe"
+        outcome = ReportService(tracked, clock).export(
             report.record.id,
             format="json",
             destination=str(destination),
             writer=SourceProbingWriter(),
         )
-        expected = ReportService(source, clock).render(report.record.id, format="json")
+        expected = ReportService(tracked, clock).render(report.record.id, format="json")
         assert outcome.success is True
+        assert blocked.report.report_id == outcome.report.report_id == report.record.id
+        assert (
+            blocked.report.content_hash == outcome.report.content_hash == report.record.content_hash
+        )
         assert destination.read_bytes() == expected.body
         assert outcome.artifact_hash == expected.bytes_hash
         assert source.read(ResourceKey("reports", report.record.id)) is not None

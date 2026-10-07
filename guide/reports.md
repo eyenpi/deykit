@@ -18,6 +18,8 @@ excluded by default. `RawChoices(inputs=True, requests=True, responses=True)`
 opts into each category independently. Included values are sanitized and keep
 their original and sanitized identities. The sanitizer cannot recognize
 arbitrary unknown plaintext secrets.
+Saved attempts currently retain response JSON source strings, so reports do not
+claim opaque response-byte evidence where the saved source has none.
 
 JSON and Markdown render the same saved report deterministically. Partial
 results remain visible, fixture evidence is labelled authored software

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from decimal import Decimal
 from typing import cast
 
@@ -50,6 +51,36 @@ def _safe_identity(sanitizer: Sanitizer, value: str) -> str:
     if sanitizer.text(value) != value:
         fail("report_sensitive_identity", "validation_error")
     return value
+
+
+def project_opaque_response_bytes(
+    value: bytes,
+    *,
+    run_id: str,
+    case_id: str,
+    attempt_id: str | None,
+    sanitizer: Sanitizer,
+) -> RawMaterial:
+    """Project admitted opaque bytes while retaining exact source and sanitized hashes."""
+    sanitized = sanitizer.bytes(value)
+    try:
+        source = sanitized.decode("utf-8", "strict")
+        encoding = "utf8"
+    except UnicodeDecodeError:
+        source = base64.b64encode(sanitized).decode("ascii")
+        encoding = "base64"
+    return RawMaterial(
+        category="response",
+        run_id=run_id,
+        case_id=case_id,
+        attempt_id=attempt_id,
+        encoding=encoding,
+        source=source,
+        identity_kind="stored_response_bytes_hash",
+        original_hash=bytes_hash(value),
+        sanitized_hash=bytes_hash(sanitized),
+        changed_by_redaction=sanitized != value,
+    )
 
 
 def _record_version_is_explicit(value: object) -> bool:
@@ -618,7 +649,7 @@ def project_evaluation(
                         category="request",
                         run_id=frozen.manifest.id,
                         case_id=case_id,
-                        attempt_id=result.attempt_id,
+                        attempt_id=None,
                         encoding="json_source_utf8",
                         source=source,
                         identity_kind="prepared_request_bytes_hash",
