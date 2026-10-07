@@ -135,7 +135,7 @@ def admit_dataset_snapshot(snapshot: DatasetSnapshot) -> DatasetSnapshot:
         fail("invalid_dataset_snapshot_selection")
 
     profile = source.get("snapshot_hash_profile")
-    if profile is None:
+    if "snapshot_hash_profile" not in source:
         # Keep known pre-profile run/group selection envelopes, but don't let a
         # modern v1 selection evade semantic admission by dropping its marker.
         modern_fields = {

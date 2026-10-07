@@ -157,9 +157,17 @@ def test_split_snapshot_counts_are_bounded_before_integer_conversion():
     assert invalid_count.value.error.reason == "invalid_split_counts"
 
 
-def test_unknown_snapshot_hash_profile_is_not_admitted_as_ordinary_legacy_hash():
+@pytest.mark.parametrize(
+    "selection_source",
+    [
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v99"}',
+        '{"snapshot_hash_profile":null}',
+    ],
+)
+def test_unknown_snapshot_hash_profile_is_not_admitted_as_ordinary_legacy_hash(
+    selection_source,
+):
     frozen_cases = (case("frozen", split="development"),)
-    selection_source = '{"snapshot_hash_profile":"deykit-split-snapshot-v99"}'
     snapshot = DatasetSnapshot(
         id="unknown-profile-snapshot",
         dataset_id="data",
