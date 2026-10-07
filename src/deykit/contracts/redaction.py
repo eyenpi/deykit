@@ -12,7 +12,8 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _BEARER = re.compile(
-    r"\bBearer\s+(?!\[REDACTED\](?=\s|$|[\"',;\]}]))[^\s\"',;\]}]+",
+    r"\bBearer\s+(?!\[REDACTED\](?=\s|$|[\"',;\]}]))"
+    r"(?:\[REDACTED\][^\s\"',;]*|[^\s\"',;\]}]+)",
     re.IGNORECASE,
 )
 _PLACEHOLDER = "[REDACTED]"
