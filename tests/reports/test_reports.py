@@ -615,8 +615,10 @@ def test_comparison_report_retains_both_admitted_contexts(fixture_graph: Fixture
 def test_report_admission_rejects_rehashed_context_and_missing_persisted_version(
     fixture_graph: FixtureGraph,
 ) -> None:
-    for mutation in ("context", "content-version", "metrics-version"):
+    for mutation in ("context", "metric", "content-version", "metrics-version"):
         source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
+        evaluation_key = ResourceKey("evaluations", fixture_graph.evaluation_id)
+        original_evaluation = source.records[evaluation_key]
         service = ReportService(
             source, SystemClock(), lambda mutation=mutation: f"report-admission-{mutation}"
         )
@@ -633,6 +635,23 @@ def test_report_admission_rejects_rehashed_context_and_missing_persisted_version
             context = evaluations[0]["context"]
             assert isinstance(context, dict)
             context["requested_model"] = "forged-model"
+            content_source = dump_json(tree)
+            changed = view.record.model_copy(update={"content_source": content_source})
+            changed = changed.model_copy(
+                update={"content_hash": report_hash(changed, view.content)}
+            )
+            expected_reason = "report_link_mismatch"
+        elif mutation == "metric":
+            tree = parse_json(view.record.content_source)
+            assert isinstance(tree, dict)
+            evaluations = tree["evaluations"]
+            assert isinstance(evaluations, list)
+            metrics = evaluations[0]["metrics"]
+            assert isinstance(metrics, dict)
+            baseline = metrics["baseline"]
+            assert isinstance(baseline, dict)
+            assert baseline["fit_support"] == 9
+            baseline["fit_support"] = 8
             content_source = dump_json(tree)
             changed = view.record.model_copy(update={"content_source": content_source})
             changed = changed.model_copy(
@@ -662,6 +681,38 @@ def test_report_admission_rejects_rehashed_context_and_missing_persisted_version
             service.read(view.record.id)
         assert failure.value.error.code == "incompatible_data"
         assert failure.value.error.reason == expected_reason
+        assert source.records[evaluation_key] == original_evaluation
+
+
+def test_rehashed_comparison_context_copy_cannot_change_linked_evidence(
+    fixture_graph: FixtureGraph,
+) -> None:
+    source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
+    comparison_key = ResourceKey("comparisons", fixture_graph.comparison_id)
+    original_comparison = source.records[comparison_key]
+    service = ReportService(source, SystemClock(), lambda: "report-comparison-copy")
+    view = service.create(
+        ReportRequest(target_id=fixture_graph.comparison_id, target_kind="comparison"),
+        operation_id="report-comparison-copy-create",
+    )
+    tree = parse_json(view.record.content_source)
+    assert isinstance(tree, dict)
+    comparison = tree["comparison"]
+    assert isinstance(comparison, dict)
+    left = comparison["left"]
+    assert isinstance(left, dict)
+    left["requested_model"] = "forged-model"
+    changed = view.record.model_copy(update={"content_source": dump_json(tree)})
+    changed = changed.model_copy(update={"content_hash": report_hash(changed, view.content)})
+    body = dump_record(changed)
+    key = ResourceKey("reports", view.record.id)
+    source.records[key] = StoredRecord(key, body, bytes_hash(body))
+
+    with pytest.raises(ServiceFailure) as failure:
+        service.read(view.record.id)
+    assert failure.value.error.code == "incompatible_data"
+    assert failure.value.error.reason == "report_link_mismatch"
+    assert source.records[comparison_key] == original_comparison
 
 
 def test_miskeyed_evaluation_body_cannot_be_reported(fixture_graph: FixtureGraph) -> None:
