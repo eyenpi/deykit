@@ -40,6 +40,12 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
     target = content.target
     modes = (
         ", ".join(item.metrics.evidence_mode for item in content.evaluations)
+        or ", ".join(
+            member.evidence_mode
+            for group in (content.diagnostic, content.check)
+            if group is not None
+            for member in group.members
+        )
         or "comparison evidence"
     )
     lines = [
@@ -250,6 +256,128 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                         _inline(compared_case.bucket),
                         _inline(left),
                         _inline(right),
+                    )
+                )
+                + " |"
+            )
+    if content.diagnostic is not None:
+        diagnostic = content.diagnostic
+        summary = diagnostic.summary
+        lines += [
+            "",
+            "## Diagnostic snapshot",
+            "",
+            f"- Group: `{_inline(diagnostic.group_id)}` ({_inline(diagnostic.group_hash)})",
+            f"- Snapshot: `{_inline(diagnostic.snapshot_id)}` ({_inline(diagnostic.snapshot_hash)}), "
+            f"sequence {diagnostic.snapshot_sequence}",
+            f"- Segment: `{_inline(diagnostic.segment_id or 'initial')}`",
+            f"- Attempt cap: {diagnostic.max_attempts}; deadline seconds: "
+            f"{diagnostic.deadline_seconds}",
+            f"- Selection: {_inline(diagnostic.algorithm)}, seed {_inline(diagnostic.seed)}, "
+            f"requested orders {len(diagnostic.orders)}",
+            f"- Independent cases: {summary.independent_case_count}; orders: "
+            f"{summary.order_count}; expanded results: {summary.expanded_result_count}; "
+            f"fully observed cases: {summary.fully_observed_case_count}",
+            f"- Disagreement: {_rate(summary.disagreement.model_dump(mode='json'))}",
+            "- Interpretation: observed request order sensitivity",
+            "",
+            "### Pinned members",
+            "",
+            "| Run | Result snapshot | Label snapshot | Requested model | Compilers | Option order |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for member in diagnostic.members:
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _inline(member.run_id),
+                        _inline(member.result_snapshot_id),
+                        _inline(member.label_snapshot_id),
+                        _inline(member.requested_model),
+                        _inline((member.compiler_ids, member.compiler_version)),
+                        _inline(member.option_order),
+                    )
+                )
+                + " |"
+            )
+        lines += [
+            "",
+            "### Per case and order",
+            "",
+            "| Case | Options by order | Statuses by order | Disagreement | Fully observed |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for case in summary.cases:
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _inline(case.case_id),
+                        _inline(case.option_ids),
+                        _inline(case.statuses),
+                        _inline(case.observed_disagreement),
+                        _inline(case.fully_observed),
+                    )
+                )
+                + " |"
+            )
+    if content.check is not None:
+        check = content.check
+        lines += [
+            "",
+            "## Regression check snapshot",
+            "",
+            f"- Group: `{_inline(check.group_id)}` ({_inline(check.group_hash)})",
+            f"- Snapshot: `{_inline(check.snapshot_id)}` ({_inline(check.snapshot_hash)}), "
+            f"sequence {check.snapshot_sequence}",
+            f"- Segment: `{_inline(check.segment_id or 'initial')}`",
+            f"- Attempt cap: {check.max_attempts}; deadline seconds: {check.deadline_seconds}",
+            f"- Baseline: {_inline(check.baseline_unavailable)}",
+            f"- Expectation failures: {check.expectation_failures}",
+            "",
+            "### Pinned members",
+            "",
+            "| Run | Result snapshot | Label snapshot | Requested model | Compilers | Option order |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for member in check.members:
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _inline(member.run_id),
+                        _inline(member.result_snapshot_id),
+                        _inline(member.label_snapshot_id),
+                        _inline(member.requested_model),
+                        _inline((member.compiler_ids, member.compiler_version)),
+                        _inline(member.option_order),
+                    )
+                )
+                + " |"
+            )
+        lines += [
+            "",
+            "### Frozen regression outcomes",
+            "",
+            "| Regression | Original hash | Case | Expected | Actual | Pass | Status | Provenance | Split | Reason |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for case in check.cases:
+            lines.append(
+                "| "
+                + " | ".join(
+                    (
+                        _inline(case.regression_id),
+                        _inline(case.regression_hash),
+                        _inline(case.case_id),
+                        _inline(case.expected_option_ids),
+                        _inline(case.actual_option_id or "unavailable"),
+                        _inline(case.passed if case.passed is not None else "unavailable"),
+                        _inline(case.status),
+                        _inline(case.provenance),
+                        _inline(case.original_split),
+                        _inline(case.reason),
                     )
                 )
                 + " |"

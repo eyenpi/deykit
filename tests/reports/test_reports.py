@@ -14,12 +14,19 @@ from pydantic import ValidationError
 
 import deykit.application.reports as reports_module
 from deykit.application.comparisons import ComparisonService
+from deykit.application.checks import CheckRequest, CheckService, check_snapshot_from_records
+from deykit.application.diagnostics import (
+    ChoiceOrderRequest,
+    DiagnosticService,
+    diagnostic_snapshot_from_records,
+)
 from deykit.application.demo import DemoService
 from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import EvaluationService, evaluation_hash
 from deykit.application.execution import ExecutionService
 from deykit.application.fixtures import FixtureService
 from deykit.application.labels import LabelService
+from deykit.application.regressions import RegressionAdd, RegressionService
 from deykit.application.reports import ReportService
 from deykit.cli.context import SystemClock
 from deykit.contracts.artifacts import ArtifactWriteOutcome
@@ -39,12 +46,16 @@ from deykit.contracts.records import (
     NormalizedAnswer,
     PreparedCase,
     ReportRecord,
+    RegressionRecord,
+    ResultSnapshot,
+    RunManifest,
 )
 from deykit.contracts.redaction import Sanitizer
 from deykit.reports.admission import report_hash
 from deykit.reports.models import RawChoices, RawMaterial, ReportContent, ReportRequest
 from deykit.reports.projection import project_json_source, project_opaque_response_bytes
 from deykit.reports.render import render_content
+from deykit.regressions.evidence import regression_hash
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
@@ -1046,3 +1057,196 @@ def test_file_project_report_export_writes_rendered_bytes_after_source_read(
         assert destination.read_bytes() == expected.body
         assert outcome.artifact_hash == expected.bytes_hash
         assert source.read(ResourceKey("reports", report.record.id)) is not None
+
+
+def test_pinned_group_reports_use_actual_p12_snapshots_and_no_evaluations(
+    fixture_graph: FixtureGraph, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One copied authored project supplies both group kinds and a real export."""
+    project_root = tmp_path / "authored group report project"
+    shutil.copytree(fixture_graph.root, project_root)
+    clock = SystemClock()
+    with FileProjectSource(project_root) as source:
+        records = source.capture_snapshot()
+        manifest = load_record(
+            RunManifest,
+            next(
+                item.body
+                for item in records
+                if item.key == ResourceKey("runs", fixture_graph.run_id)
+            ),
+        )
+        result_snapshots = tuple(
+            load_record(ResultSnapshot, item.body)
+            for item in records
+            if item.key.collection == "result_snapshots"
+            and load_record(ResultSnapshot, item.body).run_id == fixture_graph.run_id
+        )
+        base_results = max(
+            result_snapshots,
+            key=lambda item: (item.through_event_sequence, item.created_at, item.id),
+        )
+        selected_case_ids = tuple(
+            item.case_id for item in base_results.results if item.status == "valid"
+        )[:2]
+        assert len(selected_case_ids) == 2
+        run_request = RunRequest(
+            decision_id=manifest.decision_id,
+            dataset_id=manifest.dataset_id,
+            mode="fixture",
+            fixture_set_id=manifest.fixture_set_id,
+            revision_id=manifest.decision_revision_id,
+            case_ids=selected_case_ids,
+            settings=manifest.settings,
+        )
+        diagnostic_view = asyncio.run(
+            DiagnosticService(
+                ExecutionService(source, source, ProviderBackends(source, clock), clock)
+            ).start(
+                ChoiceOrderRequest(run=run_request, orders=2, seed=19),
+                operation_id="report-group-diagnostic",
+            )
+        )
+        assert diagnostic_view.group.snapshot_id is not None
+        after_diagnostic = source.capture_snapshot()
+        diagnostic = diagnostic_snapshot_from_records(
+            after_diagnostic, diagnostic_view.group.snapshot_id
+        )
+        assert diagnostic.summary.independent_case_count == 2
+        assert diagnostic.summary.order_count == 2
+        assert diagnostic.summary.expanded_result_count == 4
+        assert diagnostic.summary.fully_observed_case_count == 2
+        assert diagnostic.summary.disagreement.numerator == 0
+        assert diagnostic.summary.disagreement.denominator == 2
+        assert len({member.manifest.option_order for member in diagnostic.members}) == 2
+
+        source_member = diagnostic.members[0]
+        result_by_case = {item.case_id: item for item in source_member.results.results}
+        revision = source_member.revision
+        option_ids = tuple(option.id for option in revision.definition.questions[0].options)
+        regression_service = RegressionService(source, clock)
+        regressions = []
+        for index, case_id in enumerate(selected_case_ids):
+            answer = result_by_case[case_id].answer
+            expected = answer.option_id if answer is not None else option_ids[0]
+            if index == 1:
+                expected = next(option for option in option_ids if option != expected)
+            regressions.append(
+                regression_service.add(
+                    RegressionAdd(
+                        run_id=source_member.manifest.id,
+                        case_id=case_id,
+                        acceptable_option_ids=(expected,),
+                        reason=f"Authored group oracle {index}",
+                        result_snapshot_id=source_member.results.id,
+                        provenance="authored_fixture",
+                    ),
+                    operation_id=f"report-group-regression-{index}",
+                )
+            )
+        check_view = asyncio.run(
+            CheckService(
+                ExecutionService(source, source, ProviderBackends(source, clock), clock)
+            ).start(
+                CheckRequest(
+                    decision_id=manifest.decision_id,
+                    mode="fixture",
+                    fixture_set_id=manifest.fixture_set_id,
+                    regression_ids=tuple(item.id for item in regressions),
+                    settings=manifest.settings,
+                ),
+                operation_id="report-group-check",
+            )
+        )
+        assert check_view.group.snapshot_id is not None
+        after_groups = source.capture_snapshot()
+        check = check_snapshot_from_records(after_groups, check_view.group.snapshot_id)
+        assert len(check.cases) == 2
+        assert check.baseline_unavailable == "frozen_regression_selection"
+        assert all(item.content_hash is not None for item in check.regressions)
+
+        evaluation_ids_before_reports = tuple(
+            item.key.resource_id for item in after_groups if item.key.collection == "evaluations"
+        )
+        monkeypatch.setattr(
+            reports_module.EvaluationService,
+            "evaluate_saved",
+            lambda *args, **kwargs: pytest.fail("group reports must not create evaluations"),
+        )
+        reports = ReportService(source, clock)
+        diagnostic_report = reports.create(
+            ReportRequest(
+                target_id=diagnostic.group.id,
+                target_kind="diagnostic",
+                group_snapshot_id=diagnostic.snapshot.id,
+                raw=RawChoices(inputs=True, requests=True, responses=True),
+            ),
+            operation_id="report-group-diagnostic-create",
+        )
+        assert diagnostic_report.record.evaluation_ids == ()
+        assert diagnostic_report.record.diagnostic_snapshot_id == diagnostic.snapshot.id
+        assert len(diagnostic_report.content.raw_material) == 12
+        assert diagnostic_report.content.diagnostic is not None
+        assert diagnostic_report.content.diagnostic.summary.independent_case_count == 2
+        assert set(item.category for item in diagnostic_report.content.raw_material) == {
+            "input",
+            "request",
+            "response",
+        }
+        markdown = reports.render(diagnostic_report.record.id, format="markdown")
+        assert b"Independent cases: 2; orders: 2; expanded results: 4" in markdown.body
+
+        destination = tmp_path / "diagnostic-group-report.json"
+        export = reports.export(
+            diagnostic_report.record.id,
+            format="json",
+            destination=str(destination),
+            writer=NativeArtifactWriter(),
+        )
+        assert export.success is True
+        assert destination.read_bytes() == reports.render(
+            diagnostic_report.record.id, format="json"
+        ).body
+
+        check_report = reports.create(
+            ReportRequest(
+                target_id=check.group.id,
+                target_kind="check",
+                group_snapshot_id=check.snapshot.id,
+            ),
+            operation_id="report-group-check-create",
+        )
+        assert check_report.record.evaluation_ids == ()
+        assert check_report.record.check_snapshot_id == check.snapshot.id
+        assert check_report.content.check is not None
+        assert tuple(item.regression_hash for item in check_report.content.check.cases) == tuple(
+            item.content_hash for item in check.regressions
+        )
+        RegressionService(source, clock).remove(
+            regressions[0].id,
+            decision_id=manifest.decision_id,
+            operation_id="report-group-regression-remove",
+        )
+        old_check = reports.read(check_report.record.id)
+        assert old_check.content.check == check_report.content.check
+        assert reports.metadata(check_report.record.id).target_kind == "check"
+        assert tuple(
+            item.key.resource_id
+            for item in source.capture_snapshot()
+            if item.key.collection == "evaluations"
+        ) == evaluation_ids_before_reports
+
+        original = source.read(ResourceKey("regressions", regressions[0].id))
+        assert original is not None
+        saved_regression = load_record(RegressionRecord, original.body)
+        changed = saved_regression.model_copy(
+            update={"reason": "Rehashed regression reason", "content_hash": None}
+        )
+        changed = changed.model_copy(update={"content_hash": regression_hash(changed)})
+        source.commit(
+            "report-group-regression-tamper",
+            (SourceChange(original.key, dump_record(changed), original.etag),),
+        )
+        with pytest.raises(ServiceFailure) as tampered:
+            reports.read(check_report.record.id)
+        assert tampered.value.error.reason == "report_link_mismatch"

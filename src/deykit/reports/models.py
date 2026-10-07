@@ -18,7 +18,7 @@ from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.records import NonnegativeInt, ReportRecord, UtcTimestamp
 
 ReportFormat = Literal["json", "markdown"]
-ReportTargetKind = Literal["run", "evaluation", "comparison"]
+ReportTargetKind = Literal["run", "evaluation", "comparison", "diagnostic", "check"]
 
 
 class RawChoices(FrozenModel):
@@ -36,14 +36,17 @@ class ReportRequest(FrozenModel):
     raw: RawChoices = Field(default_factory=RawChoices)
 
     @model_validator(mode="after")
-    def reserved_group_selector(self) -> ReportRequest:
-        if self.group_snapshot_id is not None:
+    def selector_matches_kind(self) -> ReportRequest:
+        if self.target_kind in ("diagnostic", "check"):
+            if self.evaluation_id is not None or self.result_snapshot_id is not None:
+                raise ValueError("invalid_report_selector")
+        elif self.group_snapshot_id is not None:
             raise ValueError("invalid_report_selector")
         return self
 
 
 class FrozenTarget(FrozenModel):
-    kind: Literal["run", "evaluation", "comparison"]
+    kind: ReportTargetKind
     target_id: ResourceId
     evaluation_ids: tuple[ResourceId, ...] = ()
     result_snapshot_ids: tuple[ResourceId, ...] = ()
@@ -54,6 +57,12 @@ class FrozenTarget(FrozenModel):
 
     @model_validator(mode="after")
     def selector_matches_kind(self) -> FrozenTarget:
+        if self.kind in ("diagnostic", "check"):
+            if self.group_snapshot_id is None or self.evaluation_ids or self.comparison_id is not None:
+                raise ValueError("invalid_report_group_target")
+            if self.comparison_hash is not None:
+                raise ValueError("invalid_report_group_target")
+            return self
         if self.group_snapshot_id is not None:
             raise ValueError("invalid_report_selector")
         if self.kind == "comparison":
@@ -355,14 +364,130 @@ class ReportEvaluation(FrozenModel):
         return self
 
 
+class MemberEvidenceContext(FrozenModel):
+    """Pinned run context for a group member, with no P10 evaluation identity."""
+
+    run_id: ResourceId
+    manifest_hash: ContentHash
+    decision_id: ResourceId
+    decision_revision_id: ResourceId
+    definition_hash: ContentHash
+    dataset_id: ResourceId
+    dataset_snapshot_id: ResourceId
+    dataset_hash: ContentHash
+    label_snapshot_id: ResourceId
+    label_hash: ContentHash
+    result_snapshot_id: ResourceId
+    result_hash: ContentHash
+    through_event_sequence: NonnegativeInt
+    evidence_mode: Literal["fixture", "live"]
+    fixture_set_id: ResourceId | None
+    provider_profile_id: ResourceId
+    provider_config_hash: ContentHash
+    adapter: ResourceId
+    compiler_ids: tuple[ResourceId, ...]
+    compiler_version: str
+    requested_model: str
+    answering_models: tuple[str, ...]
+    question_id: ResourceId
+    option_ids: tuple[ResourceId, ...]
+    option_order: tuple[ResourceId, ...]
+    selected_case_ids: tuple[ResourceId, ...]
+    baseline_dataset_snapshot_id: ResourceId
+    baseline_dataset_hash: ContentHash
+    baseline_label_snapshot_id: ResourceId
+    baseline_label_hash: ContentHash
+
+    @model_validator(mode="after")
+    def consistent_order(self) -> MemberEvidenceContext:
+        if (
+            len(set(self.compiler_ids)) != len(self.compiler_ids)
+            or tuple(sorted(self.compiler_ids)) != self.compiler_ids
+            or len(set(self.answering_models)) != len(self.answering_models)
+            or tuple(sorted(self.answering_models)) != self.answering_models
+            or len(set(self.option_ids)) != len(self.option_ids)
+            or len(set(self.option_order)) != len(self.option_order)
+            or set(self.option_ids) != set(self.option_order)
+            or len(set(self.selected_case_ids)) != len(self.selected_case_ids)
+        ):
+            raise ValueError("invalid_report_context")
+        return self
+
+
+class DiagnosticCaseDisplay(FrozenModel):
+    case_id: ResourceId
+    option_ids: tuple[ResourceId | None, ...]
+    statuses: tuple[str, ...]
+    observed_disagreement: bool
+    fully_observed: bool
+
+
+class DiagnosticSummaryDisplay(FrozenModel):
+    independent_case_count: NonnegativeInt
+    order_count: NonnegativeInt
+    expanded_result_count: NonnegativeInt
+    fully_observed_case_count: NonnegativeInt
+    disagreement: RateDisplay
+    cases: tuple[DiagnosticCaseDisplay, ...]
+    interpretation: Literal["observed_request_order_sensitivity"]
+
+
+class GroupReportContext(FrozenModel):
+    group_id: ResourceId
+    group_hash: ContentHash
+    group_kind: Literal["choice_order", "regression_check"]
+    max_attempts: NonnegativeInt
+    deadline_seconds: NonnegativeInt
+    snapshot_id: ResourceId
+    snapshot_hash: ContentHash
+    snapshot_sequence: NonnegativeInt
+    segment_id: ResourceId | None
+    members: tuple[MemberEvidenceContext, ...]
+
+
+class DiagnosticReport(GroupReportContext):
+    group_kind: Literal["choice_order"]
+    seed: int
+    algorithm: str
+    orders: tuple[tuple[ResourceId, ...], ...]
+    summary: DiagnosticSummaryDisplay
+
+
+class CheckCaseDisplay(FrozenModel):
+    regression_id: ResourceId
+    regression_hash: ContentHash
+    dataset_id: ResourceId
+    case_id: ResourceId
+    run_id: ResourceId
+    result_snapshot_id: ResourceId
+    status: str
+    expected_option_ids: tuple[ResourceId, ...]
+    actual_option_id: ResourceId | None
+    passed: bool | None
+    provenance: str
+    original_split: Literal["development", "calibration", "test"]
+    input_hash: ContentHash
+    source_run_id: ResourceId | None
+    source_result_snapshot_id: ResourceId | None
+    source_attempt_id: ResourceId | None
+    reason: str
+
+
+class CheckReport(GroupReportContext):
+    group_kind: Literal["regression_check"]
+    cases: tuple[CheckCaseDisplay, ...]
+    expectation_failures: NonnegativeInt
+    baseline_unavailable: Literal["frozen_regression_selection"]
+
+
 class ReportContent(Record):
     profile: Literal["deykit-report-v1"] = "deykit-report-v1"
     target: FrozenTarget
     raw: RawChoices = Field(default_factory=RawChoices)
     evaluations: tuple[ReportEvaluation, ...] = ()
     comparison: ComparisonOutcomes | None = None
-    diagnostic: None = None
-    check: None = None
+    diagnostic: DiagnosticReport | None = None
+    check: CheckReport | None = None
     raw_material: tuple[RawMaterial, ...] = ()
     limitations: tuple[str, ...] = ()
 
@@ -371,7 +496,17 @@ class ReportContent(Record):
         if self.target.kind in ("run", "evaluation"):
             if len(self.evaluations) != 1 or self.comparison is not None:
                 raise ValueError("invalid_report_target_branch")
-        elif len(self.evaluations) != 2 or self.comparison is None:
+            if self.diagnostic is not None or self.check is not None:
+                raise ValueError("invalid_report_target_branch")
+        elif self.target.kind == "comparison":
+            if len(self.evaluations) != 2 or self.comparison is None:
+                raise ValueError("invalid_report_target_branch")
+            if self.diagnostic is not None or self.check is not None:
+                raise ValueError("invalid_report_target_branch")
+        elif self.target.kind == "diagnostic":
+            if self.evaluations or self.comparison is not None or self.diagnostic is None or self.check is not None:
+                raise ValueError("invalid_report_target_branch")
+        elif self.evaluations or self.comparison is not None or self.check is None or self.diagnostic is not None:
             raise ValueError("invalid_report_target_branch")
         selected = {
             name
@@ -385,13 +520,22 @@ class ReportContent(Record):
         if any(item.category not in selected for item in self.raw_material):
             raise ValueError("raw_material_flag_mismatch")
         evidence_contexts = tuple(item.context for item in self.evaluations)
+        group_context = self.diagnostic or self.check
+        member_contexts = group_context.members if group_context is not None else ()
+        expected_eval_ids = tuple(dict.fromkeys(item.evaluation_id for item in evidence_contexts))
+        expected_result_ids = tuple(dict.fromkeys(
+            item.result_snapshot_id for item in evidence_contexts
+        )) if evidence_contexts else tuple(dict.fromkeys(item.result_snapshot_id for item in member_contexts))
+        expected_label_ids = tuple(dict.fromkeys(
+            item.label_snapshot_id for item in evidence_contexts
+        )) if evidence_contexts else tuple(dict.fromkeys(item.label_snapshot_id for item in member_contexts))
         if (
             self.target.evaluation_ids
-            != tuple(dict.fromkeys(item.evaluation_id for item in evidence_contexts))
+            != expected_eval_ids
             or self.target.result_snapshot_ids
-            != tuple(dict.fromkeys(item.result_snapshot_id for item in evidence_contexts))
+            != expected_result_ids
             or self.target.label_snapshot_ids
-            != tuple(dict.fromkeys(item.label_snapshot_id for item in evidence_contexts))
+            != expected_label_ids
         ):
             raise ValueError("report_target_links_mismatch")
         if self.target.kind == "run" and any(
@@ -410,6 +554,10 @@ class ReportContent(Record):
                 self.comparison.right.evaluation_id,
             ) != tuple(item.context.evaluation_id for item in self.evaluations):
                 raise ValueError("report_comparison_links_mismatch")
+        if self.target.kind in ("diagnostic", "check"):
+            assert group_context is not None
+            if group_context.group_id != self.target.target_id or group_context.snapshot_id != self.target.group_snapshot_id:
+                raise ValueError("report_group_links_mismatch")
         allowed_limitations = {
             "authored_fixture_not_provider_quality",
             "saved_answers_no_fresh_inference",
@@ -419,6 +567,8 @@ class ReportContent(Record):
             "baseline_overlap",
             "raw_material_sanitized",
             "unknown_plaintext_secrets_not_recognized",
+            "observed_request_order_sensitivity",
+            "frozen_regression_selection",
         }
         if len(set(self.limitations)) != len(self.limitations) or any(
             item not in allowed_limitations for item in self.limitations

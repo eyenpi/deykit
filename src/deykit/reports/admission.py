@@ -87,8 +87,10 @@ def admit_report(stored: StoredRecord) -> AdmittedReport:
             or record.result_snapshot_ids != expected_results
             or record.label_snapshot_ids != expected_labels
             or record.comparison_id != target.comparison_id
-            or record.diagnostic_snapshot_id is not None
-            or record.check_snapshot_id is not None
+            or record.diagnostic_snapshot_id
+            != (content.diagnostic.snapshot_id if content.diagnostic is not None else None)
+            or record.check_snapshot_id
+            != (content.check.snapshot_id if content.check is not None else None)
             or RawChoices(
                 inputs=record.includes_raw_input,
                 requests=record.includes_raw_request,
@@ -175,6 +177,11 @@ def metadata(admitted: AdmittedReport) -> ReportMetadata:
         mode = item.metrics.evidence_mode
         if mode not in modes:
             modes.append(mode)
+    group = content.diagnostic or content.check
+    if group is not None:
+        for member in group.members:
+            if member.evidence_mode not in modes:
+                modes.append(member.evidence_mode)
     return ReportMetadata(
         report_id=admitted.record.id,
         content_hash=admitted.record.content_hash,

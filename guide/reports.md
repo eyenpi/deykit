@@ -1,8 +1,10 @@
 # Evidence reports
 
-The Python `ReportService` saves a fixed view of a run, evaluation, or
-comparison. Later run resumes and edits to labels or decision drafts do not
-replace saved evidence. Report creation and rendering make no provider calls.
+The Python `ReportService` saves a fixed view of a run, evaluation, comparison,
+diagnostic group, or regression-check group. Later run resumes and edits to
+labels, regressions, or decision drafts do not replace saved evidence. Report
+creation and rendering make no provider calls. Diagnostic and check reports use
+the group's pinned snapshot and create no P10 evaluations or aggregate metrics.
 When a selected run result has no original evaluation, the service evaluates
 the saved answers against their original labels.
 
@@ -12,6 +14,20 @@ the complete saved report with `read(report_id)`. Use `metadata(report_id)` or
 `render(report_id, format="json")` or `render(report_id, format="markdown")`.
 To write an existing report, call `export(report_id, format=..., destination=...,
 writer=...)`; a failed destination write keeps the report available for retry.
+
+Group reports need an explicit target kind:
+
+```python
+ReportRequest(target_id=group_id, target_kind="diagnostic")
+ReportRequest(target_id=group_id, target_kind="check", group_snapshot_id=snapshot_id)
+```
+
+Omitting `group_snapshot_id` selects the latest valid matching snapshot from a
+single captured source view. A pinned snapshot keeps its original member
+results across later resumes. Diagnostic reports show seed, requested and
+actual option orders, the independent case denominator, and observed outcomes.
+Check reports retain each original regression hash, expected and actual answer,
+nullable pass state, provenance, split, and the frozen baseline reason.
 
 Raw case inputs, prepared request bodies, and stored response material are
 excluded by default. `RawChoices(inputs=True, requests=True, responses=True)`
