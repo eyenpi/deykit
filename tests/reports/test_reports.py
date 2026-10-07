@@ -7,6 +7,7 @@ import os
 import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -67,6 +68,7 @@ from deykit.contracts.redaction import Sanitizer
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
 from deykit.reports.admission import report_hash
+from deykit.reports.group_projection import _selection
 from deykit.reports.models import RawChoices, RawMaterial, ReportContent, ReportRequest
 from deykit.reports.projection import project_json_source, project_opaque_response_bytes
 from deykit.reports.render import render_content
@@ -439,6 +441,7 @@ def group_report_graph(
         diagnostic_history_markdown = diagnostic_history_service.render(
             diagnostic_history_report.record.id, format="markdown"
         ).body
+        backends.unknown_delivered = True
         completed_diagnostic = asyncio.run(
             diagnostic_service.resume(
                 initial_diagnostic.group.group_id,
@@ -512,6 +515,7 @@ def group_report_graph(
         check_history_markdown = check_history_service.render(
             check_history_report.record.id, format="markdown"
         ).body
+        backends.unknown_delivered = True
         completed_check = asyncio.run(
             check_service.resume(
                 initial_check.group.group_id,
@@ -1587,6 +1591,28 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
     all_records = graph.records
     diagnostic_partial = diagnostic_snapshot_from_records(
         all_records, graph.diagnostic_partial_snapshot_id
+    )
+    selection_source = parse_json(diagnostic_partial.group.selection_source)
+    assert isinstance(selection_source, dict)
+    selection_request = selection_source.get("request")
+    assert isinstance(selection_request, dict)
+    selection_run = selection_request.get("run")
+    assert isinstance(selection_run, dict)
+    selection_settings = selection_run.get("settings")
+    assert isinstance(selection_settings, dict)
+    selection_settings["max_attempts"] = Decimal(100)
+    selection_request.pop("seed", None)
+    selection_text = dump_json(selection_source)
+    assert '"max_attempts":1e2' in selection_text
+    selection_snapshot = replace(
+        diagnostic_partial,
+        group=replace(diagnostic_partial.group, selection_source=selection_text),
+    )
+    seed, algorithm, option_orders = _selection(selection_snapshot)
+    assert seed == 0
+    assert algorithm == "deykit-choice-order-v1"
+    assert option_orders == tuple(
+        member.manifest.option_order for member in diagnostic_partial.members
     )
     diagnostic_latest = diagnostic_snapshot_from_records(
         all_records, graph.diagnostic_complete_snapshot_id
