@@ -6,10 +6,21 @@ import pytest
 
 from deykit.application.datasets import CaseInput
 from deykit.application.errors import ServiceFailure
-from deykit.application.splits import SplitService
-from deykit.contracts.json_value import JsonDocument, parse_json
+from deykit.application.splits import (
+    SplitService,
+    admit_dataset_snapshot,
+    split_snapshot_hash,
+)
+from deykit.contracts.codec import dump_record
+from deykit.contracts.evidence import evidence_hash
+from deykit.contracts.json_value import (
+    JsonDocument,
+    bytes_hash,
+    parse_json,
+    semantic_hash,
+)
 from deykit.contracts.ports import ResourceKey
-from deykit.contracts.records import CaseRecord
+from deykit.contracts.records import CaseRecord, DatasetSnapshot
 from deykit.domain.splits import assign, connected_groups, ratios
 
 
@@ -83,6 +94,72 @@ def test_exact_ratios_zero_destinations_and_context_independent_arithmetic():
 def test_malformed_ratios_fail_exactly(source):
     with pytest.raises(ValueError):
         ratios(source)
+
+
+def test_split_hash_profile_remains_distinct_from_ordinary_snapshot_profile():
+    frozen_cases = (case("frozen", split="development"),)
+    selection_source = (
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v1",'
+        '"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","development"]],'
+        '"groups":[["frozen"]],"counts":{"development":1,"calibration":0,"test":0},'
+        '"input_identity":"' + "0" * 64 + '","dataset_etag":"' + "1" * 64 + '"}'
+    )
+    case_bytes = tuple(dump_record(item) for item in frozen_cases)
+    parsed_selection = parse_json(selection_source)
+    expected_split_hash = semantic_hash(
+        {
+            "profile": "deykit-split-snapshot-v1",
+            "case_bytes_hashes": [bytes_hash(body) for body in case_bytes],
+            "selection_hash": semantic_hash(parsed_selection),
+        }
+    )
+    assert split_snapshot_hash(frozen_cases, selection_source) == expected_split_hash
+
+    split_snapshot = DatasetSnapshot(
+        id="split-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=expected_split_hash,
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+    ordinary_snapshot = DatasetSnapshot(
+        id="ordinary-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=evidence_hash(tuple(dump_record(item) for item in frozen_cases)),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source="{}",
+    )
+    assert split_snapshot.content_hash != ordinary_snapshot.content_hash
+    assert admit_dataset_snapshot(split_snapshot) == split_snapshot
+    assert admit_dataset_snapshot(ordinary_snapshot) == ordinary_snapshot
+
+
+def test_split_snapshot_counts_are_bounded_before_integer_conversion():
+    frozen_cases = (case("frozen", split="development"),)
+    selection_source = (
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v1",'
+        '"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","development"]],'
+        '"groups":[["frozen"]],"counts":{"development":999999999999999999999,'
+        '"calibration":0,"test":0},"input_identity":"' + "0" * 64
+        + '","dataset_etag":"' + "1" * 64 + '"}'
+    )
+    snapshot = DatasetSnapshot(
+        id="bad-count-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=split_snapshot_hash(frozen_cases, selection_source),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as invalid_count:
+        admit_dataset_snapshot(snapshot)
+
+    assert invalid_count.value.error.reason == "invalid_split_counts"
 
 
 def split_service(project):

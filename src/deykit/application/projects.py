@@ -8,6 +8,7 @@ from typing import Protocol
 from pydantic import ValidationError
 
 from deykit.application.errors import ServiceFailure
+from deykit.application.project_references import validate_project_references
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import semantic_hash
@@ -36,6 +37,7 @@ class ProjectInfo:
     execution_active: bool
     record_count: int
     index_warning: str | None = None
+    reference_warnings: tuple[ServiceError, ...] = ()
 
 
 class ProjectService:
@@ -47,10 +49,28 @@ class ProjectService:
         self._id = id_factory
 
     @staticmethod
-    def _info(source: ProjectBackend) -> ProjectInfo:
+    def validate_opened(source: ProjectBackend) -> ProjectInfo:
+        """Validate one captured view of a caller-owned, already-open source."""
         # Probe execution first; never wait for execution ownership while holding source lock.
         active = source.execution_active()
-        records = source.capture_snapshot()
+        with source.consistent_read():
+            records = source.capture_snapshot()
+            reference_warnings = validate_project_references(records).warnings
+        return ProjectService._info_from_records(
+            records,
+            execution_active=active,
+            index_warning=source.last_index_error,
+            reference_warnings=reference_warnings,
+        )
+
+    @staticmethod
+    def _info_from_records(
+        records: tuple[StoredRecord, ...],
+        *,
+        execution_active: bool,
+        index_warning: str | None,
+        reference_warnings: tuple[ServiceError, ...] = (),
+    ) -> ProjectInfo:
         projects = [record for record in records if record.key.collection == "project"]
         if len(projects) != 1:
             raise ServiceFailure(
@@ -60,9 +80,21 @@ class ProjectService:
         return ProjectInfo(
             load_record(ProjectRecord, record.body),
             record.etag,
-            active,
+            execution_active,
             len(records),
-            source.last_index_error,
+            index_warning,
+            reference_warnings,
+        )
+
+    @staticmethod
+    def _info(source: ProjectBackend) -> ProjectInfo:
+        # Opening a project remains metadata-only; keep the legacy private spelling.
+        active = source.execution_active()
+        records = source.capture_snapshot()
+        return ProjectService._info_from_records(
+            records,
+            execution_active=active,
+            index_warning=source.last_index_error,
         )
 
     def create(self, path: Path, name: str, operation_id: str) -> ProjectInfo:
@@ -118,7 +150,11 @@ class ProjectService:
             source.close()
 
     def validate(self, path: Path) -> ProjectInfo:
-        return self.open(path)
+        source = self._factory(path, False)
+        try:
+            return self.validate_opened(source)
+        finally:
+            source.close()
 
     def rebuild_index(self, path: Path) -> int:
         source = self._factory(path, False)

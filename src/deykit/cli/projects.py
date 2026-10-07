@@ -6,7 +6,7 @@ from typing import Annotated
 import typer
 
 from deykit.cli.context import new_operation_id, projects_service
-from deykit.cli.output import execute
+from deykit.cli.output import CommandOutcome, execute, execute_outcome
 
 project_app = typer.Typer(help="Inspect and maintain a portable project.")
 
@@ -18,24 +18,24 @@ def register(root: typer.Typer) -> None:
 
 @project_app.command("show")
 def show(ctx: typer.Context) -> None:
-    execute(
+    execute_outcome(
         ctx,
-        lambda cli: {
-            "path": cli.require_project(),
-            "info": projects_service().open(cli.require_project()),
-        },
+        lambda cli: _project_outcome(cli.require_project(), validate=False),
     )
 
 
 @project_app.command("validate")
 def validate(ctx: typer.Context) -> None:
-    execute(
+    execute_outcome(
         ctx,
-        lambda cli: {
-            "path": cli.require_project(),
-            "info": projects_service().validate(cli.require_project()),
-        },
+        lambda cli: _project_outcome(cli.require_project(), validate=True),
     )
+
+
+def _project_outcome(path: Path, *, validate: bool) -> CommandOutcome:
+    service = projects_service()
+    info = service.validate(path) if validate else service.open(path)
+    return CommandOutcome({"path": path, "info": info}, warnings=info.reference_warnings)
 
 
 @project_app.command("rebuild-index")

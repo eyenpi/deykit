@@ -29,7 +29,7 @@ from deykit.application.execution import ExecutionService
 from deykit.application.fixtures import FixtureService
 from deykit.application.labels import LabelService
 from deykit.application.regressions import RegressionAdd, RegressionService
-from deykit.application.reports import ReportService
+from deykit.application.reports import ReportService, admit_report_from_records
 from deykit.cli.context import SystemClock
 from deykit.contracts.artifacts import ArtifactWriteOutcome
 from deykit.contracts.codec import dump_record, load_record
@@ -874,6 +874,11 @@ def test_saved_run_report_copies_independent_fixture_facts_and_renders(
         ),
         operation_id="report-run-create",
     )
+
+    stored_report = source.records[ResourceKey("reports", report.record.id)]
+    captured = tuple(source.records.values())
+    assert admit_report_from_records(stored_report, captured) == report
+    assert service._admit_captured_report(stored_report, captured) == report
 
     evaluation = report.content.evaluations[0]
     metrics = evaluation.metrics

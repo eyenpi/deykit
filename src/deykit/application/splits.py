@@ -2,6 +2,8 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
+from typing import cast
 
 from pydantic import ValidationError
 
@@ -18,6 +20,7 @@ from deykit.application.dataset_support import (
 )
 from deykit.application.datasets import DatasetService
 from deykit.contracts.codec import dump_record
+from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.identities import new_id
 from deykit.contracts.json_value import JsonError, JsonValue, bytes_hash, dump_json, parse_json
 from deykit.contracts.ports import Clock, CommitReceipt, ProjectSource, ResourceKey, SourceChange
@@ -108,6 +111,162 @@ def _admit_preview(value: object) -> None:
             fail("invalid_split_counts")
     if tuple(names) != SPLITS:
         fail("invalid_split_counts")
+
+
+def split_snapshot_hash(cases: tuple[CaseRecord, ...], selection_source: str) -> str:
+    """Preserve the producer's versioned split snapshot hash payload exactly."""
+    selection = parse_json(selection_source)
+    return safe_hash(
+        {
+            "profile": "deykit-split-snapshot-v1",
+            "case_bytes_hashes": [bytes_hash(dump_record(case)) for case in cases],
+            "selection_hash": safe_hash(selection),
+        }
+    )
+
+
+def admit_dataset_snapshot(snapshot: DatasetSnapshot) -> DatasetSnapshot:
+    """Admit the frozen bytes using the hash profile declared in the snapshot."""
+    try:
+        source = parse_json(snapshot.selection_source)
+    except JsonError as error:
+        fail(error.code)
+    if not isinstance(source, dict):
+        fail("invalid_dataset_snapshot_selection")
+
+    profile = source.get("snapshot_hash_profile")
+    if profile is None:
+        expected = evidence_hash(tuple(dump_record(case) for case in snapshot.cases))
+    elif profile == "deykit-split-snapshot-v1":
+        expected = split_snapshot_hash(snapshot.cases, snapshot.selection_source)
+        _admit_split_snapshot_selection(snapshot, source)
+    else:
+        fail("unknown_snapshot_hash_profile")
+    if snapshot.content_hash != expected:
+        fail("dataset_snapshot_hash_mismatch")
+    return snapshot
+
+
+def _admit_split_snapshot_selection(
+    snapshot: DatasetSnapshot, source: dict[str, JsonValue]
+) -> None:
+    required = {
+        "snapshot_hash_profile",
+        "algorithm",
+        "seed",
+        "ratios",
+        "assignments",
+        "groups",
+        "counts",
+        "input_identity",
+        "dataset_etag",
+    }
+    if set(source) != required:
+        fail("invalid_split_snapshot_selection")
+    algorithm = source["algorithm"]
+    if algorithm == ALGORITHM:
+        _source_integer(source["seed"], "invalid_split_seed")
+        ratio_value = source["ratios"]
+        if not isinstance(ratio_value, dict):
+            fail("invalid_split_ratios")
+        try:
+            ratios(dump_json(cast(JsonValue, ratio_value)))
+        except (JsonError, ValueError):
+            fail("invalid_split_ratios")
+    elif algorithm == "explicit-connected-v1":
+        if source["seed"] is not None or source["ratios"] is not None:
+            fail("invalid_split_snapshot_selection")
+    else:
+        fail("invalid_split_algorithm")
+
+    admission.content_hash(source["input_identity"])
+    admission.content_hash(source["dataset_etag"])
+    raw_assignments = source["assignments"]
+    if not isinstance(raw_assignments, list):
+        fail("invalid_split_assignments")
+    assignments_list: list[tuple[str, Split]] = []
+    for pair in raw_assignments:
+        if (
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or not isinstance(pair[0], str)
+            or not isinstance(pair[1], str)
+        ):
+            fail("invalid_split_assignments")
+        admission.resource(pair[0])
+        admission.choice(pair[1], SPLITS, "invalid_split")
+        assignments_list.append((pair[0], cast(Split, pair[1])))
+    assignments = tuple(assignments_list)
+    case_ids = tuple(case.id for case in snapshot.cases)
+    assignment_ids = tuple(case_id for case_id, _ in assignments)
+    if len(set(assignment_ids)) != len(assignment_ids) or set(assignment_ids) != set(case_ids):
+        fail("invalid_split_assignments")
+    assignment_map = dict(assignments)
+    if any(case.split != assignment_map[case.id] for case in snapshot.cases):
+        fail("split_snapshot_case_assignment_mismatch")
+    try:
+        validate_assignments(snapshot.cases, assignments)
+        expected_groups = connected_groups(snapshot.cases)
+    except ValueError as error:
+        domain_reason = error.args[0] if error.args else None
+        safe_reasons = {
+            "duplicate_case_id",
+            "split_requires_all_current_cases",
+            "conflicting_group_assignments",
+        }
+        if isinstance(domain_reason, str) and domain_reason in safe_reasons:
+            fail(domain_reason)
+        fail("invalid_split_snapshot_selection")
+
+    raw_groups = source["groups"]
+    if not isinstance(raw_groups, list):
+        fail("invalid_split_groups")
+    groups_list: list[tuple[str, ...]] = []
+    for raw_group in raw_groups:
+        if not isinstance(raw_group, list):
+            fail("invalid_split_groups")
+        members: list[str] = []
+        for member in raw_group:
+            if not isinstance(member, str):
+                fail("invalid_split_groups")
+            members.append(member)
+        groups_list.append(tuple(members))
+    if tuple(groups_list) != expected_groups:
+        fail("split_snapshot_groups_mismatch")
+
+    raw_counts = source["counts"]
+    if not isinstance(raw_counts, dict) or set(raw_counts) != set(SPLITS):
+        fail("invalid_split_counts")
+    expected_counts = {
+        split: sum(case.split == split for case in snapshot.cases) for split in SPLITS
+    }
+    counts = {
+        name: _source_count(count, len(snapshot.cases))
+        for name, count in raw_counts.items()
+    }
+    if counts != expected_counts:
+        fail("split_snapshot_counts_mismatch")
+
+
+def _source_integer(value: object, reason: str) -> int:
+    if type(value) is int:
+        return value
+    if isinstance(value, Decimal) and value.is_finite() and value == value.to_integral_value():
+        return int(value)
+    fail(reason)
+
+
+def _source_count(value: object, maximum: int) -> int:
+    if type(value) is int and 0 <= value <= maximum:
+        return value
+    if (
+        isinstance(value, Decimal)
+        and value.is_finite()
+        and value == value.to_integral_value()
+        and 0 <= value <= maximum
+    ):
+        return int(value)
+    fail("invalid_split_counts")
 
 
 @dataclass(frozen=True)
@@ -213,13 +372,7 @@ class SplitService:
                     id=identifier(self.id_factory()),
                     dataset_id=preview.dataset_id,
                     cases=records,
-                    content_hash=safe_hash(
-                        {
-                            "profile": "deykit-split-snapshot-v1",
-                            "case_bytes_hashes": [bytes_hash(dump_record(r)) for r in records],
-                            "selection_hash": safe_hash(parse_json(selection)),
-                        }
-                    ),
+                    content_hash=split_snapshot_hash(records, selection),
                     created_at=self.clock.utc_now(),
                     selection_source=selection,
                 )

@@ -35,6 +35,19 @@ Provenance = Literal["human", "authored_fixture", "imported_unknown", "model_gen
 Action = Literal["set", "clear", "dispute", "resolve"]
 
 
+def admit_label_record(stored: StoredRecord) -> LabelRecord:
+    """Decode a current label and enforce its canonical key and scope."""
+    label = decoded(LabelRecord, stored)
+    expected = ResourceKey(
+        "labels",
+        label_id(label.case_id, label.question_id),
+        (label.decision_id, label.dataset_id),
+    )
+    if stored.key != expected or label.id != expected.resource_id:
+        fail("label_identity_mismatch")
+    return label
+
+
 @dataclass(frozen=True)
 class LabelReview:
     """Optimistic tokens captured alongside the full input and choice shown to the reviewer."""
@@ -395,15 +408,7 @@ class LabelService:
 
     @staticmethod
     def _label(stored: StoredRecord) -> LabelRecord:
-        label = decoded(LabelRecord, stored)
-        expected = ResourceKey(
-            "labels",
-            label_id(label.case_id, label.question_id),
-            (label.decision_id, label.dataset_id),
-        )
-        if stored.key != expected or label.id != expected.resource_id:
-            fail("label_identity_mismatch")
-        return label
+        return admit_label_record(stored)
 
     @staticmethod
     def _admit_edits(edits: tuple[LabelEdit, ...]) -> None:
