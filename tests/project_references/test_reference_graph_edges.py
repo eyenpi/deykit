@@ -14,11 +14,13 @@ from deykit.contracts.records import (
     ChoiceDefinition,
     ChoiceOption,
     ChoiceQuestion,
+    ComparisonRecord,
     DatasetRecord,
     DatasetSnapshot,
     DecisionDraft,
     DecisionRecord,
     DecisionRevision,
+    EvaluationRecord,
     ExecutionSettings,
     LabelSnapshot,
     ProjectRecord,
@@ -313,6 +315,79 @@ def test_typed_report_graph_uses_the_captured_report_reader(monkeypatch) -> None
     else:
         raise AssertionError("typed report bypassed captured report admission")
     assert calls == [report.id]
+
+
+def test_typed_comparison_graph_delegates_to_captured_comparison_reader(monkeypatch) -> None:
+    from deykit.application import evaluations, project_references
+    from deykit.runner import history
+
+    base = captured_legacy_project()
+    legacy_run = next(
+        load_record(RunManifest, record.body)
+        for record in base
+        if record.key.collection == "runs"
+    )
+    provider_record = next(record for record in base if record.key.collection == "providers")
+    run = legacy_run.model_copy(
+        update={
+            "id": "comparison-run",
+            "decision_id": "decision",
+            "dataset_id": "dataset",
+            "baseline_dataset_snapshot_id": "dataset-snapshot",
+            "baseline_label_snapshot_id": "label-snapshot",
+            "provider": load_record(ProviderProfile, provider_record.body),
+        }
+    )
+    result = ResultSnapshot(
+        id="comparison-result",
+        run_id=run.id,
+        results=(),
+        through_event_sequence=0,
+        content_hash=evidence_hash(()),
+        created_at=STAMP,
+    )
+    evaluation = EvaluationRecord(
+        id="evaluation",
+        run_id=run.id,
+        result_snapshot_id=result.id,
+        label_snapshot_id="label-snapshot",
+        mode="original",
+        metrics_source="{}",
+        content_hash="0" * 64,
+        created_at=STAMP,
+    )
+    comparison = ComparisonRecord(
+        id="comparison",
+        left_evaluation_id=evaluation.id,
+        right_evaluation_id=evaluation.id,
+        left_result_snapshot_id=result.id,
+        right_result_snapshot_id=result.id,
+        outcomes_source="{}",
+        content_hash="0" * 64,
+        created_at=STAMP,
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(history, "history_from_records", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(evaluations, "admit_evaluation_record", lambda _stored: None)
+    monkeypatch.setattr(
+        evaluations, "frozen_evaluation_from_records", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        project_references,
+        "admit_comparison_from_records",
+        lambda stored, _records: calls.append(stored.key.resource_id),
+    )
+    captured = (
+        *base,
+        item("runs", run.id, run),
+        item("result_snapshots", result.id, result),
+        item("evaluations", evaluation.id, evaluation),
+        item("comparisons", comparison.id, comparison),
+    )
+
+    validate_project_references(captured)
+
+    assert calls == [comparison.id]
 
 
 def test_hard_error_and_legacy_warning_order_ignore_source_tuple_order() -> None:

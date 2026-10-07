@@ -74,12 +74,12 @@ def _probe(path: Path, name: str) -> None:
     _init_project(path)
     if name == "dangling_latest_revision":
         _seed(path, *_base_decision())
-    elif name == "orphan_label":
+    elif name in {"orphan_label", "noncanonical_label"}:
         decision, draft = _base_decision(latest_revision_id=None)
         dataset = DatasetRecord(id="dataset", name="Data", created_at="2026-10-05T12:00:00Z")
         case_id = "missing-case"
         label = LabelRecord(
-            id=label_id(case_id, "q"),
+            id="wrong-label-id" if name == "noncanonical_label" else label_id(case_id, "q"),
             decision_id="decision",
             dataset_id="dataset",
             case_id=case_id,
@@ -155,6 +155,7 @@ def _probe(path: Path, name: str) -> None:
     [
         "dangling_latest_revision",
         "orphan_label",
+        "noncanonical_label",
         "dangling_evaluation",
         "dangling_comparison",
         "dangling_regression_revision",
@@ -174,7 +175,9 @@ def test_installed_project_validate_rejects_each_original_reference_gap(
     assert result.stdout.count("\n") == 1
     payload = json.loads(result.stdout)
     assert payload["schema_version"] == 1
-    assert payload["error"]["reason"] == "project_reference_missing"
+    assert payload["error"]["reason"] == (
+        "label_identity_mismatch" if name == "noncanonical_label" else "project_reference_missing"
+    )
 
 
 def _project_bytes(path: Path) -> dict[Path, bytes]:
