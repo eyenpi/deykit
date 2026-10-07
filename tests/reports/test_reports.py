@@ -284,7 +284,6 @@ def group_report_graph(
             partial_records, diagnostic_partial_id
         )
         assert partial_diagnostic.summary.fully_observed_case_count == 1
-        backends.unknown_delivered = False
         completed_diagnostic = asyncio.run(
             diagnostic_service.resume(
                 initial_diagnostic.group.group_id,
@@ -294,8 +293,11 @@ def group_report_graph(
         )
         assert completed_diagnostic.group.snapshot_id is not None
 
-        source_member = partial_diagnostic.members[0]
-        result_by_case = {item.case_id: item for item in base_snapshot.results}
+        completed_diagnostic_snapshot = diagnostic_snapshot_from_records(
+            source.capture_snapshot(), completed_diagnostic.group.snapshot_id
+        )
+        source_member = completed_diagnostic_snapshot.members[0]
+        result_by_case = {item.case_id: item for item in source_member.results.results}
         revision = source_member.revision
         option_ids = tuple(option.id for option in revision.definition.questions[0].options)
         regression_service = RegressionService(source, clock)
@@ -338,7 +340,6 @@ def group_report_graph(
         partial_check = check_snapshot_from_records(source.capture_snapshot(), partial_check_id)
         assert {item.passed for item in partial_check.cases} == {True, None}
         assert next(item for item in partial_check.cases if item.passed is None).status == "unknown"
-        backends.unknown_delivered = False
         completed_check = asyncio.run(
             check_service.resume(
                 initial_check.group.group_id,
