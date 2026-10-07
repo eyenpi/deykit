@@ -133,18 +133,20 @@ def _select_group_snapshot(
             continue
         try:
             if kind == "diagnostic":
-                snapshot = load_record(DiagnosticSnapshot, stored.body)
+                candidate: DiagnosticSnapshot | CheckSnapshot = load_record(
+                    DiagnosticSnapshot, stored.body
+                )
             else:
-                snapshot = load_record(CheckSnapshot, stored.body)
+                candidate = load_record(CheckSnapshot, stored.body)
         except (JsonError, ValueError):
             continue
-        if snapshot.id == stored.key.resource_id and snapshot.group_id == group_id:
-            candidates.append(snapshot)
-    for snapshot in sorted(
+        if candidate.id == stored.key.resource_id and candidate.group_id == group_id:
+            candidates.append(candidate)
+    for snapshot_record in sorted(
         candidates, key=lambda item: (item.sequence, item.created_at, item.id), reverse=True
     ):
         try:
-            return reader(records, snapshot.id)
+            return reader(records, snapshot_record.id)
         except ServiceFailure:
             continue
     missing = "diagnostic_snapshot_missing" if kind == "diagnostic" else "check_snapshot_missing"

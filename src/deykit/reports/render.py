@@ -311,16 +311,16 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "| Case | Options by order | Statuses by order | Disagreement | Fully observed |",
             "| --- | --- | --- | --- | --- |",
         ]
-        for case in diagnostic_summary.cases:
+        for diagnostic_case in diagnostic_summary.cases:
             lines.append(
                 "| "
                 + " | ".join(
                     (
-                        _inline(case.case_id),
-                        _inline(case.option_ids),
-                        _inline(case.statuses),
-                        _inline(case.observed_disagreement),
-                        _inline(case.fully_observed),
+                        _inline(diagnostic_case.case_id),
+                        _inline(diagnostic_case.option_ids),
+                        _inline(diagnostic_case.statuses),
+                        _inline(diagnostic_case.observed_disagreement),
+                        _inline(diagnostic_case.fully_observed),
                     )
                 )
                 + " |"
@@ -368,21 +368,23 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "Provenance | Split | Reason |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
-        for case in check.cases:
+        for check_case in check.cases:
             lines.append(
                 "| "
                 + " | ".join(
                     (
-                        _inline(case.regression_id),
-                        _inline(case.regression_hash),
-                        _inline(case.case_id),
-                        _inline(case.expected_option_ids),
-                        _inline(case.actual_option_id or "unavailable"),
-                        _inline(case.passed if case.passed is not None else "unavailable"),
-                        _inline(case.status),
-                        _inline(case.provenance),
-                        _inline(case.original_split),
-                        _inline(case.reason),
+                        _inline(check_case.regression_id),
+                        _inline(check_case.regression_hash),
+                        _inline(check_case.case_id),
+                        _inline(check_case.expected_option_ids),
+                        _inline(check_case.actual_option_id or "unavailable"),
+                        _inline(
+                            check_case.passed if check_case.passed is not None else "unavailable"
+                        ),
+                        _inline(check_case.status),
+                        _inline(check_case.provenance),
+                        _inline(check_case.original_split),
+                        _inline(check_case.reason),
                     )
                 )
                 + " |"
