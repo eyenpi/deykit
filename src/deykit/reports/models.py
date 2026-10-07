@@ -58,7 +58,11 @@ class FrozenTarget(FrozenModel):
     @model_validator(mode="after")
     def selector_matches_kind(self) -> FrozenTarget:
         if self.kind in ("diagnostic", "check"):
-            if self.group_snapshot_id is None or self.evaluation_ids or self.comparison_id is not None:
+            if (
+                self.group_snapshot_id is None
+                or self.evaluation_ids
+                or self.comparison_id is not None
+            ):
                 raise ValueError("invalid_report_group_target")
             if self.comparison_hash is not None:
                 raise ValueError("invalid_report_group_target")
@@ -504,9 +508,19 @@ class ReportContent(Record):
             if self.diagnostic is not None or self.check is not None:
                 raise ValueError("invalid_report_target_branch")
         elif self.target.kind == "diagnostic":
-            if self.evaluations or self.comparison is not None or self.diagnostic is None or self.check is not None:
+            if (
+                self.evaluations
+                or self.comparison is not None
+                or self.diagnostic is None
+                or self.check is not None
+            ):
                 raise ValueError("invalid_report_target_branch")
-        elif self.evaluations or self.comparison is not None or self.check is None or self.diagnostic is not None:
+        elif (
+            self.evaluations
+            or self.comparison is not None
+            or self.check is None
+            or self.diagnostic is not None
+        ):
             raise ValueError("invalid_report_target_branch")
         selected = {
             name
@@ -523,19 +537,20 @@ class ReportContent(Record):
         group_context = self.diagnostic or self.check
         member_contexts = group_context.members if group_context is not None else ()
         expected_eval_ids = tuple(dict.fromkeys(item.evaluation_id for item in evidence_contexts))
-        expected_result_ids = tuple(dict.fromkeys(
-            item.result_snapshot_id for item in evidence_contexts
-        )) if evidence_contexts else tuple(dict.fromkeys(item.result_snapshot_id for item in member_contexts))
-        expected_label_ids = tuple(dict.fromkeys(
-            item.label_snapshot_id for item in evidence_contexts
-        )) if evidence_contexts else tuple(dict.fromkeys(item.label_snapshot_id for item in member_contexts))
+        expected_result_ids = (
+            tuple(dict.fromkeys(item.result_snapshot_id for item in evidence_contexts))
+            if evidence_contexts
+            else tuple(dict.fromkeys(item.result_snapshot_id for item in member_contexts))
+        )
+        expected_label_ids = (
+            tuple(dict.fromkeys(item.label_snapshot_id for item in evidence_contexts))
+            if evidence_contexts
+            else tuple(dict.fromkeys(item.label_snapshot_id for item in member_contexts))
+        )
         if (
-            self.target.evaluation_ids
-            != expected_eval_ids
-            or self.target.result_snapshot_ids
-            != expected_result_ids
-            or self.target.label_snapshot_ids
-            != expected_label_ids
+            self.target.evaluation_ids != expected_eval_ids
+            or self.target.result_snapshot_ids != expected_result_ids
+            or self.target.label_snapshot_ids != expected_label_ids
         ):
             raise ValueError("report_target_links_mismatch")
         if self.target.kind == "run" and any(
@@ -556,7 +571,10 @@ class ReportContent(Record):
                 raise ValueError("report_comparison_links_mismatch")
         if self.target.kind in ("diagnostic", "check"):
             assert group_context is not None
-            if group_context.group_id != self.target.target_id or group_context.snapshot_id != self.target.group_snapshot_id:
+            if (
+                group_context.group_id != self.target.target_id
+                or group_context.snapshot_id != self.target.group_snapshot_id
+            ):
                 raise ValueError("report_group_links_mismatch")
         allowed_limitations = {
             "authored_fixture_not_provider_quality",

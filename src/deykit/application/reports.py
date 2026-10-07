@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Literal, cast
 
+from deykit.application.checks import FrozenCheckSnapshot
 from deykit.application.comparisons import admit_comparison_from_records
 from deykit.application.dataset_support import fail, identifier
-from deykit.application.errors import ServiceFailure
-from deykit.application.checks import FrozenCheckSnapshot
 from deykit.application.diagnostics import FrozenDiagnosticSnapshot
+from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import (
     EvaluationService,
     EvaluationView,
@@ -18,6 +18,7 @@ from deykit.application.evaluations import (
 from deykit.comparisons.models import ComparisonOutcomes
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.execution_groups import CheckSnapshot, DiagnosticSnapshot
 from deykit.contracts.identities import new_id
 from deykit.contracts.json_value import (
     JsonError,
@@ -36,7 +37,6 @@ from deykit.contracts.ports import (
     StoredRecord,
 )
 from deykit.contracts.records import ReportRecord, ResultSnapshot
-from deykit.contracts.execution_groups import CheckSnapshot, DiagnosticSnapshot
 from deykit.contracts.redaction import Sanitizer
 from deykit.reports.admission import (
     ReportAdmissionError,
@@ -44,14 +44,21 @@ from deykit.reports.admission import (
     admit_report_metadata,
     report_hash,
 )
+from deykit.reports.group_projection import (
+    project_check,
+    project_diagnostic,
+    project_group_raw,
+    read_check,
+    read_diagnostic,
+)
 from deykit.reports.models import (
+    CheckReport,
+    DiagnosticReport,
     ExportOutcome,
     FrozenTarget,
     RawMaterial,
     RenderedArtifact,
     ReportContent,
-    CheckReport,
-    DiagnosticReport,
     ReportEvaluation,
     ReportFormat,
     ReportMetadata,
@@ -61,8 +68,8 @@ from deykit.reports.models import (
 )
 from deykit.reports.ports import ArtifactWriter
 from deykit.reports.projection import (
-    expected_limitations,
     expected_group_limitations,
+    expected_limitations,
     project_evaluation,
     safe_comparison_outcomes,
     sanitizer_would_change,
@@ -72,13 +79,6 @@ from deykit.reports.projection import (
     validate_report_metadata_identities,
 )
 from deykit.reports.render import render_content
-from deykit.reports.group_projection import (
-    project_check,
-    project_diagnostic,
-    project_group_raw,
-    read_check,
-    read_diagnostic,
-)
 
 
 def _index(records: tuple[StoredRecord, ...]) -> dict[ResourceKey, StoredRecord]:
@@ -351,26 +351,22 @@ class ReportService:
                 )
                 if target_kind == "diagnostic":
                     assert isinstance(group_snapshot, FrozenDiagnosticSnapshot)
-                    diagnostic_source = project_diagnostic(
-                        records, group_snapshot, self.sanitizer
-                    )
+                    diagnostic_source = project_diagnostic(records, group_snapshot, self.sanitizer)
                     diagnostic_snapshot_id = group_snapshot.snapshot.id
                 else:
                     assert isinstance(group_snapshot, FrozenCheckSnapshot)
                     check_source = project_check(records, group_snapshot, self.sanitizer)
                     check_snapshot_id = group_snapshot.snapshot.id
-                raw_tuple = project_group_raw(
-                    records, group_snapshot, self.sanitizer, request.raw
-                )
+                raw_tuple = project_group_raw(records, group_snapshot, self.sanitizer, request.raw)
                 group_context = diagnostic_source or check_source
                 if group_context is None:
                     fail("report_link_mismatch", "incompatible_data")
-                result_ids = tuple(dict.fromkeys(
-                    member.result_snapshot_id for member in group_context.members
-                ))
-                label_ids = tuple(dict.fromkeys(
-                    member.label_snapshot_id for member in group_context.members
-                ))
+                result_ids = tuple(
+                    dict.fromkeys(member.result_snapshot_id for member in group_context.members)
+                )
+                label_ids = tuple(
+                    dict.fromkeys(member.label_snapshot_id for member in group_context.members)
+                )
             else:
                 fail("report_target_missing", "not_found")
 
@@ -382,8 +378,12 @@ class ReportService:
                 material.extend(raw_items)
             eval_ids = tuple(dict.fromkeys(view.record.id for view in eval_views))
             if group_snapshot is None:
-                result_ids = tuple(dict.fromkeys(view.record.result_snapshot_id for view in eval_views))
-                label_ids = tuple(dict.fromkeys(view.record.label_snapshot_id for view in eval_views))
+                result_ids = tuple(
+                    dict.fromkeys(view.record.result_snapshot_id for view in eval_views)
+                )
+                label_ids = tuple(
+                    dict.fromkeys(view.record.label_snapshot_id for view in eval_views)
+                )
                 raw_tuple = tuple(dict.fromkeys(material))
                 limitation_tuple = expected_limitations(tuple(evaluations), raw_tuple)
             else:
@@ -397,9 +397,7 @@ class ReportService:
                     label_snapshot_ids=label_ids,
                     comparison_id=comparison_id,
                     comparison_hash=comparison_hash,
-                    group_snapshot_id=(
-                        diagnostic_snapshot_id or check_snapshot_id
-                    ),
+                    group_snapshot_id=(diagnostic_snapshot_id or check_snapshot_id),
                 ),
                 raw=request.raw,
                 evaluations=tuple(evaluations),
@@ -518,15 +516,14 @@ class ReportService:
             )
             group_context = admitted.content.diagnostic or admitted.content.check
             assert group_context is not None
-            expected_limitations_value = expected_group_limitations(
-                group_context, admitted.content
-            )
+            expected_limitations_value = expected_group_limitations(group_context, admitted.content)
         else:
             for saved_evaluation in admitted.content.evaluations:
                 evaluation_id = saved_evaluation.context.evaluation_id
                 linked = next(
                     (
-                        item for item in records
+                        item
+                        for item in records
                         if item.key == ResourceKey("evaluations", evaluation_id)
                     ),
                     None,

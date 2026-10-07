@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import cast
 
 from deykit.application.checks import FrozenCheckSnapshot, check_snapshot_from_records
+from deykit.application.dataset_support import fail
 from deykit.application.diagnostics import (
     ChoiceOrderRequest,
     FrozenDiagnosticSnapshot,
     diagnostic_snapshot_from_records,
 )
 from deykit.application.evaluations import FrozenEvaluation
-from deykit.application.dataset_support import fail
 from deykit.contracts.codec import dump_record
 from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.json_value import JsonError, dump_json, parse_json
@@ -25,9 +25,9 @@ from deykit.reports.models import (
     DiagnosticSummaryDisplay,
     GroupReportContext,
     MemberEvidenceContext,
+    RateDisplay,
     RawChoices,
     RawMaterial,
-    RateDisplay,
 )
 from deykit.reports.projection import _prepared, _safe_identity, project_frozen_raw_material
 
@@ -114,7 +114,8 @@ def _member_context(
 
 
 def _group_context(
-    records: tuple[StoredRecord, ...], frozen: FrozenDiagnosticSnapshot | FrozenCheckSnapshot,
+    records: tuple[StoredRecord, ...],
+    frozen: FrozenDiagnosticSnapshot | FrozenCheckSnapshot,
     sanitizer: Sanitizer,
 ) -> GroupReportContext:
     segment_id = frozen.segment.id if frozen.segment is not None else None
@@ -228,11 +229,15 @@ def project_check(
             case.result_snapshot_id,
             *case.expected_option_ids,
             case.input_hash,
-            *(value for value in (
-                case.source_run_id,
-                case.source_result_snapshot_id,
-                case.source_attempt_id,
-            ) if value is not None),
+            *(
+                value
+                for value in (
+                    case.source_run_id,
+                    case.source_result_snapshot_id,
+                    case.source_attempt_id,
+                )
+                if value is not None
+            ),
         ):
             _safe_identity(sanitizer, identity)
         cases.append(

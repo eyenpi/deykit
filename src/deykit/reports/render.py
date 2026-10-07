@@ -268,7 +268,8 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "## Diagnostic snapshot",
             "",
             f"- Group: `{_inline(diagnostic.group_id)}` ({_inline(diagnostic.group_hash)})",
-            f"- Snapshot: `{_inline(diagnostic.snapshot_id)}` ({_inline(diagnostic.snapshot_hash)}), "
+            f"- Snapshot: `{_inline(diagnostic.snapshot_id)}` "
+            f"({_inline(diagnostic.snapshot_hash)}), "
             f"sequence {diagnostic.snapshot_sequence}",
             f"- Segment: `{_inline(diagnostic.segment_id or 'initial')}`",
             f"- Attempt cap: {diagnostic.max_attempts}; deadline seconds: "
@@ -283,7 +284,8 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "",
             "### Pinned members",
             "",
-            "| Run | Result snapshot | Label snapshot | Requested model | Compilers | Option order |",
+            "| Run | Result snapshot | Label snapshot | Requested model | "
+            "Compilers | Option order |",
             "| --- | --- | --- | --- | --- | --- |",
         ]
         for member in diagnostic.members:
@@ -338,7 +340,8 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "",
             "### Pinned members",
             "",
-            "| Run | Result snapshot | Label snapshot | Requested model | Compilers | Option order |",
+            "| Run | Result snapshot | Label snapshot | Requested model | "
+            "Compilers | Option order |",
             "| --- | --- | --- | --- | --- | --- |",
         ]
         for member in check.members:
@@ -360,7 +363,8 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "",
             "### Frozen regression outcomes",
             "",
-            "| Regression | Original hash | Case | Expected | Actual | Pass | Status | Provenance | Split | Reason |",
+            "| Regression | Original hash | Case | Expected | Actual | Pass | Status | "
+            "Provenance | Split | Reason |",
             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
         for case in check.cases:

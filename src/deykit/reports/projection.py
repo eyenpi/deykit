@@ -29,12 +29,12 @@ from deykit.metrics import assess_results
 from deykit.reports.models import (
     AttemptEvidence,
     EvaluationMetrics,
+    GroupReportContext,
     RawChoices,
     RawMaterial,
     ReportCase,
     ReportContent,
     ReportEvaluation,
-    GroupReportContext,
     ReportMetadata,
     RunEvidenceContext,
 )
@@ -431,15 +431,30 @@ def validate_report_identity_context(
         for member in group_report.members:
             group_identities.extend(
                 (
-                    member.run_id, member.manifest_hash, member.decision_id,
-                    member.decision_revision_id, member.definition_hash, member.dataset_id,
-                    member.dataset_snapshot_id, member.dataset_hash, member.label_snapshot_id,
-                    member.label_hash, member.result_snapshot_id, member.result_hash,
-                    member.provider_profile_id, member.provider_config_hash, member.adapter,
-                    *member.compiler_ids, member.question_id, *member.option_ids,
-                    *member.option_order, *member.selected_case_ids,
-                    member.baseline_dataset_snapshot_id, member.baseline_dataset_hash,
-                    member.baseline_label_snapshot_id, member.baseline_label_hash,
+                    member.run_id,
+                    member.manifest_hash,
+                    member.decision_id,
+                    member.decision_revision_id,
+                    member.definition_hash,
+                    member.dataset_id,
+                    member.dataset_snapshot_id,
+                    member.dataset_hash,
+                    member.label_snapshot_id,
+                    member.label_hash,
+                    member.result_snapshot_id,
+                    member.result_hash,
+                    member.provider_profile_id,
+                    member.provider_config_hash,
+                    member.adapter,
+                    *member.compiler_ids,
+                    member.question_id,
+                    *member.option_ids,
+                    *member.option_order,
+                    *member.selected_case_ids,
+                    member.baseline_dataset_snapshot_id,
+                    member.baseline_dataset_hash,
+                    member.baseline_label_snapshot_id,
+                    member.baseline_label_hash,
                 )
             )
             if member.fixture_set_id is not None:
@@ -452,18 +467,26 @@ def validate_report_identity_context(
             for case in content.check.cases:
                 group_identities.extend(
                     (
-                        case.regression_id, case.regression_hash, case.dataset_id, case.case_id,
-                        case.run_id, case.result_snapshot_id, *case.expected_option_ids,
+                        case.regression_id,
+                        case.regression_hash,
+                        case.dataset_id,
+                        case.case_id,
+                        case.run_id,
+                        case.result_snapshot_id,
+                        *case.expected_option_ids,
                         case.input_hash,
                     )
                 )
                 if case.actual_option_id is not None:
                     group_identities.append(case.actual_option_id)
                 group_identities.extend(
-                    item for item in (
-                        case.source_run_id, case.source_result_snapshot_id,
+                    item
+                    for item in (
+                        case.source_run_id,
+                        case.source_result_snapshot_id,
                         case.source_attempt_id,
-                    ) if item is not None
+                    )
+                    if item is not None
                 )
         for identity in group_identities:
             _safe_identity(sanitizer, identity)
@@ -591,7 +614,8 @@ def project_frozen_raw_material(
 ) -> tuple[RawMaterial, ...]:
     """Project opted-in raw evidence through the one shared core/group path."""
     prepared_by_case = {
-        item.case_id: item for item in (prepared if prepared is not None else _prepared(records, frozen))
+        item.case_id: item
+        for item in (prepared if prepared is not None else _prepared(records, frozen))
     }
     results_by_id = {item.case_id: item for item in frozen.results.results}
     cases_by_id = {case.id: case for case in frozen.dataset.cases}

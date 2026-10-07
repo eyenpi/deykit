@@ -13,14 +13,14 @@ import pytest
 from pydantic import ValidationError
 
 import deykit.application.reports as reports_module
-from deykit.application.comparisons import ComparisonService
 from deykit.application.checks import CheckRequest, CheckService, check_snapshot_from_records
+from deykit.application.comparisons import ComparisonService
+from deykit.application.demo import DemoService
 from deykit.application.diagnostics import (
     ChoiceOrderRequest,
     DiagnosticService,
     diagnostic_snapshot_from_records,
 )
-from deykit.application.demo import DemoService
 from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import EvaluationService, evaluation_hash
 from deykit.application.execution import ExecutionService
@@ -45,17 +45,17 @@ from deykit.contracts.records import (
     EvaluationRecord,
     NormalizedAnswer,
     PreparedCase,
-    ReportRecord,
     RegressionRecord,
+    ReportRecord,
     ResultSnapshot,
     RunManifest,
 )
 from deykit.contracts.redaction import Sanitizer
+from deykit.regressions.evidence import regression_hash
 from deykit.reports.admission import report_hash
 from deykit.reports.models import RawChoices, RawMaterial, ReportContent, ReportRequest
 from deykit.reports.projection import project_json_source, project_opaque_response_bytes
 from deykit.reports.render import render_content
-from deykit.regressions.evidence import regression_hash
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
@@ -1204,9 +1204,10 @@ def test_pinned_group_reports_use_actual_p12_snapshots_and_no_evaluations(
             writer=NativeArtifactWriter(),
         )
         assert export.success is True
-        assert destination.read_bytes() == reports.render(
-            diagnostic_report.record.id, format="json"
-        ).body
+        assert (
+            destination.read_bytes()
+            == reports.render(diagnostic_report.record.id, format="json").body
+        )
 
         check_report = reports.create(
             ReportRequest(
@@ -1230,11 +1231,14 @@ def test_pinned_group_reports_use_actual_p12_snapshots_and_no_evaluations(
         old_check = reports.read(check_report.record.id)
         assert old_check.content.check == check_report.content.check
         assert reports.metadata(check_report.record.id).target_kind == "check"
-        assert tuple(
-            item.key.resource_id
-            for item in source.capture_snapshot()
-            if item.key.collection == "evaluations"
-        ) == evaluation_ids_before_reports
+        assert (
+            tuple(
+                item.key.resource_id
+                for item in source.capture_snapshot()
+                if item.key.collection == "evaluations"
+            )
+            == evaluation_ids_before_reports
+        )
 
         original = source.read(ResourceKey("regressions", regressions[0].id))
         assert original is not None
