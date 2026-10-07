@@ -1030,7 +1030,7 @@ def test_file_project_report_export_writes_rendered_bytes_after_source_read(
         )
         assert blocked.success is False
         assert blocked.error is not None
-        assert blocked.error.reason == "export_destination_unsafe"
+        assert blocked.error.reason == "export_destination_protected"
         outcome = ReportService(tracked, clock).export(
             report.record.id,
             format="json",
