@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Literal, cast
 
 from deykit.application.checks import FrozenCheckSnapshot, check_snapshot_from_records
 from deykit.application.dataset_support import fail
 from deykit.application.diagnostics import (
-    ChoiceOrderRequest,
     FrozenDiagnosticSnapshot,
     diagnostic_snapshot_from_records,
 )
@@ -152,16 +152,35 @@ def _selection(frozen: FrozenDiagnosticSnapshot) -> tuple[int, str, tuple[tuple[
         ):
             fail("report_group_selection_mismatch", "incompatible_data")
         request_source = source["request"]
-        request = ChoiceOrderRequest.model_validate_json(dump_json(request_source))
+        if (
+            set(request_source) - {"run", "orders", "seed"}
+            or not isinstance(request_source.get("run"), dict)
+        ):
+            fail("report_group_selection_mismatch", "incompatible_data")
+        raw_orders = request_source.get("orders", 4)
+        raw_seed = request_source.get("seed", 0)
+        orders = _exact_bounded_integer(raw_orders, minimum=1, maximum=4)
+        seed = _exact_bounded_integer(raw_seed, minimum=-(2**63), maximum=(2**63) - 1)
     except (JsonError, ValueError):
         fail("report_group_selection_mismatch", "incompatible_data")
-    orders = tuple(member.manifest.option_order for member in frozen.members)
+    member_orders = tuple(member.manifest.option_order for member in frozen.members)
     if (
-        request.orders != len(frozen.members)
-        or tuple(order for order in orders if order is not None) != orders
+        orders != len(frozen.members)
+        or tuple(order for order in member_orders if order is not None) != member_orders
     ):
         fail("report_group_selection_mismatch", "incompatible_data")
-    return request.seed, "deykit-choice-order-v1", cast(tuple[tuple[str, ...], ...], orders)
+    return seed, "deykit-choice-order-v1", cast(tuple[tuple[str, ...], ...], member_orders)
+
+
+def _exact_bounded_integer(value: JsonValue, *, minimum: int, maximum: int) -> int:
+    if type(value) is int:
+        if minimum <= value <= maximum:
+            return value
+        fail("report_group_selection_mismatch", "incompatible_data")
+    if isinstance(value, Decimal):
+        if value.is_finite() and value == value.to_integral_value() and minimum <= value <= maximum:
+            return int(value)
+    fail("report_group_selection_mismatch", "incompatible_data")
 
 
 def project_diagnostic(
