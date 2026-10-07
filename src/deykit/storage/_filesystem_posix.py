@@ -18,7 +18,7 @@ from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
 
 if sys.platform != "win32":
-    from os import O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK
+    from os import O_DIRECTORY as O_DIRECTORY, O_NOFOLLOW as O_NOFOLLOW, O_NONBLOCK
 else:
     # Never used: constructing this private backend rejects non-POSIX hosts.
     O_DIRECTORY = O_NOFOLLOW = O_NONBLOCK = 0

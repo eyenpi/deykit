@@ -9,6 +9,7 @@ import pytest
 
 from deykit.contracts.artifacts import ArtifactWriteOutcome
 from deykit.contracts.errors import ServiceError
+from deykit.storage._filesystem_posix import PosixFiles
 from deykit.storage.artifact_export import NativeArtifactWriter
 
 
@@ -110,24 +111,27 @@ def test_invalid_destinations_preserve_existing_targets(tmp_path, path_kind):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Uses POSIX directory descriptors.")
-def test_parent_rebinding_never_redirects_the_anchored_write(tmp_path):
+def test_parent_rebinding_never_redirects_the_anchored_write(tmp_path, monkeypatch):
     parent = tmp_path / "output"
     moved_parent = tmp_path / "moved-output"
     redirect = tmp_path / "redirect"
     parent.mkdir()
     redirect.mkdir()
-    calls = 0
+    original_replace_in = PosixFiles._replace_in
 
-    def rebind_after_final_check(_display: str) -> bool:
-        nonlocal calls
-        calls += 1
-        if calls == 3:
+    def move_after_admission(self, parent_fd, leaf, body, *, before_replace=None):
+        def rebind() -> None:
+            if before_replace is not None:
+                before_replace()
             parent.rename(moved_parent)
             parent.symlink_to(redirect, target_is_directory=True)
-        return True
+
+        return original_replace_in(self, parent_fd, leaf, body, before_replace=rebind)
+
+    monkeypatch.setattr(PosixFiles, "_replace_in", move_after_admission)
 
     outcome = NativeArtifactWriter().write(
-        str(parent / "report.json"), b"anchored bytes", display_is_safe=rebind_after_final_check
+        str(parent / "report.json"), b"anchored bytes", display_is_safe=lambda _value: True
     )
 
     _successful(outcome)
@@ -136,7 +140,7 @@ def test_parent_rebinding_never_redirects_the_anchored_write(tmp_path):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="Uses POSIX directory descriptors.")
-def test_project_protection_guard_rebinding_keeps_protected_bytes(tmp_path):
+def test_project_protection_guard_rebinding_keeps_protected_bytes(tmp_path, monkeypatch):
     project = tmp_path / "project"
     moved_project = tmp_path / "moved-project"
     redirect = tmp_path / "redirect-project"
@@ -144,20 +148,23 @@ def test_project_protection_guard_rebinding_keeps_protected_bytes(tmp_path):
     (project / "source").mkdir()
     (project / "source" / "record.json").write_bytes(b"protected bytes")
     redirect.mkdir()
-    calls = 0
+    original_replace_in = PosixFiles._replace_in
 
-    def rebind_after_guard_check(_display: str) -> bool:
-        nonlocal calls
-        calls += 1
-        if calls == 3:
+    def move_after_admission(self, parent_fd, leaf, body, *, before_replace=None):
+        def rebind() -> None:
+            if before_replace is not None:
+                before_replace()
             project.rename(moved_project)
             project.symlink_to(redirect, target_is_directory=True)
-        return True
+
+        return original_replace_in(self, parent_fd, leaf, body, before_replace=rebind)
+
+    monkeypatch.setattr(PosixFiles, "_replace_in", move_after_admission)
 
     outcome = NativeArtifactWriter((project,)).write(
         str(project / "reports" / "report.json"),
         b"report bytes",
-        display_is_safe=rebind_after_guard_check,
+        display_is_safe=lambda _value: True,
     )
 
     _successful(outcome)
@@ -304,6 +311,34 @@ def test_requested_and_canonical_display_checks_run_before_staging(tmp_path):
     assert Path(calls[1]).is_absolute()
     assert not (tmp_path / relative).exists()
     assert tuple(tmp_path.iterdir()) == ()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Uses process-relative POSIX destinations.")
+def test_final_requested_display_rejection_preserves_old_bytes_and_cleans_temporary(
+    tmp_path, monkeypatch
+):
+    parent = tmp_path / "relative"
+    parent.mkdir()
+    destination = parent / "report.bin"
+    destination.write_bytes(b"old bytes")
+    requested = "relative/report.bin"
+    requested_checks = 0
+
+    def policy(value: str) -> bool:
+        nonlocal requested_checks
+        if value == requested:
+            requested_checks += 1
+            return requested_checks < 3
+        return True
+
+    monkeypatch.chdir(tmp_path)
+    outcome = NativeArtifactWriter().write(requested, b"new bytes", display_is_safe=policy)
+
+    _failed(outcome)
+    assert outcome.error.reason == "unsafe_destination_display"
+    assert requested_checks == 3
+    assert destination.read_bytes() == b"old bytes"
+    assert tuple(parent.iterdir()) == (destination,)
 
 
 def test_requested_display_rejection_and_callback_exception_fail_before_mutation(tmp_path):

@@ -166,9 +166,9 @@ class NativeArtifactWriter:
                 _location(str(root), directory=True) for root in self.protected_project_roots
             )
             if os.name == "posix":
-                return self._write_posix(location, protected, body, display_is_safe)
+                return self._write_posix(destination, location, protected, body, display_is_safe)
             if os.name == "nt":
-                return self._write_windows(location, protected, body, display_is_safe)
+                return self._write_windows(destination, location, protected, body, display_is_safe)
             raise _invalid("unsupported_export_platform")
         except _Rejected as error:
             return _failure(error.code, error.reason)
@@ -185,6 +185,7 @@ class NativeArtifactWriter:
 
     def _write_posix(
         self,
+        requested: str,
         location: _Location,
         protected: tuple[_Location, ...],
         body: bytes,
@@ -202,6 +203,7 @@ class NativeArtifactWriter:
                 guards.append(self._open_posix_guard(backend, project))
             leaf = location.components[-1]
             display = "/" + "/".join(location.components)
+            self._safe_display(requested, display_is_safe)
             self._safe_display(display, display_is_safe)
             self._check_posix_protection(location, destination_chain, guards)
             backend._check_target(destination_chain[-1], leaf)
@@ -212,6 +214,7 @@ class NativeArtifactWriter:
                     self._recheck_posix_guard(backend, guard)
                 self._check_posix_protection(location, destination_chain, guards)
                 backend._check_target(destination_chain[-1], leaf)
+                self._safe_display(requested, display_is_safe)
                 self._safe_display(display, display_is_safe)
 
             result = backend._replace_in(
@@ -387,6 +390,7 @@ class NativeArtifactWriter:
 
     def _write_windows(
         self,
+        requested: str,
         location: _Location,
         protected: tuple[_Location, ...],
         body: bytes,
@@ -416,6 +420,7 @@ class NativeArtifactWriter:
                 guards.append(self._open_windows_guard(files_for(project.root), project))
             leaf = location.components[-1]
             display = self._windows_display(backend, destination_chain[-1], leaf)
+            self._safe_display(requested, display_is_safe)
             self._safe_display(display, display_is_safe)
             self._check_windows_protection(location, destination_chain, guards, backend)
             backend._check_target(cast(win.Handle, destination_chain[-1]), leaf)
@@ -426,6 +431,7 @@ class NativeArtifactWriter:
                     self._recheck_windows_guard(guard.backend, guard)
                 self._check_windows_protection(location, destination_chain, guards, backend)
                 backend._check_target(cast(win.Handle, destination_chain[-1]), leaf)
+                self._safe_display(requested, display_is_safe)
                 self._safe_display(
                     self._windows_display(backend, destination_chain[-1], leaf),
                     display_is_safe,
