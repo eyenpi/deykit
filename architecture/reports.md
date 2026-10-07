@@ -1,0 +1,29 @@
+# Immutable evidence reports
+
+`ReportService.create(request, operation_id=...)` saves an immutable report for a
+run, evaluation, or comparison. It admits linked evaluation and comparison
+records against one captured source boundary. If a selected run result has no
+original evaluation, creation delegates to the saved-answer evaluation service.
+This path makes no provider calls.
+
+`read(report_id)` admits the saved report against its immutable evidence.
+`metadata(report_id)` and `list(cursor=..., limit=...)` return metadata without
+raw material. `render(report_id, format="json" | "markdown")` produces exact,
+deterministic UTF-8 bytes. `export(report_id, format=..., destination=...,
+writer=...)` sends those detached bytes through the neutral
+`contracts.artifacts.ArtifactWriter` port after releasing the source boundary.
+Exports retain the saved report identity and typed destination outcome for
+retry.
+
+Raw inputs, prepared request bodies, and stored response material are excluded
+by default. `RawChoices` controls the three categories independently. Structured
+values pass through the pure sanitizer; original evidence hashes remain bound
+alongside sanitized-copy hashes. The sanitizer does not recognize arbitrary
+unknown plaintext secrets.
+
+The v1 report hash covers the profile, immutable link lists, reserved nullable
+group links, raw choices, and exact content. Content is limited to 1 MiB and
+rendered artifacts to 8 MiB; neither is truncated. JSON and Markdown preserve
+saved denominators, null reasons, partial outcomes, fixture status, and
+comparison buckets. Fixture evidence is authored software-verification
+material, not provider-quality evidence.
