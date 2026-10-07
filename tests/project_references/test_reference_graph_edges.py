@@ -283,7 +283,6 @@ def test_typed_report_graph_uses_the_captured_report_reader(monkeypatch) -> None
     from types import SimpleNamespace
 
     from deykit.application import project_references
-    from deykit.reports.admission import ReportAdmissionError
 
     report = ReportRecord(
         id="report",
@@ -298,7 +297,9 @@ def test_typed_report_graph_uses_the_captured_report_reader(monkeypatch) -> None
 
     def reject_report(stored, _records):
         calls.append(stored.key.resource_id)
-        raise ReportAdmissionError("report_hash_mismatch")
+        raise ServiceFailure(
+            ServiceError(code="incompatible_data", reason="report_hash_mismatch")
+        )
 
     monkeypatch.setattr(
         project_references,
