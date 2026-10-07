@@ -151,7 +151,7 @@ def _selection(frozen: FrozenDiagnosticSnapshot) -> tuple[int, str, tuple[tuple[
             or not isinstance(source.get("request"), dict)
         ):
             fail("report_group_selection_mismatch", "incompatible_data")
-        request_source = source["request"]
+        request_source = cast(dict[str, JsonValue], source["request"])
         if set(request_source) - {"run", "orders", "seed"} or not isinstance(
             request_source.get("run"), dict
         ):
