@@ -171,11 +171,13 @@ def test_orphan_attempt_event_and_foreign_run_segment_are_hard_failures() -> Non
             state="reserved",
             created_at=STAMP,
         ),
+        ("missing-attempt",),
     )
     try:
         validate_project_references((project(), orphan))
     except ServiceFailure as error:
         assert error.error.reason == "project_reference_missing"
+        assert error.error.resource_id == "orphan-event"
     else:
         raise AssertionError("orphan attempt event was admitted")
 
