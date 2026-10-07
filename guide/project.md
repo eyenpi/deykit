@@ -32,6 +32,23 @@ assert projects.open(Path("my-project")).project.id == info.project.id
 projects.rebuild_index(Path("my-project"))
 ```
 
+`project show` is a metadata view. `project validate` checks the project
+reference graph from one captured source batch and reports safe warnings for
+recognized evidence that remains readable but cannot be executed. It does not
+repair records. A retained-source caller can use
+`ProjectService.validate_opened(source)`; that method leaves the caller's source
+open on success and failure.
+
+```sh
+deykit project show
+deykit project validate
+deykit --json --project "/path/to/project" project validate
+```
+
+Invalid project structure returns exit code 2 with a safe error reason. Successful
+JSON validation includes a `warnings` array, which is empty when no supported
+legacy limitation applies.
+
 Use a new operation ID for a different requested mutation; retry the same operation
 ID for the same request after an uncertain interruption. Conflicts preserve your
 editor/source input. Read `ServiceFailure.error` for safe code/reason information.

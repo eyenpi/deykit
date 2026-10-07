@@ -6,10 +6,19 @@ import pytest
 
 from deykit.application.datasets import CaseInput
 from deykit.application.errors import ServiceFailure
-from deykit.application.splits import SplitService
-from deykit.contracts.json_value import JsonDocument, parse_json
+from deykit.application.splits import (
+    SplitService,
+    admit_dataset_snapshot,
+    split_snapshot_hash,
+)
+from deykit.contracts.codec import dump_record
+from deykit.contracts.evidence import evidence_hash
+from deykit.contracts.json_value import (
+    JsonDocument,
+    parse_json,
+)
 from deykit.contracts.ports import ResourceKey
-from deykit.contracts.records import CaseRecord
+from deykit.contracts.records import CaseRecord, DatasetSnapshot
 from deykit.domain.splits import assign, connected_groups, ratios
 
 
@@ -83,6 +92,142 @@ def test_exact_ratios_zero_destinations_and_context_independent_arithmetic():
 def test_malformed_ratios_fail_exactly(source):
     with pytest.raises(ValueError):
         ratios(source)
+
+
+def test_split_hash_profile_remains_distinct_from_ordinary_snapshot_profile():
+    frozen_cases = (case("frozen", split="development"),)
+    selection_source = (
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v1",'
+        '"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","development"]],'
+        '"groups":[["frozen"]],"counts":{"development":1,"calibration":0,"test":0},'
+        '"input_identity":"' + "0" * 64 + '","dataset_etag":"' + "1" * 64 + '"}'
+    )
+    expected_split_hash = "7250701a0ecd6e7523a58940908857b67ccadd7fb776b3542265ec0d0d1d89c4"
+    assert split_snapshot_hash(frozen_cases, selection_source) == expected_split_hash
+
+    split_snapshot = DatasetSnapshot(
+        id="split-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=expected_split_hash,
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+    ordinary_hash = "df798156f95e16a726d3f863eaedc61415b648660812c333519535a4c31412b2"
+    assert evidence_hash(tuple(dump_record(item) for item in frozen_cases)) == ordinary_hash
+    ordinary_snapshot = DatasetSnapshot(
+        id="ordinary-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=ordinary_hash,
+        created_at="2026-10-05T12:00:00Z",
+        selection_source="{}",
+    )
+    assert split_snapshot.content_hash != ordinary_snapshot.content_hash
+    assert admit_dataset_snapshot(split_snapshot) == split_snapshot
+    assert admit_dataset_snapshot(ordinary_snapshot) == ordinary_snapshot
+
+
+def test_split_snapshot_counts_are_bounded_before_integer_conversion():
+    frozen_cases = (case("frozen", split="development"),)
+    selection_source = (
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v1",'
+        '"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","development"]],'
+        '"groups":[["frozen"]],"counts":{"development":999999999999999999999,'
+        '"calibration":0,"test":0},"input_identity":"'
+        + "0" * 64
+        + '","dataset_etag":"'
+        + "1" * 64
+        + '"}'
+    )
+    snapshot = DatasetSnapshot(
+        id="bad-count-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=split_snapshot_hash(frozen_cases, selection_source),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as invalid_count:
+        admit_dataset_snapshot(snapshot)
+
+    assert invalid_count.value.error.reason == "invalid_split_counts"
+
+
+@pytest.mark.parametrize(
+    "selection_source",
+    [
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v99"}',
+        '{"snapshot_hash_profile":null}',
+    ],
+)
+def test_unknown_snapshot_hash_profile_is_not_admitted_as_ordinary_legacy_hash(
+    selection_source,
+):
+    frozen_cases = (case("frozen", split="development"),)
+    snapshot = DatasetSnapshot(
+        id="unknown-profile-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=evidence_hash(tuple(dump_record(item) for item in frozen_cases)),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as unknown_profile:
+        admit_dataset_snapshot(snapshot)
+
+    assert unknown_profile.value.error.reason == "unknown_snapshot_hash_profile"
+
+
+def test_rehashed_automatic_split_must_match_declared_seed_and_ratios():
+    frozen_cases = (case("frozen", split="test"),)
+    selection_source = (
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v1",'
+        '"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","test"]],'
+        '"groups":[["frozen"]],"counts":{"development":0,"calibration":0,"test":1},'
+        '"input_identity":"' + "0" * 64 + '","dataset_etag":"' + "1" * 64 + '"}'
+    )
+    snapshot = DatasetSnapshot(
+        id="forged-automatic-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=split_snapshot_hash(frozen_cases, selection_source),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as assignment_mismatch:
+        admit_dataset_snapshot(snapshot)
+
+    assert assignment_mismatch.value.error.reason == "split_snapshot_assignment_mismatch"
+
+
+def test_dropping_split_profile_marker_does_not_make_modern_selection_legacy():
+    frozen_cases = (case("frozen", split="development"),)
+    selection_source = (
+        '{"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","development"]],'
+        '"groups":[["frozen"]],"counts":{"development":1,"calibration":0,"test":0},'
+        '"input_identity":"' + "0" * 64 + '","dataset_etag":"' + "1" * 64 + '"}'
+    )
+    snapshot = DatasetSnapshot(
+        id="profile-marker-dropped-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=evidence_hash(tuple(dump_record(item) for item in frozen_cases)),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as invalid_selection:
+        admit_dataset_snapshot(snapshot)
+
+    assert invalid_selection.value.error.reason == "invalid_dataset_snapshot_selection"
 
 
 def split_service(project):

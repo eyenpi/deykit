@@ -153,6 +153,104 @@ def _select_group_snapshot(
     fail(missing, "not_found")
 
 
+def admit_report_from_records(
+    stored: StoredRecord,
+    records: tuple[StoredRecord, ...],
+    *,
+    sanitizer: Sanitizer | None = None,
+    replayed: bool = False,
+) -> ReportView:
+    """Admit a saved report against one already captured project batch."""
+    active_sanitizer = sanitizer or Sanitizer()
+    try:
+        admitted = admit_report(stored)
+    except ReportAdmissionError as error:
+        fail(error.reason, "incompatible_data")
+    validate_report_identity_value(admitted.etag, active_sanitizer)
+    validate_report_identity_context(
+        admitted.record.id,
+        admitted.record.content_hash,
+        admitted.content,
+        active_sanitizer,
+    )
+    expected_raw: list[RawMaterial] = []
+    if admitted.content.target.kind in ("diagnostic", "check"):
+        frozen_group: FrozenDiagnosticSnapshot | FrozenCheckSnapshot
+        snapshot_id = admitted.content.target.group_snapshot_id
+        if snapshot_id is None:
+            fail("report_link_mismatch", "incompatible_data")
+        if admitted.content.target.kind == "diagnostic":
+            frozen_group = read_diagnostic(records, snapshot_id)
+            if frozen_group.group.id != admitted.content.target.target_id:
+                fail("report_link_mismatch", "incompatible_data")
+            diagnostic_projection = project_diagnostic(records, frozen_group, active_sanitizer)
+            if diagnostic_projection != admitted.content.diagnostic:
+                fail("report_link_mismatch", "incompatible_data")
+            if admitted.record.diagnostic_snapshot_id != snapshot_id:
+                fail("report_link_mismatch", "incompatible_data")
+        else:
+            frozen_group = read_check(records, snapshot_id)
+            if frozen_group.group.id != admitted.content.target.target_id:
+                fail("report_link_mismatch", "incompatible_data")
+            check_projection = project_check(records, frozen_group, active_sanitizer)
+            if check_projection != admitted.content.check:
+                fail("report_link_mismatch", "incompatible_data")
+            if admitted.record.check_snapshot_id != snapshot_id:
+                fail("report_link_mismatch", "incompatible_data")
+        expected_raw.extend(
+            project_group_raw(records, frozen_group, active_sanitizer, admitted.content.raw)
+        )
+        group_context = admitted.content.diagnostic or admitted.content.check
+        assert group_context is not None
+        expected_limitations_value = expected_group_limitations(group_context, admitted.content)
+    else:
+        for saved_evaluation in admitted.content.evaluations:
+            evaluation_id = saved_evaluation.context.evaluation_id
+            linked = next(
+                (item for item in records if item.key == ResourceKey("evaluations", evaluation_id)),
+                None,
+            )
+            if linked is None:
+                fail("report_link_mismatch", "incompatible_data")
+            view = admit_evaluation_record(linked)
+            projected, raw_items = project_evaluation(
+                records, view, active_sanitizer, admitted.content.raw
+            )
+            expected_raw.extend(raw_items)
+            if projected != saved_evaluation:
+                if sanitizer_would_change(admitted.content, active_sanitizer):
+                    fail("report_redaction_context_mismatch", "incompatible_data")
+                fail("report_link_mismatch", "incompatible_data")
+        expected_limitations_value = expected_limitations(
+            admitted.content.evaluations, admitted.content.raw_material
+        )
+    if admitted.content.limitations != expected_limitations_value:
+        fail("report_link_mismatch", "incompatible_data")
+    if admitted.record.comparison_id:
+        linked = next(
+            (
+                item
+                for item in records
+                if item.key == ResourceKey("comparisons", admitted.record.comparison_id)
+            ),
+            None,
+        )
+        if linked is None:
+            fail("report_link_mismatch", "incompatible_data")
+        comparison = admit_comparison_from_records(linked, records)
+        actual = safe_comparison_outcomes(comparison.outcomes, active_sanitizer)
+        if (
+            actual != admitted.content.comparison
+            or comparison.record.content_hash != admitted.content.target.comparison_hash
+        ):
+            fail("report_link_mismatch", "incompatible_data")
+    if tuple(dict.fromkeys(expected_raw)) != admitted.content.raw_material:
+        if sanitizer_would_change(admitted.content, active_sanitizer):
+            fail("report_redaction_context_mismatch", "incompatible_data")
+        fail("report_link_mismatch", "incompatible_data")
+    return ReportView(admitted.record, admitted.etag, admitted.content, replayed)
+
+
 class ReportService:
     def __init__(
         self,
@@ -486,97 +584,9 @@ class ReportService:
     def _admit_captured_report(
         self, stored: StoredRecord, records: tuple[StoredRecord, ...], *, replayed: bool = False
     ) -> ReportView:
-        try:
-            admitted = admit_report(stored)
-        except ReportAdmissionError as error:
-            fail(error.reason, "incompatible_data")
-        validate_report_identity_value(admitted.etag, self.sanitizer)
-        validate_report_identity_context(
-            admitted.record.id,
-            admitted.record.content_hash,
-            admitted.content,
-            self.sanitizer,
+        return admit_report_from_records(
+            stored, records, sanitizer=self.sanitizer, replayed=replayed
         )
-        expected_raw: list[RawMaterial] = []
-        if admitted.content.target.kind in ("diagnostic", "check"):
-            frozen_group: FrozenDiagnosticSnapshot | FrozenCheckSnapshot
-            snapshot_id = admitted.content.target.group_snapshot_id
-            if snapshot_id is None:
-                fail("report_link_mismatch", "incompatible_data")
-            if admitted.content.target.kind == "diagnostic":
-                frozen_group = read_diagnostic(records, snapshot_id)
-                if frozen_group.group.id != admitted.content.target.target_id:
-                    fail("report_link_mismatch", "incompatible_data")
-                diagnostic_projection = project_diagnostic(records, frozen_group, self.sanitizer)
-                if diagnostic_projection != admitted.content.diagnostic:
-                    fail("report_link_mismatch", "incompatible_data")
-                if admitted.record.diagnostic_snapshot_id != snapshot_id:
-                    fail("report_link_mismatch", "incompatible_data")
-            else:
-                frozen_group = read_check(records, snapshot_id)
-                if frozen_group.group.id != admitted.content.target.target_id:
-                    fail("report_link_mismatch", "incompatible_data")
-                check_projection = project_check(records, frozen_group, self.sanitizer)
-                if check_projection != admitted.content.check:
-                    fail("report_link_mismatch", "incompatible_data")
-                if admitted.record.check_snapshot_id != snapshot_id:
-                    fail("report_link_mismatch", "incompatible_data")
-            expected_raw.extend(
-                project_group_raw(records, frozen_group, self.sanitizer, admitted.content.raw)
-            )
-            group_context = admitted.content.diagnostic or admitted.content.check
-            assert group_context is not None
-            expected_limitations_value = expected_group_limitations(group_context, admitted.content)
-        else:
-            for saved_evaluation in admitted.content.evaluations:
-                evaluation_id = saved_evaluation.context.evaluation_id
-                linked = next(
-                    (
-                        item
-                        for item in records
-                        if item.key == ResourceKey("evaluations", evaluation_id)
-                    ),
-                    None,
-                )
-                if linked is None:
-                    fail("report_link_mismatch", "incompatible_data")
-                view = admit_evaluation_record(linked)
-                projected, raw_items = project_evaluation(
-                    records, view, self.sanitizer, admitted.content.raw
-                )
-                expected_raw.extend(raw_items)
-                if projected != saved_evaluation:
-                    if sanitizer_would_change(admitted.content, self.sanitizer):
-                        fail("report_redaction_context_mismatch", "incompatible_data")
-                    fail("report_link_mismatch", "incompatible_data")
-            expected_limitations_value = expected_limitations(
-                admitted.content.evaluations, admitted.content.raw_material
-            )
-        if admitted.content.limitations != expected_limitations_value:
-            fail("report_link_mismatch", "incompatible_data")
-        if admitted.record.comparison_id:
-            linked = next(
-                (
-                    item
-                    for item in records
-                    if item.key == ResourceKey("comparisons", admitted.record.comparison_id)
-                ),
-                None,
-            )
-            if linked is None:
-                fail("report_link_mismatch", "incompatible_data")
-            comparison = admit_comparison_from_records(linked, records)
-            actual = safe_comparison_outcomes(comparison.outcomes, self.sanitizer)
-            if (
-                actual != admitted.content.comparison
-                or comparison.record.content_hash != admitted.content.target.comparison_hash
-            ):
-                fail("report_link_mismatch", "incompatible_data")
-        if tuple(dict.fromkeys(expected_raw)) != admitted.content.raw_material:
-            if sanitizer_would_change(admitted.content, self.sanitizer):
-                fail("report_redaction_context_mismatch", "incompatible_data")
-            fail("report_link_mismatch", "incompatible_data")
-        return ReportView(admitted.record, admitted.etag, admitted.content, replayed)
 
     def metadata(self, report_id: str) -> ReportMetadata:
         key = ResourceKey("reports", identifier(report_id))
