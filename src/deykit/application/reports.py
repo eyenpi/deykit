@@ -447,12 +447,17 @@ class ReportService:
             validate_report_identity_value(bytes_hash(body), self.sanitizer)
             if cast(SnapshotSource, source).capture_snapshot() != records:
                 fail("report_source_changed", "conflict")
+            expected_key = ResourceKey("reports", record.id)
+            provisional_stored = StoredRecord(expected_key, body, bytes_hash(body))
+            try:
+                admit_report(provisional_stored)
+            except ReportAdmissionError as error:
+                fail(error.reason, "incompatible_data")
             receipt = source.commit(
                 operation_id,
-                (SourceChange(ResourceKey("reports", record.id), body, None),),
+                (SourceChange(expected_key, body, None),),
                 intent_hash=intent,
             )
-            expected_key = ResourceKey("reports", record.id)
             if (
                 receipt.operation_id != operation_id
                 or receipt.replayed

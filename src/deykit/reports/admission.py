@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from decimal import Decimal
 
 from pydantic import ValidationError
 
 from deykit.contracts.codec import load_record
-from deykit.contracts.json_value import JsonError, parse_json, semantic_hash
+from deykit.contracts.json_value import JsonError, JsonValue, parse_json, semantic_hash
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import ReportRecord
 from deykit.reports.models import RawChoices, ReportContent, ReportMetadata
@@ -34,6 +35,19 @@ def _has_persisted_version(value: object) -> bool:
         return False
     version = value.get("schema_version")
     return isinstance(version, Decimal) and version == 1 and version.as_tuple().exponent == 0
+
+
+def _validation_tree(value: JsonValue) -> JsonValue:
+    """Normalize exact numbers only in a copy used to validate the owned report envelope."""
+    if isinstance(value, dict):
+        return {key: _validation_tree(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_validation_tree(item) for item in value]
+    if isinstance(value, Decimal):
+        if value.is_finite() and value == value.to_integral_value():
+            return int(value)
+        raise ReportAdmissionError("invalid_report_content")
+    return value
 
 
 def report_hash(record: ReportRecord, content: ReportContent) -> str:
@@ -75,8 +89,11 @@ def admit_report(stored: StoredRecord) -> AdmittedReport:
             for item in evaluations
         ):
             raise ReportAdmissionError("missing_schema_version")
+        validation_source = json.dumps(
+            _validation_tree(parsed), ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        )
         content = ReportContent.model_validate_json(
-            record.content_source, context={"persisted": True}
+            validation_source, context={"persisted": True}, strict=True
         )
         target = content.target
         expected_evaluations = tuple(dict.fromkeys(target.evaluation_ids))

@@ -67,7 +67,7 @@ from deykit.contracts.records import (
 from deykit.contracts.redaction import Sanitizer
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
-from deykit.reports.admission import report_hash
+from deykit.reports.admission import ReportAdmissionError, admit_report, report_hash
 from deykit.reports.group_projection import _selection
 from deykit.reports.models import RawChoices, RawMaterial, ReportContent, ReportRequest
 from deykit.reports.projection import project_json_source, project_opaque_response_bytes
@@ -1606,7 +1606,7 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
     assert '"max_attempts":1e2' in selection_text
     selection_snapshot = replace(
         diagnostic_partial,
-        group=replace(diagnostic_partial.group, selection_source=selection_text),
+        group=diagnostic_partial.group.model_copy(update={"selection_source": selection_text}),
     )
     seed, algorithm, option_orders = _selection(selection_snapshot)
     assert seed == 0
@@ -1665,6 +1665,60 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
         ReportService(source, clock).render(replay.record.id, format="markdown").body
         == first_markdown
     )
+
+
+def test_group_report_admission_normalizes_only_exact_owned_integers(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    source = MemorySnapshotSource.from_records(graph.records)
+    view = ReportService(source, SystemClock(), lambda: "group-number-admission").create(
+        _group_report_request(graph, "diagnostic", graph.diagnostic_partial_snapshot_id),
+        operation_id="group-number-admission-create",
+    )
+
+    def stored_with_content(content_source: str) -> StoredRecord:
+        changed = view.record.model_copy(update={"content_source": content_source})
+        changed = changed.model_copy(
+            update={"content_hash": report_hash(changed, view.content)}
+        )
+        body = dump_record(changed)
+        return StoredRecord(ResourceKey("reports", changed.id), body, bytes_hash(body))
+
+    content_tree = parse_json(view.record.content_source)
+    assert isinstance(content_tree, dict)
+    diagnostic = content_tree.get("diagnostic")
+    assert isinstance(diagnostic, dict)
+    summary = diagnostic.get("summary")
+    assert isinstance(summary, dict)
+    diagnostic["max_attempts"] = Decimal(100)
+    diagnostic["deadline_seconds"] = Decimal(1000)
+    summary["expanded_result_count"] = Decimal(100)
+    exponent_source = dump_json(content_tree)
+    assert '"max_attempts":1e2' in exponent_source
+    assert '"expanded_result_count":1e2' in exponent_source
+    admitted = admit_report(stored_with_content(exponent_source))
+    assert admitted.content.diagnostic is not None
+    assert admitted.content.diagnostic.max_attempts == 100
+    assert admitted.content.diagnostic.deadline_seconds == 1000
+    assert admitted.content.diagnostic.summary.expanded_result_count == 100
+
+    for value in (Decimal("1.5"), True):
+        invalid_tree = parse_json(view.record.content_source)
+        assert isinstance(invalid_tree, dict)
+        invalid_diagnostic = invalid_tree.get("diagnostic")
+        assert isinstance(invalid_diagnostic, dict)
+        invalid_diagnostic["max_attempts"] = value
+        with pytest.raises(ReportAdmissionError) as failure:
+            admit_report(stored_with_content(dump_json(invalid_tree)))
+        assert failure.value.reason == "invalid_report_content"
+
+    wrong_version = view.record.content_source.replace(
+        '"schema_version":1', '"schema_version":1.0', 1
+    )
+    with pytest.raises(ReportAdmissionError) as failure:
+        admit_report(stored_with_content(wrong_version))
+    assert failure.value.reason == "missing_schema_version"
 
 
 def test_group_raw_switches_cover_all_combinations_with_pinned_lineage(
