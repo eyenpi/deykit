@@ -51,8 +51,8 @@ from deykit.contracts.ports import (
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
-    CompiledRequest,
     ComparisonRecord,
+    CompiledRequest,
     DispatchOutcome,
     EvaluationRecord,
     FixtureBinding,
@@ -1692,9 +1692,7 @@ def test_group_report_admission_normalizes_only_exact_owned_integers(
 
     def stored_with_content(content_source: str) -> StoredRecord:
         changed = view.record.model_copy(update={"content_source": content_source})
-        changed = changed.model_copy(
-            update={"content_hash": report_hash(changed, view.content)}
-        )
+        changed = changed.model_copy(update={"content_hash": report_hash(changed, view.content)})
         body = dump_record(changed)
         return StoredRecord(ResourceKey("reports", changed.id), body, bytes_hash(body))
 
@@ -1751,9 +1749,7 @@ def test_report_admission_preserves_exact_record_version_tokens(
 
     def stored_with_source(view: ReportView, content_source: str) -> StoredRecord:
         changed = view.record.model_copy(update={"content_source": content_source})
-        changed = changed.model_copy(
-            update={"content_hash": report_hash(changed, view.content)}
-        )
+        changed = changed.model_copy(update={"content_hash": report_hash(changed, view.content)})
         body = dump_record(changed)
         return StoredRecord(ResourceKey("reports", changed.id), body, bytes_hash(body))
 
@@ -1815,7 +1811,7 @@ def test_group_raw_switches_cover_all_combinations_with_pinned_lineage(
     for mask in range(8):
         raw = RawChoices(inputs=bool(mask & 1), requests=bool(mask & 2), responses=bool(mask & 4))
         source = MemorySnapshotSource.from_records(graph.records)
-        report = ReportService(source, SystemClock(), lambda: f"group-raw-{mask}").create(
+        report = ReportService(source, SystemClock(), lambda mask=mask: f"group-raw-{mask}").create(
             _group_report_request(
                 graph, "diagnostic", graph.diagnostic_complete_snapshot_id, raw=raw
             ),
