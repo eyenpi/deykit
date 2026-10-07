@@ -410,7 +410,6 @@ def _validate_hard_references(captured: _CapturedProject) -> None:
                 _failure("project_reference_wrong_owner", baseline_label_stored)
         if value.fixture_set_id is not None:
             captured.get(stored, "fixtures", value.fixture_set_id)
-        captured.get(stored, "providers", value.provider_profile_id)
         if value.execution_group_id is not None:
             captured.get(stored, "execution_groups", value.execution_group_id)
         for regression_id in value.regression_ids:

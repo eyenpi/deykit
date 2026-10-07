@@ -522,6 +522,7 @@ def test_complete_regression_without_attempt_still_enters_origin_admission() -> 
             record
             for record in records
             if record.key != ResourceKey("dataset_snapshots", "dataset-snapshot")
+            and record.key.collection != "providers"
         ),
         item("dataset_snapshots", frozen_dataset.id, frozen_dataset),
         item("runs", source_run.id, source_run),
