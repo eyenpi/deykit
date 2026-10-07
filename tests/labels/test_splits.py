@@ -180,6 +180,53 @@ def test_unknown_snapshot_hash_profile_is_not_admitted_as_ordinary_legacy_hash()
     assert unknown_profile.value.error.reason == "unknown_snapshot_hash_profile"
 
 
+def test_rehashed_automatic_split_must_match_declared_seed_and_ratios():
+    frozen_cases = (case("frozen", split="test"),)
+    selection_source = (
+        '{"snapshot_hash_profile":"deykit-split-snapshot-v1",'
+        '"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","test"]],'
+        '"groups":[["frozen"]],"counts":{"development":0,"calibration":0,"test":1},'
+        '"input_identity":"' + "0" * 64 + '","dataset_etag":"' + "1" * 64 + '"}'
+    )
+    snapshot = DatasetSnapshot(
+        id="forged-automatic-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=split_snapshot_hash(frozen_cases, selection_source),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as assignment_mismatch:
+        admit_dataset_snapshot(snapshot)
+
+    assert assignment_mismatch.value.error.reason == "split_snapshot_assignment_mismatch"
+
+
+def test_dropping_split_profile_marker_does_not_make_modern_selection_legacy():
+    frozen_cases = (case("frozen", split="development"),)
+    selection_source = (
+        '{"algorithm":"connected-greedy-squared-v1","seed":4,'
+        '"ratios":{"development":1},"assignments":[["frozen","development"]],'
+        '"groups":[["frozen"]],"counts":{"development":1,"calibration":0,"test":0},'
+        '"input_identity":"' + "0" * 64 + '","dataset_etag":"' + "1" * 64 + '"}'
+    )
+    snapshot = DatasetSnapshot(
+        id="profile-marker-dropped-snapshot",
+        dataset_id="data",
+        cases=frozen_cases,
+        content_hash=evidence_hash(tuple(dump_record(item) for item in frozen_cases)),
+        created_at="2026-10-05T12:00:00Z",
+        selection_source=selection_source,
+    )
+
+    with pytest.raises(ServiceFailure) as invalid_selection:
+        admit_dataset_snapshot(snapshot)
+
+    assert invalid_selection.value.error.reason == "invalid_dataset_snapshot_selection"
+
+
 def split_service(project):
     source, datasets, _, _ = project
     return SplitService(source, datasets.clock, datasets.id_factory)

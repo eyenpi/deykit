@@ -906,31 +906,71 @@ def _validate_regressions_reports(
             _failure("regression_evidence_mismatch", stored)
         if value.content_hash is not None and value.content_hash != regression_hash(value):
             _failure("regression_evidence_mismatch", stored)
-        if value.source_run_id is not None:
-            run_stored, run_value = captured.get(stored, "runs", value.source_run_id)
-            if not isinstance(run_value, RunManifest):
-                _failure("project_reference_wrong_owner", run_stored)
-            if value.decision_id is not None and run_value.decision_id != value.decision_id:
-                _failure("project_reference_wrong_owner", run_stored)
-            if run_value.dataset_id != value.dataset_id:
-                _failure("project_reference_wrong_owner", run_stored)
+        linked_run_id = value.source_run_id
+        result_value: ResultSnapshot | None = None
         if value.source_result_snapshot_id is not None:
             result_stored, result_value = captured.get(
                 stored, "result_snapshots", value.source_result_snapshot_id
             )
-            if not isinstance(result_value, ResultSnapshot) or (
-                value.source_run_id is not None and result_value.run_id != value.source_run_id
-            ):
+            if not isinstance(result_value, ResultSnapshot):
                 _failure("project_reference_wrong_owner", result_stored)
+            if linked_run_id is not None and result_value.run_id != linked_run_id:
+                _failure("regression_evidence_mismatch", stored)
+            linked_run_id = result_value.run_id
+            result_case = next(
+                (item for item in result_value.results if item.case_id == value.case_id), None
+            )
+            if result_case is None or result_case.input_hash != value.input_hash:
+                _failure("regression_evidence_mismatch", stored)
         if value.source_attempt_id is not None:
             attempt_stored, attempt_value = captured.unique_by_id(
                 stored, "attempts", value.source_attempt_id
             )
             if not isinstance(attempt_value, AttemptRecord) or (
                 attempt_value.case_id != value.case_id
-                or (value.source_run_id is not None and attempt_value.run_id != value.source_run_id)
             ):
                 _failure("project_reference_wrong_owner", attempt_stored)
+            if linked_run_id is not None and attempt_value.run_id != linked_run_id:
+                _failure("regression_evidence_mismatch", stored)
+            linked_run_id = attempt_value.run_id
+            if result_value is not None:
+                result_case = next(
+                    (item for item in result_value.results if item.case_id == value.case_id), None
+                )
+                if result_case is None or result_case.attempt_id != value.source_attempt_id:
+                    _failure("regression_evidence_mismatch", stored)
+        if linked_run_id is not None:
+            run_stored, run_value = captured.get(stored, "runs", linked_run_id)
+            if not isinstance(run_value, RunManifest):
+                _failure("project_reference_wrong_owner", run_stored)
+            if (
+                run_value.dataset_id != value.dataset_id
+                or run_value.decision_revision_id != value.decision_revision_id
+                or (value.decision_id is not None and run_value.decision_id != value.decision_id)
+            ):
+                _failure("regression_evidence_mismatch", stored)
+            dataset_stored, source_dataset = captured.get(
+                run_stored, "dataset_snapshots", run_value.dataset_snapshot_id
+            )
+            if not isinstance(source_dataset, DatasetSnapshot) or (
+                source_dataset.dataset_id != value.dataset_id
+            ):
+                _failure("project_reference_wrong_owner", dataset_stored)
+            original_case = next(
+                (case for case in source_dataset.cases if case.id == value.case_id), None
+            )
+            if original_case is None:
+                _failure("regression_evidence_mismatch", stored)
+            try:
+                original_input_hash = JsonDocument(original_case.input_source).content_hash
+            except JsonError:
+                _failure("regression_evidence_mismatch", stored)
+            if (
+                original_case.input_source != value.input_source
+                or original_input_hash != value.input_hash
+                or (value.source_case is not None and original_case != value.source_case)
+            ):
+                _failure("regression_evidence_mismatch", stored)
         if value.source_case is not None:
             source_case = value.source_case
             try:

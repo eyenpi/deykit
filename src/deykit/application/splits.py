@@ -136,6 +136,20 @@ def admit_dataset_snapshot(snapshot: DatasetSnapshot) -> DatasetSnapshot:
 
     profile = source.get("snapshot_hash_profile")
     if profile is None:
+        # Keep known pre-profile run/group selection envelopes, but don't let a
+        # modern v1 selection evade semantic admission by dropping its marker.
+        modern_fields = {
+            "algorithm",
+            "seed",
+            "ratios",
+            "assignments",
+            "groups",
+            "counts",
+            "input_identity",
+            "dataset_etag",
+        }
+        if modern_fields.intersection(source):
+            fail("invalid_dataset_snapshot_selection")
         expected = evidence_hash(tuple(dump_record(case) for case in snapshot.cases))
     elif profile == "deykit-split-snapshot-v1":
         expected = split_snapshot_hash(snapshot.cases, snapshot.selection_source)
@@ -164,13 +178,16 @@ def _admit_split_snapshot_selection(
     if set(source) != required:
         fail("invalid_split_snapshot_selection")
     algorithm = source["algorithm"]
+    expected_assignments: tuple[tuple[str, Split], ...] | None = None
     if algorithm == ALGORITHM:
-        _source_integer(source["seed"], "invalid_split_seed")
+        seed = _source_integer(source["seed"], "invalid_split_seed")
         ratio_value = source["ratios"]
         if not isinstance(ratio_value, dict):
             fail("invalid_split_ratios")
         try:
-            ratios(dump_json(cast(JsonValue, ratio_value)))
+            ratios_source = dump_json(cast(JsonValue, ratio_value))
+            ratios(ratios_source)
+            expected_assignments = assign(snapshot.cases, seed, ratios_source)
         except (JsonError, ValueError):
             fail("invalid_split_ratios")
     elif algorithm == "explicit-connected-v1":
@@ -217,6 +234,8 @@ def _admit_split_snapshot_selection(
         if isinstance(domain_reason, str) and domain_reason in safe_reasons:
             fail(domain_reason)
         fail("invalid_split_snapshot_selection")
+    if expected_assignments is not None and assignments != expected_assignments:
+        fail("split_snapshot_assignment_mismatch")
 
     raw_groups = source["groups"]
     if not isinstance(raw_groups, list):

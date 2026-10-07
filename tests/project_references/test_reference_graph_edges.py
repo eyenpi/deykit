@@ -5,12 +5,14 @@ from __future__ import annotations
 from deykit.application.errors import ServiceFailure
 from deykit.application.project_references import validate_project_references
 from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.evidence import evidence_hash
-from deykit.contracts.json_value import JsonDocument
+from deykit.contracts.json_value import JsonDocument, bytes_hash
 from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.contracts.records import (
     AttemptEvent,
     CaseRecord,
+    CaseResult,
     ChoiceDefinition,
     ChoiceOption,
     ChoiceQuestion,
@@ -23,6 +25,7 @@ from deykit.contracts.records import (
     EvaluationRecord,
     ExecutionSettings,
     LabelSnapshot,
+    PreparedCase,
     ProjectRecord,
     ProviderProfile,
     ReportRecord,
@@ -447,10 +450,7 @@ def test_warning_order_is_stable_after_all_hard_edges_pass() -> None:
     ]
 
 
-def test_complete_regression_without_attempt_still_enters_origin_admission(monkeypatch) -> None:
-    from deykit.application import evaluations
-    from deykit.regressions import evidence
-    from deykit.runner import history
+def test_complete_regression_without_attempt_still_enters_origin_admission() -> None:
     records = captured_legacy_project()
     source_run = next(
         load_record(RunManifest, record.body)
@@ -467,21 +467,44 @@ def test_complete_regression_without_attempt_still_enters_origin_admission(monke
             "baseline_dataset_snapshot_id": "dataset-snapshot",
             "baseline_label_snapshot_id": "label-snapshot",
             "provider": embedded_provider,
+            "provider_config_hash": bytes_hash(dump_record(embedded_provider)),
+            "case_ids": ("removed-case",),
         }
-    )
-    result = ResultSnapshot(
-        id="source-result",
-        run_id=source_run.id,
-        results=(),
-        through_event_sequence=0,
-        content_hash=evidence_hash(()),
-        created_at=STAMP,
     )
     case = CaseRecord(
         id="removed-case",
         dataset_id="dataset",
         input_kind="json",
         input_source='{"value":"retained"}',
+    )
+    input_hash = JsonDocument(case.input_source).content_hash
+    frozen_dataset = DatasetSnapshot(
+        id="dataset-snapshot",
+        dataset_id="dataset",
+        cases=(case,),
+        content_hash=evidence_hash((dump_record(case),)),
+        created_at=STAMP,
+    )
+    prepared = PreparedCase(
+        id=case.id,
+        run_id=source_run.id,
+        case_id=case.id,
+        input_hash=input_hash,
+        error=ServiceError(code="validation_error", reason="invalid_fixture_input"),
+    )
+    result_case = CaseResult(
+        case_id=case.id,
+        input_hash=input_hash,
+        status="input_invalid",
+        error=prepared.error,
+    )
+    result = ResultSnapshot(
+        id="source-result",
+        run_id=source_run.id,
+        results=(result_case,),
+        through_event_sequence=0,
+        content_hash=evidence_hash((result_case.model_dump_json().encode("utf-8"),)),
+        created_at=STAMP,
     )
     provisional = RegressionRecord(
         id="regression-no-attempt",
@@ -496,7 +519,7 @@ def test_complete_regression_without_attempt_still_enters_origin_admission(monke
         case_id=case.id,
         question_id="question",
         input_source=case.input_source,
-        input_hash=JsonDocument(case.input_source).content_hash,
+        input_hash=input_hash,
         acceptable_option_ids=("yes",),
         reason="Retained frozen evidence",
         created_at=STAMP,
@@ -505,23 +528,102 @@ def test_complete_regression_without_attempt_still_enters_origin_admission(monke
         update={"content_hash": regression_hash(provisional)}
     )
     captured = (
-        *records,
+        *(
+            record
+            for record in records
+            if record.key != ResourceKey("dataset_snapshots", "dataset-snapshot")
+        ),
+        item("dataset_snapshots", frozen_dataset.id, frozen_dataset),
         item("runs", source_run.id, source_run),
+        item("prepared_cases", prepared.id, prepared, (source_run.id,)),
         item("result_snapshots", result.id, result),
         item("regressions", regression.id, regression),
-    )
-    origin_attempt_ids: list[str | None] = []
-    monkeypatch.setattr(history, "history_from_records", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        evaluations, "frozen_evaluation_from_records", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        evidence,
-        "admit_regression_origin",
-        lambda _records, value: origin_attempt_ids.append(value.source_attempt_id),
     )
 
     result_view = validate_project_references(captured)
 
-    assert origin_attempt_ids == [None]
     assert all(warning.resource_id != regression.id for warning in result_view.warnings)
+
+
+def test_partial_regression_result_link_must_contain_original_case(monkeypatch) -> None:
+    from deykit.application import evaluations
+    from deykit.runner import history
+
+    records = captured_legacy_project()
+    legacy_run = next(
+        load_record(RunManifest, record.body)
+        for record in records
+        if record.key.collection == "runs"
+    )
+    provider_record = next(record for record in records if record.key.collection == "providers")
+    run = legacy_run.model_copy(
+        update={
+            "id": "partial-run",
+            "decision_id": "decision",
+            "dataset_id": "dataset",
+            "baseline_dataset_snapshot_id": "dataset-snapshot",
+            "baseline_label_snapshot_id": "label-snapshot",
+            "provider": load_record(ProviderProfile, provider_record.body),
+        }
+    )
+    result = ResultSnapshot(
+        id="partial-result",
+        run_id=run.id,
+        results=(),
+        through_event_sequence=0,
+        content_hash=evidence_hash(()),
+        created_at=STAMP,
+    )
+    revision = next(
+        load_record(DecisionRevision, record.body)
+        for record in records
+        if record.key.collection == "revisions"
+    )
+    alternate_revision = DecisionRevision(
+        id="alternate-revision",
+        decision_id=revision.decision_id,
+        definition=revision.definition,
+        content_hash=revision.content_hash,
+        created_at=STAMP,
+    )
+    regression = RegressionRecord(
+        id="partial-regression",
+        decision_revision_id=revision.id,
+        dataset_id="dataset",
+        source_result_snapshot_id=result.id,
+        case_id="removed-case",
+        question_id="question",
+        input_source='{"value":"removed"}',
+        input_hash=JsonDocument('{"value":"removed"}').content_hash,
+        acceptable_option_ids=("yes",),
+        reason="Partial retained evidence",
+        created_at=STAMP,
+    )
+    monkeypatch.setattr(history, "history_from_records", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        evaluations, "frozen_evaluation_from_records", lambda *_args, **_kwargs: None
+    )
+    captured = (
+        *records,
+        item("revisions", alternate_revision.id, alternate_revision, ("decision",)),
+        item("runs", run.id, run),
+        item("result_snapshots", result.id, result),
+        item("regressions", regression.id, regression),
+    )
+
+    for value in (
+        regression,
+        regression.model_copy(update={"decision_revision_id": alternate_revision.id}),
+    ):
+        variant = tuple(
+            item("regressions", value.id, value)
+            if record.key.collection == "regressions"
+            else record
+            for record in captured
+        )
+        try:
+            validate_project_references(variant)
+        except ServiceFailure as error:
+            assert error.error.reason == "regression_evidence_mismatch"
+        else:
+            raise AssertionError("partial regression links without matching origin were admitted")
