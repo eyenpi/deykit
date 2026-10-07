@@ -1896,8 +1896,8 @@ def test_group_report_context_and_regression_lineage_render_before_raw_material(
         "### Regression source lineage",
         "original input hash",
         "source run",
-        "source result",
-        "source attempt",
+        ", result ",
+        ", attempt ",
         "## Frozen source context",
         "## Explicitly included raw material",
     )
@@ -1906,6 +1906,14 @@ def test_group_report_context_and_regression_lineage_render_before_raw_material(
     assert "unavailable" in markdown
     assert check_report.content.check is not None
     assert {item.passed for item in check_report.content.check.cases} == {True, None}
+    for case in check_report.content.check.cases:
+        assert case.input_hash in markdown
+        for source_identity in (
+            case.source_run_id,
+            case.source_result_snapshot_id,
+            case.source_attempt_id,
+        ):
+            assert (source_identity or "unavailable") in markdown
 
 
 def test_group_report_creation_never_evaluates_compiles_or_resolves_a_backend(
