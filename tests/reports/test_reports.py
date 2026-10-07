@@ -100,6 +100,20 @@ class GroupReportGraph:
     check_complete_snapshot_id: str
     regression_ids: tuple[str, ...]
     case_ids: tuple[str, ...]
+    reused_saved_graph: bool
+    lifecycle_reports_created_before_resume: bool
+
+
+class ReplayGuardClock:
+    def utc_now(self) -> str:
+        raise AssertionError("report replay must not ask for time")
+
+    def monotonic(self) -> float:
+        raise AssertionError("report replay must not ask for monotonic time")
+
+
+def _replay_guard_id() -> str:
+    raise AssertionError("report replay must not allocate an ID")
 
 
 class UnknownOnceBackends(BackendFactory):
@@ -214,6 +228,19 @@ def group_report_graph(
                 if item.key.collection == "regressions" and item.key.resource_id in regression_ids
             )
             assert len(regression_ids) == 2 and len(set(case_ids)) == 2
+            reports = {
+                item.key.resource_id: load_record(ReportRecord, item.body)
+                for item in records
+                if item.key.collection == "reports"
+            }
+            diagnostic_report = reports.get("group-diagnostic-initial-report")
+            check_report = reports.get("group-check-initial-report")
+            lifecycle_reports_saved = (
+                diagnostic_report is not None
+                and diagnostic_report.diagnostic_snapshot_id == diagnostic_history[0].id
+                and check_report is not None
+                and check_report.check_snapshot_id == check_history[0].id
+            )
             return GroupReportGraph(
                 root,
                 records,
@@ -225,6 +252,8 @@ def group_report_graph(
                 check_history[-1].id,
                 regression_ids,
                 case_ids,
+                True,
+                lifecycle_reports_saved,
             )
 
         base_manifest = load_record(
@@ -284,6 +313,25 @@ def group_report_graph(
             partial_records, diagnostic_partial_id
         )
         assert partial_diagnostic.summary.fully_observed_case_count == 1
+        diagnostic_history_request = ReportRequest(
+            target_id=initial_diagnostic.group.group_id,
+            target_kind="diagnostic",
+            group_snapshot_id=diagnostic_partial_id,
+        )
+        diagnostic_history_service = ReportService(
+            source, clock, lambda: "group-diagnostic-initial-report"
+        )
+        diagnostic_history_report = diagnostic_history_service.create(
+            diagnostic_history_request,
+            operation_id="group-diagnostic-initial-report-create",
+        )
+        diagnostic_history_hash = diagnostic_history_report.record.content_hash
+        diagnostic_history_json = diagnostic_history_service.render(
+            diagnostic_history_report.record.id, format="json"
+        ).body
+        diagnostic_history_markdown = diagnostic_history_service.render(
+            diagnostic_history_report.record.id, format="markdown"
+        ).body
         completed_diagnostic = asyncio.run(
             diagnostic_service.resume(
                 initial_diagnostic.group.group_id,
@@ -340,6 +388,23 @@ def group_report_graph(
         partial_check = check_snapshot_from_records(source.capture_snapshot(), partial_check_id)
         assert {item.passed for item in partial_check.cases} == {True, None}
         assert next(item for item in partial_check.cases if item.passed is None).status == "unknown"
+        check_history_request = ReportRequest(
+            target_id=initial_check.group.group_id,
+            target_kind="check",
+            group_snapshot_id=partial_check_id,
+        )
+        check_history_service = ReportService(source, clock, lambda: "group-check-initial-report")
+        check_history_report = check_history_service.create(
+            check_history_request,
+            operation_id="group-check-initial-report-create",
+        )
+        check_history_hash = check_history_report.record.content_hash
+        check_history_json = check_history_service.render(
+            check_history_report.record.id, format="json"
+        ).body
+        check_history_markdown = check_history_service.render(
+            check_history_report.record.id, format="markdown"
+        ).body
         completed_check = asyncio.run(
             check_service.resume(
                 initial_check.group.group_id,
@@ -349,6 +414,46 @@ def group_report_graph(
         )
         assert completed_check.group.snapshot_id is not None
         records = source.capture_snapshot()
+        for history_service, history_report, expected_hash, expected_json, expected_markdown in (
+            (
+                diagnostic_history_service,
+                diagnostic_history_report,
+                diagnostic_history_hash,
+                diagnostic_history_json,
+                diagnostic_history_markdown,
+            ),
+            (
+                check_history_service,
+                check_history_report,
+                check_history_hash,
+                check_history_json,
+                check_history_markdown,
+            ),
+        ):
+            assert (
+                history_service.read(history_report.record.id).record.content_hash == expected_hash
+            )
+            assert (
+                history_service.render(history_report.record.id, format="json").body
+                == expected_json
+            )
+            assert (
+                history_service.render(history_report.record.id, format="markdown").body
+                == expected_markdown
+            )
+        diagnostic_replay = ReportService(source, ReplayGuardClock(), _replay_guard_id).create(
+            diagnostic_history_request,
+            operation_id="group-diagnostic-initial-report-create",
+        )
+        check_replay = ReportService(source, ReplayGuardClock(), _replay_guard_id).create(
+            check_history_request,
+            operation_id="group-check-initial-report-create",
+        )
+        assert (
+            diagnostic_replay.replayed
+            and diagnostic_replay.record.content_hash == diagnostic_history_hash
+        )
+        assert check_replay.replayed and check_replay.record.content_hash == check_history_hash
         return GroupReportGraph(
             root,
             records,
@@ -360,6 +465,8 @@ def group_report_graph(
             completed_check.group.snapshot_id,
             tuple(item.id for item in regressions),
             selected_case_ids,
+            False,
+            True,
         )
 
 
@@ -1393,14 +1500,10 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
         item.content_hash for item in check_partial.regressions
     )
 
-    # Create the first report before exposing the later snapshot, then replay it after resume.
-    latest_record = next(
-        item
-        for item in all_records
-        if item.key == ResourceKey("diagnostic_snapshots", graph.diagnostic_complete_snapshot_id)
-    )
-    before_resume = tuple(item for item in all_records if item != latest_record)
-    source = MemorySnapshotSource.from_records(before_resume)
+    # The session graph also created these reports before each real resume.
+    if not graph.reused_saved_graph:
+        assert graph.lifecycle_reports_created_before_resume
+    source = MemorySnapshotSource.from_records(all_records)
     clock = SystemClock()
     service = ReportService(source, clock, lambda: "group-history-report")
     request = _group_report_request(graph, "diagnostic", graph.diagnostic_partial_snapshot_id)
@@ -1408,20 +1511,20 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
     first_json = service.render(first.record.id, format="json").body
     first_markdown = service.render(first.record.id, format="markdown").body
     assert first.record.diagnostic_snapshot_id == graph.diagnostic_partial_snapshot_id
-    source.records[latest_record.key] = latest_record
+    default_diagnostic = service.create(
+        ReportRequest(target_id=graph.diagnostic_group_id, target_kind="diagnostic"),
+        operation_id="group-history-latest-diagnostic",
+    )
+    assert default_diagnostic.record.diagnostic_snapshot_id == graph.diagnostic_complete_snapshot_id
+    default_check = service.create(
+        ReportRequest(target_id=graph.check_group_id, target_kind="check"),
+        operation_id="group-history-latest-check",
+    )
+    assert default_check.record.check_snapshot_id == graph.check_complete_snapshot_id
 
-    class ThrowingClock:
-        def utc_now(self) -> str:
-            raise AssertionError("replay must not ask for time")
-
-        def monotonic(self) -> float:
-            raise AssertionError("replay must not ask for monotonic time")
-
-    replay = ReportService(
-        source,
-        ThrowingClock(),
-        lambda: (_ for _ in ()).throw(AssertionError("replay must not allocate an ID")),
-    ).create(request, operation_id="group-history-report-create")
+    replay = ReportService(source, ReplayGuardClock(), _replay_guard_id).create(
+        request, operation_id="group-history-report-create"
+    )
     assert replay.replayed is True
     assert replay.record.content_hash == first.record.content_hash
     assert ReportService(source, clock).render(replay.record.id, format="json").body == first_json
