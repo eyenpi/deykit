@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Annotated, Literal, cast
 
 import typer
+from pydantic import ValidationError
 
-from deykit.application.dataset_support import identifier, validated_model
+from deykit.application.dataset_support import identifier
 from deykit.application.errors import ServiceFailure
 from deykit.application.reports import ReportService
 from deykit.cli.context import CliState, SystemClock, new_operation_id, state
@@ -134,22 +135,21 @@ def export(
                 raise _invalid("invalid_report_selector")
             selected_target_id = identifier(target_id)
             selected_kind = _kind(target_kind)
-            request = validated_model(
-                ReportRequest,
-                {
-                    "target_id": selected_target_id,
-                    "target_kind": selected_kind,
-                    "evaluation_id": evaluation,
-                    "result_snapshot_id": result_snapshot,
-                    "group_snapshot_id": group_snapshot,
-                    "raw": RawChoices(
+            try:
+                request = ReportRequest(
+                    target_id=selected_target_id,
+                    target_kind=selected_kind,
+                    evaluation_id=evaluation,
+                    result_snapshot_id=result_snapshot,
+                    group_snapshot_id=group_snapshot,
+                    raw=RawChoices(
                         inputs=include_raw_inputs,
                         requests=include_raw_requests,
                         responses=include_raw_responses,
                     ),
-                },
-                "invalid_report_request",
-            )
+                )
+            except (ValidationError, ValueError):
+                raise _invalid("invalid_report_request") from None
             if operation_id is not None:
                 identifier(operation_id)
             # Request and format admission happen before project discovery and ID allocation.
