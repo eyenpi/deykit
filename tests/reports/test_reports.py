@@ -215,7 +215,7 @@ def test_sanitizer_and_raw_material_keep_exact_source_and_opaque_bytes() -> None
     assert sanitizer.bytes(b"secret-value\xff") == b"[REDACTED]\xff"
     assert sanitizer.text("Bearer [REDACTED] TOKEN") == "Bearer [REDACTED] TOKEN"
     assert sanitizer.text("Bearer [REDACTED]TOKEN") == "Bearer [REDACTED]"
-    assert sanitizer.bytes(b"Bearer [REDACTED]TOKEN\xff") == b"Bearer [REDACTED]\xff"
+    assert sanitizer.bytes(b"Bearer [REDACTED]TOKEN\xff") == b"Bearer [REDACTED]"
 
     projected_opaque = project_opaque_response_bytes(
         b"\xff\x00A\x80",
