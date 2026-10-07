@@ -117,10 +117,10 @@ def _location(raw: str, *, directory: bool = False) -> _Location:
             path = PureWindowsPath(os.getcwd()) / path
         if not path.is_absolute() or len(path.drive) != 2 or path.drive[1] != ":":
             raise _invalid("unsupported_export_root")
-        components = path.parts[1:]
-        if any(component in {"", ".", ".."} for component in components):
+        windows_components = path.parts[1:]
+        if any(component in {"", ".", ".."} for component in windows_components):
             raise _invalid()
-        clean = tuple(components)
+        clean = tuple(windows_components)
         if not clean:
             raise _invalid()
         for component in clean:
