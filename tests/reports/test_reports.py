@@ -391,7 +391,7 @@ def test_saved_run_report_copies_independent_fixture_facts_and_renders(
     assert first.body.endswith(b"\n")
     assert first.bytes_hash == bytes_hash(first.body)
     assert (
-        b"authored_fixture_not_provider_quality"
+        b"authored\\_fixture\\_not\\_provider\\_quality"
         in service.render(report.record.id, format="markdown").body
     )
     markdown = service.render(report.record.id, format="markdown").body.decode("utf-8")
