@@ -909,11 +909,12 @@ def _validate_regressions_reports(
         linked_run_id = value.source_run_id
         result_value: ResultSnapshot | None = None
         if value.source_result_snapshot_id is not None:
-            result_stored, result_value = captured.get(
+            result_stored, result_record = captured.get(
                 stored, "result_snapshots", value.source_result_snapshot_id
             )
-            if not isinstance(result_value, ResultSnapshot):
+            if not isinstance(result_record, ResultSnapshot):
                 _failure("project_reference_wrong_owner", result_stored)
+            result_value = result_record
             if linked_run_id is not None and result_value.run_id != linked_run_id:
                 _failure("regression_evidence_mismatch", stored)
             linked_run_id = result_value.run_id
