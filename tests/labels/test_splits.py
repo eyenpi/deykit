@@ -15,9 +15,7 @@ from deykit.contracts.codec import dump_record
 from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.json_value import (
     JsonDocument,
-    bytes_hash,
     parse_json,
-    semantic_hash,
 )
 from deykit.contracts.ports import ResourceKey
 from deykit.contracts.records import CaseRecord, DatasetSnapshot
@@ -105,15 +103,7 @@ def test_split_hash_profile_remains_distinct_from_ordinary_snapshot_profile():
         '"groups":[["frozen"]],"counts":{"development":1,"calibration":0,"test":0},'
         '"input_identity":"' + "0" * 64 + '","dataset_etag":"' + "1" * 64 + '"}'
     )
-    case_bytes = tuple(dump_record(item) for item in frozen_cases)
-    parsed_selection = parse_json(selection_source)
-    expected_split_hash = semantic_hash(
-        {
-            "profile": "deykit-split-snapshot-v1",
-            "case_bytes_hashes": [bytes_hash(body) for body in case_bytes],
-            "selection_hash": semantic_hash(parsed_selection),
-        }
-    )
+    expected_split_hash = "7250701a0ecd6e7523a58940908857b67ccadd7fb776b3542265ec0d0d1d89c4"
     assert split_snapshot_hash(frozen_cases, selection_source) == expected_split_hash
 
     split_snapshot = DatasetSnapshot(
@@ -124,11 +114,13 @@ def test_split_hash_profile_remains_distinct_from_ordinary_snapshot_profile():
         created_at="2026-10-05T12:00:00Z",
         selection_source=selection_source,
     )
+    ordinary_hash = "df798156f95e16a726d3f863eaedc61415b648660812c333519535a4c31412b2"
+    assert evidence_hash(tuple(dump_record(item) for item in frozen_cases)) == ordinary_hash
     ordinary_snapshot = DatasetSnapshot(
         id="ordinary-snapshot",
         dataset_id="data",
         cases=frozen_cases,
-        content_hash=evidence_hash(tuple(dump_record(item) for item in frozen_cases)),
+        content_hash=ordinary_hash,
         created_at="2026-10-05T12:00:00Z",
         selection_source="{}",
     )
