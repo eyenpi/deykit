@@ -262,7 +262,7 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             )
     if content.diagnostic is not None:
         diagnostic = content.diagnostic
-        summary = diagnostic.summary
+        diagnostic_summary = diagnostic.summary
         lines += [
             "",
             "## Diagnostic snapshot",
@@ -276,10 +276,11 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             f"{diagnostic.deadline_seconds}",
             f"- Selection: {_inline(diagnostic.algorithm)}, seed {_inline(diagnostic.seed)}, "
             f"requested orders {len(diagnostic.orders)}",
-            f"- Independent cases: {summary.independent_case_count}; orders: "
-            f"{summary.order_count}; expanded results: {summary.expanded_result_count}; "
-            f"fully observed cases: {summary.fully_observed_case_count}",
-            f"- Disagreement: {_rate(summary.disagreement.model_dump(mode='json'))}",
+            f"- Independent cases: {diagnostic_summary.independent_case_count}; orders: "
+            f"{diagnostic_summary.order_count}; expanded results: "
+            f"{diagnostic_summary.expanded_result_count}; "
+            f"fully observed cases: {diagnostic_summary.fully_observed_case_count}",
+            f"- Disagreement: {_rate(diagnostic_summary.disagreement.model_dump(mode='json'))}",
             "- Interpretation: observed request order sensitivity",
             "",
             "### Pinned members",
@@ -310,7 +311,7 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "| Case | Options by order | Statuses by order | Disagreement | Fully observed |",
             "| --- | --- | --- | --- | --- |",
         ]
-        for case in summary.cases:
+        for case in diagnostic_summary.cases:
             lines.append(
                 "| "
                 + " | ".join(

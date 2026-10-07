@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Literal, cast
 
 from deykit.application.checks import FrozenCheckSnapshot, check_snapshot_from_records
 from deykit.application.dataset_support import fail
@@ -14,7 +14,7 @@ from deykit.application.diagnostics import (
 from deykit.application.evaluations import FrozenEvaluation
 from deykit.contracts.codec import dump_record
 from deykit.contracts.evidence import evidence_hash
-from deykit.contracts.json_value import JsonError, dump_json, parse_json
+from deykit.contracts.json_value import JsonError, JsonValue, dump_json, parse_json
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.redaction import Sanitizer
 from deykit.reports.models import (
@@ -177,15 +177,7 @@ def project_diagnostic(
     for case in cases_source:
         if not isinstance(case, dict):
             fail("report_diagnostic_mismatch", "incompatible_data")
-        cases.append(
-            DiagnosticCaseDisplay(
-                case_id=case.get("case_id"),
-                option_ids=tuple(case.get("option_ids", ())),
-                statuses=tuple(case.get("statuses", ())),
-                observed_disagreement=case.get("observed_disagreement"),
-                fully_observed=case.get("fully_observed"),
-            )
-        )
+        cases.append(DiagnosticCaseDisplay.model_validate_json(dump_json(cast(JsonValue, case))))
     disagreement_source = summary_source.get("disagreement")
     if not isinstance(disagreement_source, dict):
         fail("report_diagnostic_mismatch", "incompatible_data")
@@ -253,7 +245,9 @@ def project_check(
                 actual_option_id=case.actual_option_id,
                 passed=case.passed,
                 provenance=sanitizer.text(case.provenance),
-                original_split=case.original_split,
+                original_split=cast(
+                    Literal["development", "calibration", "test"], case.original_split
+                ),
                 input_hash=case.input_hash,
                 source_run_id=case.source_run_id,
                 source_result_snapshot_id=case.source_result_snapshot_id,

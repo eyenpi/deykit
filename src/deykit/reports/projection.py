@@ -460,31 +460,33 @@ def validate_report_identity_context(
             if member.fixture_set_id is not None:
                 group_identities.append(member.fixture_set_id)
         if content.diagnostic is not None:
-            for case in content.diagnostic.summary.cases:
-                group_identities.append(case.case_id)
-                group_identities.extend(item for item in case.option_ids if item is not None)
+            for diagnostic_case in content.diagnostic.summary.cases:
+                group_identities.append(diagnostic_case.case_id)
+                group_identities.extend(
+                    item for item in diagnostic_case.option_ids if item is not None
+                )
         if content.check is not None:
-            for case in content.check.cases:
+            for check_case in content.check.cases:
                 group_identities.extend(
                     (
-                        case.regression_id,
-                        case.regression_hash,
-                        case.dataset_id,
-                        case.case_id,
-                        case.run_id,
-                        case.result_snapshot_id,
-                        *case.expected_option_ids,
-                        case.input_hash,
+                        check_case.regression_id,
+                        check_case.regression_hash,
+                        check_case.dataset_id,
+                        check_case.case_id,
+                        check_case.run_id,
+                        check_case.result_snapshot_id,
+                        *check_case.expected_option_ids,
+                        check_case.input_hash,
                     )
                 )
-                if case.actual_option_id is not None:
-                    group_identities.append(case.actual_option_id)
+                if check_case.actual_option_id is not None:
+                    group_identities.append(check_case.actual_option_id)
                 group_identities.extend(
                     item
                     for item in (
-                        case.source_run_id,
-                        case.source_result_snapshot_id,
-                        case.source_attempt_id,
+                        check_case.source_run_id,
+                        check_case.source_result_snapshot_id,
+                        check_case.source_attempt_id,
                     )
                     if item is not None
                 )

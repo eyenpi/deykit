@@ -119,7 +119,6 @@ def _select_group_snapshot(
     snapshot_id: str | None,
 ) -> FrozenDiagnosticSnapshot | FrozenCheckSnapshot:
     collection = "diagnostic_snapshots" if kind == "diagnostic" else "check_snapshots"
-    model = DiagnosticSnapshot if kind == "diagnostic" else CheckSnapshot
     reader = read_diagnostic if kind == "diagnostic" else read_check
     if snapshot_id is not None:
         frozen = reader(records, snapshot_id)
@@ -133,7 +132,10 @@ def _select_group_snapshot(
         if stored.key.collection != collection or stored.key.scope:
             continue
         try:
-            snapshot = load_record(model, stored.body)
+            if kind == "diagnostic":
+                snapshot = load_record(DiagnosticSnapshot, stored.body)
+            else:
+                snapshot = load_record(CheckSnapshot, stored.body)
         except (JsonError, ValueError):
             continue
         if snapshot.id == stored.key.resource_id and snapshot.group_id == group_id:
@@ -490,29 +492,30 @@ class ReportService:
         )
         expected_raw: list[RawMaterial] = []
         if admitted.content.target.kind in ("diagnostic", "check"):
+            frozen_group: FrozenDiagnosticSnapshot | FrozenCheckSnapshot
             snapshot_id = admitted.content.target.group_snapshot_id
             if snapshot_id is None:
                 fail("report_link_mismatch", "incompatible_data")
             if admitted.content.target.kind == "diagnostic":
-                frozen = read_diagnostic(records, snapshot_id)
-                if frozen.group.id != admitted.content.target.target_id:
+                frozen_group = read_diagnostic(records, snapshot_id)
+                if frozen_group.group.id != admitted.content.target.target_id:
                     fail("report_link_mismatch", "incompatible_data")
-                projected_group = project_diagnostic(records, frozen, self.sanitizer)
-                if projected_group != admitted.content.diagnostic:
+                diagnostic_projection = project_diagnostic(records, frozen_group, self.sanitizer)
+                if diagnostic_projection != admitted.content.diagnostic:
                     fail("report_link_mismatch", "incompatible_data")
                 if admitted.record.diagnostic_snapshot_id != snapshot_id:
                     fail("report_link_mismatch", "incompatible_data")
             else:
-                frozen = read_check(records, snapshot_id)
-                if frozen.group.id != admitted.content.target.target_id:
+                frozen_group = read_check(records, snapshot_id)
+                if frozen_group.group.id != admitted.content.target.target_id:
                     fail("report_link_mismatch", "incompatible_data")
-                projected_group = project_check(records, frozen, self.sanitizer)
-                if projected_group != admitted.content.check:
+                check_projection = project_check(records, frozen_group, self.sanitizer)
+                if check_projection != admitted.content.check:
                     fail("report_link_mismatch", "incompatible_data")
                 if admitted.record.check_snapshot_id != snapshot_id:
                     fail("report_link_mismatch", "incompatible_data")
             expected_raw.extend(
-                project_group_raw(records, frozen, self.sanitizer, admitted.content.raw)
+                project_group_raw(records, frozen_group, self.sanitizer, admitted.content.raw)
             )
             group_context = admitted.content.diagnostic or admitted.content.check
             assert group_context is not None
