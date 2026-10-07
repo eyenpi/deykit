@@ -31,5 +31,8 @@ The v1 report hash covers the profile, immutable link lists, reserved nullable
 group links, raw choices, and exact content. Content is limited to 1 MiB and
 rendered artifacts to 8 MiB; neither is truncated. JSON and Markdown preserve
 saved denominators, null reasons, partial outcomes, fixture status, and
-comparison buckets. Fixture evidence is authored software-verification
-material, not provider-quality evidence.
+comparison buckets. Markdown places all source contexts before result IDs and
+keeps each evaluation's class, confusion, baseline, latency/usage, and case
+sections in a fixed order. Raw JSON source remains unchanged; Markdown normalizes
+line endings in its rendered copy. Fixture evidence is authored
+software-verification material, not provider-quality evidence.

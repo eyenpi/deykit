@@ -51,6 +51,24 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
         f"- Content hash: `{record.content_hash}`",
         f"- Evidence modes: {_inline(modes)}",
         f"- Limitations: {_inline(', '.join(content.limitations) or 'none')}",
+    ]
+    if content.evaluations:
+        lines += ["", "## Evaluation contexts", ""]
+        for number, evaluation in enumerate(content.evaluations, 1):
+            context = evaluation.context
+            lines += [
+                f"### Evaluation {number}",
+                "",
+                f"- Evaluation: `{_inline(context.evaluation_id)}`",
+                f"- Run: `{_inline(context.run_id)}`",
+                f"- Requested model: {_inline(context.requested_model)}",
+                f"- Answering models: {_inline(context.answering_models)}",
+                f"- Compilers: {_inline(context.compiler_ids)} "
+                f"({_inline(context.compiler_version)})",
+                f"- Option order: {_inline(context.option_order)}",
+                "",
+            ]
+    lines += [
         "",
         "## Frozen source context",
         "",
@@ -77,32 +95,6 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             f"- Set accuracy: {_rate(summary.set_accuracy.model_dump(mode='json'))}",
             f"- Macro F1: {_rate(summary.macro_f1.model_dump(mode='json'))}",
         ]
-        latency = metrics.latency
-        usage = metrics.usage
-        lines += [
-            f"- Latency p50: {_inline(latency.p50_seconds)} s",
-            f"- Latency p95: {_inline(latency.p95_seconds)} s",
-            f"- Latency sample count: {latency.sample_count}",
-            f"- Latency status: {_inline(latency.reason or latency.method)}",
-            f"- Reported input tokens: {_inline(usage.reported_input_tokens)}",
-            f"- Reported output tokens: {_inline(usage.reported_output_tokens)}",
-            f"- Total input tokens: {_inline(usage.total_input_tokens)}",
-            f"- Total output tokens: {_inline(usage.total_output_tokens)}",
-            f"- Usage status: {_inline(usage.reason or usage.source_kind or 'unavailable')}",
-            "- Cost: unavailable (pricing source unavailable)",
-        ]
-        baseline = metrics.baseline
-        lines.extend(
-            (
-                f"- Majority baseline: {_inline(baseline.option_id or 'unavailable')} "
-                f"accuracy {_rate(baseline.accuracy.model_dump(mode='json'))}",
-                f"- Baseline fitting support: {baseline.fit_support}; "
-                f"paired population: {baseline.scored_count}/{baseline.paired_count}",
-                f"- Baseline fitting snapshots: `{baseline.fit_dataset_snapshot_id}` / "
-                f"`{baseline.fit_label_snapshot_id}`",
-                f"- Baseline overlap cases: {_inline(baseline.overlap_case_ids or 'none')}",
-            )
-        )
         lines += [
             "",
             "### Class metrics",
@@ -141,6 +133,47 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             lines.append(
                 "| " + _inline(option_id) + " | " + " | ".join(str(value) for value in row) + " |"
             )
+        baseline = metrics.baseline
+        lines += [
+            "",
+            "### Baseline",
+            "",
+            f"- Majority: {_inline(baseline.option_id or 'unavailable')} "
+            f"accuracy {_rate(baseline.accuracy.model_dump(mode='json'))}",
+            f"- Fitting support: {baseline.fit_support}; excluded acceptable sets: "
+            f"{baseline.fit_excluded_acceptable_sets}",
+            f"- Fitting snapshots: `{baseline.fit_dataset_snapshot_id}` / "
+            f"`{baseline.fit_label_snapshot_id}`",
+            f"- Evaluation snapshots: `{baseline.evaluation_dataset_snapshot_id}` / "
+            f"`{baseline.evaluation_label_snapshot_id}`",
+            f"- Evaluation splits: {_inline(baseline.evaluation_splits or 'none')}",
+            f"- Selected: {baseline.selected_count}; scoring population: "
+            f"{_inline(baseline.scoring_population)}; scored: {baseline.scored_count}; "
+            f"paired: {baseline.paired_count}",
+            f"- Overlap cases: {_inline(baseline.overlap_case_ids or 'none')}",
+            f"- Unavailable reason: {_inline(baseline.unavailable_reason or 'none')}",
+            "",
+            "### Latency and usage",
+            "",
+        ]
+        latency = metrics.latency
+        usage = metrics.usage
+        lines += [
+            f"- Latency p50: {_inline(latency.p50_seconds)} s",
+            f"- Latency p95: {_inline(latency.p95_seconds)} s",
+            f"- Latency samples: {latency.sample_count}; status: "
+            f"{_inline(latency.reason or latency.method)}",
+            f"- Dispatched attempts: {usage.dispatched_attempt_count}; reported attempts: "
+            f"{usage.reported_attempt_count}",
+            f"- Reported input tokens: {_inline(usage.reported_input_tokens)}",
+            f"- Reported output tokens: {_inline(usage.reported_output_tokens)}",
+            f"- Total input tokens: {_inline(usage.total_input_tokens)}",
+            f"- Total output tokens: {_inline(usage.total_output_tokens)}",
+            f"- Usage source: {_inline(usage.source_kind or 'unavailable')}; reported at: "
+            f"{_inline(usage.reported_at or 'unavailable')}",
+            f"- Usage status: {_inline(usage.reason or usage.mode)}",
+            f"- Cost: unavailable ({_inline(usage.cost_reason)})",
+        ]
         lines += [
             "",
             "### Case outcomes",
@@ -172,16 +205,6 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 )
                 + " |"
             )
-        context = evaluation.context
-        lines.extend(
-            (
-                f"- Requested model: {_inline(context.requested_model)}",
-                f"- Answering models: {_inline(context.answering_models)}",
-                f"- Compilers: {_inline(context.compiler_ids)} "
-                f"({_inline(context.compiler_version)})",
-                f"- Option order: {_inline(context.option_order)}",
-            )
-        )
     if content.comparison is not None:
         comparison = content.comparison
         lines += [
@@ -246,7 +269,7 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             if item.source is None:
                 lines.append(f"Unavailable: {_inline(item.unavailable_reason)}")
             else:
-                source = item.source
+                source = item.source.replace("\r\n", "\n").replace("\r", "\n")
                 longest = max(
                     (len(match.group(0)) for match in re.finditer(r"`+", source)), default=0
                 )

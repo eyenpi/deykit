@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-from decimal import Decimal
 from typing import cast
 
 from deykit.application.dataset_support import fail
@@ -83,11 +82,26 @@ def project_opaque_response_bytes(
     )
 
 
-def _record_version_is_explicit(value: object) -> bool:
-    if not isinstance(value, dict):
-        return False
-    version = value.get("schema_version")
-    return isinstance(version, Decimal) and version == 1 and version.as_tuple().exponent == 0
+def project_json_source(source: str, sanitizer: Sanitizer) -> tuple[str, bool]:
+    """Keep exact JSON text unless structured redaction changes its parsed value."""
+    value = parse_json(source)
+    safe_value = sanitizer.value(value)
+    if safe_value == value:
+        return source, False
+    return dump_json(cast(JsonValue, safe_value)), True
+
+
+def _admit_evaluation_metrics(source: str) -> EvaluationMetrics:
+    try:
+        parsed = parse_json(source)
+        if not isinstance(parsed, dict) or parsed.get("profile") != "deykit-evaluation-v1":
+            fail("report_metrics_mismatch", "incompatible_data")
+        metrics = EvaluationMetrics.model_validate_json(source)
+    except ValueError:
+        fail("report_metrics_mismatch", "incompatible_data")
+    # P10 metrics_source is a profile source, not a persisted Record envelope.
+    # The report copies this display DTO into its own strictly versioned content.
+    return metrics.model_copy(update={"schema_version": 1})
 
 
 def _safe_error(error: ServiceError | None, sanitizer: Sanitizer) -> JsonValue:
@@ -600,11 +614,7 @@ def project_evaluation(
             }
         )
         if raw.inputs:
-            value = parse_json(case.input_source)
-            safe_value = sanitizer.value(value)
-            source = (
-                case.input_source if safe_value == value else dump_json(cast(JsonValue, safe_value))
-            )
+            source, changed = project_json_source(case.input_source, sanitizer)
             raw_material.append(
                 RawMaterial(
                     category="input",
@@ -615,7 +625,7 @@ def project_evaluation(
                     identity_kind="input_semantic_hash",
                     original_hash=result.input_hash,
                     sanitized_hash=bytes_hash(source.encode("utf-8")),
-                    changed_by_redaction=source != case.input_source,
+                    changed_by_redaction=changed,
                 )
             )
         if raw.requests:
@@ -637,12 +647,8 @@ def project_evaluation(
                 )
             else:
                 _safe_identity(sanitizer, request.body_hash)
-                parsed = parse_json(request.body)
-                safe_value = sanitizer.value(parsed)
-                source = (
-                    request.body.decode("utf-8")
-                    if safe_value == parsed
-                    else dump_json(cast(JsonValue, safe_value))
+                source, changed = project_json_source(
+                    request.body.decode("utf-8", "strict"), sanitizer
                 )
                 raw_material.append(
                     RawMaterial(
@@ -655,7 +661,7 @@ def project_evaluation(
                         identity_kind="prepared_request_bytes_hash",
                         original_hash=request.body_hash,
                         sanitized_hash=bytes_hash(source.encode("utf-8")),
-                        changed_by_redaction=source.encode("utf-8") != request.body,
+                        changed_by_redaction=changed,
                     )
                 )
         if raw.responses:
@@ -700,9 +706,6 @@ def project_evaluation(
                     )
                 )
 
-    metrics = parse_json(view.record.metrics_source)
-    if not _record_version_is_explicit(metrics):
-        fail("report_metrics_mismatch", "incompatible_data")
     question = definition.questions[0]
     for identity in (
         question.id,
@@ -759,6 +762,7 @@ def project_evaluation(
         "baseline_label_snapshot_id": frozen.baseline_labels.id,
         "baseline_label_hash": frozen.baseline_labels.content_hash,
     }
+    metrics = _admit_evaluation_metrics(view.record.metrics_source)
     projected: dict[str, JsonValue] = {
         "evaluation_id": view.record.id,
         "evaluation_hash": view.record.content_hash,
@@ -767,7 +771,7 @@ def project_evaluation(
         "label_snapshot_id": frozen.labels.id,
         "evaluation_mode": view.record.mode,
         "evidence_mode": frozen.manifest.mode,
-        "metrics": metrics,
+        "metrics": cast(JsonValue, metrics.model_dump(mode="python")),
         "context": context,
         "cases": report_cases,
         "attempts": [
@@ -802,10 +806,12 @@ def project_evaluation(
             for attempt, event in admitted_attempts
         ],
     }
-    return _typed_evaluation(projected, view.record.metrics_source), tuple(raw_material)
+    return _typed_evaluation(projected, metrics), tuple(raw_material)
 
 
-def _typed_evaluation(projected: dict[str, JsonValue], metrics_source: str) -> ReportEvaluation:
+def _typed_evaluation(
+    projected: dict[str, JsonValue], metrics: EvaluationMetrics
+) -> ReportEvaluation:
     raw_context = projected.get("context")
     raw_cases = projected.get("cases")
     raw_attempts = projected.get("attempts")
@@ -815,13 +821,6 @@ def _typed_evaluation(projected: dict[str, JsonValue], metrics_source: str) -> R
         or not isinstance(raw_attempts, list)
     ):
         fail("report_context_mismatch", "incompatible_data")
-    raw_metrics = parse_json(metrics_source)
-    if not _record_version_is_explicit(raw_metrics):
-        fail("report_metrics_mismatch", "incompatible_data")
-    try:
-        metrics = EvaluationMetrics.model_validate_json(metrics_source, context={"persisted": True})
-    except ValueError:
-        fail("report_metrics_mismatch", "incompatible_data")
     report_cases: list[ReportCase] = []
     for case in raw_cases:
         if not isinstance(case, dict):

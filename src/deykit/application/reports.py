@@ -479,7 +479,14 @@ class ReportService:
 
     def render(self, report_id: str, *, format: ReportFormat) -> RenderedArtifact:
         view = self.read(report_id)
-        artifact = render_content(view.record, view.content, format)
+        try:
+            artifact = render_content(view.record, view.content, format)
+        except ValueError as error:
+            if error.args == ("report_artifact_limit",):
+                fail("report_artifact_limit")
+            if error.args == ("invalid_report_format",):
+                fail("invalid_report_format")
+            raise
         if len(artifact.body) > 8 * 1024 * 1024:
             fail("report_artifact_limit")
         validate_rendered_artifact_identities(

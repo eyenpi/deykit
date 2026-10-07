@@ -24,4 +24,6 @@ claim opaque response-byte evidence where the saved source has none.
 JSON and Markdown render the same saved report deterministically. Partial
 results remain visible, fixture evidence is labelled authored software
 verification material, and saved rates retain their denominators and null
-reasons.
+reasons. Markdown puts frozen model/compiler contexts before result identities
+and keeps baseline, usage, and case evidence in a fixed order. It normalizes raw
+source line endings in the rendered copy while JSON preserves the saved source.
