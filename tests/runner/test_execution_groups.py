@@ -115,7 +115,12 @@ def test_http_scoped_regression_rejects_cross_decision_before_identity_or_clock(
         return original_utc_now()
 
     clock.utc_now = utc_now
-    service = RegressionService(source, clock, lambda: identity_calls.append(True) or "reg")
+
+    def identity():
+        identity_calls.append(True)
+        return f"reg-{len(identity_calls)}"
+
+    service = RegressionService(source, clock, identity)
     body = RegressionAdd(
         run_id=run.run_id,
         case_id="case-00",
@@ -160,6 +165,7 @@ def test_http_scoped_regression_rejects_cross_decision_before_identity_or_clock(
 
     monkeypatch.setattr(source, "operation_receipt", record_receipt)
     service.add(legacy_body, operation_id="legacy-add")
+    assert len(identity_calls) == len(time_calls) == 2
     assert receipt_hashes[0] == safe_hash(
         {
             "command": "regression.add",
@@ -168,7 +174,7 @@ def test_http_scoped_regression_rejects_cross_decision_before_identity_or_clock(
     )
 
 
-def test_frozen_check_after_case_deletion_and_unavailable_baseline(setup):
+def test_frozen_check_after_case_deletion_and_unavailable_baseline(setup, monkeypatch):
     from deykit.application.checks import CheckRequest, CheckService
     from deykit.application.evaluations import EvaluationService
     from deykit.contracts.ports import ResourceKey, SourceChange
@@ -214,6 +220,23 @@ def test_frozen_check_after_case_deletion_and_unavailable_baseline(setup):
             operation_id="check",
         )
     ).group.replayed
+    assert len(factory.calls) == 2
+    before_empty_check = source.capture_snapshot()
+
+    def unexpected_backend(*_args, **_kwargs):
+        raise AssertionError("empty default check resolved the current backend")
+
+    monkeypatch.setattr(factory, "resolve", unexpected_backend)
+    with pytest.raises(ServiceFailure) as empty_scope:
+        asyncio.run(
+            checks.start(
+                CheckRequest(decision_id="decision", mode="fixture", fixture_set_id="set"),
+                operation_id="check-after-removal",
+            )
+        )
+    assert empty_scope.value.error.code == "preflight_failed"
+    assert empty_scope.value.error.reason == "empty_regression_scope"
+    assert source.capture_snapshot() == before_empty_check
     assert len(factory.calls) == 2
 
 
