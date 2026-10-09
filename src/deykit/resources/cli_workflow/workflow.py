@@ -1094,7 +1094,7 @@ class Workflow:
             "--operation-id",
             "tutorial-regression-c002",
         )
-        self.regression_id = added["result"]["id"]
+        self.regression_id = added["id"]
         missing_regression = self.call(
             "regression",
             "remove",
