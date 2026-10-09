@@ -7,7 +7,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from fractions import Fraction
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 
@@ -584,7 +584,7 @@ def test_demo_process_crash_recovers_only_the_real_atomic_decision(
         assert tuple((row.key, row.body, row.etag) for row in receipt.changes) == original
 
 
-@pytest.mark.parametrize("corruption", ["decision", "blob"])
+@pytest.mark.parametrize("corruption", ["decision", "manifest", "blob"])
 def test_corrupt_decided_demo_is_refused_without_recovery_writes(tmp_path, corruption):
     root = tmp_path / f"Corrupt {corruption}"
     result = subprocess.run(
@@ -593,11 +593,12 @@ def test_corrupt_decided_demo_is_refused_without_recovery_writes(tmp_path, corru
         timeout=30,
     )
     assert result.returncode == 73, result.stderr.decode()
-    target = (
-        root / "history" / "journal" / "crashed-demo" / "commit.json"
-        if corruption == "decision"
-        else root / "history" / "journal" / "crashed-demo" / "new-0.json"
-    )
+    journal = root / "history" / "journal" / "crashed-demo"
+    target = {
+        "decision": journal / "commit.json",
+        "manifest": journal / "manifest.json",
+        "blob": journal / "new-0.json",
+    }[corruption]
     target.write_bytes(b"corrupt bytes")
     before = tuple(
         sorted(
@@ -621,6 +622,95 @@ def test_corrupt_decided_demo_is_refused_without_recovery_writes(tmp_path, corru
         )
     )
     assert after == before
+
+
+def test_readonly_receipt_inspection_retries_decided_journal_archival(tmp_path, monkeypatch):
+    """A barrier-controlled recovery exercises relocation without hostile-race claims."""
+    root = tmp_path / "Relocating demo"
+    result = subprocess.run(
+        [sys.executable, "-c", DEMO_CRASH_CHILD, str(root), "decided"],
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == 73, result.stderr.decode()
+
+    entered_journal_inspection = Event()
+    continue_inspection = Event()
+    original_inspection = FileProjectSource._peek_receipt_folder
+
+    def pause_on_journal(self, folder, operation_id, *, intent_hash):
+        if folder == ("history", "journal", "crashed-demo"):
+            entered_journal_inspection.set()
+            if not continue_inspection.wait(timeout=30):
+                raise AssertionError("receipt inspector was not released")
+        return original_inspection(
+            self, folder, operation_id, intent_hash=intent_hash
+        )
+
+    monkeypatch.setattr(FileProjectSource, "_peek_receipt_folder", pause_on_journal)
+    factory = FileDemoDestinationFactory()
+
+    def inspect():
+        candidate = factory.open_existing(
+            root,
+            operation_id="crashed-demo",
+            intent_hash=DemoService._intent(),
+        )
+        assert candidate is not None
+        try:
+            info = DemoService(
+                source_factory,
+                Clock(),
+                staging_factory=DemoStagingSource,
+                destination_factory=factory,
+            )._admit_receipt(
+                candidate.receipt, root, operation_id="crashed-demo"
+            )
+            return candidate.receipt, info
+        finally:
+            candidate.source.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        inspection = pool.submit(inspect)
+        try:
+            assert entered_journal_inspection.wait(timeout=10)
+            recovery_source = FileProjectSource(root)
+            try:
+                recovered = recovery_source.operation_receipt(
+                    "crashed-demo", intent_hash=DemoService._intent()
+                )
+            finally:
+                recovery_source.close()
+            assert recovered is not None
+            after_recovery = tuple(
+                sorted(
+                    (
+                        path.relative_to(root).as_posix(),
+                        path.is_dir(),
+                        None if path.is_dir() else path.read_bytes(),
+                    )
+                    for path in root.rglob("*")
+                )
+            )
+        finally:
+            continue_inspection.set()
+        inspected, info = inspection.result(timeout=30)
+
+    after_inspection = tuple(
+        sorted(
+            (
+                path.relative_to(root).as_posix(),
+                path.is_dir(),
+                None if path.is_dir() else path.read_bytes(),
+            )
+            for path in root.rglob("*")
+        )
+    )
+    assert after_inspection == after_recovery
+    assert inspected.operation_id == recovered.operation_id
+    assert inspected.changes == recovered.changes
+    assert info.operation_id == "crashed-demo"
+    assert info.replayed is True
 
 
 def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp_path):

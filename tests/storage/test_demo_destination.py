@@ -12,6 +12,7 @@ import pytest
 from deykit.application.demo import DemoService
 from deykit.application.demo import ExistingDemoDestination
 from deykit.application.errors import ServiceFailure
+from deykit.application.projects import ProjectService
 from deykit.contracts.ports import CommitReceipt
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
@@ -210,6 +211,41 @@ def test_replaced_acquired_directory_with_sentinel_is_refused_before_source_writ
         service.create(root, operation_id="race-sentinel")
     assert failure.value.error.reason == "demo_path_exists"
     assert _tree(root) == (("sentinel.txt", "file", b"preserve race loser"),)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX retained-root rename oracle")
+def test_acquired_source_stays_on_renamed_root_after_path_replacement(tmp_path):
+    """A controlled local rename checks anchoring, not hostile-process isolation."""
+    root = tmp_path / "selected"
+    moved = tmp_path / "retained-original"
+    source = FileDemoDestinationFactory().create_exclusive(root)
+    root.rename(moved)
+    root.mkdir()
+    (root / "sentinel.txt").write_bytes(b"replacement must remain untouched")
+    replacement_before = _tree(root)
+    service = DemoService(
+        lambda path, create: FileProjectSource(path, create=create),
+        Clock(),
+        staging_factory=DemoStagingSource,
+        destination_factory=FileDemoDestinationFactory(),
+    )
+    try:
+        try:
+            demo = service.create_in(source, root, operation_id="retained-root-demo")
+        except ServiceFailure:
+            demo = None
+        if demo is not None:
+            described = ProjectService(
+                lambda path, create: FileProjectSource(path, create=create),
+                Clock(),
+                lambda: "unused-id",
+            ).describe(source)
+            assert described.project.id == demo.project_id
+            assert (moved / "deykit.project.json").is_file()
+    finally:
+        source.close()
+    assert _tree(root) == replacement_before
+    assert not (root / ".deykit").exists()
 
 
 def test_simultaneous_fresh_path_create_has_one_owner_and_retry_replays(tmp_path):
