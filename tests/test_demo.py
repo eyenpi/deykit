@@ -518,7 +518,7 @@ DemoService(source_factory, type('Clock', (), {
 def test_demo_process_crash_recovers_only_the_real_atomic_decision(
     tmp_path, checkpoint, committed
 ):
-    root = tmp_path / f"Sandbox {checkpoint}"
+    root = tmp_path / f"Sandbox {checkpoint.replace(':', '-')}"
     result = subprocess.run(
         [sys.executable, "-c", DEMO_CRASH_CHILD, str(root), checkpoint],
         capture_output=True,
