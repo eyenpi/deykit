@@ -65,6 +65,7 @@ from deykit.contracts.records import (
     RunManifest,
 )
 from deykit.contracts.redaction import Sanitizer
+from deykit.diagnostics.orders import choice_orders
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
 from deykit.reports.admission import ReportAdmissionError, admit_report, report_hash
@@ -1613,6 +1614,7 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
     assert isinstance(selection_settings, dict)
     selection_settings["max_attempts"] = Decimal(100)
     selection_request.pop("seed", None)
+    selection_request["orders"] = 4
     selection_text = dump_json(selection_source)
     assert '"max_attempts":1e2' in selection_text
     selection_snapshot = replace(
@@ -1622,9 +1624,29 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
     seed, algorithm, option_orders = _selection(selection_snapshot)
     assert seed == 0
     assert algorithm == "deykit-choice-order-v1"
-    assert option_orders == tuple(
-        member.manifest.option_order for member in diagnostic_partial.members
+    assert option_orders == choice_orders(
+        tuple(
+            option.id
+            for option in diagnostic_partial.members[0].revision.definition.questions[0].options
+        ),
+        orders=4,
+        seed=0,
     )
+    first_order = diagnostic_partial.members[0].manifest.option_order
+    assert first_order is not None
+    duplicate_member = replace(
+        diagnostic_partial.members[1],
+        manifest=diagnostic_partial.members[1].manifest.model_copy(
+            update={"option_order": first_order}
+        ),
+    )
+    inconsistent = replace(
+        diagnostic_partial,
+        members=(diagnostic_partial.members[0], duplicate_member),
+    )
+    with pytest.raises(ServiceFailure) as inconsistent_selection:
+        _selection(inconsistent)
+    assert inconsistent_selection.value.error.reason == "report_group_selection_mismatch"
     diagnostic_latest = diagnostic_snapshot_from_records(
         all_records, graph.diagnostic_complete_snapshot_id
     )
