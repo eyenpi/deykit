@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from deykit.api.dependencies import ApiDependencies
 from deykit.application.checks import CheckService
-from deykit.application.diagnostics import DiagnosticService
+from deykit.application.diagnostics import ChoiceOrderRequest, DiagnosticService
 from deykit.application.execution import ExecutionService
 from deykit.runner.group_models import GroupPreview
 from deykit.runner.views import RunPreview
@@ -102,7 +102,7 @@ def register(
     )
     async def run_preview(registration_id: str, body: RunPreviewRequest) -> Success[RunPreviewDTO]:
         service = execution_service(registration_id)
-        preview = await workers.run_sync(service.preview, body.request)
+        preview = await workers.run_sync(service.preview, body.request.to_application())
         return Success(data=_run(preview))
 
     @router.post(
@@ -114,7 +114,12 @@ def register(
         registration_id: str, body: ChoiceOrderPreviewRequest
     ) -> Success[GroupPreviewDTO]:
         service = DiagnosticService(execution_service(registration_id))
-        preview = await workers.run_sync(service.preview, body.request)
+        request = ChoiceOrderRequest(
+            run=body.request.run.to_application(),
+            orders=body.request.orders,
+            seed=int(body.request.seed),
+        )
+        preview = await workers.run_sync(service.preview, request)
         return Success(data=_group(preview))
 
     @router.post(
@@ -126,5 +131,5 @@ def register(
         registration_id: str, body: CheckPreviewRequest
     ) -> Success[GroupPreviewDTO]:
         service = CheckService(execution_service(registration_id))
-        preview = await workers.run_sync(service.preview, body.request)
+        preview = await workers.run_sync(service.preview, body.request.to_application())
         return Success(data=_group(preview))

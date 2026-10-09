@@ -2,28 +2,82 @@
 
 from typing import Annotated, Literal
 
-from pydantic import StringConstraints
+from pydantic import Field, StringConstraints, field_validator
 
 from deykit.application.checks import CheckRequest
-from deykit.application.diagnostics import ChoiceOrderRequest
+from deykit.contracts.base import FrozenModel
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.planner import RunRequest
 
 from .common import CountText, ResponseRecord, VersionRequest
+from .data import SeedText
+
+
+class RunRequestDTO(RunRequest):
+    @field_validator("case_ids", "option_order", "regression_ids", mode="before")
+    @classmethod
+    def json_arrays(cls, value: object) -> object:
+        return tuple(value) if type(value) is list else value
+
+    def to_application(self) -> RunRequest:
+        return RunRequest(
+            decision_id=self.decision_id,
+            dataset_id=self.dataset_id,
+            mode=self.mode,
+            provider_id=self.provider_id,
+            fixture_set_id=self.fixture_set_id,
+            revision_id=self.revision_id,
+            split=self.split,
+            case_ids=self.case_ids,
+            option_order=self.option_order,
+            regression_ids=self.regression_ids,
+            settings=self.settings,
+        )
+
+
+class CheckRequestDTO(CheckRequest):
+    @field_validator("regression_ids", mode="before")
+    @classmethod
+    def json_regression_ids(cls, value: object) -> object:
+        return tuple(value) if type(value) is list else value
+
+    def to_application(self) -> CheckRequest:
+        return CheckRequest(
+            decision_id=self.decision_id,
+            mode=self.mode,
+            provider_id=self.provider_id,
+            fixture_set_id=self.fixture_set_id,
+            revision_id=self.revision_id,
+            regression_ids=self.regression_ids,
+            settings=self.settings,
+        )
 
 
 class RunPreviewRequest(VersionRequest):
-    request: RunRequest
+    request: RunRequestDTO
+
+
+class ChoiceOrderRequestDTO(FrozenModel):
+    run: RunRequestDTO
+    orders: Annotated[int, Field(ge=1, le=4)] = 4
+    seed: SeedText = "0"
+
+    @field_validator("seed")
+    @classmethod
+    def signed_64_bit_seed(cls, value: str) -> str:
+        if len(value) > 20 or not -(2**63) <= int(value) < 2**63:
+            raise ValueError("invalid_choice_order_seed")
+        return value
 
 
 class ChoiceOrderPreviewRequest(VersionRequest):
-    request: ChoiceOrderRequest
+    request: ChoiceOrderRequestDTO
 
 
 class CheckPreviewRequest(VersionRequest):
-    request: CheckRequest
+    request: CheckRequestDTO
 
 
 class RunPreviewDTO(ResponseRecord):

@@ -7,15 +7,24 @@ from pathlib import Path
 from typing import NoReturn
 
 import httpx
+import pytest
+from pydantic import ValidationError
 
 from deykit.api.app import create_app
 from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies, ApiProjectSource
+from deykit.api.dto.execution import (
+    CheckRequestDTO,
+    ChoiceOrderPreviewRequest,
+    RunRequestDTO,
+)
 from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.api.security import LocalBoundary
 from deykit.application.provider_operations import ProviderOperations
+from deykit.contracts.provider_configuration import ModelDescription
+from deykit.contracts.records import ProviderProfile
 from deykit.providers.choice import JEV_DESTINATION
 from deykit.providers.configuration import create_provider_operations
 from deykit.runner.backends import ProviderBackends
@@ -164,6 +173,172 @@ def test_provider_routes_configure_without_exposing_or_resolving_credentials(
     assert os_store_calls == []
 
 
+def test_provider_model_listing_requires_version_body_without_opening_secrets(
+    tmp_path: Path,
+) -> None:
+    model_calls: list[tuple[str, float]] = []
+    os_store_calls: list[bool] = []
+
+    class OfflineModels:
+        async def models(
+            self, profile: ProviderProfile, *, timeout_seconds: float
+        ) -> tuple[ModelDescription, ...]:
+            model_calls.append((profile.id, timeout_seconds))
+            return (ModelDescription("model-1", "Local fake", "2026-01-01"),)
+
+    def forbidden_store() -> NoReturn:
+        os_store_calls.append(True)
+        raise AssertionError("model listing must not open the OS secret store")
+
+    def provider_operations(source: ApiProjectSource) -> ProviderOperations:
+        return create_provider_operations(
+            source,
+            environment={},
+            os_store_factory=forbidden_store,
+            model_lister=OfflineModels(),
+        )
+
+    app, origin = _app(
+        tmp_path,
+        dependencies=_dependencies(tmp_path, provider_operations_factory=provider_operations),
+    )
+
+    async def exercise() -> None:
+        async with app.app.router.lifespan_context(app.app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url=origin
+            ) as client:
+                headers = await _session(client, origin)
+                project = await client.post(
+                    "/api/v1/projects/register",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "operation_id": "register-model-project",
+                        "action": "create",
+                        "path": str(tmp_path / "model-project"),
+                        "name": "Model project",
+                    },
+                )
+                assert project.status_code == 200, project.text
+                registration_id = project.json()["data"]["registration_id"]
+                profile_path = (
+                    f"/api/v1/projects/{registration_id}/providers/provider-1"
+                )
+                configured = await client.put(
+                    profile_path,
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "operation_id": "configure-model-profile",
+                        "profile_id": "provider-1",
+                        "adapter": "jev",
+                        "requested_model": "jev-latest",
+                        "destination": JEV_DESTINATION,
+                    },
+                )
+                assert configured.status_code == 200, configured.text
+
+                model_path = f"{profile_path}/models?timeout_seconds=12"
+                missing_body = await client.post(model_path, headers=headers)
+                assert missing_body.status_code == 422, missing_body.text
+                assert model_calls == []
+
+                response = await client.post(
+                    model_path,
+                    headers=headers,
+                    json={"schema_version": 1},
+                )
+                assert response.status_code == 200, response.text
+                assert response.json()["data"] == {
+                    "schema_version": 1,
+                    "profile_id": "provider-1",
+                    "network_check": True,
+                    "inference_calls": 0,
+                    "models": [
+                        {
+                            "schema_version": 1,
+                            "name": "model-1",
+                            "description": "Local fake",
+                            "release_date": "2026-01-01",
+                        }
+                    ],
+                }
+                assert model_calls == [("provider-1", 12.0)]
+
+    asyncio.run(exercise())
+    assert os_store_calls == []
+
+
+def test_choice_order_seed_requires_signed_64_bit_decimal_text() -> None:
+    request_base = {
+        "schema_version": 1,
+        "request": {
+            "run": {
+                "decision_id": "decision-1",
+                "dataset_id": "dataset-1",
+                "mode": "fixture",
+                "fixture_set_id": "fixture-1",
+            },
+            "orders": 2,
+        },
+    }
+    for seed in ("-9223372036854775808", "9007199254740993", "9223372036854775807"):
+        request = ChoiceOrderPreviewRequest.model_validate(
+            {**request_base, "request": {**request_base["request"], "seed": seed}}
+        )
+        assert request.request.seed == seed
+
+    for seed in (
+        1,
+        "+1",
+        "01",
+        "-0",
+        "9223372036854775808",
+        "-9223372036854775809",
+    ):
+        with pytest.raises(ValidationError):
+            ChoiceOrderPreviewRequest.model_validate(
+                {**request_base, "request": {**request_base["request"], "seed": seed}}
+            )
+
+
+def test_execution_preview_dtos_accept_json_arrays_and_keep_application_constraints() -> None:
+    run_data = {
+        "decision_id": "decision-1",
+        "dataset_id": "dataset-1",
+        "mode": "fixture",
+        "fixture_set_id": "fixture-1",
+        "case_ids": ["case-1"],
+        "option_order": ["yes", "no"],
+        "regression_ids": ["regression-1"],
+    }
+    run = RunRequestDTO.model_validate(run_data).to_application()
+    assert run.case_ids == ("case-1",)
+    assert run.option_order == ("yes", "no")
+    assert run.regression_ids == ("regression-1",)
+
+    check_data = {
+        "decision_id": "decision-1",
+        "mode": "fixture",
+        "fixture_set_id": "fixture-1",
+        "regression_ids": ["regression-1"],
+    }
+    assert CheckRequestDTO.model_validate(check_data).to_application().regression_ids == (
+        "regression-1",
+    )
+
+    for invalid in (
+        {**run_data, "case_ids": "case-1"},
+        {**run_data, "option_order": ["yes", 4]},
+        {**run_data, "case_ids": ["case-1", "case-1"]},
+    ):
+        with pytest.raises(ValidationError):
+            RunRequestDTO.model_validate(invalid)
+    with pytest.raises(ValidationError):
+        CheckRequestDTO.model_validate({**check_data, "regression_ids": ["regression-1"] * 2})
+
+
 def test_run_and_choice_order_previews_are_protected_and_do_not_create_runs(
     tmp_path: Path,
 ) -> None:
@@ -207,12 +382,17 @@ def test_run_and_choice_order_previews_are_protected_and_do_not_create_runs(
                     headers=headers,
                     json={
                         "schema_version": 1,
-                        "request": {"run": request, "orders": 2, "seed": 7},
+                        "request": {
+                            "run": request,
+                            "orders": 2,
+                            "seed": "9007199254740993",
+                        },
                     },
                 )
                 assert group.status_code == 200, group.text
                 assert group.json()["data"]["dry_run"] is True
                 assert len(group.json()["data"]["members"]) == 2
+                assert group.json()["data"]["seed"] == "9007199254740993"
                 registration = app.app.state.project_registry.require(registration_id)
                 assert registration.source.list_ids("runs") == ()
                 assert registration.source.list_ids("execution_groups") == ()

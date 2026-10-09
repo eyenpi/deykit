@@ -73,6 +73,75 @@ describe("generated local API operations", () => {
     expect(init?.redirect).toBe("error");
   });
 
+  it("sends the required version body for the provider model operation", async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(
+      reply(
+        success({
+          schema_version: 1,
+          profile_id: "profile-1",
+          network_check: true,
+          inference_calls: 0,
+          models: [],
+        }),
+      ),
+    );
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
+    await client.operation("listProviderModels", {
+      path: { registration_id: "registration-1", profile_id: "profile-1" },
+      query: { timeout_seconds: "12" },
+      body: { schema_version: 1 },
+    });
+
+    const [url, init] = transport.mock.calls[0];
+    expect(url).toBe(
+      "/api/v1/projects/registration-1/providers/profile-1/models?timeout_seconds=12",
+    );
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({ schema_version: 1 });
+  });
+
+  it("preserves choice-order seeds as decimal text in the generated request", async () => {
+    const transport = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
+    await expect(
+      client.operation("previewChoiceOrder", {
+        path: { registration_id: "registration-1" },
+        body: {
+          schema_version: 1,
+          request: {
+            run: {
+              decision_id: "decision-1",
+              dataset_id: "dataset-1",
+              mode: "fixture",
+              fixture_set_id: "fixture-1",
+            },
+            orders: 2,
+            seed: "9007199254740993",
+          },
+        },
+      }),
+    ).rejects.toBeDefined();
+
+    expect(transport).toHaveBeenCalledOnce();
+    expect(JSON.parse(transport.mock.calls[0][1]?.body as string)).toEqual({
+      schema_version: 1,
+      request: {
+        run: {
+          decision_id: "decision-1",
+          dataset_id: "dataset-1",
+          mode: "fixture",
+          fixture_set_id: "fixture-1",
+        },
+        orders: 2,
+        seed: "9007199254740993",
+      },
+    });
+  });
+
   it("encodes only declared query values and retains the response ETag", async () => {
     const transport = vi.fn<typeof fetch>().mockResolvedValue(
       reply(decisionPage(), 200, { ETag: '"page-2"' }),
@@ -202,7 +271,7 @@ describe("generated local API operations", () => {
   it("requires explicit reconnect after a stale capability and never resends the mutation", async () => {
     const origin = "http://127.0.0.1:8765";
     const bootstrap = (capability: string) =>
-      reply(success({ schema_version: 1, capability, origin, api_version: 1 }));
+      reply(success({ capability, origin, api_version: 1 }));
     const stale = reply(
       {
         schema_version: 1,
@@ -288,7 +357,7 @@ describe("generated local API operations", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
         reply(
-          success({ schema_version: 1, capability: "a".repeat(43), origin, api_version: 1 }),
+          success({ capability: "a".repeat(43), origin, api_version: 1 }),
         ),
       )
       .mockResolvedValueOnce(reply(recentProjects()));
@@ -332,7 +401,7 @@ describe("generated local API operations", () => {
   it("does not let an older bootstrap overwrite a concurrent reconnect", async () => {
     const origin = "http://127.0.0.1:8765";
     const bootstrap = (capability: string) =>
-      reply(success({ schema_version: 1, capability, origin, api_version: 1 }));
+      reply(success({ capability, origin, api_version: 1 }));
     let finishOldBootstrap!: (response: Response) => void;
     const oldBootstrap = new Promise<Response>((resolve) => {
       finishOldBootstrap = resolve;

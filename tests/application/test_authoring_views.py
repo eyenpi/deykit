@@ -182,6 +182,45 @@ def test_common_schema_edit_keeps_advanced_exact_constraints_and_unedited_source
     assert project_editor(text_input.editor_source).form.input_kind == "text"
 
 
+def test_union_schema_field_type_stays_raw_and_cannot_be_replaced_by_scalar_edit():
+    schema = (
+        '{"type":"object","properties":{"nullable":{"type":["string","null"],'
+        '"default":{"discriminator":"preserve"},"description":"Keep union"}},'
+        '"required":["nullable"]}'
+    )
+    projection = project_schema(schema)
+    assert projection.schema_source == schema
+    assert projection.fields is not None
+    field = next(item for item in projection.fields if item.name == "nullable")
+    assert field.field_type is None
+    assert field.editable is False
+
+    source = editor_source(schema)
+    original = project_editor(source)
+    assert original.form is not None
+    assert original.form.input_schema_source == schema
+    unrelated = transform_editor(
+        source, SetInstructions(kind="set_instructions", value="Keep the union.")
+    )
+    round_trip = project_editor(unrelated.editor_source)
+    assert round_trip.form is not None
+    assert round_trip.form.input_schema_source == schema
+
+    with pytest.raises(ValueError, match="schema_field_edit_unsafe"):
+        transform_editor(
+            source,
+            SchemaField(
+                kind="schema_field",
+                name="nullable",
+                field_type="string",
+                required=False,
+            ),
+        )
+    unchanged = project_editor(source)
+    assert unchanged.form is not None
+    assert unchanged.form.input_schema_source == schema
+
+
 def test_case_input_projection_and_text_encoding_keep_exact_unicode_and_newlines():
     source = ' "line one\\nline two\\nλ" '
     projected = project_case_input("text", source)

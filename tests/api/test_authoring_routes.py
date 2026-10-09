@@ -4,11 +4,20 @@ import asyncio
 import hashlib
 
 import httpx
+import pytest
+from pydantic import ValidationError
 
 from deykit.api.app import create_app
 from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
+from deykit.api.dto.authoring import EditorTransformRequest, MappingTransformRequest
+from deykit.application.authoring_views import (
+    ReplaceMappingFields,
+    ReplaceOptionAliases,
+    ReorderOptions,
+    SetSelectedFields,
+)
 from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.contracts.json_value import dump_json
@@ -17,6 +26,67 @@ from deykit.runner.backends import ProviderBackends
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
 from deykit.storage.demo_staging import DemoStagingSource
+
+
+def test_authoring_edit_dtos_normalize_only_declared_json_array_fields():
+    editor_base = {
+        "schema_version": 1,
+        "editor_source": "{}",
+        "expected_draft_etag": "a" * 64,
+    }
+    reordered = EditorTransformRequest.model_validate(
+        {
+            **editor_base,
+            "edit": {"kind": "reorder_options", "option_ids": ["yes", "no"]},
+        }
+    )
+    assert isinstance(reordered.edit, ReorderOptions)
+    assert reordered.edit.option_ids == ("yes", "no")
+    selected = EditorTransformRequest.model_validate(
+        {
+            **editor_base,
+            "edit": {"kind": "set_selected_fields", "selected_fields": ["name"]},
+        }
+    )
+    assert isinstance(selected.edit, SetSelectedFields)
+    assert selected.edit.selected_fields == ("name",)
+    with pytest.raises(ValidationError):
+        EditorTransformRequest.model_validate(
+            {**editor_base, "edit": {"kind": "reorder_options", "option_ids": "yes"}}
+        )
+    with pytest.raises(ValidationError):
+        EditorTransformRequest.model_validate(
+            {**editor_base, "edit": {"kind": "set_selected_fields", "selected_fields": [1]}}
+        )
+
+    mapping_base = {"schema_version": 1, "mapping_source": "{}"}
+    mapping_fields = MappingTransformRequest.model_validate(
+        {
+            **mapping_base,
+            "edit": {
+                "kind": "replace_fields",
+                "fields": [{"source": "input", "target": "input", "parse_json": False}],
+            },
+        }
+    )
+    assert isinstance(mapping_fields.edit, ReplaceMappingFields)
+    assert len(mapping_fields.edit.fields) == 1
+    assert mapping_fields.edit.fields[0].source == "input"
+    aliases = MappingTransformRequest.model_validate(
+        {
+            **mapping_base,
+            "edit": {
+                "kind": "replace_option_aliases",
+                "option_aliases": [{"value": "yes", "option_id": "yes"}],
+            },
+        }
+    )
+    assert isinstance(aliases.edit, ReplaceOptionAliases)
+    assert aliases.edit.option_aliases[0].option_id == "yes"
+    with pytest.raises(ValidationError):
+        MappingTransformRequest.model_validate(
+            {**mapping_base, "edit": {"kind": "replace_fields", "fields": "input"}}
+        )
 
 
 def test_decision_editor_projection_and_transform_are_protected_and_exact(tmp_path):

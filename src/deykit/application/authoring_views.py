@@ -544,7 +544,10 @@ def project_schema(schema_source: str | None) -> SchemaProjectionV1:
             continue
         field_type = raw.get("type")
         simple_type = field_type if type(field_type) is str else None
-        valid_type = simple_type is None or simple_type in _SCHEMA_TYPES
+        valid_type = (
+            "type" not in raw
+            or (simple_type is not None and simple_type in _SCHEMA_TYPES)
+        )
         advanced = tuple(sorted(set(raw).difference({"type"})))
         fields.append(
             SchemaFieldV1(

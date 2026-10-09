@@ -8,7 +8,7 @@ from deykit.application.provider_operations import ProviderOperations
 from deykit.contracts.provider_configuration import ProviderPresentation
 from deykit.contracts.records import ProviderProfile
 
-from ..dto.common import Success
+from ..dto.common import Success, VersionRequest
 from ..dto.providers import (
     CredentialStatusDTO,
     EnvironmentCredentialRequest,
@@ -257,8 +257,10 @@ def register(
     async def list_models(
         registration_id: str,
         profile_id: str,
+        body: VersionRequest,
         timeout_seconds: str = "60",
     ) -> Success[ModelListDTO]:
+        del body
         value = await workers.run_async(
             operations(registration_id).list_models,
             profile_id,

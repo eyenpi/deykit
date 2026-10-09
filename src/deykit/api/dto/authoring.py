@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import StringConstraints
+from pydantic import StringConstraints, field_validator
 
 from deykit.application.authoring_views import (
     EditorEditV1,
@@ -86,6 +86,14 @@ class EditorTransformRequest(VersionRequest):
     edit: EditorEditV1
     expected_draft_etag: ETag
 
+    @field_validator("edit", mode="before")
+    @classmethod
+    def json_edit_arrays(cls, value: object) -> object:
+        return _edit_array(
+            value,
+            {"reorder_options": "option_ids", "set_selected_fields": "selected_fields"},
+        )
+
 
 class SchemaProjectionRequest(VersionRequest):
     schema_source: str | None
@@ -107,6 +115,31 @@ class MappingProjectionRequest(VersionRequest):
 class MappingTransformRequest(VersionRequest):
     mapping_source: str
     edit: MappingEditV1
+
+    @field_validator("edit", mode="before")
+    @classmethod
+    def json_edit_arrays(cls, value: object) -> object:
+        return _edit_array(
+            value,
+            {"replace_fields": "fields", "replace_option_aliases": "option_aliases"},
+        )
+
+
+def _edit_array(value: object, fields_by_kind: dict[str, str]) -> object:
+    if type(value) is not dict:
+        return value
+    kind = value.get("kind")
+    if type(kind) is not str:
+        return value
+    field = fields_by_kind.get(kind)
+    if field is None:
+        return value
+    array = value.get(field)
+    if type(array) is not list:
+        return value
+    normalized = dict(value)
+    normalized[field] = tuple(array)
+    return normalized
 
 
 class DecisionSummaryDTO(ResponseRecord):
