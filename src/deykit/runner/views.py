@@ -8,6 +8,12 @@ from deykit.contracts.records import ExecutionSettings
 from deykit.runner.history import RunHistory
 from deykit.runner.planner import RunPlan
 
+CompilerIdUnavailableReason = Literal[
+    "no_prepared_request",
+    "prepared_compiler_mismatch",
+    "inconsistent_prepared_compiler_identity",
+]
+
 
 @dataclass(frozen=True)
 class RunCreated:
@@ -64,14 +70,7 @@ class RunSourceReferences:
     adapter: str | None = None
     compiler_version: str | None = None
     compiler_id: str | None = None
-    compiler_id_unavailable_reason: (
-        Literal[
-            "no_prepared_request",
-            "prepared_compiler_mismatch",
-            "inconsistent_prepared_compiler_identity",
-        ]
-        | None
-    ) = None
+    compiler_id_unavailable_reason: CompilerIdUnavailableReason | None = None
     evidence_mode: Literal["authored_fixture", "live"] | None = None
 
 
@@ -157,7 +156,7 @@ def progress_view(
         for request in prepared_requests
     )
     compiler_id = next(iter(compiler_ids)) if len(compiler_ids) == 1 and versions_match else None
-    compiler_id_unavailable_reason = (
+    compiler_id_unavailable_reason: CompilerIdUnavailableReason | None = (
         None
         if compiler_id is not None
         else "no_prepared_request"

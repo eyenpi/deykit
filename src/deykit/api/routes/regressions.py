@@ -18,22 +18,24 @@ from deykit.contracts.errors import ServiceError
 
 
 def _dto(value: RegressionView) -> RegressionDTO:
-    return RegressionDTO(
-        regression_id=value.id,
-        decision_id=value.decision_id,
-        dataset_id=value.dataset_id,
-        case_id=value.case_id,
-        question_id=value.question_id,
-        acceptable_option_ids=value.acceptable_option_ids,
-        reason=value.reason,
-        original_split=value.original_split,
-        provenance=value.provenance,
-        source_run_id=value.source_run_id,
-        source_result_snapshot_id=value.source_result_snapshot_id,
-        input_hash=value.input_hash,
-        removed=value.removed,
-        executable=value.executable,
-        unavailable_reason=value.unavailable_reason,
+    return RegressionDTO.model_validate(
+        {
+            "regression_id": value.id,
+            "decision_id": value.decision_id,
+            "dataset_id": value.dataset_id,
+            "case_id": value.case_id,
+            "question_id": value.question_id,
+            "acceptable_option_ids": value.acceptable_option_ids,
+            "reason": value.reason,
+            "original_split": value.original_split,
+            "provenance": value.provenance,
+            "source_run_id": value.source_run_id,
+            "source_result_snapshot_id": value.source_result_snapshot_id,
+            "input_hash": value.input_hash,
+            "removed": value.removed,
+            "executable": value.executable,
+            "unavailable_reason": value.unavailable_reason,
+        }
     )
 
 

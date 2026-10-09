@@ -389,21 +389,21 @@ class ExecutionSupervisor:
             await asyncio.gather(*preparing, return_exceptions=True)
 
         cancellation_failures = False
-        for (registration_id, run_id), (registration, service) in tuple(self._runs.items()):
-            task = self._run_tasks.get((registration_id, run_id))
-            if registration.id != registration_id or task is None or task.done():
+        for (registration_id, run_id), (run_registration, run_service) in tuple(self._runs.items()):
+            run_task = self._run_tasks.get((registration_id, run_id))
+            if run_registration.id != registration_id or run_task is None or run_task.done():
                 continue
             try:
                 await asyncio.to_thread(
-                    service.cancel, run_id, operation_id=f"shutdown-{run_id[:32]}"
+                    run_service.cancel, run_id, operation_id=f"shutdown-{run_id[:32]}"
                 )
             except Exception:
                 cancellation_failures = True
         for (registration_id, group_id), (registration, service, _kind) in tuple(
             self._groups.items()
         ):
-            task = self._group_tasks.get((registration_id, group_id))
-            if registration.id != registration_id or task is None or task.done():
+            group_task = self._group_tasks.get((registration_id, group_id))
+            if registration.id != registration_id or group_task is None or group_task.done():
                 continue
             try:
                 await asyncio.to_thread(

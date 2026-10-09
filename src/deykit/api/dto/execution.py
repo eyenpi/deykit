@@ -21,7 +21,7 @@ HttpDeadline = Annotated[int, Field(strict=True, ge=1, le=86_400)]
 HttpRetryCount = Annotated[int, Field(strict=True, ge=0, le=1)]
 
 
-class ExecutionSettingsRequestDTO(FrozenModel):
+class ExecutionSettingsRequestDTO(ExecutionSettings):
     max_attempts: HttpPositiveInt = 100
     concurrency: HttpPositiveInt = 2
     timeout_seconds: HttpPositiveInt = 60
@@ -227,7 +227,7 @@ class RunCaseProgressDTO(FrozenModel):
     case_id: ResourceId
     status: str
     attempt_id: ResourceId | None
-    error: ServiceError | None
+    error: ErrorDTO | None
 
 
 class RunAttemptProgressDTO(FrozenModel):

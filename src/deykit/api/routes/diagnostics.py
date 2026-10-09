@@ -70,12 +70,14 @@ def register(
     async def read_choice_order(registration_id: str, group_id: str) -> Success[DiagnosticViewDTO]:
         value = await workers.run_sync(service(registration_id).read, group_id)
         return Success(
-            data=DiagnosticViewDTO(
-                group=group_progress(value.group),
-                summary=cast(dict[str, object], exact_display_tree(value.summary.source()))
-                if value.summary is not None
-                else None,
-                exit_code=value.exit_code,
+            data=DiagnosticViewDTO.model_validate(
+                {
+                    "group": group_progress(value.group),
+                    "summary": cast(dict[str, object], exact_display_tree(value.summary.source()))
+                    if value.summary is not None
+                    else None,
+                    "exit_code": value.exit_code,
+                }
             )
         )
 
