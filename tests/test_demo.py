@@ -299,7 +299,12 @@ def test_demo_replay_uses_receipt_before_corpus_clock_or_ids(tmp_path, monkeypat
         stored = source.read(ResourceKey("project", created.project_id))
         assert stored is not None
         project = load_record(ProjectRecord, stored.body)
-        edited = replace(project, name="Edited after the original demo")
+        edited = ProjectRecord(
+            id=project.id,
+            name="Edited after the original demo",
+            created_at=project.created_at,
+            default_provider_id=project.default_provider_id,
+        )
         source.commit(
             "edit-after-demo",
             (SourceChange(stored.key, dump_record(edited), stored.etag),),
