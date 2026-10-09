@@ -83,6 +83,7 @@ class Workflow:
         self.run_b = ""
         self.result_a = ""
         self.result_b = ""
+        self.result_snapshot_ids_a: tuple[str, ...] = ()
         self.evaluation_a = ""
         self.evaluation_b = ""
         self.evaluation_a_reevaluated = ""
@@ -660,6 +661,9 @@ class Workflow:
         progress = run["run"]
         self.run_a = progress["run_id"]
         self.result_a = progress["latest_result_snapshot_id"]
+        self.result_snapshot_ids_a = tuple(progress["result_snapshot_ids"])
+        if self.result_a not in self.result_snapshot_ids_a:
+            raise RuntimeError("latest result snapshot is absent from the public run history")
         self.evaluation_a = run["evaluation_id"]
         statuses = {status: 0 for status in ("valid", "input_invalid", "response_error")}
         for case in progress["cases"]:
@@ -705,7 +709,7 @@ class Workflow:
         )
         self.expect_choices(
             missing_implicit_report_snapshot,
-            [("result_snapshot", self.result_a, [])],
+            [("result_snapshot", snapshot_id, []) for snapshot_id in self.result_snapshot_ids_a],
         )
         missing_implicit_report_evaluation = self.call(
             "report",
