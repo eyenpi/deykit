@@ -22,6 +22,8 @@ from deykit.api.routes.data import (
     _dataset_patch_values,
     _seed,
     _split_preview,
+)
+from deykit.api.routes.data import (
     register as register_data_routes,
 )
 from deykit.application.datasets import CaseInput, DatasetService
@@ -171,9 +173,7 @@ def test_dataset_patch_distinguishes_omitted_from_explicit_null() -> None:
         expected_etag="a" * 64,
         metadata_source='{"large":9007199254740993}',
     )
-    assert _dataset_patch_values(updated) == {
-        "metadata_source": '{"large":9007199254740993}'
-    }
+    assert _dataset_patch_values(updated) == {"metadata_source": '{"large":9007199254740993}'}
 
 
 def test_seed_is_signed_64_bit_decimal_text() -> None:
@@ -219,8 +219,7 @@ def test_import_preview_opaque_document_round_trips_exact_case_sources(tmp_path:
     source, clock, id_factory, _, dataset = _project_source(tmp_path)
     try:
         raw_import = (
-            '{"payload":{"fraction":0.1234567890123456789012345,'
-            '"large":9007199254740993}}\n'
+            '{"payload":{"fraction":0.1234567890123456789012345,"large":9007199254740993}}\n'
         )
         preview = ImportService(source, clock, id_factory).preview(
             dataset.record.id,
@@ -295,9 +294,7 @@ def test_split_preview_source_round_trip_keeps_seed_exact_and_api_uses_text(
         "/projects/registration-1/datasets/dataset-1/cases?limit=50",
     ),
 )
-def test_case_read_and_page_capture_etags_in_one_worker_epoch(
-    tmp_path: Path, path: str
-) -> None:
+def test_case_read_and_page_capture_etags_in_one_worker_epoch(tmp_path: Path, path: str) -> None:
     source, clock, id_factory, _, _ = _project_source(tmp_path)
     epoch_source = _EpochSource(source)
     workers = _CountingWorkers()
@@ -324,9 +321,7 @@ def test_case_read_and_page_capture_etags_in_one_worker_epoch(
         provider_factory_calls += 1
         raise AssertionError("the case route must not construct provider services")
 
-    def forbidden_backend_factory(
-        source: ApiProjectSource, clock: _Clock
-    ) -> NoReturn:
+    def forbidden_backend_factory(source: ApiProjectSource, clock: _Clock) -> NoReturn:
         nonlocal backend_factory_calls
         backend_factory_calls += 1
         raise AssertionError("the case route must not construct provider backends")

@@ -47,9 +47,10 @@ from ..dto.authoring import (
     TextInputRequest,
     ValidationDTO,
 )
-from ..dto.common import Success, Versioned as VersionedDTO, VersionRequest
-from ..registry import ProjectRegistry
+from ..dto.common import Success, VersionRequest
+from ..dto.common import Versioned as VersionedDTO
 from ..query import boolean, decimal
+from ..registry import ProjectRegistry
 from ..runtime import TrackedWorkers
 
 
@@ -168,7 +169,9 @@ def register(
     ) -> Success[ValidationDTO]:
         del body
         definition = await workers.run_sync(service(registration_id).validate, decision_id)
-        return Success(data=ValidationDTO(definition=definition, content_hash=definition_hash(definition)))
+        return Success(
+            data=ValidationDTO(definition=definition, content_hash=definition_hash(definition))
+        )
 
     @router.post(
         "/projects/{registration_id}/decisions/{decision_id}/selection-preview",
@@ -261,9 +264,7 @@ def register(
     async def diff_decisions(
         registration_id: str, decision_id: str, before: str, after: str
     ) -> Success[DefinitionDiffDTO]:
-        value = await workers.run_sync(
-            service(registration_id).diff, decision_id, before, after
-        )
+        value = await workers.run_sync(service(registration_id).diff, decision_id, before, after)
         return Success(data=DefinitionDiffDTO(**value.__dict__))
 
     @router.post(
@@ -407,9 +408,7 @@ def register(
         response_model=Success[EncodedInputV1],
         operation_id="encodeTextInput",
     )
-    async def text_input(
-        registration_id: str, body: TextInputRequest
-    ) -> Success[EncodedInputV1]:
+    async def text_input(registration_id: str, body: TextInputRequest) -> Success[EncodedInputV1]:
         registry.require(registration_id)
         return Success(data=await workers.run_sync(encode_text_input, body.text_value))
 

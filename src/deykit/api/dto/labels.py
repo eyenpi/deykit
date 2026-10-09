@@ -48,9 +48,9 @@ class LabelEditDTO(FrozenModel):
     review: LabelReviewDTO
     action: Literal["set", "clear", "dispute", "resolve"]
     acceptable_option_ids: tuple[ResourceId, ...] = ()
-    provenance: Literal[
-        "human", "authored_fixture", "imported_unknown", "model_generated"
-    ] | None = None
+    provenance: (
+        Literal["human", "authored_fixture", "imported_unknown", "model_generated"] | None
+    ) = None
     note: str | None = None
 
     @field_validator("acceptable_option_ids", mode="before")

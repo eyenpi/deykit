@@ -100,9 +100,7 @@ def register(
         response_model=Success[RunPreviewDTO],
         operation_id="previewRun",
     )
-    async def run_preview(
-        registration_id: str, body: RunPreviewRequest
-    ) -> Success[RunPreviewDTO]:
+    async def run_preview(registration_id: str, body: RunPreviewRequest) -> Success[RunPreviewDTO]:
         service = execution_service(registration_id)
         preview = await workers.run_sync(service.preview, body.request)
         return Success(data=_run(preview))

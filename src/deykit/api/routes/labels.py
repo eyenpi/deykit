@@ -22,6 +22,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.application.labels import LabelEdit, LabelReview, LabelService, LabelView
 from deykit.contracts.errors import ServiceError
 
+
 def _invalid(reason: str) -> ServiceFailure:
     return ServiceFailure(ServiceError(code="validation_error", reason=reason))
 

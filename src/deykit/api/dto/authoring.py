@@ -11,7 +11,12 @@ from deykit.application.authoring_views import (
 )
 from deykit.application.definitions import IncompatibleReference
 from deykit.contracts.identities import ResourceId
-from deykit.contracts.records import ChoiceDefinition, DecisionDraft, DecisionRecord, DecisionRevision
+from deykit.contracts.records import (
+    ChoiceDefinition,
+    DecisionDraft,
+    DecisionRecord,
+    DecisionRevision,
+)
 
 from .common import CountText, ETag, Mutation, ResponseRecord, Versioned, VersionRequest
 

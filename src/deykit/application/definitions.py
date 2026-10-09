@@ -595,7 +595,9 @@ class DecisionService:
                 label, _ = _required(
                     source, LabelRecord, _key("labels", label_id, (decision_id, dataset_id))
                 )
-                missing = missing_options(definition, label.question_id, label.acceptable_option_ids)
+                missing = missing_options(
+                    definition, label.question_id, label.acceptable_option_ids
+                )
                 if missing:
                     found.append(
                         IncompatibleReference(
@@ -609,9 +611,7 @@ class DecisionService:
                         )
                     )
         for regression_id in source.list_ids("regressions"):
-            regression, _ = _required(
-                source, RegressionRecord, _key("regressions", regression_id)
-            )
+            regression, _ = _required(source, RegressionRecord, _key("regressions", regression_id))
             revision_key = _key("revisions", regression.decision_revision_id, (decision_id,))
             if source.read(revision_key) is None:
                 continue

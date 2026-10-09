@@ -16,8 +16,8 @@ from deykit.api.dto.data import (
     CasePageDTO,
     CaseReadDTO,
     DatasetChangeRequest,
-    DatasetDTO,
     DatasetCreateRequest,
+    DatasetDTO,
     DatasetPageDTO,
     DatasetPatchRequest,
     ImportCommitDTO,
@@ -31,6 +31,7 @@ from deykit.api.dto.data import (
     SplitCommitRequest,
     SplitPreviewDTO,
     SplitPreviewRecordDTO,
+    SplitPreviewRequest,  # noqa: F401 - FastAPI resolves this annotation at registration.
 )
 from deykit.api.query import boolean, decimal
 from deykit.api.registry import ProjectRegistry
@@ -48,7 +49,6 @@ from deykit.application.preview_documents import (
 from deykit.application.splits import SplitPreview, SplitService
 from deykit.contracts.errors import ServiceError
 
-
 _SIGNED = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 
 
@@ -65,8 +65,10 @@ def _case(value: CaseView) -> CaseDTO:
 
 
 def _page_limit(value: str | None) -> int:
-    return 50 if value is None else decimal(
-        value, reason="invalid_integer_query", minimum=1, maximum=500
+    return (
+        50
+        if value is None
+        else decimal(value, reason="invalid_integer_query", minimum=1, maximum=500)
     )
 
 
@@ -399,9 +401,7 @@ def register(
     ) -> Success[CaseReadDTO]:
         source = source_for(registration_id)
         service = datasets(source)
-        case, dataset = await workers.run_sync(
-            _case_snapshot, source, service, dataset_id, case_id
-        )
+        case, dataset = await workers.run_sync(_case_snapshot, source, service, dataset_id, case_id)
         return Success(data=CaseReadDTO(case=_case(case), dataset_etag=dataset.etag))
 
     @router.put(
@@ -553,9 +553,7 @@ def register(
         preview = await workers.run_sync(
             decode_split_preview, body.preview_document_source, dataset_id
         )
-        result = await workers.run_sync(
-            service.commit, preview, operation_id=body.operation_id
-        )
+        result = await workers.run_sync(service.commit, preview, operation_id=body.operation_id)
         return Success(
             data=SplitCommitDTO(
                 dataset=_dataset(result.dataset),

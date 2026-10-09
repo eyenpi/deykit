@@ -1,9 +1,8 @@
 """Reviewed run and execution-group preview transport records."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import StringConstraints
-from typing_extensions import Annotated
 
 from deykit.application.checks import CheckRequest
 from deykit.application.diagnostics import ChoiceOrderRequest

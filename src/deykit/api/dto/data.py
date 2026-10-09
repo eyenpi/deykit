@@ -174,9 +174,9 @@ class ImportCommitDTO(ResponseRecord):
 class SplitPreviewRequest(VersionRequest):
     seed: SeedText = "0"
     ratios_source: JsonSource = DEFAULT_RATIOS
-    assignments: tuple[
-        tuple[ResourceId, Literal["development", "calibration", "test"]], ...
-    ] | None = None
+    assignments: (
+        tuple[tuple[ResourceId, Literal["development", "calibration", "test"]], ...] | None
+    ) = None
 
     @field_validator("assignments", mode="before")
     @classmethod

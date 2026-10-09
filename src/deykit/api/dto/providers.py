@@ -6,7 +6,7 @@ from pydantic import Field, StringConstraints
 
 from deykit.contracts.identities import ContentHash, ResourceId
 
-from .common import CountText, ETag, Mutation, ResponseRecord, VersionRequest
+from .common import CountText, ETag, Mutation, ResponseRecord
 
 
 class ProviderProfileRequest(Mutation):

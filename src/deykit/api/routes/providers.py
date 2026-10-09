@@ -5,16 +5,16 @@ from fastapi import APIRouter, Response
 from deykit.api.dependencies import ApiDependencies
 from deykit.application.fixtures import FixtureService, FixtureSummary
 from deykit.application.provider_operations import ProviderOperations
-from deykit.contracts.records import ProviderProfile
 from deykit.contracts.provider_configuration import ProviderPresentation
+from deykit.contracts.records import ProviderProfile
 
 from ..dto.common import Success
 from ..dto.providers import (
     CredentialStatusDTO,
     EnvironmentCredentialRequest,
     FixtureBindingDTO,
-    FixtureCreateRequest,
     FixtureCreatedDTO,
+    FixtureCreateRequest,
     FixturePageDTO,
     FixtureSummaryDTO,
     ModelDTO,
@@ -26,8 +26,8 @@ from ..dto.providers import (
     ProviderProfileDTO,
     ProviderProfileRequest,
 )
-from ..registry import ProjectRegistry
 from ..query import boolean, decimal
+from ..registry import ProjectRegistry
 from ..runtime import TrackedWorkers
 
 
@@ -110,7 +110,9 @@ def register(
         response_model=Success[ProviderProfileDTO],
         operation_id="readProviderProfile",
     )
-    async def read_provider(registration_id: str, profile_id: str, response: Response) -> Success[ProviderProfileDTO]:
+    async def read_provider(
+        registration_id: str, profile_id: str, response: Response
+    ) -> Success[ProviderProfileDTO]:
         value = await workers.run_sync(operations(registration_id).describe, profile_id)
         response.headers["ETag"] = f'"{value.view.etag}"'
         return Success(data=_profile(value))
@@ -130,7 +132,9 @@ def register(
             from deykit.application.errors import ServiceFailure
             from deykit.contracts.errors import ServiceError
 
-            raise ServiceFailure(ServiceError(code="validation_error", reason="profile_identity_mismatch"))
+            raise ServiceFailure(
+                ServiceError(code="validation_error", reason="profile_identity_mismatch")
+            )
         service = operations(registration_id)
         profile = ProviderProfile(
             id=profile_id,

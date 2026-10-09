@@ -117,9 +117,10 @@ def test_decision_editor_projection_and_transform_are_protected_and_exact(tmp_pa
                 assert projected.status_code == 200, projected.text
                 projection = projected.json()["data"]
                 assert projection["editor_source"] == editor_source
-                assert projection["source_hash"] == hashlib.sha256(
-                    editor_source.encode("utf-8")
-                ).hexdigest()
+                assert (
+                    projection["source_hash"]
+                    == hashlib.sha256(editor_source.encode("utf-8")).hexdigest()
+                )
                 assert projection["form"]["options"][1]["description"] == ""
                 transformed = await client.post(
                     f"/api/v1/projects/{registration_id}/decisions/decision/editor-transform",
@@ -136,7 +137,9 @@ def test_decision_editor_projection_and_transform_are_protected_and_exact(tmp_pa
                 )
                 assert transformed.status_code == 200, transformed.text
                 data = transformed.json()["data"]
-                assert data["transform"]["projection"]["form"]["instructions"] == "Choose carefully."
+                assert (
+                    data["transform"]["projection"]["form"]["instructions"] == "Choose carefully."
+                )
                 assert data["incompatible_references"] == []
 
     asyncio.run(exercise())

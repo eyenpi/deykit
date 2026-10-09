@@ -105,8 +105,14 @@ class LocalBoundary:
             (rf"{registrations}/decisions/[^/]+/revisions", {"cursor", "limit"}),
             (rf"{registrations}/decisions/[^/]+/diff", {"before", "after"}),
             (rf"{registrations}/datasets", {"include_archived", "cursor", "limit"}),
-            (rf"{registrations}/datasets/[^/]+/cases", {"cursor", "limit", "tag", "group_id", "split"}),
-            (rf"{registrations}/decisions/[^/]+/datasets/[^/]+/labels", {"status", "cursor", "limit"}),
+            (
+                rf"{registrations}/datasets/[^/]+/cases",
+                {"cursor", "limit", "tag", "group_id", "split"},
+            ),
+            (
+                rf"{registrations}/decisions/[^/]+/datasets/[^/]+/labels",
+                {"status", "cursor", "limit"},
+            ),
             (
                 rf"{registrations}/decisions/[^/]+/datasets/[^/]+/labels/[^/]+(?:/history)?",
                 {"question_id"},

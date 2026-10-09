@@ -42,7 +42,11 @@ def test_split_preview_encoder_round_trips_source_values_without_numeric_reconst
 
     source = encode_split_preview(preview)
 
-    assert '"ratios_source":"{\\"development\\":0.1234567890123456789,\\"test\\":0.8765432109876543211}"' in source
+    expected_ratios = (
+        '"ratios_source":"{\\"development\\":0.1234567890123456789,'
+        '\\"test\\":0.8765432109876543211}"'
+    )
+    assert expected_ratios in source
     assert decode_split_preview(source, "data") == preview
 
 
@@ -52,9 +56,7 @@ def test_split_preview_encoder_round_trips_source_values_without_numeric_reconst
         (split_document(), "other"),
         (split_document().replace('"warnings":[]', '"warnings":[],"extra":true'), "data"),
         (
-            split_document().replace(
-                '"dataset_id":"data"', '"dataset_id":"data","extra":true'
-            ),
+            split_document().replace('"dataset_id":"data"', '"dataset_id":"data","extra":true'),
             "data",
         ),
     ],
