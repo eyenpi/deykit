@@ -1129,6 +1129,7 @@ class Workflow:
             {
                 "attempts": group["attempts_used"],
                 "expectation_failures": failed["expectation_failures"],
+                "exit_code": 5,
             },
             ORACLE["regression_check_v1_a"],
         )
