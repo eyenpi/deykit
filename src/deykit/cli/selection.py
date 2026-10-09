@@ -8,20 +8,17 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, cast
 
-from deykit.application.evaluations import admit_evaluation_record, frozen_evaluation_from_records
 from deykit.application.errors import ServiceFailure
+from deykit.application.evaluations import admit_evaluation_record, frozen_evaluation_from_records
 from deykit.application.regressions import visible_regressions
 from deykit.application.selectors import require_one_of, require_resource
 from deykit.contracts.execution_groups import CheckSnapshot, DiagnosticSnapshot
-from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.selection import ResourceChoice, ResourceKind, SelectionDetails
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.history import history_from_records
 
-OwnerKind = Literal[
-    "run", "evaluation", "execution_group", "report_target", "decision"
-]
+OwnerKind = Literal["run", "evaluation", "execution_group", "report_target", "decision"]
 GroupKind = Literal["choice_order", "regression_check"]
 
 
@@ -71,9 +68,7 @@ def _owned_choices(
     return SelectionDetails(choices=choices)
 
 
-def resolve_hint(
-    records: tuple[StoredRecord, ...], hint: SelectorHint
-) -> SelectionDetails | None:
+def resolve_hint(records: tuple[StoredRecord, ...], hint: SelectorHint) -> SelectionDetails | None:
     """Resolve a selector against its admitted frozen owner, without source access."""
     if hint.owner is None:
         if len(hint.kinds) == 1:
@@ -86,7 +81,12 @@ def resolve_hint(
                 return failure.selection
             return None
         try:
-            require_one_of(records, hint.kinds, hint.resource_id, hint.scopes)
+            require_one_of(
+                records,
+                hint.kinds,
+                hint.resource_id,
+                dict(hint.scopes) if hint.scopes is not None else None,
+            )
         except ServiceFailure as failure:
             return failure.selection
         return None
@@ -162,9 +162,12 @@ def resolve_hint(
             kind = hint.kinds[0]
             if kind == "case":
                 selected = history.manifest.case_ids
+                dataset_id = history.manifest.dataset_id
+                if dataset_id is None:
+                    return None
                 if hint.resource_id in selected:
                     return None
-                return _owned_choices(kind, selected, (history.manifest.dataset_id,))
+                return _owned_choices(kind, selected, (dataset_id,))
             if kind == "evaluation":
                 choices = []
                 for stored in records:
@@ -185,7 +188,7 @@ def resolve_hint(
         if owner.kind == "evaluation":
             if len(hint.kinds) != 1:
                 return None
-            stored = next(
+            evaluation_stored = next(
                 (
                     record
                     for record in records
@@ -193,9 +196,9 @@ def resolve_hint(
                 ),
                 None,
             )
-            if stored is None:
+            if evaluation_stored is None:
                 return None
-            admitted = admit_evaluation_record(stored)
+            admitted = admit_evaluation_record(evaluation_stored)
             if admitted.record.id != owner.resource_id:
                 return None
             evaluation = admitted.record
@@ -241,9 +244,7 @@ def resolve_hint(
 
 
 @contextmanager
-def selection_context(
-    source: SnapshotSource, hints: tuple[SelectorHint, ...]
-) -> Iterator[None]:
+def selection_context(source: SnapshotSource, hints: tuple[SelectorHint, ...]) -> Iterator[None]:
     """Add safe choices only after the real service fails to resolve explicit selectors."""
     try:
         yield
@@ -261,9 +262,7 @@ def selection_context(
             if not regression_hints:
                 raise
             parent_hints = tuple(
-                hint
-                for hint in hints
-                if hint.owner is None and hint.kinds == ("decision",)
+                hint for hint in hints if hint.owner is None and hint.kinds == ("decision",)
             )
             hints = (*parent_hints, *regression_hints)
         elif original.error.code not in {"not_found", "incompatible_data"}:

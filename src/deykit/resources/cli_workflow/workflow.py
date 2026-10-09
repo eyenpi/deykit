@@ -8,10 +8,10 @@ import shutil
 import subprocess
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 RESOURCE_PACKAGE = "deykit.resources.cli_workflow"
-ORACLE = {
+ORACLE: dict[str, Any] = {
     "case_count": 6,
     "initial_requests": 5,
     "statuses": {"valid": 4, "input_invalid": 1, "response_error": 1},
@@ -237,9 +237,10 @@ class Workflow:
 
     def data(self, *arguments: str, expected: int = 0) -> dict[str, Any]:
         envelope = self.call(*arguments, expected=expected)
-        if "data" not in envelope:
+        data = envelope.get("data")
+        if not isinstance(data, dict):
             raise RuntimeError(f"expected a data outcome from {arguments[0]}")
-        return envelope["data"]
+        return cast(dict[str, Any], data)
 
     def resource(self, name: str) -> Path:
         return self.bundle / name

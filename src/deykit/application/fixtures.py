@@ -286,7 +286,11 @@ class FixtureService:
                 answer_question_id=binding.answer.question_id if binding.answer else None,
                 answer_option_id=binding.answer.option_id if binding.answer else None,
                 error_code=binding.error.code if binding.error else None,
-                error_reason=safe.text(binding.error.reason) if binding.error else None,
+                error_reason=(
+                    safe.text(binding.error.reason)
+                    if binding.error is not None and binding.error.reason is not None
+                    else None
+                ),
             )
             for binding in fixture_set.bindings
         )

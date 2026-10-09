@@ -12,8 +12,9 @@ from deykit.application.errors import ServiceFailure
 from deykit.application.reports import ReportService
 from deykit.cli.context import CliState, SystemClock, new_operation_id, state
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
-from deykit.cli.selection import SelectorHint, SelectorOwner, selector_hint, selection_context
+from deykit.cli.selection import SelectorHint, SelectorOwner, selection_context, selector_hint
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.selection import ResourceKind
 from deykit.reports.models import (
     ExportOutcome,
     RawChoices,
@@ -159,24 +160,30 @@ def export(
             mode = "created"
 
         with cli.source() as source:
+            hints: tuple[SelectorHint, ...]
             if report_id is not None:
                 hints = (selector_hint("report", report_id, ()),)
             else:
-                allowed = (
-                    ("run", "evaluation", "comparison")
-                    if target_kind is None
-                    else {
-                        "run": ("run",),
-                        "evaluation": ("evaluation",),
-                        "comparison": ("comparison",),
-                        "diagnostic": ("execution_group",),
-                        "check": ("execution_group",),
-                    }.get(target_kind, ())
-                )
+                if target_kind is None:
+                    allowed: tuple[ResourceKind, ...] = (
+                        "run",
+                        "evaluation",
+                        "comparison",
+                    )
+                elif target_kind == "run":
+                    allowed = ("run",)
+                elif target_kind == "evaluation":
+                    allowed = ("evaluation",)
+                elif target_kind == "comparison":
+                    allowed = ("comparison",)
+                elif target_kind in {"diagnostic", "check"}:
+                    allowed = ("execution_group",)
+                else:
+                    allowed = ()
                 target_hint = SelectorHint(
-                    kinds=allowed,  # type: ignore[arg-type]
+                    kinds=allowed,
                     resource_id=target_id or "",
-                    scopes={kind: () for kind in allowed},  # type: ignore[misc]
+                    scopes={kind: () for kind in allowed},
                 )
                 hints_list: list[SelectorHint] = [target_hint]
                 if evaluation is not None:
@@ -218,22 +225,21 @@ def export(
                             )
                         )
                 if group_snapshot is not None and target_kind in {"diagnostic", "check"}:
-                    snapshot_kind = (
-                        "diagnostic_snapshot" if target_kind == "diagnostic" else "check_snapshot"
-                    )
+                    if target_kind == "diagnostic":
+                        snapshot_kind: ResourceKind = "diagnostic_snapshot"
+                        group_kind: Literal["choice_order", "regression_check"] = "choice_order"
+                    else:
+                        snapshot_kind = "check_snapshot"
+                        group_kind = "regression_check"
                     hints_list.append(
                         SelectorHint(
-                            (snapshot_kind,),
-                            group_snapshot,
-                            {snapshot_kind: ()},
-                            SelectorOwner(
+                            kinds=(snapshot_kind,),
+                            resource_id=group_snapshot,
+                            scopes={snapshot_kind: ()},
+                            owner=SelectorOwner(
                                 "execution_group",
                                 target_id or "",
-                                (
-                                    "choice_order"
-                                    if target_kind == "diagnostic"
-                                    else "regression_check"
-                                ),
+                                group_kind,
                             ),
                         )
                     )

@@ -39,16 +39,19 @@ def _command(group: TyperGroup, path: tuple[str, ...]):
 
 def _parameter_metadata(parameter) -> dict[str, object]:
     value_type = parameter.type
+    options = getattr(parameter, "opts", None)
+    if options is None:
+        options = (parameter.name,)
     return {
         "name": parameter.name,
-        "options": list(parameter.opts),
-        "secondary_options": list(parameter.secondary_opts),
+        "options": list(options),
+        "secondary_options": list(getattr(parameter, "secondary_opts", ())),
         "type": value_type.name,
         "default": parameter.default,
         "required": parameter.required,
-        "multiple": parameter.multiple,
+        "multiple": bool(getattr(parameter, "multiple", False)),
         "nargs": parameter.nargs,
-        "is_flag": bool(parameter.is_flag),
+        "is_flag": bool(getattr(parameter, "is_flag", False)),
         "minimum": getattr(value_type, "min", None),
         "maximum": getattr(value_type, "max", None),
         "choices": list(getattr(value_type, "choices", ())),
@@ -149,7 +152,7 @@ def test_documented_cli_parameter_inventory_matches_typer_metadata() -> None:
         help_result = runner.invoke(app, [*path.split(), "--help"])
         assert help_result.exit_code == 0, help_result.output
         command = _command(root, tuple(path.split()))
-        for parameter, expected in zip(command.params, command_contract["parameters"], strict=True):
+        for _, expected in zip(command.params, command_contract["parameters"], strict=True):
             if expected["hidden"]:
                 continue
             for flag in (*expected["options"], *expected["secondary_options"]):

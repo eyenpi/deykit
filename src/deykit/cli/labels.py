@@ -14,7 +14,7 @@ from deykit.application.labels import Action, LabelEdit, LabelReview, LabelServi
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
-from deykit.cli.selection import SelectorHint, selector_hint, selection_context
+from deykit.cli.selection import SelectorHint, selection_context, selector_hint
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import JsonValue, parse_json
 
@@ -213,8 +213,9 @@ def _batch(cli: CliState, decision: str, dataset: str, data: JsonValue, op: str)
             selector_hint("dataset", dataset, ()),
         ]
         for item in data["items"]:
-            if isinstance(item, dict) and type(item.get("case_id")) is str:
-                hints.append(selector_hint("case", item["case_id"], (dataset,)))
+            case_id = item.get("case_id") if isinstance(item, dict) else None
+            if type(case_id) is str:
+                hints.append(selector_hint("case", case_id, (dataset,)))
         with selection_context(source, tuple(hints)):
             service = LabelService(source, SystemClock())
             edits: list[LabelEdit] = []
