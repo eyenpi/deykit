@@ -3,7 +3,8 @@ import { expect, test } from "@playwright/test";
 test("installed shell recovers a lost authored-demo response without duplicate writes", async ({
   page,
 }, testInfo) => {
-  const demoPath = testInfo.outputPath("<img src=x onerror=window.__xss=1>");
+  const demoPath = testInfo.outputPath("installed-demo");
+  const markupName = "<img src=x onerror=window.__xss=1>";
   const operationIds: string[] = [];
   const demoResponses: Array<{ status: number; replayed: boolean }> = [];
   let demoRegistrationId: string | undefined;
@@ -26,9 +27,11 @@ test("installed shell recovers a lost authored-demo response without duplicate w
     const request = route.request();
     operationIds.push(request.postDataJSON().operation_id);
     const committed = await route.fetch({ headers: request.headers() });
+    const status = committed.status();
+    expect(status).toBe(200);
     const body = await committed.json();
     demoRegistrationId = body.data.registration.registration_id;
-    demoResponses.push({ status: committed.status(), replayed: body.data.demo.replayed });
+    demoResponses.push({ status, replayed: body.data.demo.replayed });
     if (!droppedCommittedResponse) {
       droppedCommittedResponse = true;
       await route.abort("connectionreset");
@@ -106,7 +109,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
       operation_id: "installed-create-project",
       action: "create",
       path: createdPath,
-      name: "Installed project",
+      name: markupName,
     },
   });
   expect(createProject.status()).toBe(200);
@@ -126,7 +129,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   expect(reopened.status()).toBe(200);
   expect((await reopened.json()).data).toMatchObject({
     registration_id: createdId,
-    project: { id: createdProjectId, name: "Installed project" },
+    project: { id: createdProjectId, name: markupName },
   });
 
   const createdOverview = await page.request.get(
@@ -150,10 +153,34 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   expect(recent.status()).toBe(200);
   expect((await recent.json()).data.items).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ path: createdPath, name: "Installed project" }),
+      expect.objectContaining({ path: createdPath, name: markupName }),
       expect.objectContaining({ path: demoPath, name: "Sandbox" }),
     ]),
   );
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Welcome to deykit." })).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Projects", exact: true })
+    .click();
+  const openMarkupProject = page.getByRole("button", {
+    name: `Open project folder: ${markupName}`,
+  });
+  await expect(openMarkupProject).toBeVisible();
+  await openMarkupProject.click();
+  await page.getByRole("button", { name: "Open project", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: markupName, exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("img")).toHaveCount(0);
+  expect(
+    await page.evaluate(() => (window as Window & { __xss?: unknown }).__xss),
+  ).toBeUndefined();
+  await page.screenshot({
+    path: testInfo.outputPath("escaped-project-name.png"),
+    fullPage: true,
+  });
 
   expect(operationIds).toHaveLength(2);
   expect(operationIds[0]).toBe(operationIds[1]);

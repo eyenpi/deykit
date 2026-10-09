@@ -225,18 +225,14 @@ def test_acquired_source_stays_on_renamed_root_after_path_replacement(tmp_path):
         destination_factory=FileDemoDestinationFactory(),
     )
     try:
-        try:
-            demo = service.create_in(source, root, operation_id="retained-root-demo")
-        except ServiceFailure:
-            demo = None
-        if demo is not None:
-            described = ProjectService(
-                lambda path, create: FileProjectSource(path, create=create),
-                Clock(),
-                lambda: "unused-id",
-            ).describe(source)
-            assert described.project.id == demo.project_id
-            assert (moved / "deykit.project.json").is_file()
+        demo = service.create_in(source, root, operation_id="retained-root-demo")
+        described = ProjectService(
+            lambda path, create: FileProjectSource(path, create=create),
+            Clock(),
+            lambda: "unused-id",
+        ).describe(source)
+        assert described.project.id == demo.project_id
+        assert (moved / "deykit.project.json").is_file()
     finally:
         source.close()
     assert _tree(root) == replacement_before
