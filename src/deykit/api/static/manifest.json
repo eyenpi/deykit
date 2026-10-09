@@ -1,0 +1,20 @@
+{
+  "assets": [
+    {
+      "content_type": "text/javascript; charset=utf-8",
+      "name": "assets/index-CuAUQYEn.js",
+      "sha256": "1a14a156e83232e36a73cd71583617cf2eceb50d3b204178bf8d7c2b9657abd2"
+    },
+    {
+      "content_type": "text/css; charset=utf-8",
+      "name": "assets/index-CzrFOux6.css",
+      "sha256": "68b953b8e923941265e03fc4ddf0367f583c495b48cf9c2ae444629c02a47b7b"
+    },
+    {
+      "content_type": "text/html; charset=utf-8",
+      "name": "index.html",
+      "sha256": "8257a505af09a5c1f7b93e1c0d84c01cac513fb6366b28057c5fcb1a6c6ec225"
+    }
+  ],
+  "schema_version": 1
+}
