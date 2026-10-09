@@ -24,6 +24,8 @@ from deykit.cli.context import CliState
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.providers.configuration import create_provider_operations
+from deykit.runner.backends import ProviderBackends
 
 
 def register(root: typer.Typer) -> None:
@@ -64,6 +66,8 @@ def launch_local_server(
             recent_store=RecentProjectsStore(clock),
             demo_staging_factory=DemoStagingSource,
             demo_destination_factory=FileDemoDestinationFactory(),
+            provider_operations_factory=create_provider_operations,
+            backends_factory=ProviderBackends,
         )
         app = create_app(
             LocalServerConfig(authority, origin, AssetCatalog.from_package()), dependencies

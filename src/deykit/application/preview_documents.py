@@ -8,7 +8,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.application.imports import ImportPreview, ImportRow
 from deykit.application.splits import SplitPreview
 from deykit.contracts.base import FrozenModel, Record
-from deykit.contracts.codec import load_record
+from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import RECORD_LIMITS, parse_json
 
@@ -87,3 +87,17 @@ def decode_split_preview(source: str | bytes, dataset_id: str) -> SplitPreview:
     if preview.dataset_id != dataset_id:
         raise _invalid()
     return preview
+
+
+def encode_import_preview(preview: ImportPreview) -> str:
+    """Encode the exact CLI-compatible source document used by the commit endpoint."""
+    envelope = _ImportEnvelope(
+        data=_ImportData(preview=preview, would_import=len(preview.valid_rows)), warnings=()
+    )
+    return dump_record(envelope).decode("utf-8")
+
+
+def encode_split_preview(preview: SplitPreview) -> str:
+    """Encode the exact CLI-compatible source document used by the commit endpoint."""
+    envelope = _SplitEnvelope(data=_SplitData(preview=preview), warnings=())
+    return dump_record(envelope).decode("utf-8")

@@ -9,6 +9,8 @@ from typing import Any, cast
 
 from deykit.api.recent import RecentProject
 from deykit.application.projects import ProjectBackend
+from deykit.providers.configuration import create_provider_operations
+from deykit.runner.backends import ProviderBackends
 
 from .app import create_inner_app
 from .assets import AssetCatalog
@@ -60,6 +62,8 @@ def _schema_dependencies() -> ApiDependencies:
         recent_store=_SchemaRecentProjects(),
         demo_staging_factory=lambda: cast(ProjectBackend, None),
         demo_destination_factory=_SchemaDemoDestinationFactory(),
+        provider_operations_factory=create_provider_operations,
+        backends_factory=ProviderBackends,
     )
 
 

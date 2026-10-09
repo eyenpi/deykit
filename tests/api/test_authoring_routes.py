@@ -1,0 +1,142 @@
+"""The protected API preserves editor source through its exact-source operations."""
+
+import asyncio
+import hashlib
+
+import httpx
+
+from deykit.api.app import create_app
+from deykit.api.assets import Asset, AssetCatalog
+from deykit.api.config import LocalServerConfig
+from deykit.api.dependencies import ApiDependencies
+from deykit.api.recent import RecentProjectsStore
+from deykit.api.runtime import SystemClock, new_id
+from deykit.contracts.json_value import dump_json
+from deykit.providers.configuration import create_provider_operations
+from deykit.runner.backends import ProviderBackends
+from deykit.storage import FileProjectSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
+
+
+def test_decision_editor_projection_and_transform_are_protected_and_exact(tmp_path):
+    origin = "http://127.0.0.1:8765"
+    clock = SystemClock()
+    dependencies = ApiDependencies(
+        clock=clock,
+        id_factory=new_id,
+        source_factory=lambda path, create: FileProjectSource(path, create=create),
+        recent_store=RecentProjectsStore(clock, tmp_path / "recent.json"),
+        demo_staging_factory=DemoStagingSource,
+        demo_destination_factory=FileDemoDestinationFactory(),
+        provider_operations_factory=create_provider_operations,
+        backends_factory=ProviderBackends,
+    )
+    html = b"<html><body>test</body></html>"
+    app = create_app(
+        LocalServerConfig(
+            "127.0.0.1:8765",
+            origin,
+            AssetCatalog(
+                {
+                    "index.html": Asset(
+                        html, "text/html; charset=utf-8", hashlib.sha256(html).hexdigest()
+                    )
+                }
+            ),
+        ),
+        dependencies,
+    )
+    editor_source = dump_json(
+        {
+            "schema_version": 1,
+            "input_kind": "text",
+            "input_schema_source": None,
+            "selected_fields": [],
+            "questions": [
+                {
+                    "id": "question",
+                    "kind": "choice",
+                    "instructions": "Choose.",
+                    "options": [
+                        {"id": "yes", "name": "Yes", "description": None},
+                        {"id": "no", "name": "No", "description": ""},
+                    ],
+                }
+            ],
+        }
+    )
+
+    async def exercise() -> None:
+        async with app.app.router.lifespan_context(app.app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url=origin
+            ) as client:
+                bootstrap = await client.post(
+                    "/api/v1/session/bootstrap",
+                    headers={"x-deykit-bootstrap": "1", "origin": origin},
+                    json={"schema_version": 1},
+                )
+                capability = bootstrap.json()["data"]["capability"]
+                headers = {
+                    "x-deykit-capability": capability,
+                    "origin": origin,
+                    "content-type": "application/json",
+                }
+                registered = await client.post(
+                    "/api/v1/projects/register",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "operation_id": "register-authoring",
+                        "action": "create",
+                        "path": str(tmp_path / "authoring-project"),
+                        "name": "Authoring",
+                    },
+                )
+                assert registered.status_code == 200, registered.text
+                registration_id = registered.json()["data"]["registration_id"]
+                created = await client.post(
+                    f"/api/v1/projects/{registration_id}/decisions",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "operation_id": "create-decision",
+                        "decision_id": "decision",
+                        "name": "Decision",
+                        "editor_source": editor_source,
+                    },
+                )
+                assert created.status_code == 200, created.text
+                etag = created.json()["data"]["draft"]["etag"]
+                projected = await client.post(
+                    f"/api/v1/projects/{registration_id}/decisions/decision/editor-projection",
+                    headers=headers,
+                    json={"schema_version": 1, "editor_source": editor_source},
+                )
+                assert projected.status_code == 200, projected.text
+                projection = projected.json()["data"]
+                assert projection["editor_source"] == editor_source
+                assert projection["source_hash"] == hashlib.sha256(
+                    editor_source.encode("utf-8")
+                ).hexdigest()
+                assert projection["form"]["options"][1]["description"] == ""
+                transformed = await client.post(
+                    f"/api/v1/projects/{registration_id}/decisions/decision/editor-transform",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "editor_source": editor_source,
+                        "expected_draft_etag": etag,
+                        "edit": {
+                            "kind": "set_instructions",
+                            "value": "Choose carefully.",
+                        },
+                    },
+                )
+                assert transformed.status_code == 200, transformed.text
+                data = transformed.json()["data"]
+                assert data["transform"]["projection"]["form"]["instructions"] == "Choose carefully."
+                assert data["incompatible_references"] == []
+
+    asyncio.run(exercise())

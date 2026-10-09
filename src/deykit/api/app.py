@@ -58,9 +58,12 @@ def create_inner_app(
 
     router = APIRouter(prefix="/api/v1")
     register_session(router, session, config.origin)
-    from .routes import projects
+    from .routes import authoring, previews, projects, providers
 
     projects.register(router, dependencies, registry, workers)
+    authoring.register(router, dependencies, registry, workers)
+    previews.register(router, dependencies, registry, workers)
+    providers.register(router, dependencies, registry, workers)
     app.include_router(router)
     app.state.project_registry = registry
     app.state.dependencies = dependencies

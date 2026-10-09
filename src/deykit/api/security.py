@@ -99,6 +99,29 @@ class LocalBoundary:
 
     @staticmethod
     def query_keys(path: str) -> set[str]:
+        registrations = r"/api/v1/projects/[^/]+"
+        rules = (
+            (rf"{registrations}/decisions", {"include_archived", "cursor", "limit"}),
+            (rf"{registrations}/decisions/[^/]+/revisions", {"cursor", "limit"}),
+            (rf"{registrations}/decisions/[^/]+/diff", {"before", "after"}),
+            (rf"{registrations}/datasets", {"include_archived", "cursor", "limit"}),
+            (rf"{registrations}/datasets/[^/]+/cases", {"cursor", "limit", "tag", "group_id", "split"}),
+            (rf"{registrations}/decisions/[^/]+/datasets/[^/]+/labels", {"status", "cursor", "limit"}),
+            (
+                rf"{registrations}/decisions/[^/]+/datasets/[^/]+/labels/[^/]+(?:/history)?",
+                {"question_id"},
+            ),
+            (rf"{registrations}/providers", {"cursor", "limit"}),
+            (rf"{registrations}/fixtures", {"cursor", "limit"}),
+            (rf"{registrations}/fixtures/[^/]+", {"include_requests"}),
+            (rf"{registrations}/providers/[^/]+/models", {"timeout_seconds"}),
+            (rf"{registrations}/runs", {"decision_id", "status", "cursor", "limit"}),
+            (rf"{registrations}/diagnostics/choice-order", {"cursor", "limit"}),
+            (rf"{registrations}/checks", {"cursor", "limit"}),
+        )
+        for pattern, keys in rules:
+            if re.fullmatch(pattern, path):
+                return keys
         return set()
 
     @staticmethod
