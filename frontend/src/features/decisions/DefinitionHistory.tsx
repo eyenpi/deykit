@@ -1,14 +1,18 @@
-import { useEffect, useState } from "react";
-import type { ApiOperationData } from "../../api/client";
+import { useEffect, useRef, useState } from "react";
+import type { ApiOperationBody, ApiOperationData } from "../../api/client";
 import { safeMessage } from "../../api/client";
 import { Modal } from "../../components/Modal";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import { JsonSourceEditor } from "../../components/JsonSourceEditor";
 import type { DecisionAuthoringOperations } from "../../workspace/gateway";
+import { RetainedMutation } from "../../workspace/mutation-controller";
+import type { MutationState } from "../../workspace/mutation-controller";
 
 type RevisionPage = ApiOperationData<"listDecisionRevisions">;
 type RevisionData = ApiOperationData<"readDecisionRevision">;
 type DiffData = ApiOperationData<"diffDecisionRevisions">;
+type RestoreBody = ApiOperationBody<"restoreDecisionRevisionToDraft">;
+type RestoreData = ApiOperationData<"restoreDecisionRevisionToDraft">;
 
 export function DefinitionHistory({
   registrationId,
@@ -29,6 +33,16 @@ export function DefinitionHistory({
   const [error, setError] = useState<string>();
   const [cursor, setCursor] = useState<string>();
   const [restorePreview, setRestorePreview] = useState<RevisionData>();
+  const [restoreState, setRestoreState] = useState<MutationState<RestoreData>>({ kind: "idle" });
+  const [reviewedDraft, setReviewedDraft] = useState<{ etag: string; source: string }>();
+  const restoreMutation = useRef<RetainedMutation<RestoreBody, RestoreData>>();
+
+  useEffect(() => {
+    restoreMutation.current = new RetainedMutation(async (body) => {
+      return (await operations.restoreRevisionToDraft({ registrationId, decisionId, body })).data;
+    }, setRestoreState);
+    setRestoreState({ kind: "idle" });
+  }, [decisionId, operations, registrationId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -109,24 +123,47 @@ export function DefinitionHistory({
   }
 
   async function restore() {
-    if (!restorePreview) return;
+    if (!restorePreview || busy || !restoreMutation.current) return;
     setBusy(true);
     setError(undefined);
     try {
-      const current = await operations.read({ registrationId, decisionId });
-      await operations.restoreRevisionToDraft({
-        registrationId,
-        decisionId,
-        body: {
+      const state = restoreMutation.current.state;
+      let result: RestoreData | undefined;
+      if (state.kind === "outcome-unknown") {
+        result = await restoreMutation.current.retryOriginal();
+      } else {
+        if (state.kind === "conflict" && !reviewedDraft) {
+          setError("The current draft changed. Review its source before starting a new restore.");
+          return;
+        }
+        const current = reviewedDraft
+          ? undefined
+          : await operations.read({ registrationId, decisionId });
+        const expectedDraftEtag = reviewedDraft?.etag ?? current?.data.draft.etag;
+        if (!expectedDraftEtag) throw new Error("The current draft ETag could not be read.");
+        const body: RestoreBody = {
           schema_version: 1,
-          expected_draft_etag: current.data.draft.etag,
+          expected_draft_etag: expectedDraftEtag,
           revision_id: restorePreview.revision.record.id,
           operation_id: crypto.randomUUID(),
-        },
-      });
-      setRestorePreview(undefined);
-      setError(undefined);
-      onRestoredToDraft();
+        };
+        if (state.kind !== "idle") restoreMutation.current.reset();
+        setReviewedDraft(undefined);
+        result = await restoreMutation.current.submit(body);
+      }
+      if (result) {
+        setRestorePreview(undefined);
+        setReviewedDraft(undefined);
+        setError(undefined);
+        onRestoredToDraft();
+      } else {
+        const nextState = restoreMutation.current.state;
+        if (nextState.kind === "conflict")
+          setError("The draft changed before this restore completed. Review the current draft before reapplying.");
+        else if (nextState.kind === "outcome-unknown")
+          setError("The restore outcome is unknown. Retry the exact same request to learn whether it completed.");
+        else if (nextState.kind === "failed") setError(nextState.message);
+      }
     } catch (cause) {
       setError(safeMessage(cause));
     } finally {
@@ -139,8 +176,24 @@ export function DefinitionHistory({
     setError(undefined);
     try {
       const result = await operations.revision({ registrationId, decisionId, revisionId });
+      restoreMutation.current?.reset();
+      setRestoreState({ kind: "idle" });
+      setReviewedDraft(undefined);
       setSelected(result.data);
       setRestorePreview(result.data);
+    } catch (cause) {
+      setError(safeMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewCurrentDraft() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const result = await operations.read({ registrationId, decisionId });
+      setReviewedDraft({ etag: result.data.draft.etag, source: result.data.draft.record.editor_source });
     } catch (cause) {
       setError(safeMessage(cause));
     } finally {
@@ -213,7 +266,10 @@ export function DefinitionHistory({
         <Modal
           title="Restore this version to the draft?"
           onDismiss={() => {
-            if (!busy) setRestorePreview(undefined);
+            if (!busy && restoreState.kind !== "outcome-unknown") {
+              setRestorePreview(undefined);
+              setReviewedDraft(undefined);
+            }
           }}
         >
           <div className="modal-body">
@@ -223,9 +279,33 @@ export function DefinitionHistory({
             <p>{restorePreview.revision.record.definition.question.instructions}</p>
             <ul>{restorePreview.revision.record.definition.question.options.map((option) => <li key={option.id}>{option.name}</li>)}</ul>
             <JsonSourceEditor label="Editor source to restore" value={restorePreview.revision.editor_source} readOnly rows={10} />
+            {restoreState.kind === "conflict" && (
+              <section aria-label="Current draft after conflict">
+                <p role="status">The saved version was not restored. The current draft remains unchanged.</p>
+                {reviewedDraft ? (
+                  <JsonSourceEditor label="Reviewed current draft source" value={reviewedDraft.source} readOnly rows={10} />
+                ) : (
+                  <button type="button" disabled={busy} onClick={() => void reviewCurrentDraft()}>Review current draft</button>
+                )}
+              </section>
+            )}
+            {restoreState.kind === "outcome-unknown" && <p role="status">The restore outcome is unknown. Keep this dialog open and retry the original request.</p>}
             <div className="actions">
-              <button type="button" className="primary" disabled={busy} onClick={() => void restore()}>Restore to draft</button>
-              <button type="button" disabled={busy} onClick={() => setRestorePreview(undefined)}>Cancel</button>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy || (restoreState.kind === "conflict" && !reviewedDraft)}
+                onClick={() => restoreState.kind === "conflict" && !reviewedDraft
+                  ? void reviewCurrentDraft()
+                  : void restore()}
+              >
+                {restoreState.kind === "outcome-unknown"
+                  ? "Retry the same restore request"
+                  : restoreState.kind === "conflict"
+                    ? "Restore over reviewed draft"
+                    : "Restore to draft"}
+              </button>
+              <button type="button" disabled={busy || restoreState.kind === "outcome-unknown"} onClick={() => { setRestorePreview(undefined); setReviewedDraft(undefined); }}>Cancel</button>
             </div>
           </div>
         </Modal>

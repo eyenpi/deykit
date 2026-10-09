@@ -7,6 +7,7 @@ import { ErrorSummary, LoadingState } from "../../components/States";
 import type { ExampleAuthoringOperations, ProjectOverview, SourceAuthoringOperations } from "../../workspace/gateway";
 import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
+import { MappingTransformQueue } from "./mapping-transform-queue";
 
 type ImportPreview = ApiOperationData<"preview_import_api_v1_projects__registration_id__datasets__dataset_id__imports_preview_post">;
 type ImportCommit = ApiOperationData<"commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post">;
@@ -41,6 +42,7 @@ export function ImportSheet({
   const [error, setError] = useState<string>();
   const [mappingError, setMappingError] = useState<string>();
   const [loadingMapping, setLoadingMapping] = useState(false);
+  const [mappingTransformPending, setMappingTransformPending] = useState(false);
   const [state, setState] = useState<MutationState<ImportCommit>>({ kind: "idle" });
   const [busy, setBusy] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
@@ -50,22 +52,32 @@ export function ImportSheet({
     body: ApiOperationBody<"commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post">;
   }, ImportCommit>>();
   const mappingFieldOriginals = useRef(new Map<string, string>());
+  const mappingSourceRef = useRef(INITIAL_MAPPING);
+  const mappingFormRef = useRef<MappingForm>();
+  const mappingQueue = useRef(new MappingTransformQueue<MappingEdit, MappingForm>(INITIAL_MAPPING));
+  const mappingTransformCount = useRef(0);
+  const uncommittedMappingEdits = useRef(new Map<string, MappingEdit>());
+  const mappingProjectionSequence = useRef(0);
 
   useEffect(() => {
     let active = true;
+    const sequence = ++mappingProjectionSequence.current;
     setLoadingMapping(true);
     void sources.projectMapping({
       registrationId: project.id,
-      body: { schema_version: 1, mapping_source: mappingSource },
+      body: { schema_version: 1, mapping_source: mappingSourceRef.current },
     }).then((result) => {
-      if (active) setMappingForm(result.data.form ?? undefined);
+      if (active && sequence === mappingProjectionSequence.current) {
+        setMappingForm(result.data.form ?? undefined);
+        mappingFormRef.current = result.data.form ?? undefined;
+      }
     }).catch((cause: unknown) => {
-      if (active) setMappingError(safeMessage(cause));
+      if (active && sequence === mappingProjectionSequence.current) setMappingError(safeMessage(cause));
     }).finally(() => {
-      if (active) setLoadingMapping(false);
+      if (active && sequence === mappingProjectionSequence.current) setLoadingMapping(false);
     });
     return () => { active = false; };
-  }, [mappingSource, project.id, sources]);
+  }, [project.id, sources]);
 
   useEffect(() => {
     mutation.current = new RetainedMutation(async (request) => {
@@ -86,6 +98,69 @@ export function ImportSheet({
       mutation.current?.reset();
       setState({ kind: "idle" });
     }
+  }
+
+  function recordMappingEdit(edit: MappingEdit) {
+    if (edit.kind === "set") uncommittedMappingEdits.current.set(edit.field, edit);
+  }
+
+  function mergeUncommittedEdits(form: MappingForm): MappingForm {
+    const next = { ...form } as unknown as Record<string, unknown>;
+    for (const edit of uncommittedMappingEdits.current.values()) {
+      if (edit.kind === "set") next[edit.field] = edit.value;
+    }
+    return next as MappingForm;
+  }
+
+  function scheduleMappingEdits(edits: readonly MappingEdit[]) {
+    if (mappingQueue.current.blocked || edits.length === 0) return;
+    invalidatePreview();
+    setMappingError(undefined);
+    for (const edit of edits) {
+      mappingTransformCount.current += 1;
+      setMappingTransformPending(true);
+      void mappingQueue.current.enqueue(edit, async (source, queuedEdit) => {
+        const result = await sources.transformMapping({
+          registrationId: project.id,
+          body: { schema_version: 1, mapping_source: source, edit: queuedEdit },
+        });
+        return {
+          mapping_source: result.data.mapping_source,
+          form: result.data.projection.form ?? null,
+        };
+      }).then((result) => {
+        if (edit.kind === "set" && uncommittedMappingEdits.current.get(edit.field) === edit)
+          uncommittedMappingEdits.current.delete(edit.field);
+        mappingSourceRef.current = mappingQueue.current.source;
+        setMappingSource(mappingQueue.current.source);
+        if (result.form) {
+          const next = mergeUncommittedEdits(result.form);
+          mappingFormRef.current = next;
+          setMappingForm(next);
+        }
+      }).catch((cause: unknown) => {
+        setMappingError(safeMessage(cause));
+      }).finally(() => {
+        mappingTransformCount.current -= 1;
+        if (mappingTransformCount.current === 0) setMappingTransformPending(false);
+      });
+    }
+  }
+
+  function transformMapping(edit: MappingEdit) {
+    recordMappingEdit(edit);
+    if (edit.kind === "set" && mappingFormRef.current) {
+      const next = mergeUncommittedEdits(mappingFormRef.current);
+      mappingFormRef.current = next;
+      setMappingForm(next);
+    }
+    scheduleMappingEdits([edit]);
+  }
+
+  function retryMappingEdits() {
+    if (mappingTransformCount.current > 0 || uncommittedMappingEdits.current.size === 0) return;
+    mappingQueue.current.reset(mappingSourceRef.current);
+    scheduleMappingEdits([...uncommittedMappingEdits.current.values()]);
   }
 
   async function readFile(file: File | undefined) {
@@ -122,6 +197,15 @@ export function ImportSheet({
   }
 
   async function previewImport() {
+    if (
+      mappingTransformCount.current > 0 ||
+      mappingQueue.current.blocked ||
+      uncommittedMappingEdits.current.size > 0 ||
+      loadingMapping
+    ) {
+      setError("Finish or retry the pending mapping changes before previewing this import.");
+      return;
+    }
     setBusy(true);
     setError(undefined);
     try {
@@ -132,7 +216,7 @@ export function ImportSheet({
           schema_version: 1,
           source_text: sourceText,
           format,
-          mapping_source: mappingSource,
+          mapping_source: mappingSourceRef.current,
           decision_id: decisionId || null,
           decision_selector: "draft",
         },
@@ -208,7 +292,7 @@ export function ImportSheet({
           </select>
         </div>
         {loadingMapping ? <LoadingState>Loading mapping controls…</LoadingState> : mappingForm ? (
-          <section className="mapping-form" aria-label="Common import mapping controls">
+            <section className="mapping-form" aria-label="Common import mapping controls">
             <fieldset>
               <legend>Input format</legend>
               {(["text", "json"] as const).map((value) => <label key={value}><input type="radio" checked={mappingForm.input_kind === value} disabled={locked} onChange={() => void transformMapping({ kind: "set", field: "input_kind", value })} />{value.toUpperCase()}</label>)}
@@ -221,9 +305,23 @@ export function ImportSheet({
                   value={mappingForm[field] ?? ""}
                   disabled={locked}
                   onFocus={(event) => mappingFieldOriginals.current.set(field, event.currentTarget.value)}
-                  onChange={(event) => setMappingForm({ ...mappingForm, [field]: event.target.value || null })}
+                  onChange={(event) => {
+                    const edit: MappingEdit = { kind: "set", field, value: event.target.value || null };
+                    recordMappingEdit(edit);
+                    const next = mappingFormRef.current
+                      ? mergeUncommittedEdits(mappingFormRef.current)
+                      : mappingForm;
+                    if (next) {
+                      mappingFormRef.current = next;
+                      setMappingForm(next);
+                    }
+                    invalidatePreview();
+                  }}
                   onBlur={(event) => {
-                    if (event.currentTarget.value !== mappingFieldOriginals.current.get(field))
+                    if (
+                      event.currentTarget.value !== mappingFieldOriginals.current.get(field) ||
+                      uncommittedMappingEdits.current.has(field)
+                    )
                       void transformMapping({ kind: "set", field, value: event.currentTarget.value || null });
                   }}
                 />
@@ -232,10 +330,31 @@ export function ImportSheet({
           </section>
         ) : null}
         {mappingError && <ErrorSummary message={mappingError} />}
-        <JsonSourceEditor label="Advanced mapping source" value={mappingSource} onChange={(value) => { setMappingSource(value); invalidatePreview(); }} readOnly={locked} />
+        {mappingQueue.current.blocked && uncommittedMappingEdits.current.size > 0 && <button type="button" disabled={busy || mappingTransformPending} onClick={retryMappingEdits}>Retry pending mapping changes</button>}
+        <JsonSourceEditor label="Advanced mapping source" value={mappingSource} onChange={(value) => {
+          mappingSourceRef.current = value;
+          mappingQueue.current.reset(value);
+          const sequence = ++mappingProjectionSequence.current;
+          uncommittedMappingEdits.current.clear();
+          mappingFormRef.current = undefined;
+          setMappingForm(undefined);
+          setMappingSource(value);
+          setLoadingMapping(true);
+          invalidatePreview();
+          void sources.projectMapping({ registrationId: project.id, body: { schema_version: 1, mapping_source: value } })
+            .then((result) => {
+              if (sequence !== mappingProjectionSequence.current || mappingSourceRef.current !== value || uncommittedMappingEdits.current.size > 0) return;
+              mappingFormRef.current = result.data.form ?? undefined;
+              setMappingForm(result.data.form ?? undefined);
+            }).catch((cause: unknown) => {
+              if (sequence === mappingProjectionSequence.current) setMappingError(safeMessage(cause));
+            }).finally(() => {
+              if (sequence === mappingProjectionSequence.current) setLoadingMapping(false);
+            });
+        }} readOnly={locked || mappingTransformPending} />
         <JsonSourceEditor label="Import source text" value={sourceText} onChange={(value) => { setSourceText(value); invalidatePreview(); }} readOnly={locked} />
         <div className="actions">
-          <button type="button" disabled={busy || locked || !sourceText} onClick={() => void previewImport()}>{busy ? "Reviewing…" : "Preview all rows"}</button>
+          <button type="button" disabled={busy || locked || mappingTransformPending || loadingMapping || uncommittedMappingEdits.current.size > 0 || mappingQueue.current.blocked || !sourceText} onClick={() => void previewImport()}>{busy ? "Reviewing…" : "Preview all rows"}</button>
         </div>
         {preview && (
           <section className="section import-preview" aria-labelledby="import-preview-heading">

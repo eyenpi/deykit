@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
-import { ApiError, safeMessage } from "../../api/client";
+import { safeMessage } from "../../api/client";
 import { JsonSourceEditor } from "../../components/JsonSourceEditor";
 import { Modal } from "../../components/Modal";
 import { LoadingState, ErrorSummary } from "../../components/States";
@@ -9,6 +9,7 @@ import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import { DraftAutosaveController } from "./draft-autosave";
 import type { DraftSaveStatus } from "./draft-autosave";
+import { isOutcomeUnknown } from "../../workspace/mutation-controller";
 
 type DecisionDTO = ApiOperationData<"readDecision">;
 type EditorForm = NonNullable<ApiOperationData<"projectDecisionEditor">["form"]>;
@@ -730,6 +731,5 @@ export function DecisionPage({
 }
 
 function uncertainOutcome(cause: unknown): boolean {
-  return cause instanceof ApiError &&
-    ((cause.status !== undefined && cause.status >= 500) || cause.code === "service_unavailable" || cause.code === "cancelled");
+  return isOutcomeUnknown(cause);
 }

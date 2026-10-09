@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
-import { ApiError, safeMessage } from "../../api/client";
+import { safeMessage } from "../../api/client";
 import { ErrorSummary, EmptyState, LoadingState } from "../../components/States";
 import type { ProjectOverview, ProviderAuthoringOperations } from "../../workspace/gateway";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
@@ -13,6 +13,7 @@ type ProviderProfile = ApiOperationData<"readProviderProfile">;
 type CredentialStatus = ApiOperationData<"providerCredentialStatus">;
 type ProviderMutation = ApiOperationData<"configureProviderProfile">;
 type ModelList = ApiOperationData<"listProviderModels">;
+type OSCredentialMutation = ApiOperationData<"setOSStoreCredential">;
 
 type SavedProviderRequest =
   | { kind: "configure"; profileId: string; body: ApiOperationBody<"configureProviderProfile"> }
@@ -40,7 +41,7 @@ export function ProviderPage({
   const [profileId, setProfileId] = useState(initialProfileId ?? "");
   const profileIdRef = useRef(profileId);
   profileIdRef.current = profileId;
-  const [adapter, setAdapter] = useState("openai-compatible");
+  const [adapter, setAdapter] = useState("jev");
   const [requestedModel, setRequestedModel] = useState("");
   const [destination, setDestination] = useState("");
   const [credentialRef, setCredentialRef] = useState("");
@@ -52,9 +53,14 @@ export function ProviderPage({
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [mutationState, setMutationState] = useState<MutationState<ProviderMutation>>({ kind: "idle" });
-  const [secretOutcomeUnknown, setSecretOutcomeUnknown] = useState(false);
+  const [secretMutationState, setSecretMutationState] = useState<MutationState<OSCredentialMutation>>({ kind: "idle" });
   const [creatingProfile, setCreatingProfile] = useState(false);
   const mutation = useRef<RetainedMutation<SavedProviderRequest, ProviderMutation>>();
+  const secretMutation = useRef<RetainedMutation<{
+    registrationId: string;
+    profileId: string;
+    body: ApiOperationBody<"setOSStoreCredential">;
+  }, OSCredentialMutation>>();
   const actionLock = useRef(false);
   const activeProfileId = profile?.id ?? profileId;
 
@@ -65,6 +71,9 @@ export function ProviderPage({
       if (request.kind === "environment") return (await operations.attachEnvironment(base)).data;
       return (await operations.forgetCredential(base)).data;
     }, setMutationState);
+    secretMutation.current = new RetainedMutation(async (request) => {
+      return (await operations.setOSCredential(request)).data;
+    }, setSecretMutationState);
   }, [operations, project.id]);
 
   useEffect(() => {
@@ -147,7 +156,7 @@ export function ProviderPage({
   }
 
   async function requestFor(request: SavedProviderRequest): Promise<boolean> {
-    if (!mutation.current || actionLock.current) return false;
+    if (!mutation.current || actionLock.current || secretMutation.current?.state.kind === "outcome-unknown") return false;
     actionLock.current = true;
     setBusy(true);
     setError(undefined);
@@ -214,32 +223,47 @@ export function ProviderPage({
   }
 
   async function setOSCredential() {
-    if (!profile || !secret || actionLock.current) return;
+    const retryingUnknown = secretMutation.current?.state.kind === "outcome-unknown";
+    if (!profile || (!secret && !retryingUnknown) || actionLock.current || !secretMutation.current) return;
     actionLock.current = true;
     setBusy(true);
     setError(undefined);
     setNotice(undefined);
-    setSecretOutcomeUnknown(false);
     const credentialValue = secret;
-    const expectedEtag = profile.etag;
-    const op = crypto.randomUUID();
+    setSecret("");
     try {
-      await operations.setOSCredential({
-        registrationId: project.id,
-        profileId: profile.id,
-        body: {
-          schema_version: 1,
-          credential_value: credentialValue,
-          expected_etag: expectedEtag,
-          operation_id: op,
-        },
-      });
-      setNotice("Credential stored in the operating system credential store.");
-      await refreshProfile();
+      const result = retryingUnknown
+        ? await secretMutation.current.retryOriginal()
+        : await secretMutation.current.submit({
+            registrationId: project.id,
+            profileId: profile.id,
+            body: {
+              schema_version: 1,
+              credential_value: credentialValue,
+              expected_etag: profile.etag,
+              operation_id: crypto.randomUUID(),
+            },
+          });
+      if (result) {
+        secretMutation.current.reset();
+        setNotice("Credential stored in the operating system credential store.");
+        try {
+          await refreshProfile();
+        } catch (cause) {
+          setError(`The credential was stored, but its status could not be refreshed: ${safeMessage(cause)}`);
+        }
+      } else if (secretMutation.current.state.kind === "outcome-unknown") {
+        setError("The credential store outcome is unknown. Retry the same request or review credential status before entering another value.");
+      } else {
+        secretMutation.current.reset();
+        setNotice("Secure credential storage failed. You can attach an environment variable reference.");
+      }
     } catch (cause) {
       setError(safeMessage(cause));
-      if (cause instanceof ApiError && ((cause.status !== undefined && cause.status >= 500) || cause.code === "service_unavailable" || cause.code === "cancelled")) setSecretOutcomeUnknown(true);
-      else setNotice("Secure credential storage failed. You can attach an environment variable reference.");
+      if (secretMutation.current.state.kind !== "outcome-unknown") {
+        secretMutation.current.reset();
+        setNotice("Secure credential storage failed. You can attach an environment variable reference.");
+      }
     } finally {
       setSecret("");
       actionLock.current = false;
@@ -283,10 +307,12 @@ export function ProviderPage({
 
   const configurationDirty = profile
     ? adapter !== profile.adapter || requestedModel !== profile.requested_model || destination !== profile.destination || credentialRef !== ""
-    : creatingProfile && (adapter !== "openai-compatible" || !!requestedModel || !!destination || !!credentialRef);
+    : creatingProfile && (adapter !== "jev" || !!requestedModel || !!destination || !!credentialRef);
   const dirtyGuard = useDirtyNavigationGuard({
-    dirty: configurationDirty || !!environmentName || !!secret,
+    dirty: configurationDirty || !!environmentName || !!secret || secretMutationState.kind === "outcome-unknown",
     save: async () => {
+      if (secretMutationState.kind === "outcome-unknown")
+        throw new Error("Retry the same credential request before leaving this provider profile.");
       if (secret) throw new Error("Store the credential explicitly or discard the password field before leaving.");
       if (configurationDirty && !(await (profile ? configure() : createProfile())))
         throw new Error("The provider configuration was not saved. Your entered values are still available.");
@@ -310,6 +336,10 @@ export function ProviderPage({
   useEffect(() => navigation.registerDirtyGuard(`providers:${project.id}:${profileId || "new"}`, dirtyGuard.guard), [dirtyGuard.guard, navigation, profileId, project.id]);
 
   async function chooseProfile(nextId?: string) {
+    if (secretMutation.current?.state.kind === "outcome-unknown") {
+      setError("Retry the same credential request before changing profiles.");
+      return;
+    }
     const allowed = await dirtyGuard.guard({ kind: "providers", registrationId: project.id });
     if (!allowed) return;
     mutation.current?.reset();
@@ -320,6 +350,10 @@ export function ProviderPage({
   }
 
   async function beginProfileCreation() {
+    if (secretMutation.current?.state.kind === "outcome-unknown") {
+      setError("Retry the same credential request before adding another profile.");
+      return;
+    }
     const allowed = await dirtyGuard.guard({ kind: "providers", registrationId: project.id });
     if (!allowed) return;
     const id = `provider-${crypto.randomUUID()}`;
@@ -329,7 +363,7 @@ export function ProviderPage({
     setProfile(undefined);
     setProfileId(id);
     onProfileChange(id);
-    setAdapter("openai-compatible");
+    setAdapter("jev");
     setRequestedModel("");
     setDestination("");
     setCredentialRef("");
@@ -339,14 +373,14 @@ export function ProviderPage({
   return (
     <>
     <article className="document provider-page">
-      <header className="page-heading-row"><div><h1>Providers</h1><p className="muted">Configuration checks and model listing do not run inference.</p></div><button type="button" onClick={() => void beginProfileCreation()}>Add provider profile</button></header>
+      <header className="page-heading-row"><div><h1>Providers</h1><p className="muted">Configuration checks and model listing do not run inference.</p></div><button type="button" disabled={secretMutationState.kind === "outcome-unknown"} onClick={() => void beginProfileCreation()}>Add provider profile</button></header>
       {loading ? <LoadingState>Loading provider profiles…</LoadingState> : error && <ErrorSummary message={error} />}
       {mutationError && <ErrorSummary message={mutationError} />}
       {notice && <p role="status" className="save-status">{notice}</p>}
       <div className="provider-layout">
         <section aria-labelledby="provider-list-heading">
           <h2 id="provider-list-heading">Profiles</h2>
-          {page?.items.length ? <ul className="provider-list">{page.items.map((item) => <li key={item.id}><button type="button" aria-current={item.id === profileId ? "true" : undefined} onClick={() => void chooseProfile(item.id)}>{item.id}</button><span className="muted">{item.requested_model} · {item.evidence_mode}</span></li>)}</ul> : !profileId ? <EmptyState title="No provider profiles">Add a profile to configure a model adapter.</EmptyState> : null}
+          {page?.items.length ? <ul className="provider-list">{page.items.map((item) => <li key={item.id}><button type="button" disabled={secretMutationState.kind === "outcome-unknown"} aria-current={item.id === profileId ? "true" : undefined} onClick={() => void chooseProfile(item.id)}>{item.id}</button><span className="muted">{item.requested_model} · {item.evidence_mode}</span></li>)}</ul> : !profileId ? <EmptyState title="No provider profiles">Add a profile to configure a model adapter.</EmptyState> : null}
           {profileCursor && <button type="button" disabled={busy} onClick={() => void loadMoreProfiles()}>Load more profiles</button>}
         </section>
         <section className="provider-editor" aria-labelledby="provider-editor-heading">
@@ -354,11 +388,11 @@ export function ProviderPage({
           {profileId && (
             <>
               <div className="field"><label htmlFor="provider-id">Profile ID</label><input id="provider-id" value={profileId} readOnly /></div>
-              <div className="field"><label htmlFor="provider-adapter">Adapter</label><input id="provider-adapter" value={adapter} disabled={busy} onChange={(event) => setAdapter(event.target.value)} /></div>
+              <div className="field"><label htmlFor="provider-adapter">Adapter</label><select id="provider-adapter" value={adapter} disabled={busy} onChange={(event) => setAdapter(event.target.value)}><option value="jev">Jev</option><option value="fixture">Authored fixture</option></select></div>
               <div className="field"><label htmlFor="provider-model">Requested model ID</label><input id="provider-model" value={requestedModel} disabled={busy} onChange={(event) => setRequestedModel(event.target.value)} /></div>
               <div className="field"><label htmlFor="provider-destination">Destination</label><input id="provider-destination" value={destination} disabled={busy} onChange={(event) => setDestination(event.target.value)} /></div>
               <div className="field"><label htmlFor="provider-credential-ref">Credential reference (non-secret)</label><input id="provider-credential-ref" value={credentialRef} disabled={busy} onChange={(event) => setCredentialRef(event.target.value)} /></div>
-              <button type="button" className="primary" disabled={busy || !adapter || !requestedModel || !destination || mutationState.kind === "outcome-unknown"} onClick={() => void (profile ? configure() : createProfile())}>{busy ? "Saving…" : "Save profile"}</button>
+              <button type="button" className="primary" disabled={busy || secretMutationState.kind === "outcome-unknown" || !adapter || !requestedModel || !destination || mutationState.kind === "outcome-unknown"} onClick={() => void (profile ? configure() : createProfile())}>{busy ? "Saving…" : "Save profile"}</button>
               {mutationState.kind === "outcome-unknown" && <button type="button" onClick={() => void mutation.current?.retryOriginal().then(async (result) => { if (result) { await refreshProfile(); mutation.current?.reset(); setMutationState({ kind: "idle" }); } })}>Retry the same configuration</button>}
               {(mutationState.kind === "conflict" || mutationState.kind === "failed") && <button type="button" onClick={() => void refreshProfile().then(() => { mutation.current?.reset(); setMutationState({ kind: "idle" }); }).catch((cause: unknown) => setError(safeMessage(cause)))}>Review current profile</button>}
               {profile && <section className="section credential-status"><h3>Credential status</h3><p role="status">{credential?.configured ? "Configured" : "Not configured"} · {credential?.available ? "Available" : "Unavailable"}{credential?.kind ? ` · ${credential.kind}` : ""}</p><p className="muted">The secret value is never returned to the browser.</p></section>}
@@ -367,12 +401,12 @@ export function ProviderPage({
                   <h3>Credentials</h3>
                   <label htmlFor="environment-name">Environment variable name</label>
                   <input id="environment-name" autoComplete="off" value={environmentName} disabled={busy} onChange={(event) => setEnvironmentName(event.target.value)} />
-                  <button type="button" disabled={busy || !environmentName} onClick={() => void attachEnvironment()}>Attach environment reference</button>
+                  <button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown" || !environmentName} onClick={() => void attachEnvironment()}>Attach environment reference</button>
                   <label htmlFor="provider-secret">Store a credential in the operating system</label>
                   <input id="provider-secret" type="password" autoComplete="new-password" value={secret} disabled={busy} onChange={(event) => setSecret(event.target.value)} />
                   <button type="button" disabled={busy || !secret} onClick={() => void setOSCredential()}>{busy ? "Storing…" : "Store credential"}</button>
-                  {secretOutcomeUnknown && <p role="status">The store outcome is unknown. Check the status above before entering a credential again.</p>}
-                  <button type="button" disabled={busy || !credential?.configured} onClick={() => void forgetCredential()}>Forget credential</button>
+                  {secretMutationState.kind === "outcome-unknown" && <button type="button" disabled={busy} onClick={() => void setOSCredential()}>Retry the same credential request</button>}
+                  <button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown" || !credential?.configured} onClick={() => void forgetCredential()}>Forget credential</button>
                 </section>
               )}
               {profile && <section className="section model-listing"><h3>Supported model IDs</h3><p>Explicit network check · 0 inference calls.</p><label htmlFor="model-timeout">Timeout in seconds</label><input id="model-timeout" inputMode="numeric" value={timeoutSeconds} disabled={busy} onChange={(event) => setTimeoutSeconds(event.target.value)} /><button type="button" disabled={busy} onClick={() => void listModels()}>{busy ? "Checking…" : "Refresh model list"}</button>{models && <><p role="status">{models.models.length} models returned · {models.network_check ? "network checked" : "not checked"} · {models.inference_calls} inference calls</p><ul>{models.models.map((item) => <li key={item.id}><code>{item.id}</code> {item.name}</li>)}</ul></>}</section>}

@@ -244,11 +244,58 @@ test("installed browser authors exact decision source and previews imports throu
 
   await page.getByRole("button", { name: "Project examples", exact: true }).click();
   await page.getByRole("button", { name: "Import examples" }).click();
-  await page.getByLabel("Advanced mapping source").fill(
-    '{"input_kind":"text","input_column":"input","id_column":"id"}',
-  );
   await page.getByLabel("Import source text").fill("id,input\nseed-1,first imported input\n");
+  const mappingBodies: Array<Record<string, unknown>> = [];
+  let firstMappingSource: string | undefined;
+  let finalMappingSource: string | undefined;
+  let releaseFirstMapping!: () => void;
+  let reportFirstMapping!: () => void;
+  let reportSecondMapping!: () => void;
+  const firstMappingGate = new Promise<void>((resolve) => { releaseFirstMapping = resolve; });
+  const firstMappingStarted = new Promise<void>((resolve) => { reportFirstMapping = resolve; });
+  const secondMappingFinished = new Promise<void>((resolve) => { reportSecondMapping = resolve; });
+  let mappingCall = 0;
+  await page.route("**/authoring/mapping-transform", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    mappingBodies.push(body);
+    mappingCall += 1;
+    if (mappingCall === 1) {
+      reportFirstMapping();
+      await firstMappingGate;
+    }
+    const response = await route.fetch();
+    const responseBody = await response.json();
+    const nextSource = responseBody.data.mapping_source as string;
+    if (mappingCall === 1) firstMappingSource = nextSource;
+    if (mappingCall === 2) {
+      finalMappingSource = nextSource;
+      reportSecondMapping();
+    }
+    await route.fulfill({ response });
+  });
+  const previewBodies: Array<Record<string, unknown>> = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/imports/preview"))
+      previewBodies.push(request.postDataJSON() as Record<string, unknown>);
+  });
+  await expect(page.getByLabel("input column")).toBeVisible();
+  await page.getByLabel("id column").fill("id");
+  await page.getByLabel("id column").press("Tab");
+  await firstMappingStarted;
+  await page.getByLabel("input column").fill("input");
+  await page.getByLabel("input column").press("Tab");
+  await expect(page.getByRole("button", { name: "Preview all rows" })).toBeDisabled();
+  expect(mappingBodies).toHaveLength(1);
+  releaseFirstMapping();
+  await secondMappingFinished;
+  expect(mappingBodies).toHaveLength(2);
+  expect(mappingBodies[1].mapping_source).toBe(firstMappingSource);
+  await expect(page.getByLabel("id column")).toHaveValue("id");
+  await expect(page.getByLabel("input column")).toHaveValue("input");
+  await expect(page.getByRole("button", { name: "Preview all rows" })).toBeEnabled();
   await page.getByRole("button", { name: "Preview all rows" }).click();
+  await expect.poll(() => previewBodies.length).toBe(1);
+  expect(previewBodies[0].mapping_source).toBe(finalMappingSource);
   await expect(page.getByRole("heading", { name: "Import review" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "1 rows · 1 valid · 0 rejected" })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("import-before-decision.png"), fullPage: true });
@@ -346,21 +393,54 @@ test("installed browser authors exact decision source and previews imports throu
   expect(reappliedDraft.record.editor_source).toBe(browserSource);
 
   decisionName = "Precise source decision renamed";
+  const renameBodies: Array<Record<string, unknown>> = [];
+  await page.route(`**/decisions/${decisionId}/rename`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    renameBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    const response = await route.fetch();
+    if (renameBodies.length === 1) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ response });
+  });
   const renameResponse = page.waitForResponse((response) =>
     response.url().endsWith("/rename") && response.request().method() === "POST",
   );
   await page.getByLabel("Decision name").fill(decisionName);
   await page.getByLabel("Decision name").press("Tab");
   expect((await renameResponse).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "Retry same rename" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry same rename" }).click();
+  await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
+  expect(renameBodies).toHaveLength(2);
+  expect(renameBodies[1]).toEqual(renameBodies[0]);
+  await page.unroute(`**/decisions/${decisionId}/rename`);
   const renamed = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
     { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
   );
   expect((await renamed.json()).data.decision.record.name).toBe(decisionName);
 
+  const revisionSaveBodies: Array<Record<string, unknown>> = [];
+  await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    revisionSaveBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    const response = await route.fetch();
+    if (revisionSaveBodies.length === 1) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ response });
+  });
   await page.getByLabel("Version note (optional)").fill("Source preservation baseline");
   await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retry same version save" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry same version save" }).click();
   await expect(page.getByRole("status").filter({ hasText: /^Saved version / })).toBeVisible();
+  expect(revisionSaveBodies).toHaveLength(2);
+  expect(revisionSaveBodies[1]).toEqual(revisionSaveBodies[0]);
+  await page.unroute(`**/decisions/${decisionId}/revisions`);
   const firstRevisionPage = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
     { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
@@ -433,11 +513,41 @@ test("installed browser authors exact decision source and previews imports throu
   const restoreDialog = page.getByRole("dialog", { name: "Restore this version to the draft?" });
   await expect(restoreDialog).toBeVisible();
   await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  const uncertainRestoreRequests: Array<Record<string, unknown>> = [];
+  let firstRestoreStatus: number | undefined;
+  await page.route(`**/decisions/${decisionId}/restore-revision`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    uncertainRestoreRequests.push(route.request().postDataJSON() as Record<string, unknown>);
+    const response = await route.fetch();
+    if (uncertainRestoreRequests.length === 1) {
+      firstRestoreStatus = response.status();
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({ response });
+  });
+  await restoreDialog.getByRole("button", { name: "Restore to draft", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retry the same restore request" })).toBeVisible();
+  await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  await page.getByRole("button", { name: "Retry the same restore request" }).click();
+  await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
+  expect(firstRestoreStatus).toBe(200);
+  expect(uncertainRestoreRequests).toHaveLength(2);
+  expect(uncertainRestoreRequests[1]).toEqual(uncertainRestoreRequests[0]);
+  await page.unroute(`**/decisions/${decisionId}/restore-revision`);
+
+  await page.getByRole("button", { name: "Version history" }).click();
+  await expect(page.getByRole("heading", { name: "Version history" })).toBeVisible();
+  const refreshedRevisionRows = page.getByRole("table", { name: "Saved decision versions" }).getByRole("row");
+  await refreshedRevisionRows.nth(2).getByRole("button", { name: "Restore to draft…" }).click();
+  const conflictRestoreDialog = page.getByRole("dialog", { name: "Restore this version to the draft?" });
+  await expect(conflictRestoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
   const beforeRestoreRace = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
     { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
   );
   const currentDraft = (await beforeRestoreRace.json()).data.draft;
+  expect(currentDraft.record.editor_source).toBe(firstRevisionEditorSource);
   const restoreRaceWinnerSource = `${currentDraft.record.editor_source}\n`;
   let releaseRestore!: () => void;
   let reportRestoreStarted!: () => void;
@@ -455,7 +565,7 @@ test("installed browser authors exact decision source and previews imports throu
     restoreConflictStatus = response.status();
     await route.fulfill({ response });
   });
-  await restoreDialog.getByRole("button", { name: "Restore to draft", exact: true }).click();
+  await conflictRestoreDialog.getByRole("button", { name: "Restore to draft", exact: true }).click();
   await restoreStarted;
   const concurrentDraftWrite = await page.request.put(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/draft`,
@@ -473,9 +583,12 @@ test("installed browser authors exact decision source and previews imports throu
   releaseRestore();
   await expect(page.getByRole("alert")).toBeVisible();
   expect(restoreConflictStatus).toBe(409);
-  await expect(page.getByRole("dialog", { name: "Restore this version to the draft?" })).toBeVisible();
-  await expect(page.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(conflictRestoreDialog).toBeVisible();
+  await expect(conflictRestoreDialog).toContainText("Review the current draft before reapplying.");
+  await expect(conflictRestoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  await conflictRestoreDialog.getByRole("button", { name: "Review current draft" }).click();
+  await expect(conflictRestoreDialog.getByLabel("Reviewed current draft source")).toHaveValue(restoreRaceWinnerSource);
+  await conflictRestoreDialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
     .click();
@@ -771,8 +884,24 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Archive decision" }).click();
   const archiveDialog = page.getByRole("dialog", { name: "Archive this decision?" });
   await expect(archiveDialog).toBeVisible();
+  const archiveBodies: Array<Record<string, unknown>> = [];
+  await page.route(`**/decisions/${decisionId}/archive`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    archiveBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    const response = await route.fetch();
+    if (archiveBodies.length === 1) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ response });
+  });
   await archiveDialog.getByRole("button", { name: "Archive decision", exact: true }).click();
+  await expect(archiveDialog.getByRole("button", { name: "Retry same archive action" })).toBeVisible();
+  await archiveDialog.getByRole("button", { name: "Retry same archive action" }).click();
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+  expect(archiveBodies).toHaveLength(2);
+  expect(archiveBodies[1]).toEqual(archiveBodies[0]);
+  await page.unroute(`**/decisions/${decisionId}/archive`);
   const archivedRow = page.getByRole("table", { name: "Archived decisions" }).getByRole("row", { name: new RegExp(decisionName) });
   await expect(archivedRow).toBeVisible();
   const retainedRevisions = await page.request.get(
@@ -787,7 +916,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
   await page.getByRole("button", { name: "Add provider profile" }).click();
   await expect(page.getByRole("heading", { name: "New profile" })).toBeVisible();
-  await page.getByLabel("Adapter").fill("jev");
+  await expect(page.getByLabel("Adapter")).toHaveValue("jev");
   await page.getByLabel("Requested model ID").fill("jev-latest");
   await page.getByLabel("Destination").fill("https://api.typesafe.ai/v1/systemone");
   await page.getByRole("button", { name: "Save profile" }).click();

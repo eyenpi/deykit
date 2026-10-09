@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/client";
-import { RetainedMutation } from "./mutation-controller";
+import { isOutcomeUnknown, RetainedMutation } from "./mutation-controller";
 
 describe("retained mutation outcomes", () => {
   it("keeps malformed acknowledgements and untyped transport failures unknown", async () => {
@@ -8,6 +8,7 @@ describe("retained mutation outcomes", () => {
       new ApiError("response_invalid", "Malformed success.", 200),
       new Error("connection reset after the write"),
     ]) {
+      expect(isOutcomeUnknown(failure)).toBe(true);
       const mutation = new RetainedMutation(async () => { throw failure; }, () => undefined);
       const request = { operationId: "op-original", etag: "e0", source: "exact source" };
       await mutation.submit(request);

@@ -34,12 +34,13 @@ const profile = {
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
+  vi.unstubAllGlobals();
 });
 
 it("keeps an OS credential mounted only for its request and never calls model listing", async () => {
   const secret = "synthetic-m10-credential-never-a-provider-key";
   const setOSCredential = vi.fn(async () => {
-    throw new ApiError("credential_store_unavailable", "Secure storage is unavailable.");
+    throw new ApiError("preflight_failed", "Secure storage is unavailable.", 422);
   });
   const listModels = vi.fn();
   const operations = {
@@ -79,5 +80,92 @@ it("keeps an OS credential mounted only for its request and never calls model li
   expect(listModels).not.toHaveBeenCalled();
 
   unmount();
+  navigation.dispose();
+});
+
+it("creates a provider profile using the displayed supported default adapter", async () => {
+  vi.stubGlobal("crypto", { randomUUID: () => "new-provider-id" });
+  let configuredBody: Record<string, unknown> | undefined;
+  const operations = {
+    list: async () => ({ data: { items: [], total: "0", next_cursor: null }, warnings: [] }),
+    read: async ({ profileId }: { profileId: string }) => ({
+      data: { ...profile, id: profileId }, warnings: [],
+    }),
+    credentialStatus: async () => ({
+      data: { profile_id: "new-provider-id", configured: false, available: false, kind: null },
+      warnings: [],
+    }),
+    configure: async ({ body }: { body: Record<string, unknown> }) => {
+      configuredBody = body;
+      return { data: { operation_id: body.operation_id, profile: {}, replayed: false }, warnings: [] };
+    },
+  } as unknown as ProviderAuthoringOperations;
+  const navigation = new WorkspaceNavigation(window);
+  const user = userEvent.setup();
+  render(
+    <ProviderPage
+      project={project}
+      operations={operations}
+      navigation={navigation}
+      onProfileChange={() => undefined}
+    />,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Add provider profile" }));
+  const adapter = await screen.findByLabelText("Adapter");
+  expect((adapter as HTMLSelectElement).value).toBe("jev");
+  expect(Array.from((adapter as HTMLSelectElement).options).map((option) => option.value)).toEqual([
+    "jev", "fixture",
+  ]);
+  await user.type(screen.getByLabelText("Requested model ID"), "jev-latest");
+  await user.type(screen.getByLabelText("Destination"), "https://api.typesafe.ai/v1/systemone");
+  await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+  await screen.findByRole("heading", { name: "new-provider-id" });
+  expect(configuredBody).toMatchObject({ profile_id: "new-provider-id", adapter: "jev" });
+  navigation.dispose();
+});
+
+it("retries an unknown OS credential write with the same request after clearing the password field", async () => {
+  const secret = "synthetic-m10-credential-never-a-provider-key";
+  const calls: Array<{ body: Record<string, unknown> }> = [];
+  const setOSCredential = vi.fn(async (request: { body: Record<string, unknown> }) => {
+    calls.push(request);
+    if (calls.length === 1) throw new ApiError("response_invalid", "Malformed success.", 200);
+    return { data: {}, warnings: [] };
+  });
+  const operations = {
+    list: async () => ({ data: { items: [profile], total: "1", next_cursor: null }, warnings: [] }),
+    read: async () => ({ data: profile, warnings: [] }),
+    credentialStatus: async () => ({ data: { profile_id: profile.id, configured: false, available: false, kind: null }, warnings: [] }),
+    setOSCredential,
+  } as unknown as ProviderAuthoringOperations;
+  const navigation = new WorkspaceNavigation(window);
+  const user = userEvent.setup();
+  render(
+    <ProviderPage
+      project={project}
+      operations={operations}
+      navigation={navigation}
+      initialProfileId={profile.id}
+      onProfileChange={() => undefined}
+    />,
+  );
+
+  const password = await screen.findByLabelText("Store a credential in the operating system");
+  await user.type(password, secret);
+  await user.click(screen.getByRole("button", { name: "Store credential" }));
+  await screen.findByRole("button", { name: "Retry the same credential request" });
+  expect((password as HTMLInputElement).value).toBe("");
+  expect(document.body.textContent).not.toContain(secret);
+  await user.click(screen.getByRole("button", { name: "Retry the same credential request" }));
+
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual(calls[0]);
+  expect(calls[0].body.credential_value).toBe(secret);
+  expect((password as HTMLInputElement).value).toBe("");
+  expect(document.body.textContent).not.toContain(secret);
+  expect(window.localStorage.length).toBe(0);
+  expect(window.sessionStorage.length).toBe(0);
   navigation.dispose();
 });
