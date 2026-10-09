@@ -1,4 +1,39 @@
 export type ApiOperationId = keyof typeof operationMetadata;
+type OperationIdOfKind<
+  K extends ApiOperationId,
+  Kind extends ApiOperationMetadata["success"]["kind"],
+> = {
+  [Id in K]: (typeof operationMetadata)[Id]["success"]["kind"] extends Kind
+    ? Id
+    : never;
+}[K];
+export type ApiJsonOperationId = OperationIdOfKind<ApiOperationId, "json">;
+export type ApiDownloadOperationId = OperationIdOfKind<
+  ApiOperationId,
+  "report-download"
+>;
+
+export interface ApiJsonSuccess {
+  readonly kind: "json";
+  readonly validators: Readonly<Partial<Record<"200" | "202", string>>>;
+}
+export interface ApiReportDownloadSuccess {
+  readonly kind: "report-download";
+  readonly status: 200;
+  readonly formatParameter: "format";
+  readonly reportIdParameter: "report_id";
+  readonly maxBytes: 8388608;
+  readonly formats: {
+    readonly json: {
+      readonly contentType: "application/octet-stream";
+      readonly extension: "json";
+    };
+    readonly markdown: {
+      readonly contentType: "text/plain; charset=utf-8";
+      readonly extension: "md";
+    };
+  };
+}
 
 export interface ApiOperationMetadata {
   readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
@@ -7,10 +42,38 @@ export interface ApiOperationMetadata {
   readonly queryParams: readonly string[];
   readonly bodyValidator: string | null;
   readonly bodyRequired: boolean;
-  readonly successValidator: string;
+  readonly success: ApiJsonSuccess | ApiReportDownloadSuccess;
 }
 
 export const operationMetadata = {
+  addAnnotation: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/annotations",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: [],
+    bodyValidator: "validateAddAnnotationRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_AnnotationDTO_",
+      },
+    },
+  },
+  addRegression: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/decisions/{decision_id}/regressions",
+    pathParams: ["registration_id", "decision_id"],
+    queryParams: [],
+    bodyValidator: "validateAddRegressionRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RegressionDTO_",
+      },
+    },
+  },
   add_case_api_v1_projects__registration_id__datasets__dataset_id__cases_post: {
     method: "POST",
     path: "/api/v1/projects/{registration_id}/datasets/{dataset_id}/cases",
@@ -18,7 +81,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateCaseInputRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_CaseMutationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_CaseMutationDTO_",
+      },
+    },
   },
   archiveDecision: {
     method: "POST",
@@ -27,7 +95,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateDecisionETagRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_Versioned_DecisionRecord__",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_Versioned_DecisionRecord__",
+      },
+    },
   },
   archive_dataset_api_v1_projects__registration_id__datasets__dataset_id__archive_post:
     {
@@ -37,7 +110,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateDatasetChangeRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_DatasetDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_DatasetDTO_",
+        },
+      },
     },
   attachEnvironmentCredential: {
     method: "POST",
@@ -46,7 +124,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateEnvironmentCredentialRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_ProviderMutationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ProviderMutationDTO_",
+      },
+    },
   },
   batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post:
     {
@@ -56,8 +139,55 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateLabelBatchRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_LabelBatchDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_LabelBatchDTO_",
+        },
+      },
     },
+  cancelCheck: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/checks/{group_id}/cancel",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: "validateGroupCancelRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_GroupProgressDTO_",
+      },
+    },
+  },
+  cancelChoiceOrder: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/diagnostics/{group_id}/cancel",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: "validateGroupCancelRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_GroupProgressDTO_",
+      },
+    },
+  },
+  cancelRun: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/cancel",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: [],
+    bodyValidator: "validateRunCancelRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RunProgressDTO_",
+      },
+    },
+  },
   commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post:
     {
       method: "POST",
@@ -66,7 +196,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateImportCommitRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_ImportCommitDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_ImportCommitDTO_",
+        },
+      },
     },
   commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post:
     {
@@ -76,7 +211,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateSplitCommitRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_SplitCommitDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_SplitCommitDTO_",
+        },
+      },
     },
   configureProviderProfile: {
     method: "PUT",
@@ -85,7 +225,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateProviderProfileRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_ProviderMutationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ProviderMutationDTO_",
+      },
+    },
   },
   createAuthoredDemo: {
     method: "POST",
@@ -94,7 +239,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateDemoCreateRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_DemoCreateDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DemoCreateDTO_",
+      },
+    },
+  },
+  createComparison: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/comparisons",
+    pathParams: ["registration_id"],
+    queryParams: [],
+    bodyValidator: "validateCreateComparisonRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ComparisonDTO_",
+      },
+    },
   },
   createDataset: {
     method: "POST",
@@ -103,7 +267,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateDatasetCreateRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_DatasetDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DatasetDTO_",
+      },
+    },
   },
   createDecision: {
     method: "POST",
@@ -112,7 +281,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateDecisionCreateRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_DecisionDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DecisionDTO_",
+      },
+    },
+  },
+  createEvaluation: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/evaluations",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: [],
+    bodyValidator: "validateEvaluateRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_EvaluationDTO_",
+      },
+    },
   },
   createFixtureSet: {
     method: "POST",
@@ -121,7 +309,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateFixtureCreateRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_FixtureCreatedDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_FixtureCreatedDTO_",
+      },
+    },
+  },
+  createReport: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/reports",
+    pathParams: ["registration_id"],
+    queryParams: [],
+    bodyValidator: "validateCreateReportRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ReportDTO_",
+      },
+    },
   },
   delete_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__delete:
     {
@@ -131,7 +338,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateCaseChangeRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_CaseMutationDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_CaseMutationDTO_",
+        },
+      },
     },
   diffDecisionRevisions: {
     method: "GET",
@@ -140,7 +352,37 @@ export const operationMetadata = {
     queryParams: ["after", "before"],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_DefinitionDiffDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DefinitionDiffDTO_",
+      },
+    },
+  },
+  downloadReport: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/reports/{report_id}/download",
+    pathParams: ["registration_id", "report_id"],
+    queryParams: ["format"],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "report-download",
+      status: 200,
+      formatParameter: "format",
+      reportIdParameter: "report_id",
+      maxBytes: 8388608,
+      formats: {
+        json: {
+          contentType: "application/octet-stream",
+          extension: "json",
+        },
+        markdown: {
+          contentType: "text/plain; charset=utf-8",
+          extension: "md",
+        },
+      },
+    },
   },
   edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put:
     {
@@ -150,7 +392,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateCaseEditRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_CaseMutationDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_CaseMutationDTO_",
+        },
+      },
     },
   encodeTextInput: {
     method: "POST",
@@ -159,7 +406,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateTextInputRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_EncodedInputV1_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_EncodedInputV1_",
+      },
+    },
   },
   forgetProviderCredential: {
     method: "POST",
@@ -168,7 +420,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateProviderETagRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_ProviderMutationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ProviderMutationDTO_",
+      },
+    },
   },
   label_history_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__history_get:
     {
@@ -178,7 +435,12 @@ export const operationMetadata = {
       queryParams: ["question_id"],
       bodyValidator: null,
       bodyRequired: false,
-      successValidator: "validateSuccess_LabelHistoryDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_LabelHistoryDTO_",
+        },
+      },
     },
   latestDecisionRevision: {
     method: "GET",
@@ -187,7 +449,40 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_RevisionDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RevisionDTO_",
+      },
+    },
+  },
+  listAnnotations: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/annotations",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: ["case_id", "cursor", "limit"],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_AnnotationPageDTO_",
+      },
+    },
+  },
+  listComparisons: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/comparisons",
+    pathParams: ["registration_id"],
+    queryParams: ["cursor", "limit"],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ComparisonPageDTO_",
+      },
+    },
   },
   listDecisionRevisions: {
     method: "GET",
@@ -196,7 +491,12 @@ export const operationMetadata = {
     queryParams: ["cursor", "limit"],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_RevisionPageDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RevisionPageDTO_",
+      },
+    },
   },
   listDecisions: {
     method: "GET",
@@ -205,7 +505,26 @@ export const operationMetadata = {
     queryParams: ["cursor", "include_archived", "limit"],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_DecisionPageDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DecisionPageDTO_",
+      },
+    },
+  },
+  listEvaluations: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/evaluations",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: ["cursor", "limit"],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_EvaluationPageDTO_",
+      },
+    },
   },
   listFixtureSets: {
     method: "GET",
@@ -214,7 +533,12 @@ export const operationMetadata = {
     queryParams: ["cursor", "limit"],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_FixturePageDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_FixturePageDTO_",
+      },
+    },
   },
   listProviderModels: {
     method: "POST",
@@ -223,7 +547,12 @@ export const operationMetadata = {
     queryParams: ["timeout_seconds"],
     bodyValidator: "validateVersionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_ModelListDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ModelListDTO_",
+      },
+    },
   },
   listProviderProfiles: {
     method: "GET",
@@ -232,7 +561,12 @@ export const operationMetadata = {
     queryParams: ["cursor", "limit"],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_ProviderPageDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ProviderPageDTO_",
+      },
+    },
   },
   listRecentProjects: {
     method: "GET",
@@ -241,7 +575,68 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_RecentProjectsDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RecentProjectsDTO_",
+      },
+    },
+  },
+  listRegressions: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/decisions/{decision_id}/regressions",
+    pathParams: ["registration_id", "decision_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RegressionPageDTO_",
+      },
+    },
+  },
+  listReports: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/reports",
+    pathParams: ["registration_id"],
+    queryParams: ["cursor", "limit"],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ReportPageDTO_",
+      },
+    },
+  },
+  listResults: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/results",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: ["cursor", "evaluation_id", "limit", "split", "status", "tag"],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ResultPageDTO_",
+      },
+    },
+  },
+  listRuns: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/runs",
+    pathParams: ["registration_id"],
+    queryParams: ["cursor", "decision_id", "limit", "status"],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RunPageDTO_",
+      },
+    },
   },
   list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get:
     {
@@ -251,7 +646,12 @@ export const operationMetadata = {
       queryParams: ["cursor", "group_id", "limit", "split", "tag"],
       bodyValidator: null,
       bodyRequired: false,
-      successValidator: "validateSuccess_CasePageDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_CasePageDTO_",
+        },
+      },
     },
   list_datasets_api_v1_projects__registration_id__datasets_get: {
     method: "GET",
@@ -260,7 +660,12 @@ export const operationMetadata = {
     queryParams: ["cursor", "include_archived", "limit"],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_DatasetPageDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DatasetPageDTO_",
+      },
+    },
   },
   list_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_get:
     {
@@ -270,7 +675,12 @@ export const operationMetadata = {
       queryParams: ["cursor", "limit", "status"],
       bodyValidator: null,
       bodyRequired: false,
-      successValidator: "validateSuccess_LabelPageDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_LabelPageDTO_",
+        },
+      },
     },
   patch_dataset_api_v1_projects__registration_id__datasets__dataset_id__patch: {
     method: "PATCH",
@@ -279,7 +689,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateDatasetPatchRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_DatasetDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DatasetDTO_",
+      },
+    },
   },
   previewCaseSelection: {
     method: "POST",
@@ -288,7 +703,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateSelectionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_SelectionDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_SelectionDTO_",
+      },
+    },
+  },
+  previewCheckResume: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/checks/{group_id}/resume-preview",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: ["retry_unknown"],
+    bodyValidator: "validateVersionRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_GroupResumePreviewDTO_",
+      },
+    },
   },
   previewChoiceOrder: {
     method: "POST",
@@ -297,7 +731,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateChoiceOrderPreviewRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_GroupPreviewDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_GroupPreviewDTO_",
+      },
+    },
+  },
+  previewChoiceOrderResume: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/diagnostics/{group_id}/resume-preview",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: ["retry_unknown"],
+    bodyValidator: "validateVersionRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_GroupResumePreviewDTO_",
+      },
+    },
   },
   previewRegressionCheck: {
     method: "POST",
@@ -306,7 +759,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateCheckPreviewRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_GroupPreviewDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_GroupPreviewDTO_",
+      },
+    },
   },
   previewRun: {
     method: "POST",
@@ -315,7 +773,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateRunPreviewRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_RunPreviewDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RunPreviewDTO_",
+      },
+    },
+  },
+  previewRunResume: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/resume-preview",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: ["max_attempts", "retry_unknown"],
+    bodyValidator: "validateVersionRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RunResumePreviewDTO_",
+      },
+    },
   },
   preview_import_api_v1_projects__registration_id__datasets__dataset_id__imports_preview_post:
     {
@@ -325,7 +802,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateImportPreviewRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_ImportPreviewDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_ImportPreviewDTO_",
+        },
+      },
     },
   preview_split_api_v1_projects__registration_id__datasets__dataset_id__splits_preview_post:
     {
@@ -335,7 +817,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateSplitPreviewRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_SplitPreviewDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_SplitPreviewDTO_",
+        },
+      },
     },
   projectCaseInput: {
     method: "POST",
@@ -344,7 +831,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateCaseInputProjectionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_CaseInputProjectionV1_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_CaseInputProjectionV1_",
+      },
+    },
   },
   projectDecisionEditor: {
     method: "POST",
@@ -353,7 +845,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateEditorProjectionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_EditorProjectionV1_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_EditorProjectionV1_",
+      },
+    },
   },
   projectImportMapping: {
     method: "POST",
@@ -362,7 +859,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateMappingProjectionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_MappingProjectionV1_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_MappingProjectionV1_",
+      },
+    },
   },
   projectInputSchema: {
     method: "POST",
@@ -371,7 +873,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateSchemaProjectionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_SchemaProjectionV1_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_SchemaProjectionV1_",
+      },
+    },
   },
   projectOverview: {
     method: "GET",
@@ -380,7 +887,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_ProjectOverviewDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ProjectOverviewDTO_",
+      },
+    },
   },
   providerCredentialStatus: {
     method: "GET",
@@ -389,7 +901,68 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_CredentialStatusDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_CredentialStatusDTO_",
+      },
+    },
+  },
+  readAnnotation: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/annotations/{annotation_id}",
+    pathParams: ["registration_id", "annotation_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_AnnotationDTO_",
+      },
+    },
+  },
+  readCheck: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/checks/{group_id}",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_CheckViewDTO_",
+      },
+    },
+  },
+  readChoiceOrder: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/diagnostics/{group_id}",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DiagnosticViewDTO_",
+      },
+    },
+  },
+  readComparison: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/comparisons/{comparison_id}",
+    pathParams: ["registration_id", "comparison_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ComparisonDTO_",
+      },
+    },
   },
   readDecision: {
     method: "GET",
@@ -398,7 +971,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_DecisionDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DecisionDTO_",
+      },
+    },
   },
   readDecisionRevision: {
     method: "GET",
@@ -407,7 +985,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_RevisionDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RevisionDTO_",
+      },
+    },
+  },
+  readEvaluation: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/evaluations/{evaluation_id}",
+    pathParams: ["registration_id", "evaluation_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_EvaluationDTO_",
+      },
+    },
   },
   readFixtureSet: {
     method: "GET",
@@ -416,7 +1013,12 @@ export const operationMetadata = {
     queryParams: ["include_requests"],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_FixtureSummaryDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_FixtureSummaryDTO_",
+      },
+    },
   },
   readProviderProfile: {
     method: "GET",
@@ -425,7 +1027,60 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_ProviderProfileDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ProviderProfileDTO_",
+      },
+    },
+  },
+  readReport: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/reports/{report_id}",
+    pathParams: ["registration_id", "report_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ReportDTO_",
+      },
+    },
+  },
+  readResult: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/results/{case_id}",
+    pathParams: ["registration_id", "run_id", "case_id"],
+    queryParams: [
+      "evaluation_id",
+      "include_attempts",
+      "include_input",
+      "include_request",
+      "include_response",
+    ],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_CaseDetailDTO_",
+      },
+    },
+  },
+  readRun: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RunProgressDTO_",
+      },
+    },
   },
   read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get:
     {
@@ -435,7 +1090,12 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: null,
       bodyRequired: false,
-      successValidator: "validateSuccess_CaseReadDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_CaseReadDTO_",
+        },
+      },
     },
   read_dataset_api_v1_projects__registration_id__datasets__dataset_id__get: {
     method: "GET",
@@ -444,7 +1104,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_DatasetDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DatasetDTO_",
+      },
+    },
   },
   read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get:
     {
@@ -454,7 +1119,12 @@ export const operationMetadata = {
       queryParams: ["question_id"],
       bodyValidator: null,
       bodyRequired: false,
-      successValidator: "validateSuccess_LabelViewDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_LabelViewDTO_",
+        },
+      },
     },
   rebuildRegisteredProjectIndex: {
     method: "POST",
@@ -463,7 +1133,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateVersionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_RebuildIndexDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RebuildIndexDTO_",
+      },
+    },
+  },
+  reevaluateRun: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/reevaluations",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: [],
+    bodyValidator: "validateReevaluateRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_EvaluationDTO_",
+      },
+    },
   },
   registerProject: {
     method: "POST",
@@ -472,7 +1161,26 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateRegisterProjectRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_RegistrationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RegistrationDTO_",
+      },
+    },
+  },
+  removeRegression: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/decisions/{decision_id}/regressions/{regression_id}/remove",
+    pathParams: ["registration_id", "decision_id", "regression_id"],
+    queryParams: [],
+    bodyValidator: "validateRemoveRegressionRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RegressionDTO_",
+      },
+    },
   },
   renameDecision: {
     method: "POST",
@@ -481,7 +1189,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateRenameDecisionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_Versioned_DecisionRecord__",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_Versioned_DecisionRecord__",
+      },
+    },
   },
   restoreDecision: {
     method: "POST",
@@ -490,7 +1203,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateDecisionETagRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_Versioned_DecisionRecord__",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_Versioned_DecisionRecord__",
+      },
+    },
   },
   restoreDecisionRevisionToDraft: {
     method: "POST",
@@ -499,7 +1217,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateRestoreRevisionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_Versioned_DecisionDraft__",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_Versioned_DecisionDraft__",
+      },
+    },
   },
   restore_dataset_api_v1_projects__registration_id__datasets__dataset_id__restore_post:
     {
@@ -509,8 +1232,55 @@ export const operationMetadata = {
       queryParams: [],
       bodyValidator: "validateDatasetChangeRequest",
       bodyRequired: true,
-      successValidator: "validateSuccess_DatasetDTO_",
+      success: {
+        kind: "json",
+        validators: {
+          "200": "validateSuccess_DatasetDTO_",
+        },
+      },
     },
+  resumeCheck: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/checks/{group_id}/resume",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: "validateGroupResumeRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "202": "validateSuccess_GroupAcceptedDTO_",
+      },
+    },
+  },
+  resumeChoiceOrder: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/diagnostics/{group_id}/resume",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: "validateGroupResumeRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "202": "validateSuccess_GroupAcceptedDTO_",
+      },
+    },
+  },
+  resumeRun: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/runs/{run_id}/resume",
+    pathParams: ["registration_id", "run_id"],
+    queryParams: [],
+    bodyValidator: "validateRunResumeRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "202": "validateSuccess_RunAcceptedDTO_",
+      },
+    },
+  },
   saveDecisionRevision: {
     method: "POST",
     path: "/api/v1/projects/{registration_id}/decisions/{decision_id}/revisions",
@@ -518,7 +1288,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateSaveRevisionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_RevisionDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RevisionDTO_",
+      },
+    },
   },
   setOSStoreCredential: {
     method: "POST",
@@ -527,7 +1302,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateOSCredentialRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_ProviderMutationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ProviderMutationDTO_",
+      },
+    },
   },
   showRegisteredProject: {
     method: "GET",
@@ -536,7 +1316,54 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: null,
     bodyRequired: false,
-    successValidator: "validateSuccess_RegistrationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RegistrationDTO_",
+      },
+    },
+  },
+  startChoiceOrder: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/diagnostics/choice-order",
+    pathParams: ["registration_id"],
+    queryParams: [],
+    bodyValidator: "validateStartChoiceOrderRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "202": "validateSuccess_GroupAcceptedDTO_",
+      },
+    },
+  },
+  startRegressionCheck: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/checks",
+    pathParams: ["registration_id"],
+    queryParams: [],
+    bodyValidator: "validateStartCheckRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "202": "validateSuccess_GroupAcceptedDTO_",
+      },
+    },
+  },
+  startRun: {
+    method: "POST",
+    path: "/api/v1/projects/{registration_id}/runs",
+    pathParams: ["registration_id"],
+    queryParams: [],
+    bodyValidator: "validateStartRunRequest",
+    bodyRequired: true,
+    success: {
+      kind: "json",
+      validators: {
+        "202": "validateSuccess_RunAcceptedDTO_",
+      },
+    },
   },
   transformDecisionEditor: {
     method: "POST",
@@ -545,7 +1372,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateEditorTransformRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_DraftTransformReviewDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DraftTransformReviewDTO_",
+      },
+    },
   },
   transformImportMapping: {
     method: "POST",
@@ -554,7 +1386,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateMappingTransformRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_MappingTransformV1_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_MappingTransformV1_",
+      },
+    },
   },
   updateDecisionDraft: {
     method: "PUT",
@@ -563,7 +1400,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateDraftRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_Versioned_DecisionDraft__",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_Versioned_DecisionDraft__",
+      },
+    },
   },
   validateDecision: {
     method: "POST",
@@ -572,7 +1414,12 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateVersionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_ValidationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_ValidationDTO_",
+      },
+    },
   },
   validateRegisteredProject: {
     method: "POST",
@@ -581,6 +1428,11 @@ export const operationMetadata = {
     queryParams: [],
     bodyValidator: "validateVersionRequest",
     bodyRequired: true,
-    successValidator: "validateSuccess_RegistrationDTO_",
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_RegistrationDTO_",
+      },
+    },
   },
 } as const satisfies Record<string, ApiOperationMetadata>;
