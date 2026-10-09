@@ -23,7 +23,12 @@ from deykit.application.authoring_views import (
 )
 from deykit.application.definitions import Versioned, revision_editor_source
 from deykit.contracts.json_value import dump_json
-from deykit.contracts.records import ChoiceDefinition, ChoiceOption, ChoiceQuestion, DecisionRevision
+from deykit.contracts.records import (
+    ChoiceDefinition,
+    ChoiceOption,
+    ChoiceQuestion,
+    DecisionRevision,
+)
 from deykit.providers.configuration import create_provider_operations
 from deykit.runner.backends import ProviderBackends
 from deykit.storage import FileProjectSource

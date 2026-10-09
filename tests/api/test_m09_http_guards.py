@@ -127,8 +127,7 @@ def _seed_one_case(source: ApiProjectSource, dependencies: ApiDependencies) -> N
         input_kind="json",
         selected_fields=("text",),
         input_schema_source=(
-            '{"type":"object","required":["text"],'
-            '"properties":{"text":{"type":"string"}}}'
+            '{"type":"object","required":["text"],"properties":{"text":{"type":"string"}}}'
         ),
         questions=(
             ChoiceQuestion(
@@ -199,9 +198,7 @@ def _seed_one_case(source: ApiProjectSource, dependencies: ApiDependencies) -> N
     )
 
 
-def _add_second_case_order_fixture(
-    source: ApiProjectSource, dependencies: ApiDependencies
-) -> None:
+def _add_second_case_order_fixture(source: ApiProjectSource, dependencies: ApiDependencies) -> None:
     decision = DecisionService(source, dependencies.clock, dependencies.id_factory).read("decision")
     definition = load_record(ChoiceDefinition, decision.draft.record.editor_source)
     datasets = DatasetService(source, dependencies.clock, dependencies.id_factory)
@@ -398,9 +395,7 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                         continue
                     assert run.status_code == 200, run.text
                     run_data = run.json()["data"]
-                    if not run_data["execution_active"] and run_data[
-                        "latest_result_snapshot_id"
-                    ]:
+                    if not run_data["execution_active"] and run_data["latest_result_snapshot_id"]:
                         break
                     await asyncio.sleep(0.01)
                 else:
@@ -436,9 +431,7 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                 assert filtered_data["next_cursor"] is None
                 assert [row["source"]["case_id"] for row in filtered_data["items"]] == ["case"]
 
-                default = await client.get(
-                    f"{base}/runs/{run_id}/results/case", headers=headers
-                )
+                default = await client.get(f"{base}/runs/{run_id}/results/case", headers=headers)
                 assert default.status_code == 200, default.text
                 assert default.json()["data"]["source"]["input_source"] is None
                 detailed = await client.get(
@@ -478,9 +471,11 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                 assert report.status_code == 200, report.text
                 report_id = report.json()["data"]["report_id"]
                 before = source.capture_snapshot()
-                expected_json = ReportService(source, context.dependencies.clock).render(
-                    report_id, format="json"
-                ).body
+                expected_json = (
+                    ReportService(source, context.dependencies.clock)
+                    .render(report_id, format="json")
+                    .body
+                )
                 other_registration = await _register_project(
                     client, headers, tmp_path / "other-project", "Other Project"
                 )
@@ -504,9 +499,11 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                 markdown = await client.get(
                     f"{base}/reports/{report_id}/download?format=markdown", headers=headers
                 )
-                expected_markdown = ReportService(
-                    source, context.dependencies.clock
-                ).render(report_id, format="markdown").body
+                expected_markdown = (
+                    ReportService(source, context.dependencies.clock)
+                    .render(report_id, format="markdown")
+                    .body
+                )
                 assert markdown.status_code == 200
                 assert markdown.content == expected_markdown
                 assert markdown.headers["content-type"] == "text/plain; charset=utf-8"
