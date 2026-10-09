@@ -5,8 +5,8 @@ from typing import cast
 
 from deykit.application.dataset_support import decoded, fail
 from deykit.contracts.codec import dump_record
-from deykit.contracts.json_value import JsonValue, bytes_hash, semantic_hash
 from deykit.contracts.execution_groups import RegressionRemoval
+from deykit.contracts.json_value import JsonValue, bytes_hash, semantic_hash
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import RegressionRecord
 from deykit.runner.group_models import GroupPlan

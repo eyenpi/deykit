@@ -22,12 +22,12 @@ from deykit.runner.group_models import (
     MemberIdentity,
     request_identity,
 )
+from deykit.runner.group_repository import GroupRepository
 from deykit.runner.group_selection import (
     decode_group_start_selection,
     encode_group_start_selection,
     group_start_intent,
 )
-from deykit.runner.group_repository import GroupRepository
 from deykit.runner.history import history_from_records
 from deykit.runner.planner import MAX_PLAN_BYTES
 from deykit.runner.review import (

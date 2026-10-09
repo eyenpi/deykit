@@ -2,8 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
-from decimal import Decimal
-from typing import Annotated, Literal, Self, TypeAlias, cast
+from typing import Annotated, Literal, Self, TypeAlias, TypeGuard, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
@@ -150,6 +149,11 @@ class _Edit(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
 
 
+class _VersionEnvelope(BaseModel):
+    model_config = ConfigDict(strict=True, extra="ignore")
+    schema_version: int = Field(default=1, ge=1, le=1)
+
+
 class SetInstructions(_Edit):
     kind: Literal["set_instructions"]
     value: str
@@ -225,7 +229,7 @@ EditorEditV1: TypeAlias = Annotated[
     | RemoveSchemaField,
     Field(discriminator="kind"),
 ]
-_EDITOR_EDIT = TypeAdapter(EditorEditV1)
+_EDITOR_EDIT: TypeAdapter[EditorEditV1] = TypeAdapter(EditorEditV1)
 
 
 class SetMappingField(_Edit):
@@ -289,7 +293,7 @@ MappingEditV1: TypeAlias = Annotated[
     SetMappingField | ReplaceMappingFields | ReplaceOptionAliases,
     Field(discriminator="kind"),
 ]
-_MAPPING_EDIT = TypeAdapter(MappingEditV1)
+_MAPPING_EDIT: TypeAdapter[MappingEditV1] = TypeAdapter(MappingEditV1)
 
 _EDITOR_KEYS = {
     "schema_version",
@@ -336,14 +340,20 @@ _SCHEMA_TYPES = {"array", "boolean", "integer", "null", "number", "object", "str
 _SCHEMA_COMMON = {"$schema", "description", "properties", "required", "title", "type"}
 
 
-def _version_one(value: JsonValue) -> bool:
-    if type(value) is int:
-        return value == 1
-    return (
-        type(value) is Decimal
-        and value == 1
-        and value.as_tuple().exponent >= 0
-    )
+def _is_object(value: JsonValue) -> TypeGuard[dict[str, JsonValue]]:
+    return type(value) is dict
+
+
+def _is_array(value: JsonValue) -> TypeGuard[list[JsonValue]]:
+    return type(value) is list
+
+
+def _version_source_is_one(source: str) -> bool:
+    try:
+        _VersionEnvelope.model_validate_json(source)
+    except ValidationError:
+        return False
+    return True
 
 
 def _source_hash(source: str) -> str | None:
@@ -369,9 +379,9 @@ def _editor_value(editor_source: str) -> dict[str, JsonValue] | None:
         value = JsonDocument(editor_source).value
     except JsonError:
         return None
-    if type(value) is not dict or set(value).difference(_EDITOR_KEYS):
+    if not _is_object(value) or set(value).difference(_EDITOR_KEYS):
         return None
-    if "schema_version" in value and not _version_one(value["schema_version"]):
+    if not _version_source_is_one(editor_source):
         return None
     kind = value.get("input_kind")
     selected = value.get("selected_fields", [])
@@ -380,26 +390,29 @@ def _editor_value(editor_source: str) -> dict[str, JsonValue] | None:
     if (
         type(kind) is not str
         or kind not in ("text", "json")
-        or type(selected) is not list
+        or not _is_array(selected)
         or any(type(item) is not str for item in selected)
         or (schema_source is not None and type(schema_source) is not str)
-        or type(questions) is not list
+        or not _is_array(questions)
         or len(questions) != 1
     ):
         return None
     question = questions[0]
     if (
-        type(question) is not dict
+        not _is_object(question)
         or set(question).difference(_QUESTION_KEYS)
         or type(question.get("id")) is not str
         or type(question.get("instructions")) is not str
         or ("kind" in question and question["kind"] != "choice")
-        or type(question.get("options")) is not list
+        or not _is_array(question.get("options"))
     ):
         return None
-    for option in question["options"]:
+    options = question["options"]
+    if not _is_array(options):
+        return None
+    for option in options:
         if (
-            type(option) is not dict
+            not _is_object(option)
             or set(option).difference(_OPTION_KEYS)
             or type(option.get("id")) is not str
             or type(option.get("name")) is not str
@@ -410,7 +423,7 @@ def _editor_value(editor_source: str) -> dict[str, JsonValue] | None:
             )
         ):
             return None
-    return cast(dict[str, JsonValue], value)
+    return value
 
 
 def project_editor(editor_source: str) -> EditorProjectionV1:
@@ -431,10 +444,17 @@ def project_editor(editor_source: str) -> EditorProjectionV1:
         reason = None
     if value is None or reason is not None:
         return EditorProjectionV1(1, editor_source, digest, None, reason, ())
-    question = cast(dict[str, JsonValue], value["questions"][0])
+    questions = value["questions"]
+    if not _is_array(questions) or not questions or not _is_object(questions[0]):
+        raise ValueError("editor_form_unavailable")
+    question = questions[0]
+    options = question["options"]
+    selected_fields = value.get("selected_fields", [])
+    if not _is_array(options) or not _is_array(selected_fields):
+        raise ValueError("editor_form_unavailable")
     form = EditorFormV1(
         cast(Literal["text", "json"], value["input_kind"]),
-        tuple(cast(list[str], value.get("selected_fields", []))),
+        tuple(cast(str, item) for item in selected_fields),
         cast(str | None, value.get("input_schema_source")),
         cast(str, question["id"]),
         cast(str, question["instructions"]),
@@ -444,7 +464,8 @@ def project_editor(editor_source: str) -> EditorProjectionV1:
                 cast(str, item["name"]),
                 cast(str | None, item.get("description")),
             )
-            for item in cast(list[dict[str, JsonValue]], question["options"])
+            for item in options
+            if _is_object(item)
         ),
     )
     try:
@@ -457,27 +478,32 @@ def project_editor(editor_source: str) -> EditorProjectionV1:
 
 
 def _require_editor(value: dict[str, JsonValue]) -> tuple[dict[str, JsonValue], list[JsonValue]]:
-    questions = cast(list[JsonValue], value["questions"])
-    question = cast(dict[str, JsonValue], questions[0])
-    options = cast(list[JsonValue], question["options"])
+    questions = value["questions"]
+    if not _is_array(questions) or not questions or not _is_object(questions[0]):
+        raise ValueError("editor_form_unavailable")
+    question = questions[0]
+    options = question["options"]
+    if not _is_array(options):
+        raise ValueError("editor_form_unavailable")
     return question, options
 
 
 def _schema_parts(source: str) -> tuple[dict[str, JsonValue], dict[str, JsonValue], list[str]]:
     parsed = JsonDocument(source).value
-    if type(parsed) is not dict:
+    if not _is_object(parsed):
         raise ValueError("schema_form_unavailable")
     properties = parsed.get("properties", {})
     required = parsed.get("required", [])
-    if type(properties) is not dict or any(type(key) is not str for key in properties):
+    if not _is_object(properties):
         raise ValueError("schema_properties_unavailable")
-    if type(required) is not list or any(type(item) is not str for item in required):
+    if not _is_array(required):
         raise ValueError("schema_required_unavailable")
-    return (
-        cast(dict[str, JsonValue], parsed),
-        cast(dict[str, JsonValue], properties),
-        cast(list[str], required),
-    )
+    required_fields: list[str] = []
+    for item in required:
+        if type(item) is not str:
+            raise ValueError("schema_required_unavailable")
+        required_fields.append(item)
+    return parsed, properties, required_fields
 
 
 def project_schema(schema_source: str | None) -> SchemaProjectionV1:
@@ -513,7 +539,7 @@ def project_schema(schema_source: str | None) -> SchemaProjectionV1:
         )
     fields: list[SchemaFieldV1] = []
     for name, raw in properties.items():
-        if type(raw) is not dict:
+        if not _is_object(raw):
             fields.append(SchemaFieldV1(name, None, name in required, False, ()))
             continue
         field_type = raw.get("type")
@@ -551,7 +577,7 @@ def _edit_schema_field(source: str | None, name: str, field_type: str, required:
         raise ValueError("schema_field_edit_unsafe")
     root, properties, required_fields = _schema_parts(source)
     raw_field = properties.get(name, {})
-    if type(raw_field) is not dict:
+    if not _is_object(raw_field):
         raise ValueError("schema_field_edit_unsafe")
     changed_field = dict(raw_field)
     changed_field["type"] = field_type
@@ -563,7 +589,8 @@ def _edit_schema_field(source: str | None, name: str, field_type: str, required:
     else:
         required_fields = [item for item in required_fields if item != name]
     if required_fields or "required" in root:
-        root["required"] = required_fields
+        required_values: list[JsonValue] = [item for item in required_fields]
+        root["required"] = required_values
     result = dump_json(root)
     compile_schema(result)
     return result
@@ -583,7 +610,8 @@ def _remove_schema_field(source: str | None, name: str) -> str:
     root["properties"] = properties
     required_fields = [item for item in required_fields if item != name]
     if required_fields or "required" in root:
-        root["required"] = required_fields
+        required_values: list[JsonValue] = [item for item in required_fields]
+        root["required"] = required_values
     result = dump_json(root)
     compile_schema(result)
     return result
@@ -596,9 +624,9 @@ def transform_editor(editor_source: str, edit: EditorEditV1) -> EditorTransformV
     try:
         admitted = _EDITOR_EDIT.validate_python(edit)
         value = JsonDocument(editor_source).value
-        if type(value) is not dict:
+        if not _is_object(value):
             raise ValueError("editor_form_unavailable")
-        transformed = cast(dict[str, JsonValue], deepcopy(value))
+        transformed = deepcopy(value)
         question, options = _require_editor(transformed)
         if isinstance(admitted, SetInstructions):
             question["instructions"] = admitted.value
@@ -627,7 +655,14 @@ def transform_editor(editor_source: str, edit: EditorEditV1) -> EditorTransformV
             option = _option_by_id(options, admitted.id)
             option["description"] = admitted.description
         elif isinstance(admitted, ReorderOptions):
-            existing = {cast(str, option["id"]): option for option in options}
+            existing: dict[str, JsonValue] = {}
+            for option in options:
+                if not _is_object(option):
+                    raise ValueError("invalid_option_order")
+                option_id = option.get("id")
+                if type(option_id) is not str:
+                    raise ValueError("invalid_option_order")
+                existing[option_id] = option
             if len(existing) != len(options) or set(existing) != set(admitted.option_ids):
                 raise ValueError("invalid_option_order")
             options[:] = [existing[key] for key in admitted.option_ids]
@@ -668,8 +703,8 @@ def transform_editor(editor_source: str, edit: EditorEditV1) -> EditorTransformV
 
 def _option_by_id(options: list[JsonValue], option_id: str) -> dict[str, JsonValue]:
     for option in options:
-        if type(option) is dict and option.get("id") == option_id:
-            return cast(dict[str, JsonValue], option)
+        if _is_object(option) and option.get("id") == option_id:
+            return option
     raise ValueError("option_not_found")
 
 
@@ -709,11 +744,10 @@ def encode_text_input(text_value: str) -> EncodedInputV1:
     return EncodedInputV1(1, source, digest)
 
 
-def _mapping_form(value: dict[str, JsonValue]) -> MappingFormV1 | None:
+def _mapping_form(value: dict[str, JsonValue], source: str) -> MappingFormV1 | None:
     if set(value).difference(_MAPPING_KEYS):
         return None
-    version = value.get("schema_version", 1)
-    if not _version_one(version):
+    if not _version_source_is_one(source):
         return None
     input_kind = value.get("input_kind")
     if type(input_kind) is not str or input_kind not in ("text", "json"):
@@ -726,49 +760,52 @@ def _mapping_form(value: dict[str, JsonValue]) -> MappingFormV1 | None:
             return None
     raw_fields = value.get("fields", [])
     raw_aliases = value.get("option_aliases", [])
-    if type(raw_fields) is not list or any(
-        type(item) is not dict
-        or set(item) != {"source", "target", "parse_json"}
-        or type(item.get("source")) is not str
-        or type(item.get("target")) is not str
-        or type(item.get("parse_json")) is not bool
-        for item in raw_fields
-    ):
+    if not _is_array(raw_fields):
         return None
-    if type(raw_aliases) is not list or any(
-        type(item) is not dict
-        or set(item) != {"value", "option_id"}
-        or type(item.get("value")) is not str
-        or type(item.get("option_id")) is not str
-        for item in raw_aliases
-    ):
+    fields: list[MappingFieldFormV1] = []
+    for item in raw_fields:
+        if not _is_object(item) or set(item) != {"source", "target", "parse_json"}:
+            return None
+        source = item["source"]
+        target = item["target"]
+        parse_json = item["parse_json"]
+        if type(source) is not str or type(target) is not str or type(parse_json) is not bool:
+            return None
+        fields.append(MappingFieldFormV1(source, target, parse_json))
+    if not _is_array(raw_aliases):
         return None
+    aliases: list[MappingAliasFormV1] = []
+    for item in raw_aliases:
+        if not _is_object(item) or set(item) != {"value", "option_id"}:
+            return None
+        alias_value = item["value"]
+        option_id = item["option_id"]
+        if type(alias_value) is not str or type(option_id) is not str:
+            return None
+        aliases.append(MappingAliasFormV1(alias_value, option_id))
+    def optional_string(name: str) -> str | None:
+        field_value = value.get(name)
+        return cast(str | None, field_value)
+
+    def flag(name: str) -> bool:
+        return cast(bool, value.get(name, False))
+
     return MappingFormV1(
         1,
         cast(Literal["text", "json"], input_kind),
-        cast(str | None, value.get("input_column")),
-        cast(bool, value.get("input_parse_json", False)),
-        tuple(
-            MappingFieldFormV1(
-                cast(str, item["source"]),
-                cast(str, item["target"]),
-                cast(bool, item["parse_json"]),
-            )
-            for item in raw_fields
-        ),
-        cast(str | None, value.get("id_column")),
-        cast(str | None, value.get("expected_column")),
-        cast(bool, value.get("expected_parse_json", False)),
-        tuple(
-            MappingAliasFormV1(cast(str, item["value"]), cast(str, item["option_id"]))
-            for item in raw_aliases
-        ),
-        cast(str | None, value.get("group_column")),
-        cast(str | None, value.get("tags_column")),
-        cast(bool, value.get("tags_parse_json", False)),
-        cast(str | None, value.get("split_column")),
-        cast(str | None, value.get("metadata_column")),
-        cast(bool, value.get("metadata_parse_json", False)),
+        optional_string("input_column"),
+        flag("input_parse_json"),
+        tuple(fields),
+        optional_string("id_column"),
+        optional_string("expected_column"),
+        flag("expected_parse_json"),
+        tuple(aliases),
+        optional_string("group_column"),
+        optional_string("tags_column"),
+        flag("tags_parse_json"),
+        optional_string("split_column"),
+        optional_string("metadata_column"),
+        flag("metadata_parse_json"),
     )
 
 
@@ -782,10 +819,9 @@ def project_import_mapping(mapping_source: str) -> MappingProjectionV1:
         value = JsonDocument(mapping_source).value
     except JsonError as error:
         return MappingProjectionV1(1, mapping_source, digest, None, error.code, ())
-    if type(value) is not dict:
+    if not _is_object(value):
         return MappingProjectionV1(1, mapping_source, digest, None, "unsupported_mapping_shape", ())
-    raw = cast(dict[str, JsonValue], value)
-    form = _mapping_form(raw)
+    form = _mapping_form(value, mapping_source)
     if form is None:
         return MappingProjectionV1(1, mapping_source, digest, None, "unsupported_mapping_shape", ())
     try:
@@ -806,11 +842,11 @@ def transform_import_mapping(
     try:
         admitted = _MAPPING_EDIT.validate_python(edit)
         value = JsonDocument(mapping_source).value
-        if type(value) is not dict:
+        if not _is_object(value):
             raise ValueError("mapping_form_unavailable")
-        transformed = cast(dict[str, JsonValue], deepcopy(value))
+        transformed = deepcopy(value)
         if isinstance(admitted, SetMappingField):
-            transformed[admitted.field] = cast(JsonValue, admitted.value)
+            transformed[admitted.field] = admitted.value
         elif isinstance(admitted, ReplaceMappingFields):
             transformed["fields"] = [
                 {"source": item.source, "target": item.target, "parse_json": item.parse_json}

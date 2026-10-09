@@ -94,6 +94,8 @@ def _selection_allocation(group: ExecutionGroup) -> int:
     selection = decoded_selection.original_selection
     if group_start_intent(decoded_selection) != group.intent_hash:
         fail("group_selection_intent_mismatch", "incompatible_data")
+    if not isinstance(selection, dict):
+        fail("invalid_group_selection", "incompatible_data")
     request = selection.get("request")
     if not isinstance(request, dict):
         fail("invalid_group_selection", "incompatible_data")

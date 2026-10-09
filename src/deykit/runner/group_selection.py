@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal, NoReturn
 
 from deykit.application.dataset_support import fail
 from deykit.contracts.errors import ErrorCode
@@ -29,7 +29,7 @@ class GroupStartSelection:
 
 def _invalid(
     reason: str = "invalid_group_selection", code: ErrorCode = "incompatible_data"
-) -> None:
+) -> NoReturn:
     fail(reason, code)
 
 
@@ -39,14 +39,18 @@ def _selection(
     *,
     code: ErrorCode = "incompatible_data",
 ) -> dict[str, JsonValue]:
-    if type(value) is not dict or set(value) != {"kind", "request"}:
+    if not isinstance(value, dict) or set(value) != {"kind", "request"}:
         _invalid(code=code)
     kind, request = value["kind"], value["request"]
-    if kind not in ("choice_order", "regression_check") or type(request) is not dict:
+    if (
+        not isinstance(kind, str)
+        or kind not in ("choice_order", "regression_check")
+        or not isinstance(request, dict)
+    ):
         _invalid(code=code)
     if expected_kind is not None and kind != expected_kind:
         _invalid(code=code)
-    return cast(dict[str, JsonValue], value)
+    return value
 
 
 def encode_group_start_selection(
@@ -88,7 +92,7 @@ def decode_group_start_selection(
         value = JsonDocument(stored_source).value
     except JsonError:
         _invalid()
-    if type(value) is not dict:
+    if not isinstance(value, dict):
         _invalid()
     if set(value) == {"kind", "request"}:
         original = _selection(value, expected_kind)
@@ -98,17 +102,15 @@ def decode_group_start_selection(
     kind, request, review = value["kind"], value["request"], value["review"]
     original_value: JsonValue = {"kind": kind, "request": request}
     original = _selection(original_value, expected_kind)
-    if type(review) is not dict or set(review) != {
+    if not isinstance(review, dict) or set(review) != {
         "version",
         "expected_review_context_hash",
     }:
         _invalid()
     expected = review["expected_review_context_hash"]
-    if (
-        review["version"] != _REVIEW_VERSION
-        or type(expected) is not str
-        or not _HASH.fullmatch(expected)
-    ):
+    if review["version"] != _REVIEW_VERSION or not isinstance(expected, str):
+        _invalid()
+    if not _HASH.fullmatch(expected):
         _invalid()
     return GroupStartSelection(stored_source, original, expected)
 

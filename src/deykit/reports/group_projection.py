@@ -7,11 +7,11 @@ from typing import Literal, cast
 
 from deykit.application.checks import FrozenCheckSnapshot, check_snapshot_from_records
 from deykit.application.dataset_support import fail
-from deykit.application.errors import ServiceFailure
 from deykit.application.diagnostics import (
     FrozenDiagnosticSnapshot,
     diagnostic_snapshot_from_records,
 )
+from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import FrozenEvaluation
 from deykit.contracts.codec import dump_record
 from deykit.contracts.evidence import evidence_hash
