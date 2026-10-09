@@ -654,15 +654,18 @@ describe("generated local API operations", () => {
       let index = 0;
       const cancelIndex = cancelled.length;
       cancelled.push(false);
-      const stream = new ReadableStream<Uint8Array>({
-        pull(controller) {
-          if (index < chunks.length) controller.enqueue(chunks[index++]);
-          else controller.close();
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            if (index < chunks.length) controller.enqueue(chunks[index++]);
+            else controller.close();
+          },
+          cancel() {
+            cancelled[cancelIndex] = true;
+          },
         },
-        cancel() {
-          cancelled[cancelIndex] = true;
-        },
-      }, { highWaterMark: 0 });
+        { highWaterMark: 0 },
+      );
       return new Response(stream, {
         status: 200,
         headers: {

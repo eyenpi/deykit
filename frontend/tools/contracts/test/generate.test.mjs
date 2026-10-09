@@ -184,7 +184,10 @@ test("JSON operation metadata preserves each declared 200 and 202 schema", async
     sample.inputHashes,
   );
   const metadata = generated.get("operations.ts");
-  assert.match(metadata, /(?:startRun|"startRun")\s*:[\s\S]*?"202":\s*"validateSource"/);
+  assert.match(
+    metadata,
+    /(?:startRun|"startRun")\s*:[\s\S]*?"202":\s*"validateSource"/,
+  );
   assert.match(
     metadata,
     /(?:mixedResult|"mixedResult")\s*:[\s\S]*?"200":\s*"validateRequest"[\s\S]*?"202":\s*"validateSource"/,
@@ -271,7 +274,10 @@ test("report download metadata is admitted only for the exact annotated binary c
     sample.inputHashes,
   );
   assert.match(generated.get("operations.ts"), /kind:\s*"report-download"/);
-  assert.match(generated.get("operations.ts"), /(?:downloadReport|"downloadReport")\s*:/);
+  assert.match(
+    generated.get("operations.ts"),
+    /(?:downloadReport|"downloadReport")\s*:/,
+  );
   assert.doesNotMatch(generated.get("operations.ts"), /binary/);
   const revisedDescription = structuredClone(sample.openapi);
   revisedDescription.paths[
