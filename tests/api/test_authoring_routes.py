@@ -23,7 +23,7 @@ from deykit.application.authoring_views import (
 )
 from deykit.application.definitions import Versioned, revision_editor_source
 from deykit.contracts.json_value import dump_json
-from deykit.contracts.records import ChoiceDefinition, DecisionRevision
+from deykit.contracts.records import ChoiceDefinition, ChoiceOption, ChoiceQuestion, DecisionRevision
 from deykit.providers.configuration import create_provider_operations
 from deykit.runner.backends import ProviderBackends
 from deykit.storage import FileProjectSource
@@ -32,24 +32,20 @@ from deykit.storage.demo_staging import DemoStagingSource
 
 
 def test_saved_revision_projection_includes_canonical_editor_source():
-    definition = ChoiceDefinition.model_validate(
-        {
-            "schema_version": 1,
-            "input_kind": "json",
-            "input_schema_source": '{"type":"number","minimum":900719925474099312345.6789}',
-            "selected_fields": ["amount"],
-            "questions": [
-                {
-                    "id": "q",
-                    "kind": "choice",
-                    "instructions": "Choose.",
-                    "options": [
-                        {"id": "a", "name": "A", "description": None},
-                        {"id": "b", "name": "B", "description": ""},
-                    ],
-                }
-            ],
-        }
+    definition = ChoiceDefinition(
+        input_kind="json",
+        input_schema_source='{"type":"number","minimum":900719925474099312345.6789}',
+        selected_fields=("amount",),
+        questions=(
+            ChoiceQuestion(
+                id="q",
+                instructions="Choose.",
+                options=(
+                    ChoiceOption(id="a", name="A", description=None),
+                    ChoiceOption(id="b", name="B", description=""),
+                ),
+            ),
+        ),
     )
     revision = DecisionRevision(
         id="revision",
