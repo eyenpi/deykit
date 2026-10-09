@@ -1,5 +1,7 @@
 """Typed execution-group preparation and safe progress views."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -72,6 +74,32 @@ class MemberIdentity:
     option_order: tuple[str, ...] | None
     requests: tuple[RequestIdentity, ...]
     run_id: str | None = None
+
+
+@dataclass(frozen=True)
+class GroupAcknowledged:
+    group_id: str
+    kind: GroupKind
+    mode: Literal["fixture", "live"]
+    segment_id: str
+    replayed: bool
+    member_run_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class GroupMemberResumePreview:
+    run_id: str
+    planned_case_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class GroupResumePreview:
+    group: GroupProgress
+    segment_ids: tuple[str, ...]
+    members: tuple[GroupMemberResumePreview, ...]
+    retry_unknown: bool
+    proposed_attempt_limit: int
+    dry_run: bool = True
 
 
 @dataclass(frozen=True)
