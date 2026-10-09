@@ -195,7 +195,8 @@ class ProjectRegistry:
             opened: ApiProjectSource | None = None
             try:
                 opened_backend, demo = service.create_opened(path, operation_id=operation_id)
-                # The application port is broader than the API's retained-source contract.
+                # The API's FileDemoDestinationFactory returns FileProjectSource; DemoService's
+                # broader port erases that type, and the registry retains this same open source.
                 opened_source = cast(ApiProjectSource, opened_backend)
                 opened = opened_source
                 info = ProjectService(
