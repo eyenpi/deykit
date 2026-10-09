@@ -154,6 +154,12 @@ def test_http_group_incomplete_receipt_replay_is_409_for_both_group_kinds(
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
                     progress = await client.get(f"{base}/runs/{run_id}", headers=headers)
+                    if (
+                        progress.status_code == 409
+                        and progress.json().get("error", {}).get("reason") == "source_busy"
+                    ):
+                        await asyncio.sleep(0.01)
+                        continue
                     assert progress.status_code == 200, progress.text
                     if progress.json()["data"]["latest_result_snapshot_id"]:
                         break

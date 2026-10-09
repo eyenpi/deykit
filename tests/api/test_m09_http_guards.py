@@ -390,6 +390,12 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
                     run = await client.get(f"{base}/runs/{run_id}", headers=headers)
+                    if (
+                        run.status_code == 409
+                        and run.json().get("error", {}).get("reason") == "source_busy"
+                    ):
+                        await asyncio.sleep(0.01)
+                        continue
                     assert run.status_code == 200, run.text
                     run_data = run.json()["data"]
                     if not run_data["execution_active"] and run_data[
