@@ -320,9 +320,7 @@ def test_fixture_create_dto_accepts_only_json_binding_source_arrays() -> None:
 
     for invalid in ("source", [], ["source", 1]):
         with pytest.raises(ValidationError):
-            FixtureCreateRequest.model_validate(
-                {**request_base, "binding_sources": invalid}
-            )
+            FixtureCreateRequest.model_validate({**request_base, "binding_sources": invalid})
 
 
 def test_execution_preview_dtos_accept_json_arrays_and_keep_application_constraints() -> None:
