@@ -188,6 +188,8 @@ def export(
                             owner=(
                                 SelectorOwner("run", target_id)
                                 if target_kind == "run" and target_id is not None
+                                else SelectorOwner("report_target", target_id)
+                                if target_kind is None and target_id is not None
                                 else None
                             ),
                         )

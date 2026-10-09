@@ -689,6 +689,24 @@ class Workflow:
             missing_implicit_report_snapshot,
             [("result_snapshot", self.result_a, [])],
         )
+        missing_implicit_report_evaluation = self.call(
+            "report",
+            "export",
+            self.run_a,
+            "--evaluation",
+            "missing-report-evaluation",
+            "--format",
+            "json",
+            "--output",
+            str(self.output / "missing-run-report-evaluation.json"),
+            "--operation-id",
+            "tutorial-missing-run-report-evaluation",
+            expected=2,
+        )
+        self.expect_choices(
+            missing_implicit_report_evaluation,
+            [("evaluation", self.evaluation_a, [])],
+        )
         wrong_regression_case = self.call(
             "regression",
             "add",

@@ -129,7 +129,21 @@ def resolve_hint(
                 run_id = evaluation.run_id
             else:
                 return None
-            if len(hint.kinds) != 1 or hint.kinds[0] != "result_snapshot":
+            if len(hint.kinds) != 1:
+                return None
+            if hint.kinds[0] == "evaluation":
+                if target.key.collection != "runs":
+                    return None
+                return resolve_hint(
+                    records,
+                    SelectorHint(
+                        hint.kinds,
+                        hint.resource_id,
+                        hint.scopes,
+                        SelectorOwner("run", run_id),
+                    ),
+                )
+            if hint.kinds[0] != "result_snapshot":
                 return None
             return resolve_hint(
                 records,

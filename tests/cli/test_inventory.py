@@ -37,8 +37,23 @@ def _command(group: TyperGroup, path: tuple[str, ...]):
     return selected
 
 
-def _parameter(command, name: str):
-    return next(parameter for parameter in command.params if parameter.name == name)
+def _parameter_metadata(parameter) -> dict[str, object]:
+    value_type = parameter.type
+    return {
+        "name": parameter.name,
+        "options": list(parameter.opts),
+        "secondary_options": list(parameter.secondary_opts),
+        "type": value_type.name,
+        "default": parameter.default,
+        "required": parameter.required,
+        "multiple": parameter.multiple,
+        "nargs": parameter.nargs,
+        "is_flag": bool(parameter.is_flag),
+        "minimum": getattr(value_type, "min", None),
+        "maximum": getattr(value_type, "max", None),
+        "choices": list(getattr(value_type, "choices", ())),
+        "hidden": bool(getattr(parameter, "hidden", False)),
+    }
 
 
 def _has_qualified_symbol(tree: ast.AST, symbol: str) -> bool:
@@ -104,55 +119,55 @@ def test_matrix_implemented_rows_match_registered_cli_leaves() -> None:
 
 
 def test_documented_cli_parameter_inventory_matches_typer_metadata() -> None:
+    inventory_path = Path(__file__).parents[2] / "architecture" / "cli-parameter-inventory.json"
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
     root = get_command(app)
     assert isinstance(root, TyperGroup)
+    implemented = {
+        row["path"]
+        for row in json.loads(
+            (inventory_path.parent / "cli-command-matrix.json").read_text(encoding="utf-8")
+        )["commands"]
+        if row["status"] == "implemented"
+    }
+    assert set(inventory["commands"]) == implemented
 
-    fixture_create = _command(root, ("fixture", "create"))
-    decision = _parameter(fixture_create, "decision")
-    assert decision.opts == ["--decision"]
-    assert decision.type.name == "text"
-    assert decision.required is True
-    assert decision.default is None
+    for path, command_contract in inventory["commands"].items():
+        command = _command(root, tuple(path.split()))
+        actual_parameters = [_parameter_metadata(parameter) for parameter in command.params]
+        assert actual_parameters == command_contract["parameters"], path
+        assert Path(command_contract["guide"]).is_file(), (path, command_contract["guide"])
 
-    file_option = _parameter(fixture_create, "file")
-    assert file_option.opts == ["--file"]
-    assert file_option.type.name == "path"
-    assert file_option.required is False
-    assert file_option.default is None
-
-    stdin_option = _parameter(fixture_create, "stdin")
-    assert stdin_option.opts == ["--stdin"]
-    assert stdin_option.type.name == "boolean"
-    assert stdin_option.default is False
-
-    fixture_list = _command(root, ("fixture", "list"))
-    page_limit = _parameter(fixture_list, "limit")
-    assert page_limit.opts == ["--limit"]
-    assert page_limit.type.name == "integer"
-    assert page_limit.default == 50
-
-    result_show = _command(root, ("results", "show"))
-    run_argument = _parameter(result_show, "run_id")
-    assert run_argument.type.name == "text"
-    assert run_argument.required is True
-
-    report_export = _command(root, ("report", "export"))
-    report_target = _parameter(report_export, "target_id")
-    assert report_target.type.name == "text"
-    assert report_target.required is False
-    target_kind = _parameter(report_export, "target_kind")
-    assert target_kind.opts == ["--target-kind"]
-    assert target_kind.type.name == "choice"
-    assert target_kind.default is None
+    for semantic in inventory["semantic_values"]:
+        guide = Path(semantic["guide"])
+        text = guide.read_text(encoding="utf-8")
+        for value in semantic["accepted_values"]:
+            assert value in text, (semantic["command"], semantic["parameter"], value)
 
     runner = CliRunner()
-    for path, flags in (
-        (("fixture", "create"), ("--decision", "--dataset", "--file", "--stdin")),
-        (("fixture", "list"), ("--cursor", "--limit")),
-        (("results", "show"), ("--evaluation", "--request", "--response", "--attempts")),
-        (("report", "export"), ("--target-kind", "--result-snapshot", "--output")),
-    ):
-        help_result = runner.invoke(app, [*path, "--help"])
+    for path, command_contract in inventory["commands"].items():
+        help_result = runner.invoke(app, [*path.split(), "--help"])
         assert help_result.exit_code == 0, help_result.output
-        for flag in flags:
-            assert flag in help_result.output, (" ".join(path), flag)
+        command = _command(root, tuple(path.split()))
+        for parameter, expected in zip(command.params, command_contract["parameters"], strict=True):
+            if expected["hidden"]:
+                continue
+            for flag in (*expected["options"], *expected["secondary_options"]):
+                if flag.startswith("-"):
+                    assert flag in help_result.output, (path, expected["name"], flag)
+
+    global_options = []
+    for parameter in root.params:
+        metadata = _parameter_metadata(parameter)
+        global_options.append(
+            {
+                "name": metadata["name"],
+                "options": metadata["options"],
+                "type": metadata["type"],
+                "default": metadata["default"],
+                "required": metadata["required"],
+                "is_flag": metadata["is_flag"],
+                "eager": bool(getattr(parameter, "is_eager", False)),
+            }
+        )
+    assert global_options == inventory["global_options"]

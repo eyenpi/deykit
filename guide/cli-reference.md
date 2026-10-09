@@ -2,8 +2,13 @@
 
 The complete command inventory and its service/verification links live in
 [`architecture/cli-command-matrix.json`](../architecture/cli-command-matrix.json).
-Run `deykit --help` or a group command with `--help` for live option types,
-defaults, and required arguments.
+The parser-level arguments, options, aliases, types, defaults, required flags,
+and numeric bounds are recorded in the
+[`CLI parameter inventory`](../architecture/cli-parameter-inventory.json).
+Feature guides define the meaning and accepted semantic values for those
+parameters. For example, report `--target-kind` is parsed as text and then
+validated against the report service's supported target kinds. Run
+`deykit --help` or a group command with `--help` for the installed interface.
 
 Use global `--project PATH` to select a portable project directly. If omitted,
 Deykit searches the current directory and its parents for its project marker.
