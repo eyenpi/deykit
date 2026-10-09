@@ -391,6 +391,8 @@ class Workflow:
             self.dataset_id,
             "--expected",
             "review",
+            "--provenance",
+            "human",
             "--operation-id",
             "tutorial-label-set-c004",
         )
