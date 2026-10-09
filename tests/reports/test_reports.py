@@ -51,6 +51,8 @@ from deykit.contracts.ports import (
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
+    ChoiceOption,
+    ChoiceQuestion,
     ComparisonRecord,
     CompiledRequest,
     DispatchOutcome,
@@ -1621,28 +1623,48 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
         diagnostic_partial,
         group=diagnostic_partial.group.model_copy(update={"selection_source": selection_text}),
     )
-    seed, algorithm, option_orders = _selection(selection_snapshot)
+    two_option_definition = ChoiceDefinition(
+        input_kind="text",
+        questions=(
+            ChoiceQuestion(
+                id="q",
+                instructions="Choose one of two options.",
+                options=(
+                    ChoiceOption(id="accept", name="Accept"),
+                    ChoiceOption(id="review", name="Review"),
+                ),
+            ),
+        ),
+    )
+    two_option_revision = diagnostic_partial.members[0].revision.model_copy(
+        update={"definition": two_option_definition}
+    )
+    expected_orders = choice_orders(("accept", "review"), orders=4, seed=0)
+    assert len(expected_orders) == 2
+    projected_members = tuple(
+        replace(
+            member,
+            revision=two_option_revision,
+            manifest=member.manifest.model_copy(update={"option_order": option_order}),
+        )
+        for member, option_order in zip(
+            diagnostic_partial.members[:2], expected_orders, strict=True
+        )
+    )
+    deduplicated_snapshot = replace(selection_snapshot, members=projected_members)
+    seed, algorithm, option_orders = _selection(deduplicated_snapshot)
     assert seed == 0
     assert algorithm == "deykit-choice-order-v1"
-    assert option_orders == choice_orders(
-        tuple(
-            option.id
-            for option in diagnostic_partial.members[0].revision.definition.questions[0].options
-        ),
-        orders=4,
-        seed=0,
-    )
-    first_order = diagnostic_partial.members[0].manifest.option_order
+    assert option_orders == expected_orders
+    first_order = projected_members[0].manifest.option_order
     assert first_order is not None
     duplicate_member = replace(
-        diagnostic_partial.members[1],
-        manifest=diagnostic_partial.members[1].manifest.model_copy(
-            update={"option_order": first_order}
-        ),
+        projected_members[1],
+        manifest=projected_members[1].manifest.model_copy(update={"option_order": first_order}),
     )
     inconsistent = replace(
-        diagnostic_partial,
-        members=(diagnostic_partial.members[0], duplicate_member),
+        deduplicated_snapshot,
+        members=(projected_members[0], duplicate_member),
     )
     with pytest.raises(ServiceFailure) as inconsistent_selection:
         _selection(inconsistent)
