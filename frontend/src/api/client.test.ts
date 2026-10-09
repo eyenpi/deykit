@@ -662,7 +662,7 @@ describe("generated local API operations", () => {
         cancel() {
           cancelled[cancelIndex] = true;
         },
-      });
+      }, { highWaterMark: 0 });
       return new Response(stream, {
         status: 200,
         headers: {
