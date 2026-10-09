@@ -1,13 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 test("installed shell recovers a lost authored-demo response without duplicate writes", async ({
   page,
 }, testInfo) => {
-  const root = mkdtempSync(join(tmpdir(), "deykit-installed-api-"));
-  const demoPath = join(root, "<img src=x onerror=window.__xss=1>");
+  const demoPath = testInfo.outputPath("<img src=x onerror=window.__xss=1>");
   const operationIds: string[] = [];
   const demoResponses: Array<{ status: number; replayed: boolean }> = [];
   let demoRegistrationId: string | undefined;
@@ -102,7 +98,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   );
   expect(demoValidated.status()).toBe(200);
 
-  const createdPath = join(root, "Created project");
+  const createdPath = testInfo.outputPath("Created project");
   const createProject = await page.request.post("/api/v1/projects/register", {
     headers: authorizedHeaders,
     data: {

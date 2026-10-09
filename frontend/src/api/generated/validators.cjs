@@ -2838,10 +2838,376 @@ const schema40 = {
       title: "Schema Version",
       type: "integer",
     },
+    selection: {
+      anyOf: [
+        { $ref: "urn:deykit:transport:SelectionDetails#" },
+        { type: "null" },
+      ],
+      default: null,
+    },
   },
   required: ["error", "schema_version"],
   title: "Failure",
   type: "object",
+};
+const schema42 = {
+  $id: "urn:deykit:transport:SelectionDetails",
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  additionalProperties: false,
+  description:
+    "Alternatives available when a requested resource cannot be selected.",
+  properties: {
+    choices: {
+      items: { $ref: "urn:deykit:transport:ResourceChoice#" },
+      title: "Choices",
+      type: "array",
+    },
+  },
+  required: ["choices"],
+  title: "SelectionDetails",
+  type: "object",
+};
+const schema43 = {
+  $id: "urn:deykit:transport:ResourceChoice",
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  additionalProperties: false,
+  description: "One safe exact-ID alternative, scoped to its owning resource.",
+  properties: {
+    kind: {
+      enum: [
+        "decision",
+        "revision",
+        "dataset",
+        "case",
+        "provider",
+        "fixture",
+        "run",
+        "result_snapshot",
+        "evaluation",
+        "comparison",
+        "regression",
+        "execution_group",
+        "diagnostic_snapshot",
+        "check_snapshot",
+        "report",
+      ],
+      title: "Kind",
+      type: "string",
+    },
+    resource_id: { title: "Resource Id", type: "string" },
+    scope: {
+      default: [],
+      items: { type: "string" },
+      title: "Scope",
+      type: "array",
+    },
+  },
+  required: ["kind", "resource_id"],
+  title: "ResourceChoice",
+  type: "object",
+};
+function validate29(
+  data,
+  {
+    instancePath = "",
+    parentData,
+    parentDataProperty,
+    rootData = data,
+    dynamicAnchors = {},
+  } = {},
+) {
+  /*# sourceURL="urn:deykit:transport:SelectionDetails" */ let vErrors = null;
+  let errors = 0;
+  const evaluated0 = validate29.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  if (errors === 0) {
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      let missing0;
+      if (data.choices === undefined && (missing0 = "choices")) {
+        validate29.errors = [
+          {
+            instancePath,
+            schemaPath: "#/required",
+            keyword: "required",
+            params: { missingProperty: missing0 },
+            message: "must have required property '" + missing0 + "'",
+          },
+        ];
+        return false;
+      } else {
+        const _errs1 = errors;
+        for (const key0 in data) {
+          if (!(key0 === "choices")) {
+            validate29.errors = [
+              {
+                instancePath,
+                schemaPath: "#/additionalProperties",
+                keyword: "additionalProperties",
+                params: { additionalProperty: key0 },
+                message: "must NOT have additional properties",
+              },
+            ];
+            return false;
+            break;
+          }
+        }
+        if (_errs1 === errors) {
+          if (data.choices !== undefined) {
+            let data0 = data.choices;
+            const _errs2 = errors;
+            if (errors === _errs2) {
+              if (Array.isArray(data0)) {
+                var valid1 = true;
+                const len0 = data0.length;
+                for (let i0 = 0; i0 < len0; i0++) {
+                  let data1 = data0[i0];
+                  const _errs4 = errors;
+                  const _errs5 = errors;
+                  if (errors === _errs5) {
+                    if (
+                      data1 &&
+                      typeof data1 == "object" &&
+                      !Array.isArray(data1)
+                    ) {
+                      let missing1;
+                      if (
+                        (data1.kind === undefined && (missing1 = "kind")) ||
+                        (data1.resource_id === undefined &&
+                          (missing1 = "resource_id"))
+                      ) {
+                        validate29.errors = [
+                          {
+                            instancePath: instancePath + "/choices/" + i0,
+                            schemaPath:
+                              "urn:deykit:transport:ResourceChoice#/required",
+                            keyword: "required",
+                            params: { missingProperty: missing1 },
+                            message:
+                              "must have required property '" + missing1 + "'",
+                          },
+                        ];
+                        return false;
+                      } else {
+                        const _errs7 = errors;
+                        for (const key1 in data1) {
+                          if (!(
+                            key1 === "kind" ||
+                            key1 === "resource_id" ||
+                            key1 === "scope"
+                          )) {
+                            validate29.errors = [
+                              {
+                                instancePath: instancePath + "/choices/" + i0,
+                                schemaPath:
+                                  "urn:deykit:transport:ResourceChoice#/additionalProperties",
+                                keyword: "additionalProperties",
+                                params: { additionalProperty: key1 },
+                                message: "must NOT have additional properties",
+                              },
+                            ];
+                            return false;
+                            break;
+                          }
+                        }
+                        if (_errs7 === errors) {
+                          if (data1.kind !== undefined) {
+                            let data2 = data1.kind;
+                            const _errs8 = errors;
+                            if (typeof data2 !== "string") {
+                              validate29.errors = [
+                                {
+                                  instancePath:
+                                    instancePath + "/choices/" + i0 + "/kind",
+                                  schemaPath:
+                                    "urn:deykit:transport:ResourceChoice#/properties/kind/type",
+                                  keyword: "type",
+                                  params: { type: "string" },
+                                  message: "must be string",
+                                },
+                              ];
+                              return false;
+                            }
+                            if (!(
+                              data2 === "decision" ||
+                              data2 === "revision" ||
+                              data2 === "dataset" ||
+                              data2 === "case" ||
+                              data2 === "provider" ||
+                              data2 === "fixture" ||
+                              data2 === "run" ||
+                              data2 === "result_snapshot" ||
+                              data2 === "evaluation" ||
+                              data2 === "comparison" ||
+                              data2 === "regression" ||
+                              data2 === "execution_group" ||
+                              data2 === "diagnostic_snapshot" ||
+                              data2 === "check_snapshot" ||
+                              data2 === "report"
+                            )) {
+                              validate29.errors = [
+                                {
+                                  instancePath:
+                                    instancePath + "/choices/" + i0 + "/kind",
+                                  schemaPath:
+                                    "urn:deykit:transport:ResourceChoice#/properties/kind/enum",
+                                  keyword: "enum",
+                                  params: {
+                                    allowedValues:
+                                      schema43.properties.kind.enum,
+                                  },
+                                  message:
+                                    "must be equal to one of the allowed values",
+                                },
+                              ];
+                              return false;
+                            }
+                            var valid3 = _errs8 === errors;
+                          } else {
+                            var valid3 = true;
+                          }
+                          if (valid3) {
+                            if (data1.resource_id !== undefined) {
+                              const _errs10 = errors;
+                              if (typeof data1.resource_id !== "string") {
+                                validate29.errors = [
+                                  {
+                                    instancePath:
+                                      instancePath +
+                                      "/choices/" +
+                                      i0 +
+                                      "/resource_id",
+                                    schemaPath:
+                                      "urn:deykit:transport:ResourceChoice#/properties/resource_id/type",
+                                    keyword: "type",
+                                    params: { type: "string" },
+                                    message: "must be string",
+                                  },
+                                ];
+                                return false;
+                              }
+                              var valid3 = _errs10 === errors;
+                            } else {
+                              var valid3 = true;
+                            }
+                            if (valid3) {
+                              if (data1.scope !== undefined) {
+                                let data4 = data1.scope;
+                                const _errs12 = errors;
+                                if (errors === _errs12) {
+                                  if (Array.isArray(data4)) {
+                                    var valid4 = true;
+                                    const len1 = data4.length;
+                                    for (let i1 = 0; i1 < len1; i1++) {
+                                      const _errs14 = errors;
+                                      if (typeof data4[i1] !== "string") {
+                                        validate29.errors = [
+                                          {
+                                            instancePath:
+                                              instancePath +
+                                              "/choices/" +
+                                              i0 +
+                                              "/scope/" +
+                                              i1,
+                                            schemaPath:
+                                              "urn:deykit:transport:ResourceChoice#/properties/scope/items/type",
+                                            keyword: "type",
+                                            params: { type: "string" },
+                                            message: "must be string",
+                                          },
+                                        ];
+                                        return false;
+                                      }
+                                      var valid4 = _errs14 === errors;
+                                      if (!valid4) {
+                                        break;
+                                      }
+                                    }
+                                  } else {
+                                    validate29.errors = [
+                                      {
+                                        instancePath:
+                                          instancePath +
+                                          "/choices/" +
+                                          i0 +
+                                          "/scope",
+                                        schemaPath:
+                                          "urn:deykit:transport:ResourceChoice#/properties/scope/type",
+                                        keyword: "type",
+                                        params: { type: "array" },
+                                        message: "must be array",
+                                      },
+                                    ];
+                                    return false;
+                                  }
+                                }
+                                var valid3 = _errs12 === errors;
+                              } else {
+                                var valid3 = true;
+                              }
+                            }
+                          }
+                        }
+                      }
+                    } else {
+                      validate29.errors = [
+                        {
+                          instancePath: instancePath + "/choices/" + i0,
+                          schemaPath:
+                            "urn:deykit:transport:ResourceChoice#/type",
+                          keyword: "type",
+                          params: { type: "object" },
+                          message: "must be object",
+                        },
+                      ];
+                      return false;
+                    }
+                  }
+                  var valid1 = _errs4 === errors;
+                  if (!valid1) {
+                    break;
+                  }
+                }
+              } else {
+                validate29.errors = [
+                  {
+                    instancePath: instancePath + "/choices",
+                    schemaPath: "#/properties/choices/type",
+                    keyword: "type",
+                    params: { type: "array" },
+                    message: "must be array",
+                  },
+                ];
+                return false;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      validate29.errors = [
+        {
+          instancePath,
+          schemaPath: "#/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        },
+      ];
+      return false;
+    }
+  }
+  validate29.errors = vErrors;
+  return errors === 0;
+}
+validate29.evaluated = {
+  props: true,
+  dynamicProps: false,
+  dynamicItems: false,
 };
 function validate28(
   data,
@@ -2882,7 +3248,11 @@ function validate28(
       } else {
         const _errs1 = errors;
         for (const key0 in data) {
-          if (!(key0 === "error" || key0 === "schema_version")) {
+          if (!(
+            key0 === "error" ||
+            key0 === "schema_version" ||
+            key0 === "selection"
+          )) {
             validate28.errors = [
               {
                 instancePath,
@@ -3453,6 +3823,79 @@ function validate28(
             } else {
               var valid0 = true;
             }
+            if (valid0) {
+              if (data.selection !== undefined) {
+                let data9 = data.selection;
+                const _errs38 = errors;
+                const _errs39 = errors;
+                let valid7 = false;
+                const _errs40 = errors;
+                if (
+                  !validate29(data9, {
+                    instancePath: instancePath + "/selection",
+                    parentData: data,
+                    parentDataProperty: "selection",
+                    rootData,
+                    dynamicAnchors,
+                  })
+                ) {
+                  vErrors =
+                    vErrors === null
+                      ? validate29.errors
+                      : vErrors.concat(validate29.errors);
+                  errors = vErrors.length;
+                }
+                var _valid4 = _errs40 === errors;
+                valid7 = valid7 || _valid4;
+                const _errs41 = errors;
+                if (data9 !== null) {
+                  const err14 = {
+                    instancePath: instancePath + "/selection",
+                    schemaPath: "#/properties/selection/anyOf/1/type",
+                    keyword: "type",
+                    params: { type: "null" },
+                    message: "must be null",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err14];
+                  } else {
+                    vErrors.push(err14);
+                  }
+                  errors++;
+                }
+                var _valid4 = _errs41 === errors;
+                valid7 = valid7 || _valid4;
+                if (!valid7) {
+                  const err15 = {
+                    instancePath: instancePath + "/selection",
+                    schemaPath: "#/properties/selection/anyOf",
+                    keyword: "anyOf",
+                    params: {},
+                    message: "must match a schema in anyOf",
+                  };
+                  if (vErrors === null) {
+                    vErrors = [err15];
+                  } else {
+                    vErrors.push(err15);
+                  }
+                  errors++;
+                  validate28.errors = vErrors;
+                  return false;
+                } else {
+                  errors = _errs39;
+                  if (vErrors !== null) {
+                    if (_errs39) {
+                      vErrors.length = _errs39;
+                    } else {
+                      vErrors = null;
+                    }
+                  }
+                }
+                var valid0 = _errs38 === errors;
+              } else {
+                var valid0 = true;
+              }
+            }
           }
         }
       }
@@ -3477,8 +3920,8 @@ validate28.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateProjectOverviewDTO = validate29;
-const schema42 = {
+exports.validateProjectOverviewDTO = validate31;
+const schema44 = {
   $id: "urn:deykit:transport:ProjectOverviewDTO",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -3505,7 +3948,7 @@ const schema42 = {
   title: "ProjectOverviewDTO",
   type: "object",
 };
-const schema43 = {
+const schema45 = {
   $id: "urn:deykit:transport:ResourceSummaryDTO",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -3523,7 +3966,7 @@ const schema43 = {
   title: "ResourceSummaryDTO",
   type: "object",
 };
-function validate29(
+function validate31(
   data,
   {
     instancePath = "",
@@ -3535,7 +3978,7 @@ function validate29(
 ) {
   /*# sourceURL="urn:deykit:transport:ProjectOverviewDTO" */ let vErrors = null;
   let errors = 0;
-  const evaluated0 = validate29.evaluated;
+  const evaluated0 = validate31.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -3551,7 +3994,7 @@ function validate29(
         (data.registration === undefined && (missing0 = "registration")) ||
         (data.schema_version === undefined && (missing0 = "schema_version"))
       ) {
-        validate29.errors = [
+        validate31.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -3570,7 +4013,7 @@ function validate29(
             key0 === "registration" ||
             key0 === "schema_version"
           )) {
-            validate29.errors = [
+            validate31.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -3608,7 +4051,7 @@ function validate29(
                         (data1.schema_version === undefined &&
                           (missing1 = "schema_version"))
                       ) {
-                        validate29.errors = [
+                        validate31.errors = [
                           {
                             instancePath: instancePath + "/datasets/" + i0,
                             schemaPath:
@@ -3628,7 +4071,7 @@ function validate29(
                             key1 === "name" ||
                             key1 === "schema_version"
                           )) {
-                            validate29.errors = [
+                            validate31.errors = [
                               {
                                 instancePath: instancePath + "/datasets/" + i0,
                                 schemaPath:
@@ -3646,7 +4089,7 @@ function validate29(
                           if (data1.id !== undefined) {
                             const _errs8 = errors;
                             if (typeof data1.id !== "string") {
-                              validate29.errors = [
+                              validate31.errors = [
                                 {
                                   instancePath:
                                     instancePath + "/datasets/" + i0 + "/id",
@@ -3667,7 +4110,7 @@ function validate29(
                             if (data1.name !== undefined) {
                               const _errs10 = errors;
                               if (typeof data1.name !== "string") {
-                                validate29.errors = [
+                                validate31.errors = [
                                   {
                                     instancePath:
                                       instancePath +
@@ -3697,7 +4140,7 @@ function validate29(
                                   !isNaN(data4) &&
                                   isFinite(data4)
                                 )) {
-                                  validate29.errors = [
+                                  validate31.errors = [
                                     {
                                       instancePath:
                                         instancePath +
@@ -3714,7 +4157,7 @@ function validate29(
                                   return false;
                                 }
                                 if (1 !== data4) {
-                                  validate29.errors = [
+                                  validate31.errors = [
                                     {
                                       instancePath:
                                         instancePath +
@@ -3739,7 +4182,7 @@ function validate29(
                         }
                       }
                     } else {
-                      validate29.errors = [
+                      validate31.errors = [
                         {
                           instancePath: instancePath + "/datasets/" + i0,
                           schemaPath:
@@ -3758,7 +4201,7 @@ function validate29(
                   }
                 }
               } else {
-                validate29.errors = [
+                validate31.errors = [
                   {
                     instancePath: instancePath + "/datasets",
                     schemaPath: "#/properties/datasets/type",
@@ -3799,7 +4242,7 @@ function validate29(
                           (data6.schema_version === undefined &&
                             (missing2 = "schema_version"))
                         ) {
-                          validate29.errors = [
+                          validate31.errors = [
                             {
                               instancePath: instancePath + "/decisions/" + i1,
                               schemaPath:
@@ -3821,7 +4264,7 @@ function validate29(
                               key2 === "name" ||
                               key2 === "schema_version"
                             )) {
-                              validate29.errors = [
+                              validate31.errors = [
                                 {
                                   instancePath:
                                     instancePath + "/decisions/" + i1,
@@ -3841,7 +4284,7 @@ function validate29(
                             if (data6.id !== undefined) {
                               const _errs20 = errors;
                               if (typeof data6.id !== "string") {
-                                validate29.errors = [
+                                validate31.errors = [
                                   {
                                     instancePath:
                                       instancePath + "/decisions/" + i1 + "/id",
@@ -3862,7 +4305,7 @@ function validate29(
                               if (data6.name !== undefined) {
                                 const _errs22 = errors;
                                 if (typeof data6.name !== "string") {
-                                  validate29.errors = [
+                                  validate31.errors = [
                                     {
                                       instancePath:
                                         instancePath +
@@ -3892,7 +4335,7 @@ function validate29(
                                     !isNaN(data9) &&
                                     isFinite(data9)
                                   )) {
-                                    validate29.errors = [
+                                    validate31.errors = [
                                       {
                                         instancePath:
                                           instancePath +
@@ -3909,7 +4352,7 @@ function validate29(
                                     return false;
                                   }
                                   if (1 !== data9) {
-                                    validate29.errors = [
+                                    validate31.errors = [
                                       {
                                         instancePath:
                                           instancePath +
@@ -3934,7 +4377,7 @@ function validate29(
                           }
                         }
                       } else {
-                        validate29.errors = [
+                        validate31.errors = [
                           {
                             instancePath: instancePath + "/decisions/" + i1,
                             schemaPath:
@@ -3953,7 +4396,7 @@ function validate29(
                     }
                   }
                 } else {
-                  validate29.errors = [
+                  validate31.errors = [
                     {
                       instancePath: instancePath + "/decisions",
                       schemaPath: "#/properties/decisions/type",
@@ -4001,7 +4444,7 @@ function validate29(
                     !isNaN(data11) &&
                     isFinite(data11)
                   )) {
-                    validate29.errors = [
+                    validate31.errors = [
                       {
                         instancePath: instancePath + "/schema_version",
                         schemaPath: "#/properties/schema_version/type",
@@ -4013,7 +4456,7 @@ function validate29(
                     return false;
                   }
                   if (1 !== data11) {
-                    validate29.errors = [
+                    validate31.errors = [
                       {
                         instancePath: instancePath + "/schema_version",
                         schemaPath: "#/properties/schema_version/const",
@@ -4034,7 +4477,7 @@ function validate29(
         }
       }
     } else {
-      validate29.errors = [
+      validate31.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -4046,16 +4489,16 @@ function validate29(
       return false;
     }
   }
-  validate29.errors = vErrors;
+  validate31.errors = vErrors;
   return errors === 0;
 }
-validate29.evaluated = {
+validate31.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateProjectRecordDTO = validate31;
-function validate31(
+exports.validateProjectRecordDTO = validate33;
+function validate33(
   data,
   {
     instancePath = "",
@@ -4067,7 +4510,7 @@ function validate31(
 ) {
   /*# sourceURL="urn:deykit:transport:ProjectRecordDTO" */ let vErrors = null;
   let errors = 0;
-  const evaluated0 = validate31.evaluated;
+  const evaluated0 = validate33.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -4083,7 +4526,7 @@ function validate31(
         (data.name === undefined && (missing0 = "name")) ||
         (data.schema_version === undefined && (missing0 = "schema_version"))
       ) {
-        validate31.errors = [
+        validate33.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -4103,7 +4546,7 @@ function validate31(
             key0 === "name" ||
             key0 === "schema_version"
           )) {
-            validate31.errors = [
+            validate33.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -4120,7 +4563,7 @@ function validate31(
           if (data.created_at !== undefined) {
             const _errs2 = errors;
             if (typeof data.created_at !== "string") {
-              validate31.errors = [
+              validate33.errors = [
                 {
                   instancePath: instancePath + "/created_at",
                   schemaPath: "#/properties/created_at/type",
@@ -4191,7 +4634,7 @@ function validate31(
                   vErrors.push(err2);
                 }
                 errors++;
-                validate31.errors = vErrors;
+                validate33.errors = vErrors;
                 return false;
               } else {
                 errors = _errs5;
@@ -4211,7 +4654,7 @@ function validate31(
               if (data.id !== undefined) {
                 const _errs10 = errors;
                 if (typeof data.id !== "string") {
-                  validate31.errors = [
+                  validate33.errors = [
                     {
                       instancePath: instancePath + "/id",
                       schemaPath: "#/properties/id/type",
@@ -4233,7 +4676,7 @@ function validate31(
                   if (errors === _errs12) {
                     if (typeof data3 === "string") {
                       if (func2(data3) < 1) {
-                        validate31.errors = [
+                        validate33.errors = [
                           {
                             instancePath: instancePath + "/name",
                             schemaPath: "#/properties/name/minLength",
@@ -4245,7 +4688,7 @@ function validate31(
                         return false;
                       }
                     } else {
-                      validate31.errors = [
+                      validate33.errors = [
                         {
                           instancePath: instancePath + "/name",
                           schemaPath: "#/properties/name/type",
@@ -4271,7 +4714,7 @@ function validate31(
                       !isNaN(data4) &&
                       isFinite(data4)
                     )) {
-                      validate31.errors = [
+                      validate33.errors = [
                         {
                           instancePath: instancePath + "/schema_version",
                           schemaPath: "#/properties/schema_version/type",
@@ -4283,7 +4726,7 @@ function validate31(
                       return false;
                     }
                     if (1 !== data4) {
-                      validate31.errors = [
+                      validate33.errors = [
                         {
                           instancePath: instancePath + "/schema_version",
                           schemaPath: "#/properties/schema_version/const",
@@ -4297,431 +4740,6 @@ function validate31(
                     var valid0 = _errs14 === errors;
                   } else {
                     var valid0 = true;
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    } else {
-      validate31.errors = [
-        {
-          instancePath,
-          schemaPath: "#/type",
-          keyword: "type",
-          params: { type: "object" },
-          message: "must be object",
-        },
-      ];
-      return false;
-    }
-  }
-  validate31.errors = vErrors;
-  return errors === 0;
-}
-validate31.evaluated = {
-  props: true,
-  dynamicProps: false,
-  dynamicItems: false,
-};
-exports.validateRebuildIndexDTO = validate32;
-const schema46 = {
-  $id: "urn:deykit:transport:RebuildIndexDTO",
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  additionalProperties: false,
-  properties: {
-    record_count: {
-      pattern: "^(?:0|[1-9][0-9]*)$",
-      title: "Record Count",
-      type: "string",
-    },
-    schema_version: {
-      const: 1,
-      default: 1,
-      title: "Schema Version",
-      type: "integer",
-    },
-  },
-  required: ["record_count", "schema_version"],
-  title: "RebuildIndexDTO",
-  type: "object",
-};
-function validate32(
-  data,
-  {
-    instancePath = "",
-    parentData,
-    parentDataProperty,
-    rootData = data,
-    dynamicAnchors = {},
-  } = {},
-) {
-  /*# sourceURL="urn:deykit:transport:RebuildIndexDTO" */ let vErrors = null;
-  let errors = 0;
-  const evaluated0 = validate32.evaluated;
-  if (evaluated0.dynamicProps) {
-    evaluated0.props = undefined;
-  }
-  if (evaluated0.dynamicItems) {
-    evaluated0.items = undefined;
-  }
-  if (errors === 0) {
-    if (data && typeof data == "object" && !Array.isArray(data)) {
-      let missing0;
-      if (
-        (data.record_count === undefined && (missing0 = "record_count")) ||
-        (data.schema_version === undefined && (missing0 = "schema_version"))
-      ) {
-        validate32.errors = [
-          {
-            instancePath,
-            schemaPath: "#/required",
-            keyword: "required",
-            params: { missingProperty: missing0 },
-            message: "must have required property '" + missing0 + "'",
-          },
-        ];
-        return false;
-      } else {
-        const _errs1 = errors;
-        for (const key0 in data) {
-          if (!(key0 === "record_count" || key0 === "schema_version")) {
-            validate32.errors = [
-              {
-                instancePath,
-                schemaPath: "#/additionalProperties",
-                keyword: "additionalProperties",
-                params: { additionalProperty: key0 },
-                message: "must NOT have additional properties",
-              },
-            ];
-            return false;
-            break;
-          }
-        }
-        if (_errs1 === errors) {
-          if (data.record_count !== undefined) {
-            let data0 = data.record_count;
-            const _errs2 = errors;
-            if (errors === _errs2) {
-              if (typeof data0 === "string") {
-                if (!pattern5.test(data0)) {
-                  validate32.errors = [
-                    {
-                      instancePath: instancePath + "/record_count",
-                      schemaPath: "#/properties/record_count/pattern",
-                      keyword: "pattern",
-                      params: { pattern: "^(?:0|[1-9][0-9]*)$" },
-                      message:
-                        'must match pattern "' + "^(?:0|[1-9][0-9]*)$" + '"',
-                    },
-                  ];
-                  return false;
-                }
-              } else {
-                validate32.errors = [
-                  {
-                    instancePath: instancePath + "/record_count",
-                    schemaPath: "#/properties/record_count/type",
-                    keyword: "type",
-                    params: { type: "string" },
-                    message: "must be string",
-                  },
-                ];
-                return false;
-              }
-            }
-            var valid0 = _errs2 === errors;
-          } else {
-            var valid0 = true;
-          }
-          if (valid0) {
-            if (data.schema_version !== undefined) {
-              let data1 = data.schema_version;
-              const _errs4 = errors;
-              if (!(
-                typeof data1 == "number" &&
-                !(data1 % 1) &&
-                !isNaN(data1) &&
-                isFinite(data1)
-              )) {
-                validate32.errors = [
-                  {
-                    instancePath: instancePath + "/schema_version",
-                    schemaPath: "#/properties/schema_version/type",
-                    keyword: "type",
-                    params: { type: "integer" },
-                    message: "must be integer",
-                  },
-                ];
-                return false;
-              }
-              if (1 !== data1) {
-                validate32.errors = [
-                  {
-                    instancePath: instancePath + "/schema_version",
-                    schemaPath: "#/properties/schema_version/const",
-                    keyword: "const",
-                    params: { allowedValue: 1 },
-                    message: "must be equal to constant",
-                  },
-                ];
-                return false;
-              }
-              var valid0 = _errs4 === errors;
-            } else {
-              var valid0 = true;
-            }
-          }
-        }
-      }
-    } else {
-      validate32.errors = [
-        {
-          instancePath,
-          schemaPath: "#/type",
-          keyword: "type",
-          params: { type: "object" },
-          message: "must be object",
-        },
-      ];
-      return false;
-    }
-  }
-  validate32.errors = vErrors;
-  return errors === 0;
-}
-validate32.evaluated = {
-  props: true,
-  dynamicProps: false,
-  dynamicItems: false,
-};
-exports.validateRecentProjectDTO = validate33;
-const schema47 = {
-  $id: "urn:deykit:transport:RecentProjectDTO",
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  additionalProperties: false,
-  properties: {
-    id: { title: "Id", type: "string" },
-    last_opened_at: { title: "Last Opened At", type: "string" },
-    name: { title: "Name", type: "string" },
-    path: { title: "Path", type: "string" },
-    project_id: { title: "Project Id", type: "string" },
-    schema_version: {
-      const: 1,
-      default: 1,
-      title: "Schema Version",
-      type: "integer",
-    },
-  },
-  required: [
-    "id",
-    "last_opened_at",
-    "name",
-    "path",
-    "project_id",
-    "schema_version",
-  ],
-  title: "RecentProjectDTO",
-  type: "object",
-};
-function validate33(
-  data,
-  {
-    instancePath = "",
-    parentData,
-    parentDataProperty,
-    rootData = data,
-    dynamicAnchors = {},
-  } = {},
-) {
-  /*# sourceURL="urn:deykit:transport:RecentProjectDTO" */ let vErrors = null;
-  let errors = 0;
-  const evaluated0 = validate33.evaluated;
-  if (evaluated0.dynamicProps) {
-    evaluated0.props = undefined;
-  }
-  if (evaluated0.dynamicItems) {
-    evaluated0.items = undefined;
-  }
-  if (errors === 0) {
-    if (data && typeof data == "object" && !Array.isArray(data)) {
-      let missing0;
-      if (
-        (data.id === undefined && (missing0 = "id")) ||
-        (data.last_opened_at === undefined && (missing0 = "last_opened_at")) ||
-        (data.name === undefined && (missing0 = "name")) ||
-        (data.path === undefined && (missing0 = "path")) ||
-        (data.project_id === undefined && (missing0 = "project_id")) ||
-        (data.schema_version === undefined && (missing0 = "schema_version"))
-      ) {
-        validate33.errors = [
-          {
-            instancePath,
-            schemaPath: "#/required",
-            keyword: "required",
-            params: { missingProperty: missing0 },
-            message: "must have required property '" + missing0 + "'",
-          },
-        ];
-        return false;
-      } else {
-        const _errs1 = errors;
-        for (const key0 in data) {
-          if (!(
-            key0 === "id" ||
-            key0 === "last_opened_at" ||
-            key0 === "name" ||
-            key0 === "path" ||
-            key0 === "project_id" ||
-            key0 === "schema_version"
-          )) {
-            validate33.errors = [
-              {
-                instancePath,
-                schemaPath: "#/additionalProperties",
-                keyword: "additionalProperties",
-                params: { additionalProperty: key0 },
-                message: "must NOT have additional properties",
-              },
-            ];
-            return false;
-            break;
-          }
-        }
-        if (_errs1 === errors) {
-          if (data.id !== undefined) {
-            const _errs2 = errors;
-            if (typeof data.id !== "string") {
-              validate33.errors = [
-                {
-                  instancePath: instancePath + "/id",
-                  schemaPath: "#/properties/id/type",
-                  keyword: "type",
-                  params: { type: "string" },
-                  message: "must be string",
-                },
-              ];
-              return false;
-            }
-            var valid0 = _errs2 === errors;
-          } else {
-            var valid0 = true;
-          }
-          if (valid0) {
-            if (data.last_opened_at !== undefined) {
-              const _errs4 = errors;
-              if (typeof data.last_opened_at !== "string") {
-                validate33.errors = [
-                  {
-                    instancePath: instancePath + "/last_opened_at",
-                    schemaPath: "#/properties/last_opened_at/type",
-                    keyword: "type",
-                    params: { type: "string" },
-                    message: "must be string",
-                  },
-                ];
-                return false;
-              }
-              var valid0 = _errs4 === errors;
-            } else {
-              var valid0 = true;
-            }
-            if (valid0) {
-              if (data.name !== undefined) {
-                const _errs6 = errors;
-                if (typeof data.name !== "string") {
-                  validate33.errors = [
-                    {
-                      instancePath: instancePath + "/name",
-                      schemaPath: "#/properties/name/type",
-                      keyword: "type",
-                      params: { type: "string" },
-                      message: "must be string",
-                    },
-                  ];
-                  return false;
-                }
-                var valid0 = _errs6 === errors;
-              } else {
-                var valid0 = true;
-              }
-              if (valid0) {
-                if (data.path !== undefined) {
-                  const _errs8 = errors;
-                  if (typeof data.path !== "string") {
-                    validate33.errors = [
-                      {
-                        instancePath: instancePath + "/path",
-                        schemaPath: "#/properties/path/type",
-                        keyword: "type",
-                        params: { type: "string" },
-                        message: "must be string",
-                      },
-                    ];
-                    return false;
-                  }
-                  var valid0 = _errs8 === errors;
-                } else {
-                  var valid0 = true;
-                }
-                if (valid0) {
-                  if (data.project_id !== undefined) {
-                    const _errs10 = errors;
-                    if (typeof data.project_id !== "string") {
-                      validate33.errors = [
-                        {
-                          instancePath: instancePath + "/project_id",
-                          schemaPath: "#/properties/project_id/type",
-                          keyword: "type",
-                          params: { type: "string" },
-                          message: "must be string",
-                        },
-                      ];
-                      return false;
-                    }
-                    var valid0 = _errs10 === errors;
-                  } else {
-                    var valid0 = true;
-                  }
-                  if (valid0) {
-                    if (data.schema_version !== undefined) {
-                      let data5 = data.schema_version;
-                      const _errs12 = errors;
-                      if (!(
-                        typeof data5 == "number" &&
-                        !(data5 % 1) &&
-                        !isNaN(data5) &&
-                        isFinite(data5)
-                      )) {
-                        validate33.errors = [
-                          {
-                            instancePath: instancePath + "/schema_version",
-                            schemaPath: "#/properties/schema_version/type",
-                            keyword: "type",
-                            params: { type: "integer" },
-                            message: "must be integer",
-                          },
-                        ];
-                        return false;
-                      }
-                      if (1 !== data5) {
-                        validate33.errors = [
-                          {
-                            instancePath: instancePath + "/schema_version",
-                            schemaPath: "#/properties/schema_version/const",
-                            keyword: "const",
-                            params: { allowedValue: 1 },
-                            message: "must be equal to constant",
-                          },
-                        ];
-                        return false;
-                      }
-                      var valid0 = _errs12 === errors;
-                    } else {
-                      var valid0 = true;
-                    }
                   }
                 }
               }
@@ -4750,8 +4768,433 @@ validate33.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateRecentProjectsDTO = validate34;
+exports.validateRebuildIndexDTO = validate34;
 const schema48 = {
+  $id: "urn:deykit:transport:RebuildIndexDTO",
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  additionalProperties: false,
+  properties: {
+    record_count: {
+      pattern: "^(?:0|[1-9][0-9]*)$",
+      title: "Record Count",
+      type: "string",
+    },
+    schema_version: {
+      const: 1,
+      default: 1,
+      title: "Schema Version",
+      type: "integer",
+    },
+  },
+  required: ["record_count", "schema_version"],
+  title: "RebuildIndexDTO",
+  type: "object",
+};
+function validate34(
+  data,
+  {
+    instancePath = "",
+    parentData,
+    parentDataProperty,
+    rootData = data,
+    dynamicAnchors = {},
+  } = {},
+) {
+  /*# sourceURL="urn:deykit:transport:RebuildIndexDTO" */ let vErrors = null;
+  let errors = 0;
+  const evaluated0 = validate34.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  if (errors === 0) {
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      let missing0;
+      if (
+        (data.record_count === undefined && (missing0 = "record_count")) ||
+        (data.schema_version === undefined && (missing0 = "schema_version"))
+      ) {
+        validate34.errors = [
+          {
+            instancePath,
+            schemaPath: "#/required",
+            keyword: "required",
+            params: { missingProperty: missing0 },
+            message: "must have required property '" + missing0 + "'",
+          },
+        ];
+        return false;
+      } else {
+        const _errs1 = errors;
+        for (const key0 in data) {
+          if (!(key0 === "record_count" || key0 === "schema_version")) {
+            validate34.errors = [
+              {
+                instancePath,
+                schemaPath: "#/additionalProperties",
+                keyword: "additionalProperties",
+                params: { additionalProperty: key0 },
+                message: "must NOT have additional properties",
+              },
+            ];
+            return false;
+            break;
+          }
+        }
+        if (_errs1 === errors) {
+          if (data.record_count !== undefined) {
+            let data0 = data.record_count;
+            const _errs2 = errors;
+            if (errors === _errs2) {
+              if (typeof data0 === "string") {
+                if (!pattern5.test(data0)) {
+                  validate34.errors = [
+                    {
+                      instancePath: instancePath + "/record_count",
+                      schemaPath: "#/properties/record_count/pattern",
+                      keyword: "pattern",
+                      params: { pattern: "^(?:0|[1-9][0-9]*)$" },
+                      message:
+                        'must match pattern "' + "^(?:0|[1-9][0-9]*)$" + '"',
+                    },
+                  ];
+                  return false;
+                }
+              } else {
+                validate34.errors = [
+                  {
+                    instancePath: instancePath + "/record_count",
+                    schemaPath: "#/properties/record_count/type",
+                    keyword: "type",
+                    params: { type: "string" },
+                    message: "must be string",
+                  },
+                ];
+                return false;
+              }
+            }
+            var valid0 = _errs2 === errors;
+          } else {
+            var valid0 = true;
+          }
+          if (valid0) {
+            if (data.schema_version !== undefined) {
+              let data1 = data.schema_version;
+              const _errs4 = errors;
+              if (!(
+                typeof data1 == "number" &&
+                !(data1 % 1) &&
+                !isNaN(data1) &&
+                isFinite(data1)
+              )) {
+                validate34.errors = [
+                  {
+                    instancePath: instancePath + "/schema_version",
+                    schemaPath: "#/properties/schema_version/type",
+                    keyword: "type",
+                    params: { type: "integer" },
+                    message: "must be integer",
+                  },
+                ];
+                return false;
+              }
+              if (1 !== data1) {
+                validate34.errors = [
+                  {
+                    instancePath: instancePath + "/schema_version",
+                    schemaPath: "#/properties/schema_version/const",
+                    keyword: "const",
+                    params: { allowedValue: 1 },
+                    message: "must be equal to constant",
+                  },
+                ];
+                return false;
+              }
+              var valid0 = _errs4 === errors;
+            } else {
+              var valid0 = true;
+            }
+          }
+        }
+      }
+    } else {
+      validate34.errors = [
+        {
+          instancePath,
+          schemaPath: "#/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        },
+      ];
+      return false;
+    }
+  }
+  validate34.errors = vErrors;
+  return errors === 0;
+}
+validate34.evaluated = {
+  props: true,
+  dynamicProps: false,
+  dynamicItems: false,
+};
+exports.validateRecentProjectDTO = validate35;
+const schema49 = {
+  $id: "urn:deykit:transport:RecentProjectDTO",
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  additionalProperties: false,
+  properties: {
+    id: { title: "Id", type: "string" },
+    last_opened_at: { title: "Last Opened At", type: "string" },
+    name: { title: "Name", type: "string" },
+    path: { title: "Path", type: "string" },
+    project_id: { title: "Project Id", type: "string" },
+    schema_version: {
+      const: 1,
+      default: 1,
+      title: "Schema Version",
+      type: "integer",
+    },
+  },
+  required: [
+    "id",
+    "last_opened_at",
+    "name",
+    "path",
+    "project_id",
+    "schema_version",
+  ],
+  title: "RecentProjectDTO",
+  type: "object",
+};
+function validate35(
+  data,
+  {
+    instancePath = "",
+    parentData,
+    parentDataProperty,
+    rootData = data,
+    dynamicAnchors = {},
+  } = {},
+) {
+  /*# sourceURL="urn:deykit:transport:RecentProjectDTO" */ let vErrors = null;
+  let errors = 0;
+  const evaluated0 = validate35.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  if (errors === 0) {
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      let missing0;
+      if (
+        (data.id === undefined && (missing0 = "id")) ||
+        (data.last_opened_at === undefined && (missing0 = "last_opened_at")) ||
+        (data.name === undefined && (missing0 = "name")) ||
+        (data.path === undefined && (missing0 = "path")) ||
+        (data.project_id === undefined && (missing0 = "project_id")) ||
+        (data.schema_version === undefined && (missing0 = "schema_version"))
+      ) {
+        validate35.errors = [
+          {
+            instancePath,
+            schemaPath: "#/required",
+            keyword: "required",
+            params: { missingProperty: missing0 },
+            message: "must have required property '" + missing0 + "'",
+          },
+        ];
+        return false;
+      } else {
+        const _errs1 = errors;
+        for (const key0 in data) {
+          if (!(
+            key0 === "id" ||
+            key0 === "last_opened_at" ||
+            key0 === "name" ||
+            key0 === "path" ||
+            key0 === "project_id" ||
+            key0 === "schema_version"
+          )) {
+            validate35.errors = [
+              {
+                instancePath,
+                schemaPath: "#/additionalProperties",
+                keyword: "additionalProperties",
+                params: { additionalProperty: key0 },
+                message: "must NOT have additional properties",
+              },
+            ];
+            return false;
+            break;
+          }
+        }
+        if (_errs1 === errors) {
+          if (data.id !== undefined) {
+            const _errs2 = errors;
+            if (typeof data.id !== "string") {
+              validate35.errors = [
+                {
+                  instancePath: instancePath + "/id",
+                  schemaPath: "#/properties/id/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                },
+              ];
+              return false;
+            }
+            var valid0 = _errs2 === errors;
+          } else {
+            var valid0 = true;
+          }
+          if (valid0) {
+            if (data.last_opened_at !== undefined) {
+              const _errs4 = errors;
+              if (typeof data.last_opened_at !== "string") {
+                validate35.errors = [
+                  {
+                    instancePath: instancePath + "/last_opened_at",
+                    schemaPath: "#/properties/last_opened_at/type",
+                    keyword: "type",
+                    params: { type: "string" },
+                    message: "must be string",
+                  },
+                ];
+                return false;
+              }
+              var valid0 = _errs4 === errors;
+            } else {
+              var valid0 = true;
+            }
+            if (valid0) {
+              if (data.name !== undefined) {
+                const _errs6 = errors;
+                if (typeof data.name !== "string") {
+                  validate35.errors = [
+                    {
+                      instancePath: instancePath + "/name",
+                      schemaPath: "#/properties/name/type",
+                      keyword: "type",
+                      params: { type: "string" },
+                      message: "must be string",
+                    },
+                  ];
+                  return false;
+                }
+                var valid0 = _errs6 === errors;
+              } else {
+                var valid0 = true;
+              }
+              if (valid0) {
+                if (data.path !== undefined) {
+                  const _errs8 = errors;
+                  if (typeof data.path !== "string") {
+                    validate35.errors = [
+                      {
+                        instancePath: instancePath + "/path",
+                        schemaPath: "#/properties/path/type",
+                        keyword: "type",
+                        params: { type: "string" },
+                        message: "must be string",
+                      },
+                    ];
+                    return false;
+                  }
+                  var valid0 = _errs8 === errors;
+                } else {
+                  var valid0 = true;
+                }
+                if (valid0) {
+                  if (data.project_id !== undefined) {
+                    const _errs10 = errors;
+                    if (typeof data.project_id !== "string") {
+                      validate35.errors = [
+                        {
+                          instancePath: instancePath + "/project_id",
+                          schemaPath: "#/properties/project_id/type",
+                          keyword: "type",
+                          params: { type: "string" },
+                          message: "must be string",
+                        },
+                      ];
+                      return false;
+                    }
+                    var valid0 = _errs10 === errors;
+                  } else {
+                    var valid0 = true;
+                  }
+                  if (valid0) {
+                    if (data.schema_version !== undefined) {
+                      let data5 = data.schema_version;
+                      const _errs12 = errors;
+                      if (!(
+                        typeof data5 == "number" &&
+                        !(data5 % 1) &&
+                        !isNaN(data5) &&
+                        isFinite(data5)
+                      )) {
+                        validate35.errors = [
+                          {
+                            instancePath: instancePath + "/schema_version",
+                            schemaPath: "#/properties/schema_version/type",
+                            keyword: "type",
+                            params: { type: "integer" },
+                            message: "must be integer",
+                          },
+                        ];
+                        return false;
+                      }
+                      if (1 !== data5) {
+                        validate35.errors = [
+                          {
+                            instancePath: instancePath + "/schema_version",
+                            schemaPath: "#/properties/schema_version/const",
+                            keyword: "const",
+                            params: { allowedValue: 1 },
+                            message: "must be equal to constant",
+                          },
+                        ];
+                        return false;
+                      }
+                      var valid0 = _errs12 === errors;
+                    } else {
+                      var valid0 = true;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      validate35.errors = [
+        {
+          instancePath,
+          schemaPath: "#/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        },
+      ];
+      return false;
+    }
+  }
+  validate35.errors = vErrors;
+  return errors === 0;
+}
+validate35.evaluated = {
+  props: true,
+  dynamicProps: false,
+  dynamicItems: false,
+};
+exports.validateRecentProjectsDTO = validate36;
+const schema50 = {
   $id: "urn:deykit:transport:RecentProjectsDTO",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -4772,7 +5215,7 @@ const schema48 = {
   title: "RecentProjectsDTO",
   type: "object",
 };
-function validate34(
+function validate36(
   data,
   {
     instancePath = "",
@@ -4784,7 +5227,7 @@ function validate34(
 ) {
   /*# sourceURL="urn:deykit:transport:RecentProjectsDTO" */ let vErrors = null;
   let errors = 0;
-  const evaluated0 = validate34.evaluated;
+  const evaluated0 = validate36.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -4798,7 +5241,7 @@ function validate34(
         (data.items === undefined && (missing0 = "items")) ||
         (data.schema_version === undefined && (missing0 = "schema_version"))
       ) {
-        validate34.errors = [
+        validate36.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -4812,7 +5255,7 @@ function validate34(
         const _errs1 = errors;
         for (const key0 in data) {
           if (!(key0 === "items" || key0 === "schema_version")) {
-            validate34.errors = [
+            validate36.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -4855,7 +5298,7 @@ function validate34(
                         (data1.schema_version === undefined &&
                           (missing1 = "schema_version"))
                       ) {
-                        validate34.errors = [
+                        validate36.errors = [
                           {
                             instancePath: instancePath + "/items/" + i0,
                             schemaPath:
@@ -4878,7 +5321,7 @@ function validate34(
                             key1 === "project_id" ||
                             key1 === "schema_version"
                           )) {
-                            validate34.errors = [
+                            validate36.errors = [
                               {
                                 instancePath: instancePath + "/items/" + i0,
                                 schemaPath:
@@ -4896,7 +5339,7 @@ function validate34(
                           if (data1.id !== undefined) {
                             const _errs8 = errors;
                             if (typeof data1.id !== "string") {
-                              validate34.errors = [
+                              validate36.errors = [
                                 {
                                   instancePath:
                                     instancePath + "/items/" + i0 + "/id",
@@ -4917,7 +5360,7 @@ function validate34(
                             if (data1.last_opened_at !== undefined) {
                               const _errs10 = errors;
                               if (typeof data1.last_opened_at !== "string") {
-                                validate34.errors = [
+                                validate36.errors = [
                                   {
                                     instancePath:
                                       instancePath +
@@ -4941,7 +5384,7 @@ function validate34(
                               if (data1.name !== undefined) {
                                 const _errs12 = errors;
                                 if (typeof data1.name !== "string") {
-                                  validate34.errors = [
+                                  validate36.errors = [
                                     {
                                       instancePath:
                                         instancePath + "/items/" + i0 + "/name",
@@ -4962,7 +5405,7 @@ function validate34(
                                 if (data1.path !== undefined) {
                                   const _errs14 = errors;
                                   if (typeof data1.path !== "string") {
-                                    validate34.errors = [
+                                    validate36.errors = [
                                       {
                                         instancePath:
                                           instancePath +
@@ -4986,7 +5429,7 @@ function validate34(
                                   if (data1.project_id !== undefined) {
                                     const _errs16 = errors;
                                     if (typeof data1.project_id !== "string") {
-                                      validate34.errors = [
+                                      validate36.errors = [
                                         {
                                           instancePath:
                                             instancePath +
@@ -5016,7 +5459,7 @@ function validate34(
                                         !isNaN(data7) &&
                                         isFinite(data7)
                                       )) {
-                                        validate34.errors = [
+                                        validate36.errors = [
                                           {
                                             instancePath:
                                               instancePath +
@@ -5033,7 +5476,7 @@ function validate34(
                                         return false;
                                       }
                                       if (1 !== data7) {
-                                        validate34.errors = [
+                                        validate36.errors = [
                                           {
                                             instancePath:
                                               instancePath +
@@ -5062,7 +5505,7 @@ function validate34(
                         }
                       }
                     } else {
-                      validate34.errors = [
+                      validate36.errors = [
                         {
                           instancePath: instancePath + "/items/" + i0,
                           schemaPath:
@@ -5081,7 +5524,7 @@ function validate34(
                   }
                 }
               } else {
-                validate34.errors = [
+                validate36.errors = [
                   {
                     instancePath: instancePath + "/items",
                     schemaPath: "#/properties/items/type",
@@ -5107,7 +5550,7 @@ function validate34(
                 !isNaN(data8) &&
                 isFinite(data8)
               )) {
-                validate34.errors = [
+                validate36.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/type",
@@ -5119,7 +5562,7 @@ function validate34(
                 return false;
               }
               if (1 !== data8) {
-                validate34.errors = [
+                validate36.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/const",
@@ -5138,7 +5581,7 @@ function validate34(
         }
       }
     } else {
-      validate34.errors = [
+      validate36.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -5150,16 +5593,16 @@ function validate34(
       return false;
     }
   }
-  validate34.errors = vErrors;
+  validate36.errors = vErrors;
   return errors === 0;
 }
-validate34.evaluated = {
+validate36.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateRegisterProjectRequest = validate35;
-const schema50 = {
+exports.validateRegisterProjectRequest = validate37;
+const schema52 = {
   $id: "urn:deykit:transport:RegisterProjectRequest",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -5174,7 +5617,7 @@ const schema50 = {
   title: "RegisterProjectRequest",
   type: "object",
 };
-function validate35(
+function validate37(
   data,
   {
     instancePath = "",
@@ -5187,7 +5630,7 @@ function validate35(
   /*# sourceURL="urn:deykit:transport:RegisterProjectRequest" */ let vErrors =
     null;
   let errors = 0;
-  const evaluated0 = validate35.evaluated;
+  const evaluated0 = validate37.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -5203,7 +5646,7 @@ function validate35(
         (data.path === undefined && (missing0 = "path")) ||
         (data.schema_version === undefined && (missing0 = "schema_version"))
       ) {
-        validate35.errors = [
+        validate37.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -5223,7 +5666,7 @@ function validate35(
             key0 === "path" ||
             key0 === "schema_version"
           )) {
-            validate35.errors = [
+            validate37.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -5241,7 +5684,7 @@ function validate35(
             let data0 = data.action;
             const _errs2 = errors;
             if (typeof data0 !== "string") {
-              validate35.errors = [
+              validate37.errors = [
                 {
                   instancePath: instancePath + "/action",
                   schemaPath: "#/properties/action/type",
@@ -5253,12 +5696,12 @@ function validate35(
               return false;
             }
             if (!(data0 === "open" || data0 === "create")) {
-              validate35.errors = [
+              validate37.errors = [
                 {
                   instancePath: instancePath + "/action",
                   schemaPath: "#/properties/action/enum",
                   keyword: "enum",
-                  params: { allowedValues: schema50.properties.action.enum },
+                  params: { allowedValues: schema52.properties.action.enum },
                   message: "must be equal to one of the allowed values",
                 },
               ];
@@ -5324,7 +5767,7 @@ function validate35(
                   vErrors.push(err2);
                 }
                 errors++;
-                validate35.errors = vErrors;
+                validate37.errors = vErrors;
                 return false;
               } else {
                 errors = _errs5;
@@ -5344,7 +5787,7 @@ function validate35(
               if (data.operation_id !== undefined) {
                 const _errs10 = errors;
                 if (typeof data.operation_id !== "string") {
-                  validate35.errors = [
+                  validate37.errors = [
                     {
                       instancePath: instancePath + "/operation_id",
                       schemaPath: "#/properties/operation_id/type",
@@ -5366,7 +5809,7 @@ function validate35(
                   if (errors === _errs12) {
                     if (typeof data3 === "string") {
                       if (func2(data3) < 1) {
-                        validate35.errors = [
+                        validate37.errors = [
                           {
                             instancePath: instancePath + "/path",
                             schemaPath: "#/properties/path/minLength",
@@ -5378,7 +5821,7 @@ function validate35(
                         return false;
                       }
                     } else {
-                      validate35.errors = [
+                      validate37.errors = [
                         {
                           instancePath: instancePath + "/path",
                           schemaPath: "#/properties/path/type",
@@ -5404,7 +5847,7 @@ function validate35(
                       !isNaN(data4) &&
                       isFinite(data4)
                     )) {
-                      validate35.errors = [
+                      validate37.errors = [
                         {
                           instancePath: instancePath + "/schema_version",
                           schemaPath: "#/properties/schema_version/type",
@@ -5416,7 +5859,7 @@ function validate35(
                       return false;
                     }
                     if (1 !== data4) {
-                      validate35.errors = [
+                      validate37.errors = [
                         {
                           instancePath: instancePath + "/schema_version",
                           schemaPath: "#/properties/schema_version/const",
@@ -5438,7 +5881,7 @@ function validate35(
         }
       }
     } else {
-      validate35.errors = [
+      validate37.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -5450,17 +5893,211 @@ function validate35(
       return false;
     }
   }
-  validate35.errors = vErrors;
+  validate37.errors = vErrors;
   return errors === 0;
 }
-validate35.evaluated = {
+validate37.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,
 };
 exports.validateRegistrationDTO = validate23;
-exports.validateResourceSummaryDTO = validate36;
-function validate36(
+exports.validateResourceChoice = validate38;
+function validate38(
+  data,
+  {
+    instancePath = "",
+    parentData,
+    parentDataProperty,
+    rootData = data,
+    dynamicAnchors = {},
+  } = {},
+) {
+  /*# sourceURL="urn:deykit:transport:ResourceChoice" */ let vErrors = null;
+  let errors = 0;
+  const evaluated0 = validate38.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  if (errors === 0) {
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      let missing0;
+      if (
+        (data.kind === undefined && (missing0 = "kind")) ||
+        (data.resource_id === undefined && (missing0 = "resource_id"))
+      ) {
+        validate38.errors = [
+          {
+            instancePath,
+            schemaPath: "#/required",
+            keyword: "required",
+            params: { missingProperty: missing0 },
+            message: "must have required property '" + missing0 + "'",
+          },
+        ];
+        return false;
+      } else {
+        const _errs1 = errors;
+        for (const key0 in data) {
+          if (!(
+            key0 === "kind" ||
+            key0 === "resource_id" ||
+            key0 === "scope"
+          )) {
+            validate38.errors = [
+              {
+                instancePath,
+                schemaPath: "#/additionalProperties",
+                keyword: "additionalProperties",
+                params: { additionalProperty: key0 },
+                message: "must NOT have additional properties",
+              },
+            ];
+            return false;
+            break;
+          }
+        }
+        if (_errs1 === errors) {
+          if (data.kind !== undefined) {
+            let data0 = data.kind;
+            const _errs2 = errors;
+            if (typeof data0 !== "string") {
+              validate38.errors = [
+                {
+                  instancePath: instancePath + "/kind",
+                  schemaPath: "#/properties/kind/type",
+                  keyword: "type",
+                  params: { type: "string" },
+                  message: "must be string",
+                },
+              ];
+              return false;
+            }
+            if (!(
+              data0 === "decision" ||
+              data0 === "revision" ||
+              data0 === "dataset" ||
+              data0 === "case" ||
+              data0 === "provider" ||
+              data0 === "fixture" ||
+              data0 === "run" ||
+              data0 === "result_snapshot" ||
+              data0 === "evaluation" ||
+              data0 === "comparison" ||
+              data0 === "regression" ||
+              data0 === "execution_group" ||
+              data0 === "diagnostic_snapshot" ||
+              data0 === "check_snapshot" ||
+              data0 === "report"
+            )) {
+              validate38.errors = [
+                {
+                  instancePath: instancePath + "/kind",
+                  schemaPath: "#/properties/kind/enum",
+                  keyword: "enum",
+                  params: { allowedValues: schema43.properties.kind.enum },
+                  message: "must be equal to one of the allowed values",
+                },
+              ];
+              return false;
+            }
+            var valid0 = _errs2 === errors;
+          } else {
+            var valid0 = true;
+          }
+          if (valid0) {
+            if (data.resource_id !== undefined) {
+              const _errs4 = errors;
+              if (typeof data.resource_id !== "string") {
+                validate38.errors = [
+                  {
+                    instancePath: instancePath + "/resource_id",
+                    schemaPath: "#/properties/resource_id/type",
+                    keyword: "type",
+                    params: { type: "string" },
+                    message: "must be string",
+                  },
+                ];
+                return false;
+              }
+              var valid0 = _errs4 === errors;
+            } else {
+              var valid0 = true;
+            }
+            if (valid0) {
+              if (data.scope !== undefined) {
+                let data2 = data.scope;
+                const _errs6 = errors;
+                if (errors === _errs6) {
+                  if (Array.isArray(data2)) {
+                    var valid1 = true;
+                    const len0 = data2.length;
+                    for (let i0 = 0; i0 < len0; i0++) {
+                      const _errs8 = errors;
+                      if (typeof data2[i0] !== "string") {
+                        validate38.errors = [
+                          {
+                            instancePath: instancePath + "/scope/" + i0,
+                            schemaPath: "#/properties/scope/items/type",
+                            keyword: "type",
+                            params: { type: "string" },
+                            message: "must be string",
+                          },
+                        ];
+                        return false;
+                      }
+                      var valid1 = _errs8 === errors;
+                      if (!valid1) {
+                        break;
+                      }
+                    }
+                  } else {
+                    validate38.errors = [
+                      {
+                        instancePath: instancePath + "/scope",
+                        schemaPath: "#/properties/scope/type",
+                        keyword: "type",
+                        params: { type: "array" },
+                        message: "must be array",
+                      },
+                    ];
+                    return false;
+                  }
+                }
+                var valid0 = _errs6 === errors;
+              } else {
+                var valid0 = true;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      validate38.errors = [
+        {
+          instancePath,
+          schemaPath: "#/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        },
+      ];
+      return false;
+    }
+  }
+  validate38.errors = vErrors;
+  return errors === 0;
+}
+validate38.evaluated = {
+  props: true,
+  dynamicProps: false,
+  dynamicItems: false,
+};
+exports.validateResourceSummaryDTO = validate39;
+function validate39(
   data,
   {
     instancePath = "",
@@ -5472,7 +6109,7 @@ function validate36(
 ) {
   /*# sourceURL="urn:deykit:transport:ResourceSummaryDTO" */ let vErrors = null;
   let errors = 0;
-  const evaluated0 = validate36.evaluated;
+  const evaluated0 = validate39.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -5487,7 +6124,7 @@ function validate36(
         (data.name === undefined && (missing0 = "name")) ||
         (data.schema_version === undefined && (missing0 = "schema_version"))
       ) {
-        validate36.errors = [
+        validate39.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -5505,7 +6142,7 @@ function validate36(
             key0 === "name" ||
             key0 === "schema_version"
           )) {
-            validate36.errors = [
+            validate39.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -5522,7 +6159,7 @@ function validate36(
           if (data.id !== undefined) {
             const _errs2 = errors;
             if (typeof data.id !== "string") {
-              validate36.errors = [
+              validate39.errors = [
                 {
                   instancePath: instancePath + "/id",
                   schemaPath: "#/properties/id/type",
@@ -5541,7 +6178,7 @@ function validate36(
             if (data.name !== undefined) {
               const _errs4 = errors;
               if (typeof data.name !== "string") {
-                validate36.errors = [
+                validate39.errors = [
                   {
                     instancePath: instancePath + "/name",
                     schemaPath: "#/properties/name/type",
@@ -5566,7 +6203,7 @@ function validate36(
                   !isNaN(data2) &&
                   isFinite(data2)
                 )) {
-                  validate36.errors = [
+                  validate39.errors = [
                     {
                       instancePath: instancePath + "/schema_version",
                       schemaPath: "#/properties/schema_version/type",
@@ -5578,7 +6215,7 @@ function validate36(
                   return false;
                 }
                 if (1 !== data2) {
-                  validate36.errors = [
+                  validate39.errors = [
                     {
                       instancePath: instancePath + "/schema_version",
                       schemaPath: "#/properties/schema_version/const",
@@ -5598,7 +6235,7 @@ function validate36(
         }
       }
     } else {
-      validate36.errors = [
+      validate39.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -5610,16 +6247,17 @@ function validate36(
       return false;
     }
   }
-  validate36.errors = vErrors;
+  validate39.errors = vErrors;
   return errors === 0;
 }
-validate36.evaluated = {
+validate39.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateSuccess_BootstrapReply_ = validate37;
-const schema52 = {
+exports.validateSelectionDetails = validate29;
+exports.validateSuccess_BootstrapReply_ = validate40;
+const schema55 = {
   $id: "urn:deykit:transport:Success_BootstrapReply_",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -5642,7 +6280,7 @@ const schema52 = {
   title: "Success[BootstrapReply]",
   type: "object",
 };
-function validate37(
+function validate40(
   data,
   {
     instancePath = "",
@@ -5655,7 +6293,7 @@ function validate37(
   /*# sourceURL="urn:deykit:transport:Success_BootstrapReply_" */ let vErrors =
     null;
   let errors = 0;
-  const evaluated0 = validate37.evaluated;
+  const evaluated0 = validate40.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -5669,7 +6307,7 @@ function validate37(
         (data.data === undefined && (missing0 = "data")) ||
         (data.schema_version === undefined && (missing0 = "schema_version"))
       ) {
-        validate37.errors = [
+        validate40.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -5687,7 +6325,7 @@ function validate37(
             key0 === "schema_version" ||
             key0 === "warnings"
           )) {
-            validate37.errors = [
+            validate40.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -5713,7 +6351,7 @@ function validate37(
                     (missing1 = "capability")) ||
                   (data0.origin === undefined && (missing1 = "origin"))
                 ) {
-                  validate37.errors = [
+                  validate40.errors = [
                     {
                       instancePath: instancePath + "/data",
                       schemaPath:
@@ -5732,7 +6370,7 @@ function validate37(
                       key1 === "capability" ||
                       key1 === "origin"
                     )) {
-                      validate37.errors = [
+                      validate40.errors = [
                         {
                           instancePath: instancePath + "/data",
                           schemaPath:
@@ -5756,7 +6394,7 @@ function validate37(
                         !isNaN(data1) &&
                         isFinite(data1)
                       )) {
-                        validate37.errors = [
+                        validate40.errors = [
                           {
                             instancePath: instancePath + "/data/api_version",
                             schemaPath:
@@ -5769,7 +6407,7 @@ function validate37(
                         return false;
                       }
                       if (1 !== data1) {
-                        validate37.errors = [
+                        validate40.errors = [
                           {
                             instancePath: instancePath + "/data/api_version",
                             schemaPath:
@@ -5792,7 +6430,7 @@ function validate37(
                         if (errors === _errs8) {
                           if (typeof data2 === "string") {
                             if (!pattern4.test(data2)) {
-                              validate37.errors = [
+                              validate40.errors = [
                                 {
                                   instancePath:
                                     instancePath + "/data/capability",
@@ -5809,7 +6447,7 @@ function validate37(
                               return false;
                             }
                           } else {
-                            validate37.errors = [
+                            validate40.errors = [
                               {
                                 instancePath: instancePath + "/data/capability",
                                 schemaPath:
@@ -5830,7 +6468,7 @@ function validate37(
                         if (data0.origin !== undefined) {
                           const _errs10 = errors;
                           if (typeof data0.origin !== "string") {
-                            validate37.errors = [
+                            validate40.errors = [
                               {
                                 instancePath: instancePath + "/data/origin",
                                 schemaPath:
@@ -5851,7 +6489,7 @@ function validate37(
                   }
                 }
               } else {
-                validate37.errors = [
+                validate40.errors = [
                   {
                     instancePath: instancePath + "/data",
                     schemaPath: "urn:deykit:transport:BootstrapReply#/type",
@@ -5877,7 +6515,7 @@ function validate37(
                 !isNaN(data4) &&
                 isFinite(data4)
               )) {
-                validate37.errors = [
+                validate40.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/type",
@@ -5889,7 +6527,7 @@ function validate37(
                 return false;
               }
               if (1 !== data4) {
-                validate37.errors = [
+                validate40.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/const",
@@ -5930,7 +6568,7 @@ function validate37(
                             (data6.schema_version === undefined &&
                               (missing2 = "schema_version"))
                           ) {
-                            validate37.errors = [
+                            validate40.errors = [
                               {
                                 instancePath: instancePath + "/warnings/" + i0,
                                 schemaPath:
@@ -5956,7 +6594,7 @@ function validate37(
                                 key2 === "row" ||
                                 key2 === "schema_version"
                               )) {
-                                validate37.errors = [
+                                validate40.errors = [
                                   {
                                     instancePath:
                                       instancePath + "/warnings/" + i0,
@@ -5976,7 +6614,7 @@ function validate37(
                               if (data6.code !== undefined) {
                                 const _errs20 = errors;
                                 if (typeof data6.code !== "string") {
-                                  validate37.errors = [
+                                  validate40.errors = [
                                     {
                                       instancePath:
                                         instancePath +
@@ -6067,7 +6705,7 @@ function validate37(
                                       vErrors.push(err2);
                                     }
                                     errors++;
-                                    validate37.errors = vErrors;
+                                    validate40.errors = vErrors;
                                     return false;
                                   } else {
                                     errors = _errs23;
@@ -6087,7 +6725,7 @@ function validate37(
                                   if (data6.message !== undefined) {
                                     const _errs28 = errors;
                                     if (typeof data6.message !== "string") {
-                                      validate37.errors = [
+                                      validate40.errors = [
                                         {
                                           instancePath:
                                             instancePath +
@@ -6179,7 +6817,7 @@ function validate37(
                                           vErrors.push(err5);
                                         }
                                         errors++;
-                                        validate37.errors = vErrors;
+                                        validate40.errors = vErrors;
                                         return false;
                                       } else {
                                         errors = _errs31;
@@ -6267,7 +6905,7 @@ function validate37(
                                             vErrors.push(err8);
                                           }
                                           errors++;
-                                          validate37.errors = vErrors;
+                                          validate40.errors = vErrors;
                                           return false;
                                         } else {
                                           errors = _errs37;
@@ -6421,7 +7059,7 @@ function validate37(
                                               vErrors.push(err13);
                                             }
                                             errors++;
-                                            validate37.errors = vErrors;
+                                            validate40.errors = vErrors;
                                             return false;
                                           } else {
                                             errors = _errs43;
@@ -6449,7 +7087,7 @@ function validate37(
                                               !isNaN(data13) &&
                                               isFinite(data13)
                                             )) {
-                                              validate37.errors = [
+                                              validate40.errors = [
                                                 {
                                                   instancePath:
                                                     instancePath +
@@ -6466,7 +7104,7 @@ function validate37(
                                               return false;
                                             }
                                             if (1 !== data13) {
-                                              validate37.errors = [
+                                              validate40.errors = [
                                                 {
                                                   instancePath:
                                                     instancePath +
@@ -6496,7 +7134,7 @@ function validate37(
                             }
                           }
                         } else {
-                          validate37.errors = [
+                          validate40.errors = [
                             {
                               instancePath: instancePath + "/warnings/" + i0,
                               schemaPath: "urn:deykit:transport:ErrorDTO#/type",
@@ -6514,7 +7152,7 @@ function validate37(
                       }
                     }
                   } else {
-                    validate37.errors = [
+                    validate40.errors = [
                       {
                         instancePath: instancePath + "/warnings",
                         schemaPath: "#/properties/warnings/type",
@@ -6535,7 +7173,7 @@ function validate37(
         }
       }
     } else {
-      validate37.errors = [
+      validate40.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -6547,16 +7185,16 @@ function validate37(
       return false;
     }
   }
-  validate37.errors = vErrors;
+  validate40.errors = vErrors;
   return errors === 0;
 }
-validate37.evaluated = {
+validate40.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateSuccess_DemoCreateDTO_ = validate38;
-const schema55 = {
+exports.validateSuccess_DemoCreateDTO_ = validate41;
+const schema58 = {
   $id: "urn:deykit:transport:Success_DemoCreateDTO_",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -6579,7 +7217,7 @@ const schema55 = {
   title: "Success[DemoCreateDTO]",
   type: "object",
 };
-function validate38(
+function validate41(
   data,
   {
     instancePath = "",
@@ -6592,7 +7230,7 @@ function validate38(
   /*# sourceURL="urn:deykit:transport:Success_DemoCreateDTO_" */ let vErrors =
     null;
   let errors = 0;
-  const evaluated0 = validate38.evaluated;
+  const evaluated0 = validate41.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -6606,7 +7244,7 @@ function validate38(
         (data.data === undefined && (missing0 = "data")) ||
         (data.schema_version === undefined && (missing0 = "schema_version"))
       ) {
-        validate38.errors = [
+        validate41.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -6624,7 +7262,7 @@ function validate38(
             key0 === "schema_version" ||
             key0 === "warnings"
           )) {
-            validate38.errors = [
+            validate41.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -6669,7 +7307,7 @@ function validate38(
                 !isNaN(data1) &&
                 isFinite(data1)
               )) {
-                validate38.errors = [
+                validate41.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/type",
@@ -6681,7 +7319,7 @@ function validate38(
                 return false;
               }
               if (1 !== data1) {
-                validate38.errors = [
+                validate41.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/const",
@@ -6722,7 +7360,7 @@ function validate38(
                             (data3.schema_version === undefined &&
                               (missing1 = "schema_version"))
                           ) {
-                            validate38.errors = [
+                            validate41.errors = [
                               {
                                 instancePath: instancePath + "/warnings/" + i0,
                                 schemaPath:
@@ -6748,7 +7386,7 @@ function validate38(
                                 key1 === "row" ||
                                 key1 === "schema_version"
                               )) {
-                                validate38.errors = [
+                                validate41.errors = [
                                   {
                                     instancePath:
                                       instancePath + "/warnings/" + i0,
@@ -6768,7 +7406,7 @@ function validate38(
                               if (data3.code !== undefined) {
                                 const _errs11 = errors;
                                 if (typeof data3.code !== "string") {
-                                  validate38.errors = [
+                                  validate41.errors = [
                                     {
                                       instancePath:
                                         instancePath +
@@ -6859,7 +7497,7 @@ function validate38(
                                       vErrors.push(err2);
                                     }
                                     errors++;
-                                    validate38.errors = vErrors;
+                                    validate41.errors = vErrors;
                                     return false;
                                   } else {
                                     errors = _errs14;
@@ -6879,7 +7517,7 @@ function validate38(
                                   if (data3.message !== undefined) {
                                     const _errs19 = errors;
                                     if (typeof data3.message !== "string") {
-                                      validate38.errors = [
+                                      validate41.errors = [
                                         {
                                           instancePath:
                                             instancePath +
@@ -6971,7 +7609,7 @@ function validate38(
                                           vErrors.push(err5);
                                         }
                                         errors++;
-                                        validate38.errors = vErrors;
+                                        validate41.errors = vErrors;
                                         return false;
                                       } else {
                                         errors = _errs22;
@@ -7059,7 +7697,7 @@ function validate38(
                                             vErrors.push(err8);
                                           }
                                           errors++;
-                                          validate38.errors = vErrors;
+                                          validate41.errors = vErrors;
                                           return false;
                                         } else {
                                           errors = _errs28;
@@ -7210,7 +7848,7 @@ function validate38(
                                               vErrors.push(err13);
                                             }
                                             errors++;
-                                            validate38.errors = vErrors;
+                                            validate41.errors = vErrors;
                                             return false;
                                           } else {
                                             errors = _errs34;
@@ -7238,7 +7876,7 @@ function validate38(
                                               !isNaN(data10) &&
                                               isFinite(data10)
                                             )) {
-                                              validate38.errors = [
+                                              validate41.errors = [
                                                 {
                                                   instancePath:
                                                     instancePath +
@@ -7255,7 +7893,7 @@ function validate38(
                                               return false;
                                             }
                                             if (1 !== data10) {
-                                              validate38.errors = [
+                                              validate41.errors = [
                                                 {
                                                   instancePath:
                                                     instancePath +
@@ -7285,7 +7923,7 @@ function validate38(
                             }
                           }
                         } else {
-                          validate38.errors = [
+                          validate41.errors = [
                             {
                               instancePath: instancePath + "/warnings/" + i0,
                               schemaPath: "urn:deykit:transport:ErrorDTO#/type",
@@ -7303,7 +7941,7 @@ function validate38(
                       }
                     }
                   } else {
-                    validate38.errors = [
+                    validate41.errors = [
                       {
                         instancePath: instancePath + "/warnings",
                         schemaPath: "#/properties/warnings/type",
@@ -7324,7 +7962,7 @@ function validate38(
         }
       }
     } else {
-      validate38.errors = [
+      validate41.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -7336,16 +7974,16 @@ function validate38(
       return false;
     }
   }
-  validate38.errors = vErrors;
+  validate41.errors = vErrors;
   return errors === 0;
 }
-validate38.evaluated = {
+validate41.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateSuccess_ProjectOverviewDTO_ = validate40;
-const schema57 = {
+exports.validateSuccess_ProjectOverviewDTO_ = validate43;
+const schema60 = {
   $id: "urn:deykit:transport:Success_ProjectOverviewDTO_",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -7368,1712 +8006,6 @@ const schema57 = {
   title: "Success[ProjectOverviewDTO]",
   type: "object",
 };
-function validate40(
-  data,
-  {
-    instancePath = "",
-    parentData,
-    parentDataProperty,
-    rootData = data,
-    dynamicAnchors = {},
-  } = {},
-) {
-  /*# sourceURL="urn:deykit:transport:Success_ProjectOverviewDTO_" */ let vErrors =
-    null;
-  let errors = 0;
-  const evaluated0 = validate40.evaluated;
-  if (evaluated0.dynamicProps) {
-    evaluated0.props = undefined;
-  }
-  if (evaluated0.dynamicItems) {
-    evaluated0.items = undefined;
-  }
-  if (errors === 0) {
-    if (data && typeof data == "object" && !Array.isArray(data)) {
-      let missing0;
-      if (
-        (data.data === undefined && (missing0 = "data")) ||
-        (data.schema_version === undefined && (missing0 = "schema_version"))
-      ) {
-        validate40.errors = [
-          {
-            instancePath,
-            schemaPath: "#/required",
-            keyword: "required",
-            params: { missingProperty: missing0 },
-            message: "must have required property '" + missing0 + "'",
-          },
-        ];
-        return false;
-      } else {
-        const _errs1 = errors;
-        for (const key0 in data) {
-          if (!(
-            key0 === "data" ||
-            key0 === "schema_version" ||
-            key0 === "warnings"
-          )) {
-            validate40.errors = [
-              {
-                instancePath,
-                schemaPath: "#/additionalProperties",
-                keyword: "additionalProperties",
-                params: { additionalProperty: key0 },
-                message: "must NOT have additional properties",
-              },
-            ];
-            return false;
-            break;
-          }
-        }
-        if (_errs1 === errors) {
-          if (data.data !== undefined) {
-            const _errs2 = errors;
-            if (
-              !validate29(data.data, {
-                instancePath: instancePath + "/data",
-                parentData: data,
-                parentDataProperty: "data",
-                rootData,
-                dynamicAnchors,
-              })
-            ) {
-              vErrors =
-                vErrors === null
-                  ? validate29.errors
-                  : vErrors.concat(validate29.errors);
-              errors = vErrors.length;
-            }
-            var valid0 = _errs2 === errors;
-          } else {
-            var valid0 = true;
-          }
-          if (valid0) {
-            if (data.schema_version !== undefined) {
-              let data1 = data.schema_version;
-              const _errs3 = errors;
-              if (!(
-                typeof data1 == "number" &&
-                !(data1 % 1) &&
-                !isNaN(data1) &&
-                isFinite(data1)
-              )) {
-                validate40.errors = [
-                  {
-                    instancePath: instancePath + "/schema_version",
-                    schemaPath: "#/properties/schema_version/type",
-                    keyword: "type",
-                    params: { type: "integer" },
-                    message: "must be integer",
-                  },
-                ];
-                return false;
-              }
-              if (1 !== data1) {
-                validate40.errors = [
-                  {
-                    instancePath: instancePath + "/schema_version",
-                    schemaPath: "#/properties/schema_version/const",
-                    keyword: "const",
-                    params: { allowedValue: 1 },
-                    message: "must be equal to constant",
-                  },
-                ];
-                return false;
-              }
-              var valid0 = _errs3 === errors;
-            } else {
-              var valid0 = true;
-            }
-            if (valid0) {
-              if (data.warnings !== undefined) {
-                let data2 = data.warnings;
-                const _errs5 = errors;
-                if (errors === _errs5) {
-                  if (Array.isArray(data2)) {
-                    var valid1 = true;
-                    const len0 = data2.length;
-                    for (let i0 = 0; i0 < len0; i0++) {
-                      let data3 = data2[i0];
-                      const _errs7 = errors;
-                      const _errs8 = errors;
-                      if (errors === _errs8) {
-                        if (
-                          data3 &&
-                          typeof data3 == "object" &&
-                          !Array.isArray(data3)
-                        ) {
-                          let missing1;
-                          if (
-                            (data3.code === undefined && (missing1 = "code")) ||
-                            (data3.message === undefined &&
-                              (missing1 = "message")) ||
-                            (data3.schema_version === undefined &&
-                              (missing1 = "schema_version"))
-                          ) {
-                            validate40.errors = [
-                              {
-                                instancePath: instancePath + "/warnings/" + i0,
-                                schemaPath:
-                                  "urn:deykit:transport:ErrorDTO#/required",
-                                keyword: "required",
-                                params: { missingProperty: missing1 },
-                                message:
-                                  "must have required property '" +
-                                  missing1 +
-                                  "'",
-                              },
-                            ];
-                            return false;
-                          } else {
-                            const _errs10 = errors;
-                            for (const key1 in data3) {
-                              if (!(
-                                key1 === "code" ||
-                                key1 === "correlation_id" ||
-                                key1 === "message" ||
-                                key1 === "reason" ||
-                                key1 === "resource_id" ||
-                                key1 === "row" ||
-                                key1 === "schema_version"
-                              )) {
-                                validate40.errors = [
-                                  {
-                                    instancePath:
-                                      instancePath + "/warnings/" + i0,
-                                    schemaPath:
-                                      "urn:deykit:transport:ErrorDTO#/additionalProperties",
-                                    keyword: "additionalProperties",
-                                    params: { additionalProperty: key1 },
-                                    message:
-                                      "must NOT have additional properties",
-                                  },
-                                ];
-                                return false;
-                                break;
-                              }
-                            }
-                            if (_errs10 === errors) {
-                              if (data3.code !== undefined) {
-                                const _errs11 = errors;
-                                if (typeof data3.code !== "string") {
-                                  validate40.errors = [
-                                    {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/code",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/code/type",
-                                      keyword: "type",
-                                      params: { type: "string" },
-                                      message: "must be string",
-                                    },
-                                  ];
-                                  return false;
-                                }
-                                var valid3 = _errs11 === errors;
-                              } else {
-                                var valid3 = true;
-                              }
-                              if (valid3) {
-                                if (data3.correlation_id !== undefined) {
-                                  let data5 = data3.correlation_id;
-                                  const _errs13 = errors;
-                                  const _errs14 = errors;
-                                  let valid4 = false;
-                                  const _errs15 = errors;
-                                  if (typeof data5 !== "string") {
-                                    const err0 = {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/correlation_id",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/0/type",
-                                      keyword: "type",
-                                      params: { type: "string" },
-                                      message: "must be string",
-                                    };
-                                    if (vErrors === null) {
-                                      vErrors = [err0];
-                                    } else {
-                                      vErrors.push(err0);
-                                    }
-                                    errors++;
-                                  }
-                                  var _valid0 = _errs15 === errors;
-                                  valid4 = valid4 || _valid0;
-                                  const _errs17 = errors;
-                                  if (data5 !== null) {
-                                    const err1 = {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/correlation_id",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/1/type",
-                                      keyword: "type",
-                                      params: { type: "null" },
-                                      message: "must be null",
-                                    };
-                                    if (vErrors === null) {
-                                      vErrors = [err1];
-                                    } else {
-                                      vErrors.push(err1);
-                                    }
-                                    errors++;
-                                  }
-                                  var _valid0 = _errs17 === errors;
-                                  valid4 = valid4 || _valid0;
-                                  if (!valid4) {
-                                    const err2 = {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/correlation_id",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf",
-                                      keyword: "anyOf",
-                                      params: {},
-                                      message: "must match a schema in anyOf",
-                                    };
-                                    if (vErrors === null) {
-                                      vErrors = [err2];
-                                    } else {
-                                      vErrors.push(err2);
-                                    }
-                                    errors++;
-                                    validate40.errors = vErrors;
-                                    return false;
-                                  } else {
-                                    errors = _errs14;
-                                    if (vErrors !== null) {
-                                      if (_errs14) {
-                                        vErrors.length = _errs14;
-                                      } else {
-                                        vErrors = null;
-                                      }
-                                    }
-                                  }
-                                  var valid3 = _errs13 === errors;
-                                } else {
-                                  var valid3 = true;
-                                }
-                                if (valid3) {
-                                  if (data3.message !== undefined) {
-                                    const _errs19 = errors;
-                                    if (typeof data3.message !== "string") {
-                                      validate40.errors = [
-                                        {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/message",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/message/type",
-                                          keyword: "type",
-                                          params: { type: "string" },
-                                          message: "must be string",
-                                        },
-                                      ];
-                                      return false;
-                                    }
-                                    var valid3 = _errs19 === errors;
-                                  } else {
-                                    var valid3 = true;
-                                  }
-                                  if (valid3) {
-                                    if (data3.reason !== undefined) {
-                                      let data7 = data3.reason;
-                                      const _errs21 = errors;
-                                      const _errs22 = errors;
-                                      let valid5 = false;
-                                      const _errs23 = errors;
-                                      if (typeof data7 !== "string") {
-                                        const err3 = {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/reason",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/0/type",
-                                          keyword: "type",
-                                          params: { type: "string" },
-                                          message: "must be string",
-                                        };
-                                        if (vErrors === null) {
-                                          vErrors = [err3];
-                                        } else {
-                                          vErrors.push(err3);
-                                        }
-                                        errors++;
-                                      }
-                                      var _valid1 = _errs23 === errors;
-                                      valid5 = valid5 || _valid1;
-                                      const _errs25 = errors;
-                                      if (data7 !== null) {
-                                        const err4 = {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/reason",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/1/type",
-                                          keyword: "type",
-                                          params: { type: "null" },
-                                          message: "must be null",
-                                        };
-                                        if (vErrors === null) {
-                                          vErrors = [err4];
-                                        } else {
-                                          vErrors.push(err4);
-                                        }
-                                        errors++;
-                                      }
-                                      var _valid1 = _errs25 === errors;
-                                      valid5 = valid5 || _valid1;
-                                      if (!valid5) {
-                                        const err5 = {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/reason",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf",
-                                          keyword: "anyOf",
-                                          params: {},
-                                          message:
-                                            "must match a schema in anyOf",
-                                        };
-                                        if (vErrors === null) {
-                                          vErrors = [err5];
-                                        } else {
-                                          vErrors.push(err5);
-                                        }
-                                        errors++;
-                                        validate40.errors = vErrors;
-                                        return false;
-                                      } else {
-                                        errors = _errs22;
-                                        if (vErrors !== null) {
-                                          if (_errs22) {
-                                            vErrors.length = _errs22;
-                                          } else {
-                                            vErrors = null;
-                                          }
-                                        }
-                                      }
-                                      var valid3 = _errs21 === errors;
-                                    } else {
-                                      var valid3 = true;
-                                    }
-                                    if (valid3) {
-                                      if (data3.resource_id !== undefined) {
-                                        let data8 = data3.resource_id;
-                                        const _errs27 = errors;
-                                        const _errs28 = errors;
-                                        let valid6 = false;
-                                        const _errs29 = errors;
-                                        if (typeof data8 !== "string") {
-                                          const err6 = {
-                                            instancePath:
-                                              instancePath +
-                                              "/warnings/" +
-                                              i0 +
-                                              "/resource_id",
-                                            schemaPath:
-                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/0/type",
-                                            keyword: "type",
-                                            params: { type: "string" },
-                                            message: "must be string",
-                                          };
-                                          if (vErrors === null) {
-                                            vErrors = [err6];
-                                          } else {
-                                            vErrors.push(err6);
-                                          }
-                                          errors++;
-                                        }
-                                        var _valid2 = _errs29 === errors;
-                                        valid6 = valid6 || _valid2;
-                                        const _errs31 = errors;
-                                        if (data8 !== null) {
-                                          const err7 = {
-                                            instancePath:
-                                              instancePath +
-                                              "/warnings/" +
-                                              i0 +
-                                              "/resource_id",
-                                            schemaPath:
-                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/1/type",
-                                            keyword: "type",
-                                            params: { type: "null" },
-                                            message: "must be null",
-                                          };
-                                          if (vErrors === null) {
-                                            vErrors = [err7];
-                                          } else {
-                                            vErrors.push(err7);
-                                          }
-                                          errors++;
-                                        }
-                                        var _valid2 = _errs31 === errors;
-                                        valid6 = valid6 || _valid2;
-                                        if (!valid6) {
-                                          const err8 = {
-                                            instancePath:
-                                              instancePath +
-                                              "/warnings/" +
-                                              i0 +
-                                              "/resource_id",
-                                            schemaPath:
-                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf",
-                                            keyword: "anyOf",
-                                            params: {},
-                                            message:
-                                              "must match a schema in anyOf",
-                                          };
-                                          if (vErrors === null) {
-                                            vErrors = [err8];
-                                          } else {
-                                            vErrors.push(err8);
-                                          }
-                                          errors++;
-                                          validate40.errors = vErrors;
-                                          return false;
-                                        } else {
-                                          errors = _errs28;
-                                          if (vErrors !== null) {
-                                            if (_errs28) {
-                                              vErrors.length = _errs28;
-                                            } else {
-                                              vErrors = null;
-                                            }
-                                          }
-                                        }
-                                        var valid3 = _errs27 === errors;
-                                      } else {
-                                        var valid3 = true;
-                                      }
-                                      if (valid3) {
-                                        if (data3.row !== undefined) {
-                                          let data9 = data3.row;
-                                          const _errs33 = errors;
-                                          const _errs34 = errors;
-                                          let valid7 = false;
-                                          const _errs35 = errors;
-                                          if (!(
-                                            typeof data9 == "number" &&
-                                            !(data9 % 1) &&
-                                            !isNaN(data9) &&
-                                            isFinite(data9)
-                                          )) {
-                                            const err9 = {
-                                              instancePath:
-                                                instancePath +
-                                                "/warnings/" +
-                                                i0 +
-                                                "/row",
-                                              schemaPath:
-                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/type",
-                                              keyword: "type",
-                                              params: { type: "integer" },
-                                              message: "must be integer",
-                                            };
-                                            if (vErrors === null) {
-                                              vErrors = [err9];
-                                            } else {
-                                              vErrors.push(err9);
-                                            }
-                                            errors++;
-                                          }
-                                          if (errors === _errs35) {
-                                            if (
-                                              typeof data9 == "number" &&
-                                              isFinite(data9)
-                                            ) {
-                                              if (
-                                                data9 > 9007199254740991 ||
-                                                isNaN(data9)
-                                              ) {
-                                                const err10 = {
-                                                  instancePath:
-                                                    instancePath +
-                                                    "/warnings/" +
-                                                    i0 +
-                                                    "/row",
-                                                  schemaPath:
-                                                    "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/maximum",
-                                                  keyword: "maximum",
-                                                  params: {
-                                                    comparison: "<=",
-                                                    limit: 9007199254740991,
-                                                  },
-                                                  message:
-                                                    "must be <= 9007199254740991",
-                                                };
-                                                if (vErrors === null) {
-                                                  vErrors = [err10];
-                                                } else {
-                                                  vErrors.push(err10);
-                                                }
-                                                errors++;
-                                              } else {
-                                                if (data9 < 0 || isNaN(data9)) {
-                                                  const err11 = {
-                                                    instancePath:
-                                                      instancePath +
-                                                      "/warnings/" +
-                                                      i0 +
-                                                      "/row",
-                                                    schemaPath:
-                                                      "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/minimum",
-                                                    keyword: "minimum",
-                                                    params: {
-                                                      comparison: ">=",
-                                                      limit: 0,
-                                                    },
-                                                    message: "must be >= 0",
-                                                  };
-                                                  if (vErrors === null) {
-                                                    vErrors = [err11];
-                                                  } else {
-                                                    vErrors.push(err11);
-                                                  }
-                                                  errors++;
-                                                }
-                                              }
-                                            }
-                                          }
-                                          var _valid3 = _errs35 === errors;
-                                          valid7 = valid7 || _valid3;
-                                          const _errs37 = errors;
-                                          if (data9 !== null) {
-                                            const err12 = {
-                                              instancePath:
-                                                instancePath +
-                                                "/warnings/" +
-                                                i0 +
-                                                "/row",
-                                              schemaPath:
-                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/1/type",
-                                              keyword: "type",
-                                              params: { type: "null" },
-                                              message: "must be null",
-                                            };
-                                            if (vErrors === null) {
-                                              vErrors = [err12];
-                                            } else {
-                                              vErrors.push(err12);
-                                            }
-                                            errors++;
-                                          }
-                                          var _valid3 = _errs37 === errors;
-                                          valid7 = valid7 || _valid3;
-                                          if (!valid7) {
-                                            const err13 = {
-                                              instancePath:
-                                                instancePath +
-                                                "/warnings/" +
-                                                i0 +
-                                                "/row",
-                                              schemaPath:
-                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf",
-                                              keyword: "anyOf",
-                                              params: {},
-                                              message:
-                                                "must match a schema in anyOf",
-                                            };
-                                            if (vErrors === null) {
-                                              vErrors = [err13];
-                                            } else {
-                                              vErrors.push(err13);
-                                            }
-                                            errors++;
-                                            validate40.errors = vErrors;
-                                            return false;
-                                          } else {
-                                            errors = _errs34;
-                                            if (vErrors !== null) {
-                                              if (_errs34) {
-                                                vErrors.length = _errs34;
-                                              } else {
-                                                vErrors = null;
-                                              }
-                                            }
-                                          }
-                                          var valid3 = _errs33 === errors;
-                                        } else {
-                                          var valid3 = true;
-                                        }
-                                        if (valid3) {
-                                          if (
-                                            data3.schema_version !== undefined
-                                          ) {
-                                            let data10 = data3.schema_version;
-                                            const _errs39 = errors;
-                                            if (!(
-                                              typeof data10 == "number" &&
-                                              !(data10 % 1) &&
-                                              !isNaN(data10) &&
-                                              isFinite(data10)
-                                            )) {
-                                              validate40.errors = [
-                                                {
-                                                  instancePath:
-                                                    instancePath +
-                                                    "/warnings/" +
-                                                    i0 +
-                                                    "/schema_version",
-                                                  schemaPath:
-                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/type",
-                                                  keyword: "type",
-                                                  params: { type: "integer" },
-                                                  message: "must be integer",
-                                                },
-                                              ];
-                                              return false;
-                                            }
-                                            if (1 !== data10) {
-                                              validate40.errors = [
-                                                {
-                                                  instancePath:
-                                                    instancePath +
-                                                    "/warnings/" +
-                                                    i0 +
-                                                    "/schema_version",
-                                                  schemaPath:
-                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/const",
-                                                  keyword: "const",
-                                                  params: { allowedValue: 1 },
-                                                  message:
-                                                    "must be equal to constant",
-                                                },
-                                              ];
-                                              return false;
-                                            }
-                                            var valid3 = _errs39 === errors;
-                                          } else {
-                                            var valid3 = true;
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        } else {
-                          validate40.errors = [
-                            {
-                              instancePath: instancePath + "/warnings/" + i0,
-                              schemaPath: "urn:deykit:transport:ErrorDTO#/type",
-                              keyword: "type",
-                              params: { type: "object" },
-                              message: "must be object",
-                            },
-                          ];
-                          return false;
-                        }
-                      }
-                      var valid1 = _errs7 === errors;
-                      if (!valid1) {
-                        break;
-                      }
-                    }
-                  } else {
-                    validate40.errors = [
-                      {
-                        instancePath: instancePath + "/warnings",
-                        schemaPath: "#/properties/warnings/type",
-                        keyword: "type",
-                        params: { type: "array" },
-                        message: "must be array",
-                      },
-                    ];
-                    return false;
-                  }
-                }
-                var valid0 = _errs5 === errors;
-              } else {
-                var valid0 = true;
-              }
-            }
-          }
-        }
-      }
-    } else {
-      validate40.errors = [
-        {
-          instancePath,
-          schemaPath: "#/type",
-          keyword: "type",
-          params: { type: "object" },
-          message: "must be object",
-        },
-      ];
-      return false;
-    }
-  }
-  validate40.errors = vErrors;
-  return errors === 0;
-}
-validate40.evaluated = {
-  props: true,
-  dynamicProps: false,
-  dynamicItems: false,
-};
-exports.validateSuccess_RebuildIndexDTO_ = validate42;
-const schema59 = {
-  $id: "urn:deykit:transport:Success_RebuildIndexDTO_",
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  additionalProperties: false,
-  properties: {
-    data: { $ref: "urn:deykit:transport:RebuildIndexDTO#" },
-    schema_version: {
-      const: 1,
-      default: 1,
-      title: "Schema Version",
-      type: "integer",
-    },
-    warnings: {
-      default: [],
-      items: { $ref: "urn:deykit:transport:ErrorDTO#" },
-      title: "Warnings",
-      type: "array",
-    },
-  },
-  required: ["data", "schema_version"],
-  title: "Success[RebuildIndexDTO]",
-  type: "object",
-};
-function validate42(
-  data,
-  {
-    instancePath = "",
-    parentData,
-    parentDataProperty,
-    rootData = data,
-    dynamicAnchors = {},
-  } = {},
-) {
-  /*# sourceURL="urn:deykit:transport:Success_RebuildIndexDTO_" */ let vErrors =
-    null;
-  let errors = 0;
-  const evaluated0 = validate42.evaluated;
-  if (evaluated0.dynamicProps) {
-    evaluated0.props = undefined;
-  }
-  if (evaluated0.dynamicItems) {
-    evaluated0.items = undefined;
-  }
-  if (errors === 0) {
-    if (data && typeof data == "object" && !Array.isArray(data)) {
-      let missing0;
-      if (
-        (data.data === undefined && (missing0 = "data")) ||
-        (data.schema_version === undefined && (missing0 = "schema_version"))
-      ) {
-        validate42.errors = [
-          {
-            instancePath,
-            schemaPath: "#/required",
-            keyword: "required",
-            params: { missingProperty: missing0 },
-            message: "must have required property '" + missing0 + "'",
-          },
-        ];
-        return false;
-      } else {
-        const _errs1 = errors;
-        for (const key0 in data) {
-          if (!(
-            key0 === "data" ||
-            key0 === "schema_version" ||
-            key0 === "warnings"
-          )) {
-            validate42.errors = [
-              {
-                instancePath,
-                schemaPath: "#/additionalProperties",
-                keyword: "additionalProperties",
-                params: { additionalProperty: key0 },
-                message: "must NOT have additional properties",
-              },
-            ];
-            return false;
-            break;
-          }
-        }
-        if (_errs1 === errors) {
-          if (data.data !== undefined) {
-            let data0 = data.data;
-            const _errs2 = errors;
-            const _errs3 = errors;
-            if (errors === _errs3) {
-              if (data0 && typeof data0 == "object" && !Array.isArray(data0)) {
-                let missing1;
-                if (
-                  (data0.record_count === undefined &&
-                    (missing1 = "record_count")) ||
-                  (data0.schema_version === undefined &&
-                    (missing1 = "schema_version"))
-                ) {
-                  validate42.errors = [
-                    {
-                      instancePath: instancePath + "/data",
-                      schemaPath:
-                        "urn:deykit:transport:RebuildIndexDTO#/required",
-                      keyword: "required",
-                      params: { missingProperty: missing1 },
-                      message: "must have required property '" + missing1 + "'",
-                    },
-                  ];
-                  return false;
-                } else {
-                  const _errs5 = errors;
-                  for (const key1 in data0) {
-                    if (!(
-                      key1 === "record_count" || key1 === "schema_version"
-                    )) {
-                      validate42.errors = [
-                        {
-                          instancePath: instancePath + "/data",
-                          schemaPath:
-                            "urn:deykit:transport:RebuildIndexDTO#/additionalProperties",
-                          keyword: "additionalProperties",
-                          params: { additionalProperty: key1 },
-                          message: "must NOT have additional properties",
-                        },
-                      ];
-                      return false;
-                      break;
-                    }
-                  }
-                  if (_errs5 === errors) {
-                    if (data0.record_count !== undefined) {
-                      let data1 = data0.record_count;
-                      const _errs6 = errors;
-                      if (errors === _errs6) {
-                        if (typeof data1 === "string") {
-                          if (!pattern5.test(data1)) {
-                            validate42.errors = [
-                              {
-                                instancePath:
-                                  instancePath + "/data/record_count",
-                                schemaPath:
-                                  "urn:deykit:transport:RebuildIndexDTO#/properties/record_count/pattern",
-                                keyword: "pattern",
-                                params: { pattern: "^(?:0|[1-9][0-9]*)$" },
-                                message:
-                                  'must match pattern "' +
-                                  "^(?:0|[1-9][0-9]*)$" +
-                                  '"',
-                              },
-                            ];
-                            return false;
-                          }
-                        } else {
-                          validate42.errors = [
-                            {
-                              instancePath: instancePath + "/data/record_count",
-                              schemaPath:
-                                "urn:deykit:transport:RebuildIndexDTO#/properties/record_count/type",
-                              keyword: "type",
-                              params: { type: "string" },
-                              message: "must be string",
-                            },
-                          ];
-                          return false;
-                        }
-                      }
-                      var valid2 = _errs6 === errors;
-                    } else {
-                      var valid2 = true;
-                    }
-                    if (valid2) {
-                      if (data0.schema_version !== undefined) {
-                        let data2 = data0.schema_version;
-                        const _errs8 = errors;
-                        if (!(
-                          typeof data2 == "number" &&
-                          !(data2 % 1) &&
-                          !isNaN(data2) &&
-                          isFinite(data2)
-                        )) {
-                          validate42.errors = [
-                            {
-                              instancePath:
-                                instancePath + "/data/schema_version",
-                              schemaPath:
-                                "urn:deykit:transport:RebuildIndexDTO#/properties/schema_version/type",
-                              keyword: "type",
-                              params: { type: "integer" },
-                              message: "must be integer",
-                            },
-                          ];
-                          return false;
-                        }
-                        if (1 !== data2) {
-                          validate42.errors = [
-                            {
-                              instancePath:
-                                instancePath + "/data/schema_version",
-                              schemaPath:
-                                "urn:deykit:transport:RebuildIndexDTO#/properties/schema_version/const",
-                              keyword: "const",
-                              params: { allowedValue: 1 },
-                              message: "must be equal to constant",
-                            },
-                          ];
-                          return false;
-                        }
-                        var valid2 = _errs8 === errors;
-                      } else {
-                        var valid2 = true;
-                      }
-                    }
-                  }
-                }
-              } else {
-                validate42.errors = [
-                  {
-                    instancePath: instancePath + "/data",
-                    schemaPath: "urn:deykit:transport:RebuildIndexDTO#/type",
-                    keyword: "type",
-                    params: { type: "object" },
-                    message: "must be object",
-                  },
-                ];
-                return false;
-              }
-            }
-            var valid0 = _errs2 === errors;
-          } else {
-            var valid0 = true;
-          }
-          if (valid0) {
-            if (data.schema_version !== undefined) {
-              let data3 = data.schema_version;
-              const _errs10 = errors;
-              if (!(
-                typeof data3 == "number" &&
-                !(data3 % 1) &&
-                !isNaN(data3) &&
-                isFinite(data3)
-              )) {
-                validate42.errors = [
-                  {
-                    instancePath: instancePath + "/schema_version",
-                    schemaPath: "#/properties/schema_version/type",
-                    keyword: "type",
-                    params: { type: "integer" },
-                    message: "must be integer",
-                  },
-                ];
-                return false;
-              }
-              if (1 !== data3) {
-                validate42.errors = [
-                  {
-                    instancePath: instancePath + "/schema_version",
-                    schemaPath: "#/properties/schema_version/const",
-                    keyword: "const",
-                    params: { allowedValue: 1 },
-                    message: "must be equal to constant",
-                  },
-                ];
-                return false;
-              }
-              var valid0 = _errs10 === errors;
-            } else {
-              var valid0 = true;
-            }
-            if (valid0) {
-              if (data.warnings !== undefined) {
-                let data4 = data.warnings;
-                const _errs12 = errors;
-                if (errors === _errs12) {
-                  if (Array.isArray(data4)) {
-                    var valid3 = true;
-                    const len0 = data4.length;
-                    for (let i0 = 0; i0 < len0; i0++) {
-                      let data5 = data4[i0];
-                      const _errs14 = errors;
-                      const _errs15 = errors;
-                      if (errors === _errs15) {
-                        if (
-                          data5 &&
-                          typeof data5 == "object" &&
-                          !Array.isArray(data5)
-                        ) {
-                          let missing2;
-                          if (
-                            (data5.code === undefined && (missing2 = "code")) ||
-                            (data5.message === undefined &&
-                              (missing2 = "message")) ||
-                            (data5.schema_version === undefined &&
-                              (missing2 = "schema_version"))
-                          ) {
-                            validate42.errors = [
-                              {
-                                instancePath: instancePath + "/warnings/" + i0,
-                                schemaPath:
-                                  "urn:deykit:transport:ErrorDTO#/required",
-                                keyword: "required",
-                                params: { missingProperty: missing2 },
-                                message:
-                                  "must have required property '" +
-                                  missing2 +
-                                  "'",
-                              },
-                            ];
-                            return false;
-                          } else {
-                            const _errs17 = errors;
-                            for (const key2 in data5) {
-                              if (!(
-                                key2 === "code" ||
-                                key2 === "correlation_id" ||
-                                key2 === "message" ||
-                                key2 === "reason" ||
-                                key2 === "resource_id" ||
-                                key2 === "row" ||
-                                key2 === "schema_version"
-                              )) {
-                                validate42.errors = [
-                                  {
-                                    instancePath:
-                                      instancePath + "/warnings/" + i0,
-                                    schemaPath:
-                                      "urn:deykit:transport:ErrorDTO#/additionalProperties",
-                                    keyword: "additionalProperties",
-                                    params: { additionalProperty: key2 },
-                                    message:
-                                      "must NOT have additional properties",
-                                  },
-                                ];
-                                return false;
-                                break;
-                              }
-                            }
-                            if (_errs17 === errors) {
-                              if (data5.code !== undefined) {
-                                const _errs18 = errors;
-                                if (typeof data5.code !== "string") {
-                                  validate42.errors = [
-                                    {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/code",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/code/type",
-                                      keyword: "type",
-                                      params: { type: "string" },
-                                      message: "must be string",
-                                    },
-                                  ];
-                                  return false;
-                                }
-                                var valid5 = _errs18 === errors;
-                              } else {
-                                var valid5 = true;
-                              }
-                              if (valid5) {
-                                if (data5.correlation_id !== undefined) {
-                                  let data7 = data5.correlation_id;
-                                  const _errs20 = errors;
-                                  const _errs21 = errors;
-                                  let valid6 = false;
-                                  const _errs22 = errors;
-                                  if (typeof data7 !== "string") {
-                                    const err0 = {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/correlation_id",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/0/type",
-                                      keyword: "type",
-                                      params: { type: "string" },
-                                      message: "must be string",
-                                    };
-                                    if (vErrors === null) {
-                                      vErrors = [err0];
-                                    } else {
-                                      vErrors.push(err0);
-                                    }
-                                    errors++;
-                                  }
-                                  var _valid0 = _errs22 === errors;
-                                  valid6 = valid6 || _valid0;
-                                  const _errs24 = errors;
-                                  if (data7 !== null) {
-                                    const err1 = {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/correlation_id",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/1/type",
-                                      keyword: "type",
-                                      params: { type: "null" },
-                                      message: "must be null",
-                                    };
-                                    if (vErrors === null) {
-                                      vErrors = [err1];
-                                    } else {
-                                      vErrors.push(err1);
-                                    }
-                                    errors++;
-                                  }
-                                  var _valid0 = _errs24 === errors;
-                                  valid6 = valid6 || _valid0;
-                                  if (!valid6) {
-                                    const err2 = {
-                                      instancePath:
-                                        instancePath +
-                                        "/warnings/" +
-                                        i0 +
-                                        "/correlation_id",
-                                      schemaPath:
-                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf",
-                                      keyword: "anyOf",
-                                      params: {},
-                                      message: "must match a schema in anyOf",
-                                    };
-                                    if (vErrors === null) {
-                                      vErrors = [err2];
-                                    } else {
-                                      vErrors.push(err2);
-                                    }
-                                    errors++;
-                                    validate42.errors = vErrors;
-                                    return false;
-                                  } else {
-                                    errors = _errs21;
-                                    if (vErrors !== null) {
-                                      if (_errs21) {
-                                        vErrors.length = _errs21;
-                                      } else {
-                                        vErrors = null;
-                                      }
-                                    }
-                                  }
-                                  var valid5 = _errs20 === errors;
-                                } else {
-                                  var valid5 = true;
-                                }
-                                if (valid5) {
-                                  if (data5.message !== undefined) {
-                                    const _errs26 = errors;
-                                    if (typeof data5.message !== "string") {
-                                      validate42.errors = [
-                                        {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/message",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/message/type",
-                                          keyword: "type",
-                                          params: { type: "string" },
-                                          message: "must be string",
-                                        },
-                                      ];
-                                      return false;
-                                    }
-                                    var valid5 = _errs26 === errors;
-                                  } else {
-                                    var valid5 = true;
-                                  }
-                                  if (valid5) {
-                                    if (data5.reason !== undefined) {
-                                      let data9 = data5.reason;
-                                      const _errs28 = errors;
-                                      const _errs29 = errors;
-                                      let valid7 = false;
-                                      const _errs30 = errors;
-                                      if (typeof data9 !== "string") {
-                                        const err3 = {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/reason",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/0/type",
-                                          keyword: "type",
-                                          params: { type: "string" },
-                                          message: "must be string",
-                                        };
-                                        if (vErrors === null) {
-                                          vErrors = [err3];
-                                        } else {
-                                          vErrors.push(err3);
-                                        }
-                                        errors++;
-                                      }
-                                      var _valid1 = _errs30 === errors;
-                                      valid7 = valid7 || _valid1;
-                                      const _errs32 = errors;
-                                      if (data9 !== null) {
-                                        const err4 = {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/reason",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/1/type",
-                                          keyword: "type",
-                                          params: { type: "null" },
-                                          message: "must be null",
-                                        };
-                                        if (vErrors === null) {
-                                          vErrors = [err4];
-                                        } else {
-                                          vErrors.push(err4);
-                                        }
-                                        errors++;
-                                      }
-                                      var _valid1 = _errs32 === errors;
-                                      valid7 = valid7 || _valid1;
-                                      if (!valid7) {
-                                        const err5 = {
-                                          instancePath:
-                                            instancePath +
-                                            "/warnings/" +
-                                            i0 +
-                                            "/reason",
-                                          schemaPath:
-                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf",
-                                          keyword: "anyOf",
-                                          params: {},
-                                          message:
-                                            "must match a schema in anyOf",
-                                        };
-                                        if (vErrors === null) {
-                                          vErrors = [err5];
-                                        } else {
-                                          vErrors.push(err5);
-                                        }
-                                        errors++;
-                                        validate42.errors = vErrors;
-                                        return false;
-                                      } else {
-                                        errors = _errs29;
-                                        if (vErrors !== null) {
-                                          if (_errs29) {
-                                            vErrors.length = _errs29;
-                                          } else {
-                                            vErrors = null;
-                                          }
-                                        }
-                                      }
-                                      var valid5 = _errs28 === errors;
-                                    } else {
-                                      var valid5 = true;
-                                    }
-                                    if (valid5) {
-                                      if (data5.resource_id !== undefined) {
-                                        let data10 = data5.resource_id;
-                                        const _errs34 = errors;
-                                        const _errs35 = errors;
-                                        let valid8 = false;
-                                        const _errs36 = errors;
-                                        if (typeof data10 !== "string") {
-                                          const err6 = {
-                                            instancePath:
-                                              instancePath +
-                                              "/warnings/" +
-                                              i0 +
-                                              "/resource_id",
-                                            schemaPath:
-                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/0/type",
-                                            keyword: "type",
-                                            params: { type: "string" },
-                                            message: "must be string",
-                                          };
-                                          if (vErrors === null) {
-                                            vErrors = [err6];
-                                          } else {
-                                            vErrors.push(err6);
-                                          }
-                                          errors++;
-                                        }
-                                        var _valid2 = _errs36 === errors;
-                                        valid8 = valid8 || _valid2;
-                                        const _errs38 = errors;
-                                        if (data10 !== null) {
-                                          const err7 = {
-                                            instancePath:
-                                              instancePath +
-                                              "/warnings/" +
-                                              i0 +
-                                              "/resource_id",
-                                            schemaPath:
-                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/1/type",
-                                            keyword: "type",
-                                            params: { type: "null" },
-                                            message: "must be null",
-                                          };
-                                          if (vErrors === null) {
-                                            vErrors = [err7];
-                                          } else {
-                                            vErrors.push(err7);
-                                          }
-                                          errors++;
-                                        }
-                                        var _valid2 = _errs38 === errors;
-                                        valid8 = valid8 || _valid2;
-                                        if (!valid8) {
-                                          const err8 = {
-                                            instancePath:
-                                              instancePath +
-                                              "/warnings/" +
-                                              i0 +
-                                              "/resource_id",
-                                            schemaPath:
-                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf",
-                                            keyword: "anyOf",
-                                            params: {},
-                                            message:
-                                              "must match a schema in anyOf",
-                                          };
-                                          if (vErrors === null) {
-                                            vErrors = [err8];
-                                          } else {
-                                            vErrors.push(err8);
-                                          }
-                                          errors++;
-                                          validate42.errors = vErrors;
-                                          return false;
-                                        } else {
-                                          errors = _errs35;
-                                          if (vErrors !== null) {
-                                            if (_errs35) {
-                                              vErrors.length = _errs35;
-                                            } else {
-                                              vErrors = null;
-                                            }
-                                          }
-                                        }
-                                        var valid5 = _errs34 === errors;
-                                      } else {
-                                        var valid5 = true;
-                                      }
-                                      if (valid5) {
-                                        if (data5.row !== undefined) {
-                                          let data11 = data5.row;
-                                          const _errs40 = errors;
-                                          const _errs41 = errors;
-                                          let valid9 = false;
-                                          const _errs42 = errors;
-                                          if (!(
-                                            typeof data11 == "number" &&
-                                            !(data11 % 1) &&
-                                            !isNaN(data11) &&
-                                            isFinite(data11)
-                                          )) {
-                                            const err9 = {
-                                              instancePath:
-                                                instancePath +
-                                                "/warnings/" +
-                                                i0 +
-                                                "/row",
-                                              schemaPath:
-                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/type",
-                                              keyword: "type",
-                                              params: { type: "integer" },
-                                              message: "must be integer",
-                                            };
-                                            if (vErrors === null) {
-                                              vErrors = [err9];
-                                            } else {
-                                              vErrors.push(err9);
-                                            }
-                                            errors++;
-                                          }
-                                          if (errors === _errs42) {
-                                            if (
-                                              typeof data11 == "number" &&
-                                              isFinite(data11)
-                                            ) {
-                                              if (
-                                                data11 > 9007199254740991 ||
-                                                isNaN(data11)
-                                              ) {
-                                                const err10 = {
-                                                  instancePath:
-                                                    instancePath +
-                                                    "/warnings/" +
-                                                    i0 +
-                                                    "/row",
-                                                  schemaPath:
-                                                    "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/maximum",
-                                                  keyword: "maximum",
-                                                  params: {
-                                                    comparison: "<=",
-                                                    limit: 9007199254740991,
-                                                  },
-                                                  message:
-                                                    "must be <= 9007199254740991",
-                                                };
-                                                if (vErrors === null) {
-                                                  vErrors = [err10];
-                                                } else {
-                                                  vErrors.push(err10);
-                                                }
-                                                errors++;
-                                              } else {
-                                                if (
-                                                  data11 < 0 ||
-                                                  isNaN(data11)
-                                                ) {
-                                                  const err11 = {
-                                                    instancePath:
-                                                      instancePath +
-                                                      "/warnings/" +
-                                                      i0 +
-                                                      "/row",
-                                                    schemaPath:
-                                                      "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/minimum",
-                                                    keyword: "minimum",
-                                                    params: {
-                                                      comparison: ">=",
-                                                      limit: 0,
-                                                    },
-                                                    message: "must be >= 0",
-                                                  };
-                                                  if (vErrors === null) {
-                                                    vErrors = [err11];
-                                                  } else {
-                                                    vErrors.push(err11);
-                                                  }
-                                                  errors++;
-                                                }
-                                              }
-                                            }
-                                          }
-                                          var _valid3 = _errs42 === errors;
-                                          valid9 = valid9 || _valid3;
-                                          const _errs44 = errors;
-                                          if (data11 !== null) {
-                                            const err12 = {
-                                              instancePath:
-                                                instancePath +
-                                                "/warnings/" +
-                                                i0 +
-                                                "/row",
-                                              schemaPath:
-                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/1/type",
-                                              keyword: "type",
-                                              params: { type: "null" },
-                                              message: "must be null",
-                                            };
-                                            if (vErrors === null) {
-                                              vErrors = [err12];
-                                            } else {
-                                              vErrors.push(err12);
-                                            }
-                                            errors++;
-                                          }
-                                          var _valid3 = _errs44 === errors;
-                                          valid9 = valid9 || _valid3;
-                                          if (!valid9) {
-                                            const err13 = {
-                                              instancePath:
-                                                instancePath +
-                                                "/warnings/" +
-                                                i0 +
-                                                "/row",
-                                              schemaPath:
-                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf",
-                                              keyword: "anyOf",
-                                              params: {},
-                                              message:
-                                                "must match a schema in anyOf",
-                                            };
-                                            if (vErrors === null) {
-                                              vErrors = [err13];
-                                            } else {
-                                              vErrors.push(err13);
-                                            }
-                                            errors++;
-                                            validate42.errors = vErrors;
-                                            return false;
-                                          } else {
-                                            errors = _errs41;
-                                            if (vErrors !== null) {
-                                              if (_errs41) {
-                                                vErrors.length = _errs41;
-                                              } else {
-                                                vErrors = null;
-                                              }
-                                            }
-                                          }
-                                          var valid5 = _errs40 === errors;
-                                        } else {
-                                          var valid5 = true;
-                                        }
-                                        if (valid5) {
-                                          if (
-                                            data5.schema_version !== undefined
-                                          ) {
-                                            let data12 = data5.schema_version;
-                                            const _errs46 = errors;
-                                            if (!(
-                                              typeof data12 == "number" &&
-                                              !(data12 % 1) &&
-                                              !isNaN(data12) &&
-                                              isFinite(data12)
-                                            )) {
-                                              validate42.errors = [
-                                                {
-                                                  instancePath:
-                                                    instancePath +
-                                                    "/warnings/" +
-                                                    i0 +
-                                                    "/schema_version",
-                                                  schemaPath:
-                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/type",
-                                                  keyword: "type",
-                                                  params: { type: "integer" },
-                                                  message: "must be integer",
-                                                },
-                                              ];
-                                              return false;
-                                            }
-                                            if (1 !== data12) {
-                                              validate42.errors = [
-                                                {
-                                                  instancePath:
-                                                    instancePath +
-                                                    "/warnings/" +
-                                                    i0 +
-                                                    "/schema_version",
-                                                  schemaPath:
-                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/const",
-                                                  keyword: "const",
-                                                  params: { allowedValue: 1 },
-                                                  message:
-                                                    "must be equal to constant",
-                                                },
-                                              ];
-                                              return false;
-                                            }
-                                            var valid5 = _errs46 === errors;
-                                          } else {
-                                            var valid5 = true;
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        } else {
-                          validate42.errors = [
-                            {
-                              instancePath: instancePath + "/warnings/" + i0,
-                              schemaPath: "urn:deykit:transport:ErrorDTO#/type",
-                              keyword: "type",
-                              params: { type: "object" },
-                              message: "must be object",
-                            },
-                          ];
-                          return false;
-                        }
-                      }
-                      var valid3 = _errs14 === errors;
-                      if (!valid3) {
-                        break;
-                      }
-                    }
-                  } else {
-                    validate42.errors = [
-                      {
-                        instancePath: instancePath + "/warnings",
-                        schemaPath: "#/properties/warnings/type",
-                        keyword: "type",
-                        params: { type: "array" },
-                        message: "must be array",
-                      },
-                    ];
-                    return false;
-                  }
-                }
-                var valid0 = _errs12 === errors;
-              } else {
-                var valid0 = true;
-              }
-            }
-          }
-        }
-      }
-    } else {
-      validate42.errors = [
-        {
-          instancePath,
-          schemaPath: "#/type",
-          keyword: "type",
-          params: { type: "object" },
-          message: "must be object",
-        },
-      ];
-      return false;
-    }
-  }
-  validate42.errors = vErrors;
-  return errors === 0;
-}
-validate42.evaluated = {
-  props: true,
-  dynamicProps: false,
-  dynamicItems: false,
-};
-exports.validateSuccess_RecentProjectsDTO_ = validate43;
-const schema62 = {
-  $id: "urn:deykit:transport:Success_RecentProjectsDTO_",
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  additionalProperties: false,
-  properties: {
-    data: { $ref: "urn:deykit:transport:RecentProjectsDTO#" },
-    schema_version: {
-      const: 1,
-      default: 1,
-      title: "Schema Version",
-      type: "integer",
-    },
-    warnings: {
-      default: [],
-      items: { $ref: "urn:deykit:transport:ErrorDTO#" },
-      title: "Warnings",
-      type: "array",
-    },
-  },
-  required: ["data", "schema_version"],
-  title: "Success[RecentProjectsDTO]",
-  type: "object",
-};
 function validate43(
   data,
   {
@@ -9084,7 +8016,7 @@ function validate43(
     dynamicAnchors = {},
   } = {},
 ) {
-  /*# sourceURL="urn:deykit:transport:Success_RecentProjectsDTO_" */ let vErrors =
+  /*# sourceURL="urn:deykit:transport:Success_ProjectOverviewDTO_" */ let vErrors =
     null;
   let errors = 0;
   const evaluated0 = validate43.evaluated;
@@ -9136,7 +8068,7 @@ function validate43(
           if (data.data !== undefined) {
             const _errs2 = errors;
             if (
-              !validate34(data.data, {
+              !validate31(data.data, {
                 instancePath: instancePath + "/data",
                 parentData: data,
                 parentDataProperty: "data",
@@ -9146,8 +8078,8 @@ function validate43(
             ) {
               vErrors =
                 vErrors === null
-                  ? validate34.errors
-                  : vErrors.concat(validate34.errors);
+                  ? validate31.errors
+                  : vErrors.concat(validate31.errors);
               errors = vErrors.length;
             }
             var valid0 = _errs2 === errors;
@@ -9839,13 +8771,13 @@ validate43.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateSuccess_RegistrationDTO_ = validate45;
-const schema64 = {
-  $id: "urn:deykit:transport:Success_RegistrationDTO_",
+exports.validateSuccess_RebuildIndexDTO_ = validate45;
+const schema62 = {
+  $id: "urn:deykit:transport:Success_RebuildIndexDTO_",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
   properties: {
-    data: { $ref: "urn:deykit:transport:RegistrationDTO#" },
+    data: { $ref: "urn:deykit:transport:RebuildIndexDTO#" },
     schema_version: {
       const: 1,
       default: 1,
@@ -9860,7 +8792,7 @@ const schema64 = {
     },
   },
   required: ["data", "schema_version"],
-  title: "Success[RegistrationDTO]",
+  title: "Success[RebuildIndexDTO]",
   type: "object",
 };
 function validate45(
@@ -9873,7 +8805,7 @@ function validate45(
     dynamicAnchors = {},
   } = {},
 ) {
-  /*# sourceURL="urn:deykit:transport:Success_RegistrationDTO_" */ let vErrors =
+  /*# sourceURL="urn:deykit:transport:Success_RebuildIndexDTO_" */ let vErrors =
     null;
   let errors = 0;
   const evaluated0 = validate45.evaluated;
@@ -9923,9 +8855,926 @@ function validate45(
         }
         if (_errs1 === errors) {
           if (data.data !== undefined) {
+            let data0 = data.data;
+            const _errs2 = errors;
+            const _errs3 = errors;
+            if (errors === _errs3) {
+              if (data0 && typeof data0 == "object" && !Array.isArray(data0)) {
+                let missing1;
+                if (
+                  (data0.record_count === undefined &&
+                    (missing1 = "record_count")) ||
+                  (data0.schema_version === undefined &&
+                    (missing1 = "schema_version"))
+                ) {
+                  validate45.errors = [
+                    {
+                      instancePath: instancePath + "/data",
+                      schemaPath:
+                        "urn:deykit:transport:RebuildIndexDTO#/required",
+                      keyword: "required",
+                      params: { missingProperty: missing1 },
+                      message: "must have required property '" + missing1 + "'",
+                    },
+                  ];
+                  return false;
+                } else {
+                  const _errs5 = errors;
+                  for (const key1 in data0) {
+                    if (!(
+                      key1 === "record_count" || key1 === "schema_version"
+                    )) {
+                      validate45.errors = [
+                        {
+                          instancePath: instancePath + "/data",
+                          schemaPath:
+                            "urn:deykit:transport:RebuildIndexDTO#/additionalProperties",
+                          keyword: "additionalProperties",
+                          params: { additionalProperty: key1 },
+                          message: "must NOT have additional properties",
+                        },
+                      ];
+                      return false;
+                      break;
+                    }
+                  }
+                  if (_errs5 === errors) {
+                    if (data0.record_count !== undefined) {
+                      let data1 = data0.record_count;
+                      const _errs6 = errors;
+                      if (errors === _errs6) {
+                        if (typeof data1 === "string") {
+                          if (!pattern5.test(data1)) {
+                            validate45.errors = [
+                              {
+                                instancePath:
+                                  instancePath + "/data/record_count",
+                                schemaPath:
+                                  "urn:deykit:transport:RebuildIndexDTO#/properties/record_count/pattern",
+                                keyword: "pattern",
+                                params: { pattern: "^(?:0|[1-9][0-9]*)$" },
+                                message:
+                                  'must match pattern "' +
+                                  "^(?:0|[1-9][0-9]*)$" +
+                                  '"',
+                              },
+                            ];
+                            return false;
+                          }
+                        } else {
+                          validate45.errors = [
+                            {
+                              instancePath: instancePath + "/data/record_count",
+                              schemaPath:
+                                "urn:deykit:transport:RebuildIndexDTO#/properties/record_count/type",
+                              keyword: "type",
+                              params: { type: "string" },
+                              message: "must be string",
+                            },
+                          ];
+                          return false;
+                        }
+                      }
+                      var valid2 = _errs6 === errors;
+                    } else {
+                      var valid2 = true;
+                    }
+                    if (valid2) {
+                      if (data0.schema_version !== undefined) {
+                        let data2 = data0.schema_version;
+                        const _errs8 = errors;
+                        if (!(
+                          typeof data2 == "number" &&
+                          !(data2 % 1) &&
+                          !isNaN(data2) &&
+                          isFinite(data2)
+                        )) {
+                          validate45.errors = [
+                            {
+                              instancePath:
+                                instancePath + "/data/schema_version",
+                              schemaPath:
+                                "urn:deykit:transport:RebuildIndexDTO#/properties/schema_version/type",
+                              keyword: "type",
+                              params: { type: "integer" },
+                              message: "must be integer",
+                            },
+                          ];
+                          return false;
+                        }
+                        if (1 !== data2) {
+                          validate45.errors = [
+                            {
+                              instancePath:
+                                instancePath + "/data/schema_version",
+                              schemaPath:
+                                "urn:deykit:transport:RebuildIndexDTO#/properties/schema_version/const",
+                              keyword: "const",
+                              params: { allowedValue: 1 },
+                              message: "must be equal to constant",
+                            },
+                          ];
+                          return false;
+                        }
+                        var valid2 = _errs8 === errors;
+                      } else {
+                        var valid2 = true;
+                      }
+                    }
+                  }
+                }
+              } else {
+                validate45.errors = [
+                  {
+                    instancePath: instancePath + "/data",
+                    schemaPath: "urn:deykit:transport:RebuildIndexDTO#/type",
+                    keyword: "type",
+                    params: { type: "object" },
+                    message: "must be object",
+                  },
+                ];
+                return false;
+              }
+            }
+            var valid0 = _errs2 === errors;
+          } else {
+            var valid0 = true;
+          }
+          if (valid0) {
+            if (data.schema_version !== undefined) {
+              let data3 = data.schema_version;
+              const _errs10 = errors;
+              if (!(
+                typeof data3 == "number" &&
+                !(data3 % 1) &&
+                !isNaN(data3) &&
+                isFinite(data3)
+              )) {
+                validate45.errors = [
+                  {
+                    instancePath: instancePath + "/schema_version",
+                    schemaPath: "#/properties/schema_version/type",
+                    keyword: "type",
+                    params: { type: "integer" },
+                    message: "must be integer",
+                  },
+                ];
+                return false;
+              }
+              if (1 !== data3) {
+                validate45.errors = [
+                  {
+                    instancePath: instancePath + "/schema_version",
+                    schemaPath: "#/properties/schema_version/const",
+                    keyword: "const",
+                    params: { allowedValue: 1 },
+                    message: "must be equal to constant",
+                  },
+                ];
+                return false;
+              }
+              var valid0 = _errs10 === errors;
+            } else {
+              var valid0 = true;
+            }
+            if (valid0) {
+              if (data.warnings !== undefined) {
+                let data4 = data.warnings;
+                const _errs12 = errors;
+                if (errors === _errs12) {
+                  if (Array.isArray(data4)) {
+                    var valid3 = true;
+                    const len0 = data4.length;
+                    for (let i0 = 0; i0 < len0; i0++) {
+                      let data5 = data4[i0];
+                      const _errs14 = errors;
+                      const _errs15 = errors;
+                      if (errors === _errs15) {
+                        if (
+                          data5 &&
+                          typeof data5 == "object" &&
+                          !Array.isArray(data5)
+                        ) {
+                          let missing2;
+                          if (
+                            (data5.code === undefined && (missing2 = "code")) ||
+                            (data5.message === undefined &&
+                              (missing2 = "message")) ||
+                            (data5.schema_version === undefined &&
+                              (missing2 = "schema_version"))
+                          ) {
+                            validate45.errors = [
+                              {
+                                instancePath: instancePath + "/warnings/" + i0,
+                                schemaPath:
+                                  "urn:deykit:transport:ErrorDTO#/required",
+                                keyword: "required",
+                                params: { missingProperty: missing2 },
+                                message:
+                                  "must have required property '" +
+                                  missing2 +
+                                  "'",
+                              },
+                            ];
+                            return false;
+                          } else {
+                            const _errs17 = errors;
+                            for (const key2 in data5) {
+                              if (!(
+                                key2 === "code" ||
+                                key2 === "correlation_id" ||
+                                key2 === "message" ||
+                                key2 === "reason" ||
+                                key2 === "resource_id" ||
+                                key2 === "row" ||
+                                key2 === "schema_version"
+                              )) {
+                                validate45.errors = [
+                                  {
+                                    instancePath:
+                                      instancePath + "/warnings/" + i0,
+                                    schemaPath:
+                                      "urn:deykit:transport:ErrorDTO#/additionalProperties",
+                                    keyword: "additionalProperties",
+                                    params: { additionalProperty: key2 },
+                                    message:
+                                      "must NOT have additional properties",
+                                  },
+                                ];
+                                return false;
+                                break;
+                              }
+                            }
+                            if (_errs17 === errors) {
+                              if (data5.code !== undefined) {
+                                const _errs18 = errors;
+                                if (typeof data5.code !== "string") {
+                                  validate45.errors = [
+                                    {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/code",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/code/type",
+                                      keyword: "type",
+                                      params: { type: "string" },
+                                      message: "must be string",
+                                    },
+                                  ];
+                                  return false;
+                                }
+                                var valid5 = _errs18 === errors;
+                              } else {
+                                var valid5 = true;
+                              }
+                              if (valid5) {
+                                if (data5.correlation_id !== undefined) {
+                                  let data7 = data5.correlation_id;
+                                  const _errs20 = errors;
+                                  const _errs21 = errors;
+                                  let valid6 = false;
+                                  const _errs22 = errors;
+                                  if (typeof data7 !== "string") {
+                                    const err0 = {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/correlation_id",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/0/type",
+                                      keyword: "type",
+                                      params: { type: "string" },
+                                      message: "must be string",
+                                    };
+                                    if (vErrors === null) {
+                                      vErrors = [err0];
+                                    } else {
+                                      vErrors.push(err0);
+                                    }
+                                    errors++;
+                                  }
+                                  var _valid0 = _errs22 === errors;
+                                  valid6 = valid6 || _valid0;
+                                  const _errs24 = errors;
+                                  if (data7 !== null) {
+                                    const err1 = {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/correlation_id",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/1/type",
+                                      keyword: "type",
+                                      params: { type: "null" },
+                                      message: "must be null",
+                                    };
+                                    if (vErrors === null) {
+                                      vErrors = [err1];
+                                    } else {
+                                      vErrors.push(err1);
+                                    }
+                                    errors++;
+                                  }
+                                  var _valid0 = _errs24 === errors;
+                                  valid6 = valid6 || _valid0;
+                                  if (!valid6) {
+                                    const err2 = {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/correlation_id",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf",
+                                      keyword: "anyOf",
+                                      params: {},
+                                      message: "must match a schema in anyOf",
+                                    };
+                                    if (vErrors === null) {
+                                      vErrors = [err2];
+                                    } else {
+                                      vErrors.push(err2);
+                                    }
+                                    errors++;
+                                    validate45.errors = vErrors;
+                                    return false;
+                                  } else {
+                                    errors = _errs21;
+                                    if (vErrors !== null) {
+                                      if (_errs21) {
+                                        vErrors.length = _errs21;
+                                      } else {
+                                        vErrors = null;
+                                      }
+                                    }
+                                  }
+                                  var valid5 = _errs20 === errors;
+                                } else {
+                                  var valid5 = true;
+                                }
+                                if (valid5) {
+                                  if (data5.message !== undefined) {
+                                    const _errs26 = errors;
+                                    if (typeof data5.message !== "string") {
+                                      validate45.errors = [
+                                        {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/message",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/message/type",
+                                          keyword: "type",
+                                          params: { type: "string" },
+                                          message: "must be string",
+                                        },
+                                      ];
+                                      return false;
+                                    }
+                                    var valid5 = _errs26 === errors;
+                                  } else {
+                                    var valid5 = true;
+                                  }
+                                  if (valid5) {
+                                    if (data5.reason !== undefined) {
+                                      let data9 = data5.reason;
+                                      const _errs28 = errors;
+                                      const _errs29 = errors;
+                                      let valid7 = false;
+                                      const _errs30 = errors;
+                                      if (typeof data9 !== "string") {
+                                        const err3 = {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/reason",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/0/type",
+                                          keyword: "type",
+                                          params: { type: "string" },
+                                          message: "must be string",
+                                        };
+                                        if (vErrors === null) {
+                                          vErrors = [err3];
+                                        } else {
+                                          vErrors.push(err3);
+                                        }
+                                        errors++;
+                                      }
+                                      var _valid1 = _errs30 === errors;
+                                      valid7 = valid7 || _valid1;
+                                      const _errs32 = errors;
+                                      if (data9 !== null) {
+                                        const err4 = {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/reason",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/1/type",
+                                          keyword: "type",
+                                          params: { type: "null" },
+                                          message: "must be null",
+                                        };
+                                        if (vErrors === null) {
+                                          vErrors = [err4];
+                                        } else {
+                                          vErrors.push(err4);
+                                        }
+                                        errors++;
+                                      }
+                                      var _valid1 = _errs32 === errors;
+                                      valid7 = valid7 || _valid1;
+                                      if (!valid7) {
+                                        const err5 = {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/reason",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf",
+                                          keyword: "anyOf",
+                                          params: {},
+                                          message:
+                                            "must match a schema in anyOf",
+                                        };
+                                        if (vErrors === null) {
+                                          vErrors = [err5];
+                                        } else {
+                                          vErrors.push(err5);
+                                        }
+                                        errors++;
+                                        validate45.errors = vErrors;
+                                        return false;
+                                      } else {
+                                        errors = _errs29;
+                                        if (vErrors !== null) {
+                                          if (_errs29) {
+                                            vErrors.length = _errs29;
+                                          } else {
+                                            vErrors = null;
+                                          }
+                                        }
+                                      }
+                                      var valid5 = _errs28 === errors;
+                                    } else {
+                                      var valid5 = true;
+                                    }
+                                    if (valid5) {
+                                      if (data5.resource_id !== undefined) {
+                                        let data10 = data5.resource_id;
+                                        const _errs34 = errors;
+                                        const _errs35 = errors;
+                                        let valid8 = false;
+                                        const _errs36 = errors;
+                                        if (typeof data10 !== "string") {
+                                          const err6 = {
+                                            instancePath:
+                                              instancePath +
+                                              "/warnings/" +
+                                              i0 +
+                                              "/resource_id",
+                                            schemaPath:
+                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/0/type",
+                                            keyword: "type",
+                                            params: { type: "string" },
+                                            message: "must be string",
+                                          };
+                                          if (vErrors === null) {
+                                            vErrors = [err6];
+                                          } else {
+                                            vErrors.push(err6);
+                                          }
+                                          errors++;
+                                        }
+                                        var _valid2 = _errs36 === errors;
+                                        valid8 = valid8 || _valid2;
+                                        const _errs38 = errors;
+                                        if (data10 !== null) {
+                                          const err7 = {
+                                            instancePath:
+                                              instancePath +
+                                              "/warnings/" +
+                                              i0 +
+                                              "/resource_id",
+                                            schemaPath:
+                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/1/type",
+                                            keyword: "type",
+                                            params: { type: "null" },
+                                            message: "must be null",
+                                          };
+                                          if (vErrors === null) {
+                                            vErrors = [err7];
+                                          } else {
+                                            vErrors.push(err7);
+                                          }
+                                          errors++;
+                                        }
+                                        var _valid2 = _errs38 === errors;
+                                        valid8 = valid8 || _valid2;
+                                        if (!valid8) {
+                                          const err8 = {
+                                            instancePath:
+                                              instancePath +
+                                              "/warnings/" +
+                                              i0 +
+                                              "/resource_id",
+                                            schemaPath:
+                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf",
+                                            keyword: "anyOf",
+                                            params: {},
+                                            message:
+                                              "must match a schema in anyOf",
+                                          };
+                                          if (vErrors === null) {
+                                            vErrors = [err8];
+                                          } else {
+                                            vErrors.push(err8);
+                                          }
+                                          errors++;
+                                          validate45.errors = vErrors;
+                                          return false;
+                                        } else {
+                                          errors = _errs35;
+                                          if (vErrors !== null) {
+                                            if (_errs35) {
+                                              vErrors.length = _errs35;
+                                            } else {
+                                              vErrors = null;
+                                            }
+                                          }
+                                        }
+                                        var valid5 = _errs34 === errors;
+                                      } else {
+                                        var valid5 = true;
+                                      }
+                                      if (valid5) {
+                                        if (data5.row !== undefined) {
+                                          let data11 = data5.row;
+                                          const _errs40 = errors;
+                                          const _errs41 = errors;
+                                          let valid9 = false;
+                                          const _errs42 = errors;
+                                          if (!(
+                                            typeof data11 == "number" &&
+                                            !(data11 % 1) &&
+                                            !isNaN(data11) &&
+                                            isFinite(data11)
+                                          )) {
+                                            const err9 = {
+                                              instancePath:
+                                                instancePath +
+                                                "/warnings/" +
+                                                i0 +
+                                                "/row",
+                                              schemaPath:
+                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/type",
+                                              keyword: "type",
+                                              params: { type: "integer" },
+                                              message: "must be integer",
+                                            };
+                                            if (vErrors === null) {
+                                              vErrors = [err9];
+                                            } else {
+                                              vErrors.push(err9);
+                                            }
+                                            errors++;
+                                          }
+                                          if (errors === _errs42) {
+                                            if (
+                                              typeof data11 == "number" &&
+                                              isFinite(data11)
+                                            ) {
+                                              if (
+                                                data11 > 9007199254740991 ||
+                                                isNaN(data11)
+                                              ) {
+                                                const err10 = {
+                                                  instancePath:
+                                                    instancePath +
+                                                    "/warnings/" +
+                                                    i0 +
+                                                    "/row",
+                                                  schemaPath:
+                                                    "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/maximum",
+                                                  keyword: "maximum",
+                                                  params: {
+                                                    comparison: "<=",
+                                                    limit: 9007199254740991,
+                                                  },
+                                                  message:
+                                                    "must be <= 9007199254740991",
+                                                };
+                                                if (vErrors === null) {
+                                                  vErrors = [err10];
+                                                } else {
+                                                  vErrors.push(err10);
+                                                }
+                                                errors++;
+                                              } else {
+                                                if (
+                                                  data11 < 0 ||
+                                                  isNaN(data11)
+                                                ) {
+                                                  const err11 = {
+                                                    instancePath:
+                                                      instancePath +
+                                                      "/warnings/" +
+                                                      i0 +
+                                                      "/row",
+                                                    schemaPath:
+                                                      "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/minimum",
+                                                    keyword: "minimum",
+                                                    params: {
+                                                      comparison: ">=",
+                                                      limit: 0,
+                                                    },
+                                                    message: "must be >= 0",
+                                                  };
+                                                  if (vErrors === null) {
+                                                    vErrors = [err11];
+                                                  } else {
+                                                    vErrors.push(err11);
+                                                  }
+                                                  errors++;
+                                                }
+                                              }
+                                            }
+                                          }
+                                          var _valid3 = _errs42 === errors;
+                                          valid9 = valid9 || _valid3;
+                                          const _errs44 = errors;
+                                          if (data11 !== null) {
+                                            const err12 = {
+                                              instancePath:
+                                                instancePath +
+                                                "/warnings/" +
+                                                i0 +
+                                                "/row",
+                                              schemaPath:
+                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/1/type",
+                                              keyword: "type",
+                                              params: { type: "null" },
+                                              message: "must be null",
+                                            };
+                                            if (vErrors === null) {
+                                              vErrors = [err12];
+                                            } else {
+                                              vErrors.push(err12);
+                                            }
+                                            errors++;
+                                          }
+                                          var _valid3 = _errs44 === errors;
+                                          valid9 = valid9 || _valid3;
+                                          if (!valid9) {
+                                            const err13 = {
+                                              instancePath:
+                                                instancePath +
+                                                "/warnings/" +
+                                                i0 +
+                                                "/row",
+                                              schemaPath:
+                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf",
+                                              keyword: "anyOf",
+                                              params: {},
+                                              message:
+                                                "must match a schema in anyOf",
+                                            };
+                                            if (vErrors === null) {
+                                              vErrors = [err13];
+                                            } else {
+                                              vErrors.push(err13);
+                                            }
+                                            errors++;
+                                            validate45.errors = vErrors;
+                                            return false;
+                                          } else {
+                                            errors = _errs41;
+                                            if (vErrors !== null) {
+                                              if (_errs41) {
+                                                vErrors.length = _errs41;
+                                              } else {
+                                                vErrors = null;
+                                              }
+                                            }
+                                          }
+                                          var valid5 = _errs40 === errors;
+                                        } else {
+                                          var valid5 = true;
+                                        }
+                                        if (valid5) {
+                                          if (
+                                            data5.schema_version !== undefined
+                                          ) {
+                                            let data12 = data5.schema_version;
+                                            const _errs46 = errors;
+                                            if (!(
+                                              typeof data12 == "number" &&
+                                              !(data12 % 1) &&
+                                              !isNaN(data12) &&
+                                              isFinite(data12)
+                                            )) {
+                                              validate45.errors = [
+                                                {
+                                                  instancePath:
+                                                    instancePath +
+                                                    "/warnings/" +
+                                                    i0 +
+                                                    "/schema_version",
+                                                  schemaPath:
+                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/type",
+                                                  keyword: "type",
+                                                  params: { type: "integer" },
+                                                  message: "must be integer",
+                                                },
+                                              ];
+                                              return false;
+                                            }
+                                            if (1 !== data12) {
+                                              validate45.errors = [
+                                                {
+                                                  instancePath:
+                                                    instancePath +
+                                                    "/warnings/" +
+                                                    i0 +
+                                                    "/schema_version",
+                                                  schemaPath:
+                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/const",
+                                                  keyword: "const",
+                                                  params: { allowedValue: 1 },
+                                                  message:
+                                                    "must be equal to constant",
+                                                },
+                                              ];
+                                              return false;
+                                            }
+                                            var valid5 = _errs46 === errors;
+                                          } else {
+                                            var valid5 = true;
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        } else {
+                          validate45.errors = [
+                            {
+                              instancePath: instancePath + "/warnings/" + i0,
+                              schemaPath: "urn:deykit:transport:ErrorDTO#/type",
+                              keyword: "type",
+                              params: { type: "object" },
+                              message: "must be object",
+                            },
+                          ];
+                          return false;
+                        }
+                      }
+                      var valid3 = _errs14 === errors;
+                      if (!valid3) {
+                        break;
+                      }
+                    }
+                  } else {
+                    validate45.errors = [
+                      {
+                        instancePath: instancePath + "/warnings",
+                        schemaPath: "#/properties/warnings/type",
+                        keyword: "type",
+                        params: { type: "array" },
+                        message: "must be array",
+                      },
+                    ];
+                    return false;
+                  }
+                }
+                var valid0 = _errs12 === errors;
+              } else {
+                var valid0 = true;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      validate45.errors = [
+        {
+          instancePath,
+          schemaPath: "#/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        },
+      ];
+      return false;
+    }
+  }
+  validate45.errors = vErrors;
+  return errors === 0;
+}
+validate45.evaluated = {
+  props: true,
+  dynamicProps: false,
+  dynamicItems: false,
+};
+exports.validateSuccess_RecentProjectsDTO_ = validate46;
+const schema65 = {
+  $id: "urn:deykit:transport:Success_RecentProjectsDTO_",
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  additionalProperties: false,
+  properties: {
+    data: { $ref: "urn:deykit:transport:RecentProjectsDTO#" },
+    schema_version: {
+      const: 1,
+      default: 1,
+      title: "Schema Version",
+      type: "integer",
+    },
+    warnings: {
+      default: [],
+      items: { $ref: "urn:deykit:transport:ErrorDTO#" },
+      title: "Warnings",
+      type: "array",
+    },
+  },
+  required: ["data", "schema_version"],
+  title: "Success[RecentProjectsDTO]",
+  type: "object",
+};
+function validate46(
+  data,
+  {
+    instancePath = "",
+    parentData,
+    parentDataProperty,
+    rootData = data,
+    dynamicAnchors = {},
+  } = {},
+) {
+  /*# sourceURL="urn:deykit:transport:Success_RecentProjectsDTO_" */ let vErrors =
+    null;
+  let errors = 0;
+  const evaluated0 = validate46.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  if (errors === 0) {
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      let missing0;
+      if (
+        (data.data === undefined && (missing0 = "data")) ||
+        (data.schema_version === undefined && (missing0 = "schema_version"))
+      ) {
+        validate46.errors = [
+          {
+            instancePath,
+            schemaPath: "#/required",
+            keyword: "required",
+            params: { missingProperty: missing0 },
+            message: "must have required property '" + missing0 + "'",
+          },
+        ];
+        return false;
+      } else {
+        const _errs1 = errors;
+        for (const key0 in data) {
+          if (!(
+            key0 === "data" ||
+            key0 === "schema_version" ||
+            key0 === "warnings"
+          )) {
+            validate46.errors = [
+              {
+                instancePath,
+                schemaPath: "#/additionalProperties",
+                keyword: "additionalProperties",
+                params: { additionalProperty: key0 },
+                message: "must NOT have additional properties",
+              },
+            ];
+            return false;
+            break;
+          }
+        }
+        if (_errs1 === errors) {
+          if (data.data !== undefined) {
             const _errs2 = errors;
             if (
-              !validate23(data.data, {
+              !validate36(data.data, {
                 instancePath: instancePath + "/data",
                 parentData: data,
                 parentDataProperty: "data",
@@ -9935,8 +9784,8 @@ function validate45(
             ) {
               vErrors =
                 vErrors === null
-                  ? validate23.errors
-                  : vErrors.concat(validate23.errors);
+                  ? validate36.errors
+                  : vErrors.concat(validate36.errors);
               errors = vErrors.length;
             }
             var valid0 = _errs2 === errors;
@@ -9953,7 +9802,7 @@ function validate45(
                 !isNaN(data1) &&
                 isFinite(data1)
               )) {
-                validate45.errors = [
+                validate46.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/type",
@@ -9965,7 +9814,7 @@ function validate45(
                 return false;
               }
               if (1 !== data1) {
-                validate45.errors = [
+                validate46.errors = [
                   {
                     instancePath: instancePath + "/schema_version",
                     schemaPath: "#/properties/schema_version/const",
@@ -10006,7 +9855,7 @@ function validate45(
                             (data3.schema_version === undefined &&
                               (missing1 = "schema_version"))
                           ) {
-                            validate45.errors = [
+                            validate46.errors = [
                               {
                                 instancePath: instancePath + "/warnings/" + i0,
                                 schemaPath:
@@ -10032,7 +9881,7 @@ function validate45(
                                 key1 === "row" ||
                                 key1 === "schema_version"
                               )) {
-                                validate45.errors = [
+                                validate46.errors = [
                                   {
                                     instancePath:
                                       instancePath + "/warnings/" + i0,
@@ -10052,7 +9901,7 @@ function validate45(
                               if (data3.code !== undefined) {
                                 const _errs11 = errors;
                                 if (typeof data3.code !== "string") {
-                                  validate45.errors = [
+                                  validate46.errors = [
                                     {
                                       instancePath:
                                         instancePath +
@@ -10143,7 +9992,7 @@ function validate45(
                                       vErrors.push(err2);
                                     }
                                     errors++;
-                                    validate45.errors = vErrors;
+                                    validate46.errors = vErrors;
                                     return false;
                                   } else {
                                     errors = _errs14;
@@ -10163,7 +10012,7 @@ function validate45(
                                   if (data3.message !== undefined) {
                                     const _errs19 = errors;
                                     if (typeof data3.message !== "string") {
-                                      validate45.errors = [
+                                      validate46.errors = [
                                         {
                                           instancePath:
                                             instancePath +
@@ -10255,7 +10104,7 @@ function validate45(
                                           vErrors.push(err5);
                                         }
                                         errors++;
-                                        validate45.errors = vErrors;
+                                        validate46.errors = vErrors;
                                         return false;
                                       } else {
                                         errors = _errs22;
@@ -10343,7 +10192,7 @@ function validate45(
                                             vErrors.push(err8);
                                           }
                                           errors++;
-                                          validate45.errors = vErrors;
+                                          validate46.errors = vErrors;
                                           return false;
                                         } else {
                                           errors = _errs28;
@@ -10494,7 +10343,7 @@ function validate45(
                                               vErrors.push(err13);
                                             }
                                             errors++;
-                                            validate45.errors = vErrors;
+                                            validate46.errors = vErrors;
                                             return false;
                                           } else {
                                             errors = _errs34;
@@ -10522,7 +10371,7 @@ function validate45(
                                               !isNaN(data10) &&
                                               isFinite(data10)
                                             )) {
-                                              validate45.errors = [
+                                              validate46.errors = [
                                                 {
                                                   instancePath:
                                                     instancePath +
@@ -10539,7 +10388,7 @@ function validate45(
                                               return false;
                                             }
                                             if (1 !== data10) {
-                                              validate45.errors = [
+                                              validate46.errors = [
                                                 {
                                                   instancePath:
                                                     instancePath +
@@ -10569,7 +10418,7 @@ function validate45(
                             }
                           }
                         } else {
-                          validate45.errors = [
+                          validate46.errors = [
                             {
                               instancePath: instancePath + "/warnings/" + i0,
                               schemaPath: "urn:deykit:transport:ErrorDTO#/type",
@@ -10587,7 +10436,7 @@ function validate45(
                       }
                     }
                   } else {
-                    validate45.errors = [
+                    validate46.errors = [
                       {
                         instancePath: instancePath + "/warnings",
                         schemaPath: "#/properties/warnings/type",
@@ -10608,7 +10457,7 @@ function validate45(
         }
       }
     } else {
-      validate45.errors = [
+      validate46.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -10620,16 +10469,805 @@ function validate45(
       return false;
     }
   }
-  validate45.errors = vErrors;
+  validate46.errors = vErrors;
   return errors === 0;
 }
-validate45.evaluated = {
+validate46.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateVersionRequest = validate47;
-const schema66 = {
+exports.validateSuccess_RegistrationDTO_ = validate48;
+const schema67 = {
+  $id: "urn:deykit:transport:Success_RegistrationDTO_",
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  additionalProperties: false,
+  properties: {
+    data: { $ref: "urn:deykit:transport:RegistrationDTO#" },
+    schema_version: {
+      const: 1,
+      default: 1,
+      title: "Schema Version",
+      type: "integer",
+    },
+    warnings: {
+      default: [],
+      items: { $ref: "urn:deykit:transport:ErrorDTO#" },
+      title: "Warnings",
+      type: "array",
+    },
+  },
+  required: ["data", "schema_version"],
+  title: "Success[RegistrationDTO]",
+  type: "object",
+};
+function validate48(
+  data,
+  {
+    instancePath = "",
+    parentData,
+    parentDataProperty,
+    rootData = data,
+    dynamicAnchors = {},
+  } = {},
+) {
+  /*# sourceURL="urn:deykit:transport:Success_RegistrationDTO_" */ let vErrors =
+    null;
+  let errors = 0;
+  const evaluated0 = validate48.evaluated;
+  if (evaluated0.dynamicProps) {
+    evaluated0.props = undefined;
+  }
+  if (evaluated0.dynamicItems) {
+    evaluated0.items = undefined;
+  }
+  if (errors === 0) {
+    if (data && typeof data == "object" && !Array.isArray(data)) {
+      let missing0;
+      if (
+        (data.data === undefined && (missing0 = "data")) ||
+        (data.schema_version === undefined && (missing0 = "schema_version"))
+      ) {
+        validate48.errors = [
+          {
+            instancePath,
+            schemaPath: "#/required",
+            keyword: "required",
+            params: { missingProperty: missing0 },
+            message: "must have required property '" + missing0 + "'",
+          },
+        ];
+        return false;
+      } else {
+        const _errs1 = errors;
+        for (const key0 in data) {
+          if (!(
+            key0 === "data" ||
+            key0 === "schema_version" ||
+            key0 === "warnings"
+          )) {
+            validate48.errors = [
+              {
+                instancePath,
+                schemaPath: "#/additionalProperties",
+                keyword: "additionalProperties",
+                params: { additionalProperty: key0 },
+                message: "must NOT have additional properties",
+              },
+            ];
+            return false;
+            break;
+          }
+        }
+        if (_errs1 === errors) {
+          if (data.data !== undefined) {
+            const _errs2 = errors;
+            if (
+              !validate23(data.data, {
+                instancePath: instancePath + "/data",
+                parentData: data,
+                parentDataProperty: "data",
+                rootData,
+                dynamicAnchors,
+              })
+            ) {
+              vErrors =
+                vErrors === null
+                  ? validate23.errors
+                  : vErrors.concat(validate23.errors);
+              errors = vErrors.length;
+            }
+            var valid0 = _errs2 === errors;
+          } else {
+            var valid0 = true;
+          }
+          if (valid0) {
+            if (data.schema_version !== undefined) {
+              let data1 = data.schema_version;
+              const _errs3 = errors;
+              if (!(
+                typeof data1 == "number" &&
+                !(data1 % 1) &&
+                !isNaN(data1) &&
+                isFinite(data1)
+              )) {
+                validate48.errors = [
+                  {
+                    instancePath: instancePath + "/schema_version",
+                    schemaPath: "#/properties/schema_version/type",
+                    keyword: "type",
+                    params: { type: "integer" },
+                    message: "must be integer",
+                  },
+                ];
+                return false;
+              }
+              if (1 !== data1) {
+                validate48.errors = [
+                  {
+                    instancePath: instancePath + "/schema_version",
+                    schemaPath: "#/properties/schema_version/const",
+                    keyword: "const",
+                    params: { allowedValue: 1 },
+                    message: "must be equal to constant",
+                  },
+                ];
+                return false;
+              }
+              var valid0 = _errs3 === errors;
+            } else {
+              var valid0 = true;
+            }
+            if (valid0) {
+              if (data.warnings !== undefined) {
+                let data2 = data.warnings;
+                const _errs5 = errors;
+                if (errors === _errs5) {
+                  if (Array.isArray(data2)) {
+                    var valid1 = true;
+                    const len0 = data2.length;
+                    for (let i0 = 0; i0 < len0; i0++) {
+                      let data3 = data2[i0];
+                      const _errs7 = errors;
+                      const _errs8 = errors;
+                      if (errors === _errs8) {
+                        if (
+                          data3 &&
+                          typeof data3 == "object" &&
+                          !Array.isArray(data3)
+                        ) {
+                          let missing1;
+                          if (
+                            (data3.code === undefined && (missing1 = "code")) ||
+                            (data3.message === undefined &&
+                              (missing1 = "message")) ||
+                            (data3.schema_version === undefined &&
+                              (missing1 = "schema_version"))
+                          ) {
+                            validate48.errors = [
+                              {
+                                instancePath: instancePath + "/warnings/" + i0,
+                                schemaPath:
+                                  "urn:deykit:transport:ErrorDTO#/required",
+                                keyword: "required",
+                                params: { missingProperty: missing1 },
+                                message:
+                                  "must have required property '" +
+                                  missing1 +
+                                  "'",
+                              },
+                            ];
+                            return false;
+                          } else {
+                            const _errs10 = errors;
+                            for (const key1 in data3) {
+                              if (!(
+                                key1 === "code" ||
+                                key1 === "correlation_id" ||
+                                key1 === "message" ||
+                                key1 === "reason" ||
+                                key1 === "resource_id" ||
+                                key1 === "row" ||
+                                key1 === "schema_version"
+                              )) {
+                                validate48.errors = [
+                                  {
+                                    instancePath:
+                                      instancePath + "/warnings/" + i0,
+                                    schemaPath:
+                                      "urn:deykit:transport:ErrorDTO#/additionalProperties",
+                                    keyword: "additionalProperties",
+                                    params: { additionalProperty: key1 },
+                                    message:
+                                      "must NOT have additional properties",
+                                  },
+                                ];
+                                return false;
+                                break;
+                              }
+                            }
+                            if (_errs10 === errors) {
+                              if (data3.code !== undefined) {
+                                const _errs11 = errors;
+                                if (typeof data3.code !== "string") {
+                                  validate48.errors = [
+                                    {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/code",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/code/type",
+                                      keyword: "type",
+                                      params: { type: "string" },
+                                      message: "must be string",
+                                    },
+                                  ];
+                                  return false;
+                                }
+                                var valid3 = _errs11 === errors;
+                              } else {
+                                var valid3 = true;
+                              }
+                              if (valid3) {
+                                if (data3.correlation_id !== undefined) {
+                                  let data5 = data3.correlation_id;
+                                  const _errs13 = errors;
+                                  const _errs14 = errors;
+                                  let valid4 = false;
+                                  const _errs15 = errors;
+                                  if (typeof data5 !== "string") {
+                                    const err0 = {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/correlation_id",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/0/type",
+                                      keyword: "type",
+                                      params: { type: "string" },
+                                      message: "must be string",
+                                    };
+                                    if (vErrors === null) {
+                                      vErrors = [err0];
+                                    } else {
+                                      vErrors.push(err0);
+                                    }
+                                    errors++;
+                                  }
+                                  var _valid0 = _errs15 === errors;
+                                  valid4 = valid4 || _valid0;
+                                  const _errs17 = errors;
+                                  if (data5 !== null) {
+                                    const err1 = {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/correlation_id",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf/1/type",
+                                      keyword: "type",
+                                      params: { type: "null" },
+                                      message: "must be null",
+                                    };
+                                    if (vErrors === null) {
+                                      vErrors = [err1];
+                                    } else {
+                                      vErrors.push(err1);
+                                    }
+                                    errors++;
+                                  }
+                                  var _valid0 = _errs17 === errors;
+                                  valid4 = valid4 || _valid0;
+                                  if (!valid4) {
+                                    const err2 = {
+                                      instancePath:
+                                        instancePath +
+                                        "/warnings/" +
+                                        i0 +
+                                        "/correlation_id",
+                                      schemaPath:
+                                        "urn:deykit:transport:ErrorDTO#/properties/correlation_id/anyOf",
+                                      keyword: "anyOf",
+                                      params: {},
+                                      message: "must match a schema in anyOf",
+                                    };
+                                    if (vErrors === null) {
+                                      vErrors = [err2];
+                                    } else {
+                                      vErrors.push(err2);
+                                    }
+                                    errors++;
+                                    validate48.errors = vErrors;
+                                    return false;
+                                  } else {
+                                    errors = _errs14;
+                                    if (vErrors !== null) {
+                                      if (_errs14) {
+                                        vErrors.length = _errs14;
+                                      } else {
+                                        vErrors = null;
+                                      }
+                                    }
+                                  }
+                                  var valid3 = _errs13 === errors;
+                                } else {
+                                  var valid3 = true;
+                                }
+                                if (valid3) {
+                                  if (data3.message !== undefined) {
+                                    const _errs19 = errors;
+                                    if (typeof data3.message !== "string") {
+                                      validate48.errors = [
+                                        {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/message",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/message/type",
+                                          keyword: "type",
+                                          params: { type: "string" },
+                                          message: "must be string",
+                                        },
+                                      ];
+                                      return false;
+                                    }
+                                    var valid3 = _errs19 === errors;
+                                  } else {
+                                    var valid3 = true;
+                                  }
+                                  if (valid3) {
+                                    if (data3.reason !== undefined) {
+                                      let data7 = data3.reason;
+                                      const _errs21 = errors;
+                                      const _errs22 = errors;
+                                      let valid5 = false;
+                                      const _errs23 = errors;
+                                      if (typeof data7 !== "string") {
+                                        const err3 = {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/reason",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/0/type",
+                                          keyword: "type",
+                                          params: { type: "string" },
+                                          message: "must be string",
+                                        };
+                                        if (vErrors === null) {
+                                          vErrors = [err3];
+                                        } else {
+                                          vErrors.push(err3);
+                                        }
+                                        errors++;
+                                      }
+                                      var _valid1 = _errs23 === errors;
+                                      valid5 = valid5 || _valid1;
+                                      const _errs25 = errors;
+                                      if (data7 !== null) {
+                                        const err4 = {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/reason",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf/1/type",
+                                          keyword: "type",
+                                          params: { type: "null" },
+                                          message: "must be null",
+                                        };
+                                        if (vErrors === null) {
+                                          vErrors = [err4];
+                                        } else {
+                                          vErrors.push(err4);
+                                        }
+                                        errors++;
+                                      }
+                                      var _valid1 = _errs25 === errors;
+                                      valid5 = valid5 || _valid1;
+                                      if (!valid5) {
+                                        const err5 = {
+                                          instancePath:
+                                            instancePath +
+                                            "/warnings/" +
+                                            i0 +
+                                            "/reason",
+                                          schemaPath:
+                                            "urn:deykit:transport:ErrorDTO#/properties/reason/anyOf",
+                                          keyword: "anyOf",
+                                          params: {},
+                                          message:
+                                            "must match a schema in anyOf",
+                                        };
+                                        if (vErrors === null) {
+                                          vErrors = [err5];
+                                        } else {
+                                          vErrors.push(err5);
+                                        }
+                                        errors++;
+                                        validate48.errors = vErrors;
+                                        return false;
+                                      } else {
+                                        errors = _errs22;
+                                        if (vErrors !== null) {
+                                          if (_errs22) {
+                                            vErrors.length = _errs22;
+                                          } else {
+                                            vErrors = null;
+                                          }
+                                        }
+                                      }
+                                      var valid3 = _errs21 === errors;
+                                    } else {
+                                      var valid3 = true;
+                                    }
+                                    if (valid3) {
+                                      if (data3.resource_id !== undefined) {
+                                        let data8 = data3.resource_id;
+                                        const _errs27 = errors;
+                                        const _errs28 = errors;
+                                        let valid6 = false;
+                                        const _errs29 = errors;
+                                        if (typeof data8 !== "string") {
+                                          const err6 = {
+                                            instancePath:
+                                              instancePath +
+                                              "/warnings/" +
+                                              i0 +
+                                              "/resource_id",
+                                            schemaPath:
+                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/0/type",
+                                            keyword: "type",
+                                            params: { type: "string" },
+                                            message: "must be string",
+                                          };
+                                          if (vErrors === null) {
+                                            vErrors = [err6];
+                                          } else {
+                                            vErrors.push(err6);
+                                          }
+                                          errors++;
+                                        }
+                                        var _valid2 = _errs29 === errors;
+                                        valid6 = valid6 || _valid2;
+                                        const _errs31 = errors;
+                                        if (data8 !== null) {
+                                          const err7 = {
+                                            instancePath:
+                                              instancePath +
+                                              "/warnings/" +
+                                              i0 +
+                                              "/resource_id",
+                                            schemaPath:
+                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf/1/type",
+                                            keyword: "type",
+                                            params: { type: "null" },
+                                            message: "must be null",
+                                          };
+                                          if (vErrors === null) {
+                                            vErrors = [err7];
+                                          } else {
+                                            vErrors.push(err7);
+                                          }
+                                          errors++;
+                                        }
+                                        var _valid2 = _errs31 === errors;
+                                        valid6 = valid6 || _valid2;
+                                        if (!valid6) {
+                                          const err8 = {
+                                            instancePath:
+                                              instancePath +
+                                              "/warnings/" +
+                                              i0 +
+                                              "/resource_id",
+                                            schemaPath:
+                                              "urn:deykit:transport:ErrorDTO#/properties/resource_id/anyOf",
+                                            keyword: "anyOf",
+                                            params: {},
+                                            message:
+                                              "must match a schema in anyOf",
+                                          };
+                                          if (vErrors === null) {
+                                            vErrors = [err8];
+                                          } else {
+                                            vErrors.push(err8);
+                                          }
+                                          errors++;
+                                          validate48.errors = vErrors;
+                                          return false;
+                                        } else {
+                                          errors = _errs28;
+                                          if (vErrors !== null) {
+                                            if (_errs28) {
+                                              vErrors.length = _errs28;
+                                            } else {
+                                              vErrors = null;
+                                            }
+                                          }
+                                        }
+                                        var valid3 = _errs27 === errors;
+                                      } else {
+                                        var valid3 = true;
+                                      }
+                                      if (valid3) {
+                                        if (data3.row !== undefined) {
+                                          let data9 = data3.row;
+                                          const _errs33 = errors;
+                                          const _errs34 = errors;
+                                          let valid7 = false;
+                                          const _errs35 = errors;
+                                          if (!(
+                                            typeof data9 == "number" &&
+                                            !(data9 % 1) &&
+                                            !isNaN(data9) &&
+                                            isFinite(data9)
+                                          )) {
+                                            const err9 = {
+                                              instancePath:
+                                                instancePath +
+                                                "/warnings/" +
+                                                i0 +
+                                                "/row",
+                                              schemaPath:
+                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/type",
+                                              keyword: "type",
+                                              params: { type: "integer" },
+                                              message: "must be integer",
+                                            };
+                                            if (vErrors === null) {
+                                              vErrors = [err9];
+                                            } else {
+                                              vErrors.push(err9);
+                                            }
+                                            errors++;
+                                          }
+                                          if (errors === _errs35) {
+                                            if (
+                                              typeof data9 == "number" &&
+                                              isFinite(data9)
+                                            ) {
+                                              if (
+                                                data9 > 9007199254740991 ||
+                                                isNaN(data9)
+                                              ) {
+                                                const err10 = {
+                                                  instancePath:
+                                                    instancePath +
+                                                    "/warnings/" +
+                                                    i0 +
+                                                    "/row",
+                                                  schemaPath:
+                                                    "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/maximum",
+                                                  keyword: "maximum",
+                                                  params: {
+                                                    comparison: "<=",
+                                                    limit: 9007199254740991,
+                                                  },
+                                                  message:
+                                                    "must be <= 9007199254740991",
+                                                };
+                                                if (vErrors === null) {
+                                                  vErrors = [err10];
+                                                } else {
+                                                  vErrors.push(err10);
+                                                }
+                                                errors++;
+                                              } else {
+                                                if (data9 < 0 || isNaN(data9)) {
+                                                  const err11 = {
+                                                    instancePath:
+                                                      instancePath +
+                                                      "/warnings/" +
+                                                      i0 +
+                                                      "/row",
+                                                    schemaPath:
+                                                      "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/0/minimum",
+                                                    keyword: "minimum",
+                                                    params: {
+                                                      comparison: ">=",
+                                                      limit: 0,
+                                                    },
+                                                    message: "must be >= 0",
+                                                  };
+                                                  if (vErrors === null) {
+                                                    vErrors = [err11];
+                                                  } else {
+                                                    vErrors.push(err11);
+                                                  }
+                                                  errors++;
+                                                }
+                                              }
+                                            }
+                                          }
+                                          var _valid3 = _errs35 === errors;
+                                          valid7 = valid7 || _valid3;
+                                          const _errs37 = errors;
+                                          if (data9 !== null) {
+                                            const err12 = {
+                                              instancePath:
+                                                instancePath +
+                                                "/warnings/" +
+                                                i0 +
+                                                "/row",
+                                              schemaPath:
+                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf/1/type",
+                                              keyword: "type",
+                                              params: { type: "null" },
+                                              message: "must be null",
+                                            };
+                                            if (vErrors === null) {
+                                              vErrors = [err12];
+                                            } else {
+                                              vErrors.push(err12);
+                                            }
+                                            errors++;
+                                          }
+                                          var _valid3 = _errs37 === errors;
+                                          valid7 = valid7 || _valid3;
+                                          if (!valid7) {
+                                            const err13 = {
+                                              instancePath:
+                                                instancePath +
+                                                "/warnings/" +
+                                                i0 +
+                                                "/row",
+                                              schemaPath:
+                                                "urn:deykit:transport:ErrorDTO#/properties/row/anyOf",
+                                              keyword: "anyOf",
+                                              params: {},
+                                              message:
+                                                "must match a schema in anyOf",
+                                            };
+                                            if (vErrors === null) {
+                                              vErrors = [err13];
+                                            } else {
+                                              vErrors.push(err13);
+                                            }
+                                            errors++;
+                                            validate48.errors = vErrors;
+                                            return false;
+                                          } else {
+                                            errors = _errs34;
+                                            if (vErrors !== null) {
+                                              if (_errs34) {
+                                                vErrors.length = _errs34;
+                                              } else {
+                                                vErrors = null;
+                                              }
+                                            }
+                                          }
+                                          var valid3 = _errs33 === errors;
+                                        } else {
+                                          var valid3 = true;
+                                        }
+                                        if (valid3) {
+                                          if (
+                                            data3.schema_version !== undefined
+                                          ) {
+                                            let data10 = data3.schema_version;
+                                            const _errs39 = errors;
+                                            if (!(
+                                              typeof data10 == "number" &&
+                                              !(data10 % 1) &&
+                                              !isNaN(data10) &&
+                                              isFinite(data10)
+                                            )) {
+                                              validate48.errors = [
+                                                {
+                                                  instancePath:
+                                                    instancePath +
+                                                    "/warnings/" +
+                                                    i0 +
+                                                    "/schema_version",
+                                                  schemaPath:
+                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/type",
+                                                  keyword: "type",
+                                                  params: { type: "integer" },
+                                                  message: "must be integer",
+                                                },
+                                              ];
+                                              return false;
+                                            }
+                                            if (1 !== data10) {
+                                              validate48.errors = [
+                                                {
+                                                  instancePath:
+                                                    instancePath +
+                                                    "/warnings/" +
+                                                    i0 +
+                                                    "/schema_version",
+                                                  schemaPath:
+                                                    "urn:deykit:transport:ErrorDTO#/properties/schema_version/const",
+                                                  keyword: "const",
+                                                  params: { allowedValue: 1 },
+                                                  message:
+                                                    "must be equal to constant",
+                                                },
+                                              ];
+                                              return false;
+                                            }
+                                            var valid3 = _errs39 === errors;
+                                          } else {
+                                            var valid3 = true;
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        } else {
+                          validate48.errors = [
+                            {
+                              instancePath: instancePath + "/warnings/" + i0,
+                              schemaPath: "urn:deykit:transport:ErrorDTO#/type",
+                              keyword: "type",
+                              params: { type: "object" },
+                              message: "must be object",
+                            },
+                          ];
+                          return false;
+                        }
+                      }
+                      var valid1 = _errs7 === errors;
+                      if (!valid1) {
+                        break;
+                      }
+                    }
+                  } else {
+                    validate48.errors = [
+                      {
+                        instancePath: instancePath + "/warnings",
+                        schemaPath: "#/properties/warnings/type",
+                        keyword: "type",
+                        params: { type: "array" },
+                        message: "must be array",
+                      },
+                    ];
+                    return false;
+                  }
+                }
+                var valid0 = _errs5 === errors;
+              } else {
+                var valid0 = true;
+              }
+            }
+          }
+        }
+      }
+    } else {
+      validate48.errors = [
+        {
+          instancePath,
+          schemaPath: "#/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        },
+      ];
+      return false;
+    }
+  }
+  validate48.errors = vErrors;
+  return errors === 0;
+}
+validate48.evaluated = {
+  props: true,
+  dynamicProps: false,
+  dynamicItems: false,
+};
+exports.validateVersionRequest = validate50;
+const schema69 = {
   $id: "urn:deykit:transport:VersionRequest",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
@@ -10640,7 +11278,7 @@ const schema66 = {
   title: "VersionRequest",
   type: "object",
 };
-function validate47(
+function validate50(
   data,
   {
     instancePath = "",
@@ -10652,7 +11290,7 @@ function validate47(
 ) {
   /*# sourceURL="urn:deykit:transport:VersionRequest" */ let vErrors = null;
   let errors = 0;
-  const evaluated0 = validate47.evaluated;
+  const evaluated0 = validate50.evaluated;
   if (evaluated0.dynamicProps) {
     evaluated0.props = undefined;
   }
@@ -10663,7 +11301,7 @@ function validate47(
     if (data && typeof data == "object" && !Array.isArray(data)) {
       let missing0;
       if (data.schema_version === undefined && (missing0 = "schema_version")) {
-        validate47.errors = [
+        validate50.errors = [
           {
             instancePath,
             schemaPath: "#/required",
@@ -10677,7 +11315,7 @@ function validate47(
         const _errs1 = errors;
         for (const key0 in data) {
           if (!(key0 === "schema_version")) {
-            validate47.errors = [
+            validate50.errors = [
               {
                 instancePath,
                 schemaPath: "#/additionalProperties",
@@ -10699,7 +11337,7 @@ function validate47(
               !isNaN(data0) &&
               isFinite(data0)
             )) {
-              validate47.errors = [
+              validate50.errors = [
                 {
                   instancePath: instancePath + "/schema_version",
                   schemaPath: "#/properties/schema_version/type",
@@ -10711,7 +11349,7 @@ function validate47(
               return false;
             }
             if (1 !== data0) {
-              validate47.errors = [
+              validate50.errors = [
                 {
                   instancePath: instancePath + "/schema_version",
                   schemaPath: "#/properties/schema_version/const",
@@ -10726,7 +11364,7 @@ function validate47(
         }
       }
     } else {
-      validate47.errors = [
+      validate50.errors = [
         {
           instancePath,
           schemaPath: "#/type",
@@ -10738,10 +11376,10 @@ function validate47(
       return false;
     }
   }
-  validate47.errors = vErrors;
+  validate50.errors = vErrors;
   return errors === 0;
 }
-validate47.evaluated = {
+validate50.evaluated = {
   props: true,
   dynamicProps: false,
   dynamicItems: false,

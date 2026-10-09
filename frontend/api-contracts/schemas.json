@@ -271,6 +271,17 @@
         "default": 1,
         "title": "Schema Version",
         "type": "integer"
+      },
+      "selection": {
+        "anyOf": [
+          {
+            "$ref": "urn:deykit:transport:SelectionDetails#"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
       }
     },
     "required": [
@@ -557,6 +568,53 @@
     "title": "RegistrationDTO",
     "type": "object"
   },
+  "ResourceChoice": {
+    "$id": "urn:deykit:transport:ResourceChoice",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "One safe exact-ID alternative, scoped to its owning resource.",
+    "properties": {
+      "kind": {
+        "enum": [
+          "decision",
+          "revision",
+          "dataset",
+          "case",
+          "provider",
+          "fixture",
+          "run",
+          "result_snapshot",
+          "evaluation",
+          "comparison",
+          "regression",
+          "execution_group",
+          "diagnostic_snapshot",
+          "check_snapshot",
+          "report"
+        ],
+        "title": "Kind",
+        "type": "string"
+      },
+      "resource_id": {
+        "title": "Resource Id",
+        "type": "string"
+      },
+      "scope": {
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "title": "Scope",
+        "type": "array"
+      }
+    },
+    "required": [
+      "kind",
+      "resource_id"
+    ],
+    "title": "ResourceChoice",
+    "type": "object"
+  },
   "ResourceSummaryDTO": {
     "$id": "urn:deykit:transport:ResourceSummaryDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -583,6 +641,26 @@
       "schema_version"
     ],
     "title": "ResourceSummaryDTO",
+    "type": "object"
+  },
+  "SelectionDetails": {
+    "$id": "urn:deykit:transport:SelectionDetails",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "description": "Alternatives available when a requested resource cannot be selected.",
+    "properties": {
+      "choices": {
+        "items": {
+          "$ref": "urn:deykit:transport:ResourceChoice#"
+        },
+        "title": "Choices",
+        "type": "array"
+      }
+    },
+    "required": [
+      "choices"
+    ],
+    "title": "SelectionDetails",
     "type": "object"
   },
   "Success_BootstrapReply_": {

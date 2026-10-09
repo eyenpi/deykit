@@ -13,7 +13,9 @@ declare const validators: {
   readonly validateRecentProjectsDTO: (value: unknown) => boolean;
   readonly validateRegisterProjectRequest: (value: unknown) => boolean;
   readonly validateRegistrationDTO: (value: unknown) => boolean;
+  readonly validateResourceChoice: (value: unknown) => boolean;
   readonly validateResourceSummaryDTO: (value: unknown) => boolean;
+  readonly validateSelectionDetails: (value: unknown) => boolean;
   readonly validateSuccess_BootstrapReply_: (value: unknown) => boolean;
   readonly validateSuccess_DemoCreateDTO_: (value: unknown) => boolean;
   readonly validateSuccess_ProjectOverviewDTO_: (value: unknown) => boolean;

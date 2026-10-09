@@ -261,6 +261,8 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+      /** @default null */
+      readonly selection?: components["schemas"]["SelectionDetails"] | null;
     };
     /** ProjectOverviewDTO */
     readonly ProjectOverviewDTO: {
@@ -375,6 +377,39 @@ export interface components {
        */
       readonly schema_version: 1;
     };
+    /**
+     * ResourceChoice
+     * @description One safe exact-ID alternative, scoped to its owning resource.
+     */
+    readonly ResourceChoice: {
+      /**
+       * Kind
+       * @enum {string}
+       */
+      readonly kind:
+        | "decision"
+        | "revision"
+        | "dataset"
+        | "case"
+        | "provider"
+        | "fixture"
+        | "run"
+        | "result_snapshot"
+        | "evaluation"
+        | "comparison"
+        | "regression"
+        | "execution_group"
+        | "diagnostic_snapshot"
+        | "check_snapshot"
+        | "report";
+      /** Resource Id */
+      readonly resource_id: string;
+      /**
+       * Scope
+       * @default []
+       */
+      readonly scope?: readonly string[];
+    };
     /** ResourceSummaryDTO */
     readonly ResourceSummaryDTO: {
       /** Id */
@@ -387,6 +422,14 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+    };
+    /**
+     * SelectionDetails
+     * @description Alternatives available when a requested resource cannot be selected.
+     */
+    readonly SelectionDetails: {
+      /** Choices */
+      readonly choices: readonly components["schemas"]["ResourceChoice"][];
     };
     /** Success[BootstrapReply] */
     readonly Success_BootstrapReply_: {
