@@ -373,7 +373,7 @@ test("report download metadata is admitted only for the exact annotated binary c
     "/api/v1/projects/{registration_id}/reports/{report_id}/download"
   ].get.responses["202"] = {
     content: {
-      "application/json": { schema: { $ref: "#/components/schemas/Source" } },
+      "application/json": { schema: { $ref: "#/components/schemas/Request" } },
     },
   };
   await assert.rejects(
