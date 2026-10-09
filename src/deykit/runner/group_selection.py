@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 
 from deykit.application.dataset_support import fail
 from deykit.contracts.errors import ErrorCode
@@ -13,7 +13,8 @@ from deykit.contracts.json_value import (
     dump_json,
     semantic_hash,
 )
-from deykit.runner.group_models import GroupKind
+
+GroupKind = Literal["choice_order", "regression_check"]
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _REVIEW_VERSION = "group-start-review-v1"
