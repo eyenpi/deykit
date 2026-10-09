@@ -311,12 +311,23 @@ def test_execution_preview_dtos_accept_json_arrays_and_keep_application_constrai
         "fixture_set_id": "fixture-1",
         "case_ids": ["case-1"],
         "option_order": ["yes", "no"],
-        "regression_ids": ["regression-1"],
+        "regression_ids": [],
     }
     run = RunRequestDTO.model_validate(run_data).to_application()
     assert run.case_ids == ("case-1",)
     assert run.option_order == ("yes", "no")
-    assert run.regression_ids == ("regression-1",)
+    assert run.regression_ids == ()
+
+    regression_data = {
+        "decision_id": "decision-1",
+        "dataset_id": "dataset-1",
+        "mode": "fixture",
+        "fixture_set_id": "fixture-1",
+        "regression_ids": ["regression-1"],
+    }
+    regression_request = RunRequestDTO.model_validate(regression_data).to_application()
+    assert regression_request.case_ids == ()
+    assert regression_request.regression_ids == ("regression-1",)
 
     check_data = {
         "decision_id": "decision-1",
@@ -332,6 +343,7 @@ def test_execution_preview_dtos_accept_json_arrays_and_keep_application_constrai
         {**run_data, "case_ids": "case-1"},
         {**run_data, "option_order": ["yes", 4]},
         {**run_data, "case_ids": ["case-1", "case-1"]},
+        {**run_data, "regression_ids": ["regression-1"]},
     ):
         with pytest.raises(ValidationError):
             RunRequestDTO.model_validate(invalid)
