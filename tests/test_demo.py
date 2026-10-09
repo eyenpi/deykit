@@ -2,6 +2,7 @@
 
 import asyncio
 import shutil
+from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -22,6 +23,7 @@ from deykit.contracts.records import (
 from deykit.domain.definitions import select_input
 from deykit.providers.choice import compile_choice
 from deykit.storage import FileProjectSource
+from deykit.storage.demo_staging import DemoStagingSource
 
 STAMP = "2026-10-05T12:00:00Z"
 EXPECTED_LABELS = {
@@ -71,7 +73,9 @@ def ids():
 def demo(tmp_path):
     sequence = ids()
     root = tmp_path / "Sandbox ü"
-    info = DemoService(source_factory, Clock(), lambda: next(sequence)).create(
+    info = DemoService(
+        source_factory, Clock(), lambda: next(sequence), staging_factory=DemoStagingSource
+    ).create(
         root, operation_id="create-demo"
     )
     return root, info
@@ -227,7 +231,119 @@ def test_demo_refuses_existing_user_path_without_overwrite(tmp_path):
     sentinel = existing / "user.txt"
     sentinel.write_text("keep me")
     with pytest.raises(ServiceFailure) as conflict:
-        DemoService(source_factory, Clock()).create(existing, operation_id="demo-existing")
+        DemoService(
+            source_factory, Clock(), staging_factory=DemoStagingSource
+        ).create(existing, operation_id="demo-existing")
     assert conflict.value.error.reason == "demo_path_exists"
     assert sentinel.read_text() == "keep me"
     assert sorted(path.name for path in existing.iterdir()) == ["user.txt"]
+
+
+def test_demo_stages_before_creating_and_replays_the_original_receipt(tmp_path):
+    root = tmp_path / "Staged Sandbox"
+    stage_saw_path: list[bool] = []
+
+    def staging_factory():
+        stage_saw_path.append(root.exists())
+        return DemoStagingSource()
+
+    service = DemoService(source_factory, Clock(), staging_factory=staging_factory)
+    source, created = service._create_opened(root, operation_id="staged-demo")
+    assert stage_saw_path == [False]
+    assert created.replayed is False
+    source.close()
+
+    replay_source, replayed = service._create_opened(root, operation_id="staged-demo")
+    try:
+        assert stage_saw_path == [False]
+        assert replayed.replayed is True
+        assert replayed.project_id == created.project_id
+        assert replayed.operation_id == created.operation_id
+    finally:
+        replay_source.close()
+
+
+@pytest.mark.parametrize("mutation", ["operation_id", "etag", "incomplete"])
+def test_demo_receipt_rejects_wrong_operation_or_row_hash(tmp_path, mutation):
+    root, info = demo(tmp_path)
+    source = FileProjectSource(root)
+    service = DemoService(source_factory, Clock(), staging_factory=DemoStagingSource)
+    receipt = source.operation_receipt(info.operation_id, intent_hash=service._intent())
+    assert receipt is not None
+    if mutation == "operation_id":
+        corrupted = replace(receipt, operation_id="different-operation")
+    elif mutation == "etag":
+        first = replace(receipt.changes[0], etag="0" * 64)
+        corrupted = replace(receipt, changes=(first, *receipt.changes[1:]))
+    else:
+        case = next(row for row in receipt.changes if row.key.collection == "cases")
+        corrupted = replace(
+            receipt,
+            changes=tuple(row for row in receipt.changes if row.key != case.key),
+        )
+    with pytest.raises(ServiceFailure) as error:
+        service._admit_receipt(corrupted, root, operation_id=info.operation_id)
+    assert error.value.error.code == "incompatible_data"
+    assert error.value.error.reason == "invalid_demo_receipt"
+    source.close()
+
+
+def test_demo_replay_uses_receipt_before_corpus_clock_or_ids(tmp_path, monkeypatch):
+    root, created = demo(tmp_path)
+
+    class ForbiddenClock:
+        def utc_now(self):
+            raise AssertionError("replay read the clock")
+
+        def monotonic(self):
+            raise AssertionError("replay read monotonic time")
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("replay consulted current corpus or generated an ID")
+
+    monkeypatch.setattr("deykit.application.demo.read_sandbox_corpus", forbidden)
+    source, replayed = DemoService(
+        source_factory,
+        ForbiddenClock(),
+        forbidden,
+        staging_factory=forbidden,
+    )._create_opened(root, operation_id=created.operation_id)
+    try:
+        assert replayed.replayed is True
+        assert replayed.project_id == created.project_id
+    finally:
+        source.close()
+
+
+def test_invalid_demo_corpus_does_not_create_the_requested_path(tmp_path, monkeypatch):
+    root = tmp_path / "Invalid Sandbox"
+    monkeypatch.setattr(
+        "deykit.application.demo.read_sandbox_corpus",
+        lambda: (_ for _ in ()).throw(ValueError("invalid fixture")),
+    )
+    with pytest.raises(ValueError):
+        DemoService(source_factory, Clock(), staging_factory=DemoStagingSource).create(
+            root, operation_id="invalid-demo"
+        )
+    assert not root.exists()
+
+
+def test_demo_rejects_operation_id_already_used_for_another_intent(tmp_path):
+    root = tmp_path / "Existing project"
+    root.mkdir()
+    with FileProjectSource(root, create=True) as source:
+        ProjectService(source_factory, Clock(), lambda: "project-id").create_in(
+            source, "Existing", "shared-operation"
+        )
+        staged: list[bool] = []
+
+        def staging_factory():
+            staged.append(True)
+            return DemoStagingSource()
+
+        with pytest.raises(ServiceFailure) as error:
+            DemoService(source_factory, Clock(), staging_factory=staging_factory).create_in(
+                source, root, operation_id="shared-operation"
+            )
+        assert error.value.error.code == "conflict"
+        assert staged == []

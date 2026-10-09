@@ -14,11 +14,16 @@ from deykit.runner.backends import ProviderBackends
 from deykit.runner.history import read_history
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 def test_authored_sandbox_actual_factory_full_development_snapshot(tmp_path):
     clock = Clock()
-    demo = DemoService(lambda path, create: FileProjectSource(path, create=create), clock).create(
+    demo = DemoService(
+        lambda path, create: FileProjectSource(path, create=create),
+        clock,
+        staging_factory=DemoStagingSource,
+    ).create(
         tmp_path / "Sandbox ü", operation_id="demo"
     )
     with FileProjectSource(demo.path) as source:

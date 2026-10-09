@@ -10,12 +10,15 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && vite build",
+    "build": "npm run generate:api:check && npm run typecheck && vite build",
     "test": "vitest run",
     "test:browser": "playwright test",
     "preview": "vite preview --host 127.0.0.1",
     "format:check": "prettier --check .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "generate:api": "npm run generate --workspace=@deykit/contracts-tools",
+    "generate:api:check": "npm run check --workspace=@deykit/contracts-tools",
+    "test:contracts": "npm run test --workspace=@deykit/contracts-tools"
   },
   "dependencies": {
     "react": "19.3.0",
@@ -34,5 +37,8 @@
     "vite": "8.3.2",
     "vitest": "5.0.3"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "workspaces": [
+    "tools/contracts"
+  ]
 }

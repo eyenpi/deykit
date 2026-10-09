@@ -27,13 +27,18 @@ from deykit.contracts.records import NormalizedAnswer, PreparedCase
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 @pytest.fixture(scope="module")
 def seed(tmp_path_factory):
     clock = SystemClock()
     root = tmp_path_factory.mktemp("comparison-seed") / "Comparison ü"
-    info = DemoService(lambda path, create: FileProjectSource(path, create=create), clock).create(
+    info = DemoService(
+        lambda path, create: FileProjectSource(path, create=create),
+        clock,
+        staging_factory=DemoStagingSource,
+    ).create(
         root, operation_id="demo"
     )
     with FileProjectSource(root) as source:

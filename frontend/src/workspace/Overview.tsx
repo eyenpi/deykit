@@ -1,5 +1,6 @@
 import type { Ref } from "react";
 import { DataTable } from "../components/DataTable";
+import { WarningList } from "../components/States";
 import type { ProjectOverview, ResourceSummary } from "./gateway";
 export function Overview({
   project,
@@ -17,6 +18,7 @@ export function Overview({
       <h1 ref={headingRef} tabIndex={-1}>
         {project.name}
       </h1>
+      <WarningList warnings={project.warnings} />
       <p className="muted">Project folder</p>
       <div className="section">
         <p className="muted">Project location</p>

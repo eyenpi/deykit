@@ -630,8 +630,12 @@ def fixture_graph(tmp_path_factory: pytest.TempPathFactory) -> FixtureGraph:
 
     root = tmp_path_factory.mktemp("saved-report-project") / "Deykit Fixture"
     clock = SystemClock()
+    from deykit.storage.demo_staging import DemoStagingSource
+
     project = DemoService(
-        lambda path, create: FileProjectSource(path, create=create), clock
+        lambda path, create: FileProjectSource(path, create=create),
+        clock,
+        staging_factory=DemoStagingSource,
     ).create(root, operation_id="report-demo")
     with FileProjectSource(root) as source:
         fixture_service = FixtureService(source, clock)

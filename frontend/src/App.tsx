@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { safeMessage } from "./api/client";
 import { Modal } from "./components/Modal";
-import { ErrorSummary, LoadingState } from "./components/States";
+import { ErrorSummary, LoadingState, WarningList } from "./components/States";
 import { disconnectedWorkspace } from "./workspace/gateway";
 import type {
   ProjectAction,
   ProjectOverview,
-  ProjectSummary,
+  RecentProjectsResult,
   ResourceSummary,
   WorkspaceGateway,
 } from "./workspace/gateway";
@@ -32,7 +32,7 @@ export function App({
     if (openSequence > 0) overviewHeading.current?.focus();
   }, [openSequence]);
   const [notice, setNotice] = useState<string>();
-  const [recent, setRecent] = useState<readonly ProjectSummary[]>();
+  const [recent, setRecent] = useState<RecentProjectsResult>();
   const [error, setError] = useState<string>();
   const [reload, setReload] = useState(0);
   useEffect(() => {
@@ -40,8 +40,8 @@ export function App({
     setError(undefined);
     setRecent(undefined);
     void gateway.recentProjects(controller.signal).then(
-      (items) => {
-        if (!controller.signal.aborted) setRecent(items);
+      (result) => {
+        if (!controller.signal.aborted) setRecent(result);
       },
       (cause) => {
         if (!controller.signal.aborted) setError(safeMessage(cause));
@@ -59,6 +59,22 @@ export function App({
     setView("overview");
     setAction(undefined);
     setOpenSequence((sequence) => sequence + 1);
+  }
+  async function reconnect(): Promise<void> {
+    setError(undefined);
+    try {
+      await gateway.reconnect();
+      setProject(undefined);
+      setDecision(undefined);
+      setView("start");
+      setReload((value) => value + 1);
+    } catch (cause) {
+      setError(safeMessage(cause));
+      throw cause;
+    }
+  }
+  function reconnectFromStart() {
+    void reconnect().catch(() => undefined);
   }
   return (
     <Shell
@@ -119,28 +135,35 @@ export function App({
               <ErrorSummary
                 message={error}
                 retry={() => setReload(reload + 1)}
+                reconnect={reconnectFromStart}
               />
             ) : recent === undefined ? (
               <LoadingState>Loading recent projects…</LoadingState>
-            ) : recent.length === 0 ? (
-              <p className="muted">No recent projects yet.</p>
+            ) : recent.items.length === 0 ? (
+              <>
+                <WarningList warnings={recent.warnings} />
+                <p className="muted">No recent projects yet.</p>
+              </>
             ) : (
-              <ul>
-                {recent.map((item) => (
-                  <li key={item.id}>
-                    <strong>{item.name}</strong>
-                    <p className="path muted">{item.path}</p>
-                    <button
-                      aria-label={`Open project folder: ${item.name}`}
-                      onClick={() =>
-                        setAction({ action: "open", initialPath: item.path })
-                      }
-                    >
-                      Open project folder
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <WarningList warnings={recent.warnings} />
+                <ul>
+                  {recent.items.map((item) => (
+                    <li key={item.id}>
+                      <strong>{item.name}</strong>
+                      <p className="path muted">{item.path}</p>
+                      <button
+                        aria-label={`Open project folder: ${item.name}`}
+                        onClick={() =>
+                          setAction({ action: "open", initialPath: item.path })
+                        }
+                      >
+                        Open project folder
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </section>
         </article>
@@ -162,13 +185,13 @@ export function App({
             <h2>Your workspace</h2>
             <p>
               Create or open a project folder to keep definitions, examples and
-              results together. The support demo uses authored fixtures.
+              results together. The support demo contains authored examples and
+              uses no provider key.
             </p>
             <h2>Connecting the local service</h2>
             <p>
-              This frontend foundation does not yet include the workspace
-              service integration. Project actions preserve your entries and
-              explain when the service is unavailable.
+              The local workspace service manages project registrations and
+              reads project definitions from folders you explicitly open.
             </p>
           </section>
         </article>
@@ -181,7 +204,7 @@ export function App({
           </h1>
           <p className="muted">
             {view === "providers"
-              ? "Provider configuration requires the local workspace service."
+              ? "Provider controls are not connected in the browser yet. Use the CLI to configure profiles."
               : "This view will be available when its workspace service is connected."}
           </p>
         </article>
@@ -191,6 +214,7 @@ export function App({
           action={action.action}
           initialPath={action.initialPath}
           gateway={gateway}
+          onReconnect={reconnect}
           onOpened={opened}
           onClose={() => setAction(undefined)}
         />
