@@ -94,9 +94,7 @@ def test_original_ready_receipt_replay_skips_current_planning_and_backend(setup,
     assert len(factory.calls) == dispatch_count
 
 
-def test_missing_original_ready_event_rejects_fresh_and_replay_without_repair(
-    setup, monkeypatch
-):
+def test_missing_original_ready_event_rejects_fresh_and_replay_without_repair(setup, monkeypatch):
     source, service, factory, _ = setup(1)
     commit = source.commit
 
@@ -153,7 +151,9 @@ def test_later_ready_segment_cannot_admit_missing_first_ready(setup):
         }
     )
     missing_first_ready = tuple(
-        event for event in history.events if event.segment_id != first.id or event.state != "segment_ready"
+        event
+        for event in history.events
+        if event.segment_id != first.id or event.state != "segment_ready"
     )
     with_later_ready = RunHistory(
         manifest=history.manifest,

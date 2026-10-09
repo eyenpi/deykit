@@ -2,13 +2,10 @@
 
 import asyncio
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
-
-from deykit.api.dependencies import ApiProjectSource
-from deykit.application.regressions import RegressionAdd, RegressionService
-from deykit.runner.backends import ProviderBackends
 from test_m09_http_guards import (
     _app,
     _register_project,
@@ -16,6 +13,20 @@ from test_m09_http_guards import (
     _seed_one_case,
     _session,
 )
+
+from deykit.api.dependencies import ApiProjectSource
+from deykit.application.regressions import RegressionAdd, RegressionService
+from deykit.runner.backends import ProviderBackends
+
+
+class _CountedProbe:
+    def __init__(self, probe: Callable[[], bool]) -> None:
+        self.probe = probe
+        self.calls = 0
+
+    def __call__(self) -> bool:
+        self.calls += 1
+        return self.probe()
 
 
 def test_http_standalone_incomplete_start_and_original_replay_never_return_202(
@@ -47,9 +58,7 @@ def test_http_standalone_incomplete_start_and_original_replay_never_return_202(
                 start = {
                     "schema_version": 1,
                     "operation_id": "http-incomplete-start",
-                    "expected_review_context_hash": preview.json()["data"][
-                        "review_context_hash"
-                    ],
+                    "expected_review_context_hash": preview.json()["data"]["review_context_hash"],
                     "request": request,
                 }
                 commit = source.commit
@@ -68,16 +77,11 @@ def test_http_standalone_incomplete_start_and_original_replay_never_return_202(
                 first = await client.post(f"{base}/runs", headers=headers, json=start)
                 assert first.status_code == 409, first.text
                 before_replay = source.capture_snapshot()
-                active_calls = 0
+                active_probe = _CountedProbe(source.execution_active)
                 backend_calls = 0
                 execution_active = source.execution_active
                 original_resolve = ProviderBackends.resolve
                 original_resolve_captured = ProviderBackends.resolve_captured
-
-                def count_active() -> bool:
-                    nonlocal active_calls
-                    active_calls += 1
-                    return execution_active()
 
                 def reject_backend_resolve(*args: object, **kwargs: object) -> None:
                     del args, kwargs
@@ -85,26 +89,20 @@ def test_http_standalone_incomplete_start_and_original_replay_never_return_202(
                     backend_calls += 1
                     raise AssertionError("receipt replay resolved the current backend")
 
-                monkeypatch.setattr(source, "execution_active", count_active)
+                monkeypatch.setattr(source, "execution_active", active_probe)
                 monkeypatch.setattr(ProviderBackends, "resolve", reject_backend_resolve)
-                monkeypatch.setattr(
-                    ProviderBackends, "resolve_captured", reject_backend_resolve
-                )
+                monkeypatch.setattr(ProviderBackends, "resolve_captured", reject_backend_resolve)
                 replay = await client.post(f"{base}/runs", headers=headers, json=start)
 
                 assert replay.status_code == 409, replay.text
                 assert first.json()["error"]["reason"] == "start_acknowledgement_incomplete"
                 assert replay.json()["error"]["reason"] == "start_acknowledgement_incomplete"
-                assert first.json()["error"]["resource_id"] == replay.json()["error"][
-                    "resource_id"
-                ]
+                assert first.json()["error"]["resource_id"] == replay.json()["error"]["resource_id"]
                 assert source.capture_snapshot() == before_replay
-                assert active_calls == 0 and backend_calls == 0
+                assert active_probe.calls == 0 and backend_calls == 0
                 monkeypatch.setattr(source, "execution_active", execution_active)
                 monkeypatch.setattr(ProviderBackends, "resolve", original_resolve)
-                monkeypatch.setattr(
-                    ProviderBackends, "resolve_captured", original_resolve_captured
-                )
+                monkeypatch.setattr(ProviderBackends, "resolve_captured", original_resolve_captured)
 
     asyncio.run(exercise())
 
@@ -117,9 +115,7 @@ def test_http_group_incomplete_receipt_replay_is_409_for_both_group_kinds(
     async def exercise() -> None:
         async with context.api.router.lifespan_context(context.api):
             async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(
-                    app=context.boundary, raise_app_exceptions=False
-                ),
+                transport=httpx.ASGITransport(app=context.boundary, raise_app_exceptions=False),
                 base_url=context.origin,
             ) as client:
                 headers = await _session(client, context.origin)
@@ -164,7 +160,9 @@ def test_http_group_incomplete_receipt_replay_is_409_for_both_group_kinds(
                     await asyncio.sleep(0.01)
                 else:
                     raise AssertionError("fixture baseline did not settle")
-                RegressionService(source, context.dependencies.clock, context.dependencies.id_factory).add(
+                RegressionService(
+                    source, context.dependencies.clock, context.dependencies.id_factory
+                ).add(
                     RegressionAdd(
                         run_id=run_id,
                         case_id="case",
@@ -244,7 +242,7 @@ def test_http_group_incomplete_receipt_replay_is_409_for_both_group_kinds(
                     assert first.json()["error"]["reason"] == "execution_failed"
                     failed_source = source.capture_snapshot()
                     groups_before = source.list_ids("execution_groups")
-                    active_calls = 0
+                    active_probe = _CountedProbe(source.execution_active)
                     backend_calls = 0
                     execution_active = source.execution_active
 
@@ -259,22 +257,15 @@ def test_http_group_incomplete_receipt_replay_is_409_for_both_group_kinds(
                         ProviderBackends, "resolve_captured", reject_backend_resolve
                     )
 
-                    def count_active() -> bool:
-                        nonlocal active_calls
-                        active_calls += 1
-                        return execution_active()
-
-                    monkeypatch.setattr(source, "execution_active", count_active)
+                    monkeypatch.setattr(source, "execution_active", active_probe)
                     replay = await client.post(f"{base}{path}", headers=headers, json=payload)
 
                     assert replay.status_code == 409, replay.text
-                    assert replay.json()["error"]["reason"] == (
-                        "group_acknowledgement_incomplete"
-                    )
+                    assert replay.json()["error"]["reason"] == ("group_acknowledgement_incomplete")
                     group_id = replay.json()["error"]["resource_id"]
                     assert group_id in groups_before
                     assert source.capture_snapshot() == failed_source
-                    assert active_calls == 0
+                    assert active_probe.calls == 0
                     assert backend_calls == 0
                     monkeypatch.setattr(source, "execution_active", execution_active)
                     monkeypatch.setattr(ProviderBackends, "resolve", original_resolve)
