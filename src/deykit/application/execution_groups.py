@@ -1,7 +1,7 @@
 """Atomic group freezing and explicit recovery using the single existing run scheduler."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Literal, NoReturn, cast
 
@@ -299,7 +299,6 @@ class GroupExecutionService:
         retry_unknown: bool | None = None,
         replayed: bool,
     ) -> _AdmittedAcknowledgement | None:
-        active = self.runner.execution.execution_active()
         with self.source.consistent_read():
             receipt = self.source.operation_receipt(operation_id, intent_hash=digest)
             if receipt is None:
@@ -307,7 +306,7 @@ class GroupExecutionService:
             if receipt.operation_id != operation_id:
                 fail("invalid_group_receipt", "incompatible_data")
             records = self.source.capture_snapshot()
-            return self._admit_acknowledgement(
+            admitted = self._admit_acknowledgement(
                 records,
                 receipt,
                 command=command,
@@ -315,9 +314,17 @@ class GroupExecutionService:
                 requested_group_id=requested_group_id,
                 expected_kind=expected_kind,
                 retry_unknown=retry_unknown,
-                active=active,
+                active=False,
                 replayed=replayed,
             )
+        # Ownership status is observational and must not precede receipt/graph admission.
+        active = self.runner.execution.execution_active()
+        return replace(
+            admitted,
+            progress=self.captured_progress(
+                records, admitted.group.id, active=active, replayed=replayed
+            ),
+        )
 
     def _admit_resume_receipt_kind(
         self,
@@ -496,7 +503,6 @@ class GroupExecutionService:
         self._validate_expected_kind(expected_kind)
         if type(retry_unknown) is not bool:
             fail("invalid_unknown_retry_choice")
-        active = self.runner.execution.execution_active()
         with self.source.consistent_read():
             records = self.source.capture_snapshot()
             budget = group_budget(records, group_id)
@@ -513,22 +519,29 @@ class GroupExecutionService:
                 fail("provider_wide_failure_requires_new_run", "preflight_failed")
             for history in histories:
                 self._backend_captured(history, records)
-            progress = self.captured_progress(records, group_id, active=active)
-            return GroupResumePreview(
-                group=progress,
-                segment_ids=tuple(segment.id for segment in budget.segments),
-                members=tuple(
-                    GroupMemberResumePreview(
-                        history.manifest.id,
-                        tuple(item.prepared.case_id for item in history.work(
-                            retry_unknown=retry_unknown
-                        )),
-                    )
-                    for history in histories
-                ),
-                retry_unknown=retry_unknown,
-                proposed_attempt_limit=budget.group.max_attempts,
+            segment_ids = tuple(segment.id for segment in budget.segments)
+            members = tuple(
+                GroupMemberResumePreview(
+                    history.manifest.id,
+                    tuple(
+                        item.prepared.case_id
+                        for item in history.work(retry_unknown=retry_unknown)
+                    ),
+                )
+                for history in histories
             )
+            proposed_attempt_limit = budget.group.max_attempts
+
+        # Do not touch the execution lock until captured admission and preflight succeed.
+        active = self.runner.execution.execution_active()
+        progress = self.captured_progress(records, group_id, active=active)
+        return GroupResumePreview(
+            group=progress,
+            segment_ids=segment_ids,
+            members=members,
+            retry_unknown=retry_unknown,
+            proposed_attempt_limit=proposed_attempt_limit,
+        )
 
     def cancel(
         self,
