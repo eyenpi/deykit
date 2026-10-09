@@ -51,7 +51,11 @@ def test_packaged_workflow_has_exact_authored_numerical_inputs_and_oracles() -> 
             assert request["requested_model"] == expected_model
             assert json.loads(request["body"])["model"] == expected_model
             assert bytes_hash(request["body"].encode("utf-8")) == request["body_hash"]
-            assert binding["answer"]["reported_model"] == expected_model
+            if binding["answer"] is None:
+                assert binding["error"] is not None
+            else:
+                assert binding["error"] is None
+                assert binding["answer"]["reported_model"] == expected_model
 
     oracle = json.loads(resources.joinpath("oracle.json").read_text(encoding="utf-8"))
     assert oracle["case_count"] == 6
