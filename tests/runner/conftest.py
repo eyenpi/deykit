@@ -23,6 +23,7 @@ from deykit.contracts.records import (
     ProjectRecord,
     ProviderProfile,
 )
+from deykit.domain.definitions import select_input
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.providers.fixtures import fixture_set_hash
 from deykit.storage import FileProjectSource
@@ -151,7 +152,7 @@ def seed(source, count=3, invalid=()):
     for key, record in records:
         if key.collection != "cases" or record.input_source == "{}":
             continue
-        selected = JsonDocument(record.input_source).value
+        selected = select_input(definition, JsonDocument(record.input_source)).value
         request = compiler.compile(definition, selected, fixture_profile)
         bindings.append(
             FixtureBinding(
