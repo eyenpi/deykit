@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints
+from pydantic import Field, StringConstraints, field_validator
 
 from deykit.contracts.identities import ContentHash, ResourceId
 
@@ -88,6 +88,11 @@ class FixtureCreateRequest(Mutation):
     model_identity: Annotated[str, StringConstraints(min_length=1, max_length=100_000)]
     binding_sources: tuple[str, ...] = Field(min_length=1, max_length=10000)
     note: str = ""
+
+    @field_validator("binding_sources", mode="before")
+    @classmethod
+    def json_binding_sources(cls, value: object) -> object:
+        return tuple(value) if type(value) is list else value
 
 
 class FixtureBindingDTO(ResponseRecord):

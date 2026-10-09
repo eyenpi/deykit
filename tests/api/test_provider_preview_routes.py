@@ -19,6 +19,7 @@ from deykit.api.dto.execution import (
     ChoiceOrderPreviewRequest,
     RunRequestDTO,
 )
+from deykit.api.dto.providers import FixtureCreateRequest
 from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.api.security import LocalBoundary
@@ -298,6 +299,29 @@ def test_choice_order_seed_requires_signed_64_bit_decimal_text() -> None:
         with pytest.raises(ValidationError):
             ChoiceOrderPreviewRequest.model_validate(
                 {**request_base, "request": {**request_base["request"], "seed": seed}}
+            )
+
+
+def test_fixture_create_dto_accepts_only_json_binding_source_arrays() -> None:
+    request_base = {
+        "schema_version": 1,
+        "operation_id": "fixture-create",
+        "fixture_set_id": "fixture-1",
+        "decision_id": "decision-1",
+        "dataset_id": "dataset-1",
+        "name": "Authored fixture",
+        "model_identity": "jev/model",
+    }
+    binding_sources = ('{"large":9007199254740993}', '"unchanged text"')
+    request = FixtureCreateRequest.model_validate(
+        {**request_base, "binding_sources": list(binding_sources)}
+    )
+    assert request.binding_sources == binding_sources
+
+    for invalid in ("source", [], ["source", 1]):
+        with pytest.raises(ValidationError):
+            FixtureCreateRequest.model_validate(
+                {**request_base, "binding_sources": invalid}
             )
 
 
