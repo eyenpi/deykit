@@ -30,8 +30,21 @@ from deykit.cli.selection import (
 from deykit.contracts.codec import dump_record
 from deykit.contracts.errors import Failure, ServiceError
 from deykit.contracts.ports import Collection, ResourceKey, SourceChange, StoredRecord
-from deykit.contracts.records import EvaluationRecord, ExecutionSettings, RunManifest
+from deykit.contracts.records import (
+    CaseRecord,
+    ChoiceDefinition,
+    ChoiceOption,
+    ChoiceQuestion,
+    DatasetRecord,
+    DecisionRecord,
+    EvaluationRecord,
+    ExecutionSettings,
+    FixtureBinding,
+    NormalizedAnswer,
+    RunManifest,
+)
 from deykit.contracts.selection import ResourceChoice, SelectionDetails
+from deykit.providers.choice import compile_choice
 from deykit.storage import FileProjectSource
 
 
@@ -357,3 +370,122 @@ def test_cli_report_target_ambiguity_keeps_cross_kind_choices(tmp_path: Path) ->
         {"kind": "run", "resource_id": shared_id, "scope": []},
     ]
     assert not output.exists()
+
+
+def test_cli_fixture_create_and_missing_case_choices_are_dataset_scoped(tmp_path: Path) -> None:
+    runner = CliRunner()
+    project = tmp_path / "Fixture selector project"
+    initialized = runner.invoke(
+        app, ["--json", "init", str(project), "--name", "Fixture selectors"]
+    )
+    assert initialized.exit_code == 0, initialized.output
+    stamp = "2026-10-09T12:00:00Z"
+    with FileProjectSource(project) as source:
+        source.commit(
+            "seed-fixture-selector-context",
+            (
+                SourceChange(
+                    ResourceKey("decisions", "decision"),
+                    dump_record(DecisionRecord(id="decision", name="Decision")),
+                    None,
+                ),
+                SourceChange(
+                    ResourceKey("datasets", "dataset"),
+                    dump_record(DatasetRecord(id="dataset", name="Dataset", created_at=stamp)),
+                    None,
+                ),
+                SourceChange(
+                    ResourceKey("cases", "case", ("dataset",)),
+                    dump_record(
+                        CaseRecord(
+                            id="case",
+                            dataset_id="dataset",
+                            input_kind="json",
+                            input_source='{"text":"hello"}',
+                        )
+                    ),
+                    None,
+                ),
+            ),
+        )
+
+    definition = ChoiceDefinition(
+        input_kind="json",
+        selected_fields=("text",),
+        questions=(
+            ChoiceQuestion(
+                id="q",
+                instructions="Choose",
+                options=(ChoiceOption(id="yes", name="Yes"), ChoiceOption(id="no", name="No")),
+            ),
+        ),
+    )
+    compiled = compile_choice(definition, {"text": "hello"}, "authored-model", adapter="fixture")
+    binding = FixtureBinding(
+        id="binding",
+        case_id="case",
+        request=compiled,
+        answer=NormalizedAnswer(question_id="q", option_id="yes", reported_model="authored-model"),
+    )
+    bindings_file = tmp_path / "bindings.jsonl"
+    bindings_file.write_text(dump_record(binding) + "\n", encoding="utf-8")
+    prefix = ["--project", str(project), "--json"]
+    authored = runner.invoke(
+        app,
+        [
+            *prefix,
+            "fixture",
+            "create",
+            "fixture-set",
+            "--decision",
+            "decision",
+            "--dataset",
+            "dataset",
+            "--name",
+            "Authored",
+            "--model",
+            "authored-model",
+            "--file",
+            str(bindings_file),
+            "--operation-id",
+            "fixture-create",
+        ],
+    )
+    assert authored.exit_code == 0, authored.output
+    assert json.loads(authored.stdout)["data"]["dispatch_count"] == 0
+    page = runner.invoke(app, [*prefix, "fixture", "list", "--limit", "1"])
+    assert page.exit_code == 0, page.output
+    assert json.loads(page.stdout)["data"]["items"][0]["id"] == "fixture-set"
+    shown = runner.invoke(app, [*prefix, "fixture", "show", "fixture-set", "--request"])
+    assert shown.exit_code == 0, shown.output
+    assert json.loads(shown.stdout)["data"]["requests"] == [compiled.body.decode("utf-8")]
+
+    missing_binding = binding.model_copy(update={"case_id": "missing-case"})
+    bindings_file.write_text(dump_record(missing_binding) + "\n", encoding="utf-8")
+    missing = runner.invoke(
+        app,
+        [
+            *prefix,
+            "fixture",
+            "create",
+            "missing-set",
+            "--decision",
+            "decision",
+            "--dataset",
+            "dataset",
+            "--name",
+            "Missing case",
+            "--model",
+            "authored-model",
+            "--file",
+            str(bindings_file),
+            "--operation-id",
+            "fixture-missing-case",
+        ],
+    )
+    assert missing.exit_code == 2, missing.output
+    envelope = json.loads(missing.stdout)
+    assert envelope["error"]["reason"] == "fixture_case_missing"
+    assert envelope["selection"]["choices"] == [
+        {"kind": "case", "resource_id": "case", "scope": ["dataset"]}
+    ]

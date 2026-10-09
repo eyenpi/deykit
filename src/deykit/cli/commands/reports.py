@@ -208,7 +208,12 @@ def export(
                         )
                     elif target_kind is None:
                         hints_list.append(
-                            selector_hint("result_snapshot", result_snapshot, ())
+                            selector_hint(
+                                "result_snapshot",
+                                result_snapshot,
+                                (),
+                                owner=SelectorOwner("report_target", target_id or ""),
+                            )
                         )
                 if group_snapshot is not None and target_kind in {"diagnostic", "check"}:
                     snapshot_kind = (

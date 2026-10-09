@@ -10,6 +10,7 @@ from typing import Literal, cast
 
 from deykit.application.evaluations import admit_evaluation_record, frozen_evaluation_from_records
 from deykit.application.errors import ServiceFailure
+from deykit.application.regressions import visible_regressions
 from deykit.application.selectors import require_one_of, require_resource
 from deykit.contracts.execution_groups import CheckSnapshot, DiagnosticSnapshot
 from deykit.contracts.errors import ServiceError
@@ -18,7 +19,9 @@ from deykit.contracts.selection import ResourceChoice, ResourceKind, SelectionDe
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.history import history_from_records
 
-OwnerKind = Literal["run", "evaluation", "execution_group"]
+OwnerKind = Literal[
+    "run", "evaluation", "execution_group", "report_target", "decision"
+]
 GroupKind = Literal["choice_order", "regression_check"]
 
 
@@ -90,6 +93,54 @@ def resolve_hint(
 
     owner = hint.owner
     try:
+        if owner.kind == "decision":
+            if len(hint.kinds) != 1 or hint.kinds[0] != "regression":
+                return None
+            selected = tuple(
+                record.id for record in visible_regressions(records, owner.resource_id)
+            )
+            if hint.resource_id in selected:
+                return None
+            return _owned_choices("regression", selected, ())
+
+        if owner.kind == "report_target":
+            try:
+                target = require_one_of(
+                    records,
+                    ("run", "evaluation", "comparison"),
+                    owner.resource_id,
+                    {"run": (), "evaluation": (), "comparison": ()},
+                )
+            except ServiceFailure:
+                # The explicit target hint runs first and owns missing/ambiguous choices.
+                return None
+            if target.key.collection == "runs":
+                run_id = target.key.resource_id
+            elif target.key.collection == "evaluations":
+                admitted = admit_evaluation_record(target)
+                evaluation = admitted.record
+                frozen_evaluation_from_records(
+                    records,
+                    evaluation.run_id,
+                    evaluation.result_snapshot_id,
+                    evaluation.label_snapshot_id,
+                    evaluation.mode,
+                )
+                run_id = evaluation.run_id
+            else:
+                return None
+            if len(hint.kinds) != 1 or hint.kinds[0] != "result_snapshot":
+                return None
+            return resolve_hint(
+                records,
+                SelectorHint(
+                    hint.kinds,
+                    hint.resource_id,
+                    hint.scopes,
+                    SelectorOwner("run", run_id),
+                ),
+            )
+
         if owner.kind == "run":
             history = history_from_records(records, owner.resource_id)
             if len(hint.kinds) != 1:
@@ -183,10 +234,25 @@ def selection_context(
     try:
         yield
     except ServiceFailure as original:
-        if original.selection is not None or original.error.code not in {
-            "not_found",
-            "incompatible_data",
-        }:
+        if original.selection is not None:
+            raise
+        if original.error.code == "preflight_failed":
+            regression_hints = tuple(
+                hint
+                for hint in hints
+                if hint.owner is not None
+                and hint.owner.kind == "decision"
+                and hint.kinds == ("regression",)
+            )
+            if not regression_hints:
+                raise
+            parent_hints = tuple(
+                hint
+                for hint in hints
+                if hint.owner is None and hint.kinds == ("decision",)
+            )
+            hints = (*parent_hints, *regression_hints)
+        elif original.error.code not in {"not_found", "incompatible_data"}:
             raise
         try:
             with source.consistent_read() as captured:

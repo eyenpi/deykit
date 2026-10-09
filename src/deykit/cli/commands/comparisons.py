@@ -10,7 +10,7 @@ from deykit.application.evaluations import EvaluationService, EvaluationView
 from deykit.application.results import ResultInspection
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import execute
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import SelectorOwner, selector_hint, selection_context
 from deykit.contracts.json_value import semantic_hash
 from deykit.contracts.ports import SnapshotSource
 
@@ -67,8 +67,22 @@ def compare(
             hints = (
                 selector_hint("run", run_a, ()),
                 selector_hint("run", run_b, ()),
-            ) + ((selector_hint("evaluation", evaluation_a, ()),) if evaluation_a else ()) + (
-                (selector_hint("evaluation", evaluation_b, ()),) if evaluation_b else ()
+            ) + (
+                (
+                    selector_hint(
+                        "evaluation", evaluation_a, (), owner=SelectorOwner("run", run_a)
+                    ),
+                )
+                if evaluation_a
+                else ()
+            ) + (
+                (
+                    selector_hint(
+                        "evaluation", evaluation_b, (), owner=SelectorOwner("run", run_b)
+                    ),
+                )
+                if evaluation_b
+                else ()
             )
             with selection_context(source, hints):
                 # Hold one source boundary while defaults resolve, evaluations freeze,

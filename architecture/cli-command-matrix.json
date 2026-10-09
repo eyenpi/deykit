@@ -388,8 +388,8 @@
       "owner": "M06",
       "status": "implemented",
       "verification": {
-        "registration": "tests/cli/test_inventory.py",
-        "behavior": "tests/cli/test_workflow.py"
+        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
+        "behavior": "tests/cli/test_selectors.py::test_cli_fixture_create_and_missing_case_choices_are_dataset_scoped"
       }
     },
     {
@@ -398,8 +398,8 @@
       "owner": "M06",
       "status": "implemented",
       "verification": {
-        "registration": "tests/cli/test_inventory.py",
-        "behavior": "tests/test_fixture_service.py"
+        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
+        "behavior": "tests/test_fixture_service.py::test_fixture_page_and_identity_summary_keep_requests_private_by_default"
       }
     },
     {
@@ -408,8 +408,8 @@
       "owner": "M06",
       "status": "implemented",
       "verification": {
-        "registration": "tests/cli/test_inventory.py",
-        "behavior": "tests/test_fixture_service.py"
+        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
+        "behavior": "tests/test_fixture_service.py::test_fixture_page_and_identity_summary_keep_requests_private_by_default"
       }
     },
     {
@@ -419,7 +419,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -429,7 +429,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -439,7 +439,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -449,7 +449,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_models_cli_uses_one_authenticated_get_and_redacts_fake_secret"
       }
     },
     {
@@ -459,7 +459,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -469,7 +469,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -479,7 +479,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_forget_recovers_native_deletion_after_source_failure_and_replays_original"
       }
     },
     {
@@ -489,7 +489,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_doctor_smoke_preflight_has_zero_dispatch_and_modes_are_exclusive"
       },
       "variants": {
         "--network-check": {
@@ -664,8 +664,8 @@
       "owner": "P13",
       "status": "implemented",
       "verification": {
-        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
-        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_exports_each_target_and_pinned_group_snapshots"
+        "registration": "tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "tests/reports/test_cli_reports.py::test_console_exports_each_target_and_pinned_group_snapshots"
       }
     },
     {
@@ -674,8 +674,8 @@
       "owner": "P13",
       "status": "implemented",
       "verification": {
-        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
-        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
+        "registration": "tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
       }
     },
     {
@@ -684,8 +684,8 @@
       "owner": "P13",
       "status": "implemented",
       "verification": {
-        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
-        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
+        "registration": "tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
       }
     },
     {

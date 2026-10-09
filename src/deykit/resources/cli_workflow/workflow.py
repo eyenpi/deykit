@@ -542,6 +542,47 @@ class Workflow:
         requested_summary = self.data("fixture", "show", self.fixture_a, "--request")
         if len(requested_summary["requests"]) != 5:
             raise RuntimeError("fixture show --request did not expose the authored bodies")
+        missing_case_source = self.resource("fixture-a.jsonl").read_text(encoding="utf-8")
+        first_binding = missing_case_source.splitlines()[0]
+        missing_case_binding = first_binding.replace(
+            '"case_id":"c-001"', '"case_id":"missing-fixture-case"'
+        )
+        if missing_case_binding == first_binding:
+            raise RuntimeError("could not author the missing fixture binding selector")
+        missing_case_file = self.output / "fixture-missing-case.jsonl"
+        missing_case_file.write_text(missing_case_binding + "\n", encoding="utf-8")
+        missing_fixture_case = self.call(
+            "fixture",
+            "create",
+            "tutorial-fixture-missing-case",
+            "--decision",
+            self.decision_id,
+            "--dataset",
+            self.dataset_id,
+            "--name",
+            "Missing case selector probe",
+            "--model",
+            "authored-tutorial-a-v1",
+            "--file",
+            str(missing_case_file),
+            "--operation-id",
+            "tutorial-fixture-missing-case",
+            expected=2,
+        )
+        self.expect_choices(
+            missing_fixture_case,
+            [
+                ("case", case_id, [self.dataset_id])
+                for case_id in (
+                    "c-001",
+                    "c-002",
+                    "c-003",
+                    "c-004",
+                    "c-005",
+                    "c-006",
+                )
+            ],
+        )
         self.data(
             "fixture",
             "create",
@@ -630,6 +671,49 @@ class Workflow:
             expected=2,
         )
         self.expect_choice(missing_snapshot, "result_snapshot", self.result_a)
+        missing_implicit_report_snapshot = self.call(
+            "report",
+            "export",
+            self.run_a,
+            "--result-snapshot",
+            "missing-report-result",
+            "--format",
+            "json",
+            "--output",
+            str(self.output / "missing-run-report.json"),
+            "--operation-id",
+            "tutorial-missing-run-report-snapshot",
+            expected=2,
+        )
+        self.expect_choices(
+            missing_implicit_report_snapshot,
+            [("result_snapshot", self.result_a, [])],
+        )
+        wrong_regression_case = self.call(
+            "regression",
+            "add",
+            self.run_a,
+            "scratch-split-1",
+            "--expected",
+            "review",
+            "--reason",
+            "This case belongs to another dataset.",
+            expected=2,
+        )
+        self.expect_choices(
+            wrong_regression_case,
+            [
+                ("case", case_id, [self.dataset_id])
+                for case_id in (
+                    "c-001",
+                    "c-002",
+                    "c-003",
+                    "c-004",
+                    "c-005",
+                    "c-006",
+                )
+            ],
+        )
         results = self.data("results", "list", self.run_a, "--evaluation", self.evaluation_a)
         summary = results["summary"]
         self.rate(summary["set_accuracy"], 2, 3)
@@ -820,6 +904,18 @@ class Workflow:
         ):
             raise RuntimeError("fixture B eligible/correct counts differ from oracle")
         self.rate(results["summary"]["set_accuracy"], 3, 3)
+        wrong_owner_evaluation = self.call(
+            "compare",
+            self.run_a,
+            self.run_b,
+            "--evaluation-a",
+            self.evaluation_b,
+            expected=2,
+        )
+        self.expect_choices(
+            wrong_owner_evaluation,
+            [("evaluation", self.evaluation_a, [])],
+        )
         comparison = self.data(
             "compare",
             self.run_a,
@@ -1287,6 +1383,25 @@ class Workflow:
             "--operation-id",
             "tutorial-remove-regression",
         )
+        hidden_regression = self.call(
+            "check",
+            "--decision",
+            self.decision_id,
+            "--mode",
+            "fixture",
+            "--fixture-set",
+            self.fixture_b,
+            "--revision",
+            self.v2_revision,
+            "--regression",
+            self.regression_id,
+            "--attempt-limit",
+            "1",
+            expected=2,
+        )
+        if hidden_regression["error"]["code"] != "preflight_failed":
+            raise RuntimeError("a removed regression remained executable")
+        self.expect_choices(hidden_regression, [])
         empty = self.call(
             "check",
             "--decision",

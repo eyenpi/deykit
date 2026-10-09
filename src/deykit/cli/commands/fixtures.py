@@ -6,12 +6,17 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from pydantic import ValidationError
 
+from deykit.application.errors import ServiceFailure
 from deykit.application.fixtures import FixtureService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
 from deykit.cli.selection import selection_context, selector_hint
+from deykit.contracts.codec import load_record
+from deykit.contracts.json_value import JsonError
+from deykit.contracts.records import FixtureBinding
 
 fixture_app = typer.Typer(help="Author and inspect exact offline fixture bindings.")
 
@@ -39,11 +44,11 @@ def create_fixture(
         binding_lines = tuple(source_content.splitlines())
         with cli.source() as source:
             service = FixtureService(source, SystemClock())
-            hints = (
+            hints = [
                 selector_hint("decision", decision, ()),
                 selector_hint("dataset", dataset, ()),
-            )
-            with selection_context(source, hints):
+            ]
+            try:
                 saved = service.create(
                     fixture_id,
                     decision,
@@ -53,6 +58,18 @@ def create_fixture(
                     binding_lines,
                     operation_id=actual_operation_id,
                 )
+            except ServiceFailure as original:
+                try:
+                    bindings = tuple(
+                        load_record(FixtureBinding, line) for line in binding_lines
+                    )
+                except (JsonError, ValidationError):
+                    bindings = ()
+                hints.extend(
+                    selector_hint("case", binding.case_id, (dataset,)) for binding in bindings
+                )
+                with selection_context(source, tuple(hints)):
+                    raise original
             return {
                 "operation_id": actual_operation_id,
                 "fixture": service.identity_summary(saved),

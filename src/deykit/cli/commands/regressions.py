@@ -12,7 +12,7 @@ from deykit.application.regressions import RegressionAdd, RegressionService
 from deykit.cli.commands.execution import service
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import SelectorOwner, selector_hint, selection_context
 from deykit.contracts.records import ExecutionSettings
 
 regressions_app = typer.Typer(help="Save immutable input and explicit expected-option regressions.")
@@ -40,8 +40,18 @@ def add(
 
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            hints = (selector_hint("run", run_id, ()),) + (
-                (selector_hint("result_snapshot", result_snapshot, ()),)
+            hints = (
+                selector_hint("run", run_id, ()),
+                selector_hint("case", case_id, (), owner=SelectorOwner("run", run_id)),
+            ) + (
+                (
+                    selector_hint(
+                        "result_snapshot",
+                        result_snapshot,
+                        (),
+                        owner=SelectorOwner("run", run_id),
+                    ),
+                )
                 if result_snapshot is not None
                 else ()
             )
@@ -94,7 +104,12 @@ def remove(
         with cli.source() as source:
             hints = (
                 selector_hint("decision", decision, ()),
-                selector_hint("regression", regression_id, ()),
+                selector_hint(
+                    "regression",
+                    regression_id,
+                    (),
+                    owner=SelectorOwner("decision", decision),
+                ),
             )
             with selection_context(source, hints):
                 return RegressionService(source, SystemClock()).remove(
@@ -148,7 +163,12 @@ def check(
             if revision is not None:
                 hints.append(selector_hint("revision", revision, (decision,)))
             hints.extend(
-                selector_hint("regression", regression_id, ())
+                selector_hint(
+                    "regression",
+                    regression_id,
+                    (),
+                    owner=SelectorOwner("decision", decision),
+                )
                 for regression_id in (regressions or ())
             )
             with selection_context(source, tuple(hints)):
