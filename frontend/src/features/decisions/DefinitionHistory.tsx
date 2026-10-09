@@ -39,12 +39,14 @@ export function DefinitionHistory({
   const [restoreState, setRestoreState] = useState<MutationState<RestoreData>>({ kind: "idle" });
   const [reviewedDraft, setReviewedDraft] = useState<{ etag: string; source: string }>();
   const restoreMutation = useRef<RetainedMutation<RestoreBody, RestoreData>>();
-  const restoreUnknown = useRef(false);
-  restoreUnknown.current = restoreState.kind === "outcome-unknown";
   const restoreGuard = useRef<DirtyNavigationGuard>();
   if (!restoreGuard.current) {
-    const guard = (async () => !restoreUnknown.current) as DirtyNavigationGuard;
-    guard.isDirty = () => restoreUnknown.current;
+    const unresolvedRestore = () => {
+      const state = restoreMutation.current?.state.kind;
+      return state === "submitting" || state === "outcome-unknown";
+    };
+    const guard = (async () => !unresolvedRestore()) as DirtyNavigationGuard;
+    guard.isDirty = unresolvedRestore;
     restoreGuard.current = guard;
   }
 

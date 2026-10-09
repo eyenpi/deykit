@@ -515,24 +515,35 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
   const uncertainRestoreRequests: Array<Record<string, unknown>> = [];
   let firstRestoreStatus: number | undefined;
+  let releaseRestoreReply!: () => void;
+  let reportRestoreReplyStarted!: () => void;
+  const restoreReplyGate = new Promise<void>((resolve) => { releaseRestoreReply = resolve; });
+  const restoreReplyStarted = new Promise<void>((resolve) => { reportRestoreReplyStarted = resolve; });
   await page.route(`**/decisions/${decisionId}/restore-revision`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     uncertainRestoreRequests.push(route.request().postDataJSON() as Record<string, unknown>);
     const response = await route.fetch();
     if (uncertainRestoreRequests.length === 1) {
       firstRestoreStatus = response.status();
+      reportRestoreReplyStarted();
+      await restoreReplyGate;
       await route.abort("failed");
       return;
     }
     await route.fulfill({ response });
   });
   await restoreDialog.getByRole("button", { name: "Restore to draft", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Retry the same restore request" })).toBeVisible();
-  await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  await restoreReplyStarted;
+  expect(uncertainRestoreRequests).toHaveLength(1);
   const restoreHashBeforeBack = page.url();
   await page.goBack();
   await expect(restoreDialog).toBeVisible();
   expect(page.url()).toBe(restoreHashBeforeBack);
+  expect(uncertainRestoreRequests).toHaveLength(1);
+  await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  releaseRestoreReply();
+  await expect(page.getByRole("button", { name: "Retry the same restore request" })).toBeVisible();
+  await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
   await page.getByRole("button", { name: "Retry the same restore request" }).click();
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
   expect(firstRestoreStatus).toBe(200);
