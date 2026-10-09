@@ -167,7 +167,7 @@ def test_receipt_replay_after_profile_edit_skips_value_and_store_factories(
     )
     edited = writer.view("profile")
     writer.configure(
-        edited.profile.model_copy(update={"requested_model": "jev-next"}),
+        edited.profile.model_copy(update={"requested_model": "jev-1.14.0"}),
         expected_etag=edited.etag,
         operation_id="edit-after-set",
     )
@@ -197,7 +197,7 @@ def test_forget_receipt_replay_after_profile_edit_skips_store_factory(tmp_path: 
     )
     edited = writer.view("profile")
     writer.configure(
-        edited.profile.model_copy(update={"requested_model": "jev-next"}),
+        edited.profile.model_copy(update={"requested_model": "jev-1.14.0"}),
         expected_etag=edited.etag,
         operation_id="edit-after-forget",
     )
@@ -422,7 +422,7 @@ def test_credential_action_and_competing_project_edit_share_one_source_epoch(
     worker = threading.Thread(target=mutate)
     worker.start()
     assert entered.wait(3), "credential mutation did not enter its admitted action"
-    changed = live_profile(reference).model_copy(update={"requested_model": "jev-next"})
+    changed = live_profile(reference).model_copy(update={"requested_model": "jev-1.14.0"})
     competing_done = threading.Event()
     competing_errors: list[Exception] = []
 
@@ -455,7 +455,7 @@ def test_credential_action_and_competing_project_edit_share_one_source_epoch(
     assert errors == []
     current = competing_writer.view("profile")
     competing_writer.configure(
-        current.profile.model_copy(update={"requested_model": "jev-next"}),
+        current.profile.model_copy(update={"requested_model": "jev-1.14.0"}),
         expected_etag=current.etag,
         operation_id="competing-edit-after-release",
     )
