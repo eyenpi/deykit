@@ -6,7 +6,7 @@
   },
   "outputs": {
     "openapi.d.ts": "3ace30b88bdd3c8ef0c3ed18c300945337e06346a4ddb84cac67250d1667c7fd",
-    "operations.ts": "41a272ccb1aa237764b81a394da8822109b7b667329f7df93e2bcfb7d7e8bb8c",
+    "operations.ts": "69295dc9aa85321ce0d1ff46aac27eba49089a02d7c5bf1ba9c09a56e2d8308f",
     "validators.cjs": "12641a49da4b5e6e0bddacaf9d3ce52f3e1935025ce1a6c6dd2183bd490e90ed",
     "validators.d.cts": "5e8f9ff6e2370af1120ab15d6f8f5ae1d7b6cc705726351f6d7285721e500a05"
   },

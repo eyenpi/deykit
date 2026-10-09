@@ -463,7 +463,7 @@ function operationDeclarations(openapi) {
     "}",
     "",
     "export const operationMetadata = ",
-    `${JSON.stringify(object, null, 2)} as const satisfies Record<ApiOperationId, ApiOperationMetadata>;`,
+    `${JSON.stringify(object, null, 2)} as const satisfies Record<string, ApiOperationMetadata>;`,
     "",
   ].join("\n");
 }

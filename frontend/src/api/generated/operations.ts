@@ -583,4 +583,4 @@ export const operationMetadata = {
     bodyRequired: true,
     successValidator: "validateSuccess_RegistrationDTO_",
   },
-} as const satisfies Record<ApiOperationId, ApiOperationMetadata>;
+} as const satisfies Record<string, ApiOperationMetadata>;
