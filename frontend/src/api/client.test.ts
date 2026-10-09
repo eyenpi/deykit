@@ -134,6 +134,8 @@ describe("generated local API operations", () => {
       });
       // @ts-expect-error bootstrap is an internal operation, not public dispatch
       client.operation("bootstrapSession", {});
+      // @ts-expect-error raw path dispatch is not a public client capability
+      client.request("/api/v1/arbitrary", object, {});
       // @ts-expect-error text input operation requires its generated request body
       client.operation("encodeTextInput", { path: { registration_id: "registration-1" } });
     }

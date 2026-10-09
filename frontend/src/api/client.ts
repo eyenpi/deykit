@@ -121,6 +121,7 @@ function apiOperationQuery(
     throw new ApiError("invalid_query", "The local API query parameters are invalid.");
   const query = new URLSearchParams();
   for (const key of metadata.queryParams) {
+    if (!Object.hasOwn(record, key)) continue;
     const item = record[key];
     if (item === undefined) continue;
     if (
@@ -164,17 +165,19 @@ export function jsonSource(value: unknown): JsonSource {
 }
 /** Only safe, structured server errors are shown; raw bodies/headers are never reflected. */
 export class ApiClient {
+  #transport: typeof fetch;
+  #currentOrigin: () => string;
   #capability: string | undefined;
   #connecting: Promise<void> | undefined;
   #reconnecting: Promise<void> | undefined;
   #sessionGeneration = 0;
   constructor(
-    private readonly transport: typeof fetch = globalThis.fetch.bind(
-      globalThis,
-    ),
-    private readonly currentOrigin: () => string = () =>
-      globalThis.location.origin,
-  ) {}
+    transport: typeof fetch = globalThis.fetch.bind(globalThis),
+    currentOrigin: () => string = () => globalThis.location.origin,
+  ) {
+    this.#transport = transport;
+    this.#currentOrigin = currentOrigin;
+  }
   setCapability(capability: string | undefined) {
     this.#sessionGeneration += 1;
     this.#capability = capability;
@@ -205,7 +208,7 @@ export class ApiClient {
   async #bootstrap(generation: number): Promise<void> {
     let response: Response;
     try {
-      response = await this.transport("/api/v1/session/bootstrap", {
+      response = await this.#transport("/api/v1/session/bootstrap", {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -237,7 +240,7 @@ export class ApiClient {
     if (
       typeof reply.capability !== "string" ||
       !/^[A-Za-z0-9_-]{43}$/.test(reply.capability) ||
-      reply.origin !== this.currentOrigin()
+      reply.origin !== this.#currentOrigin()
     )
       throw new ApiError(
         "response_invalid",
@@ -306,7 +309,7 @@ export class ApiClient {
       headers.set("Content-Type", "application/json");
     let response: Response;
     try {
-      response = await this.transport(destination, {
+      response = await this.#transport(destination, {
         method: metadata.method,
         headers,
         body:
