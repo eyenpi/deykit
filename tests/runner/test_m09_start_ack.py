@@ -136,6 +136,25 @@ def test_missing_original_ready_event_rejects_fresh_and_replay_without_repair(se
     assert source.capture_snapshot() == before
 
 
+def test_unrelated_segment_service_failure_is_not_relabelled_as_missing_ready(setup, monkeypatch):
+    _, service, factory, _ = setup(1)
+
+    def fail_segment(*_args, **_kwargs):
+        raise ServiceFailure(ServiceError(code="conflict", reason="source_changed"))
+
+    monkeypatch.setattr(service.repository, "segment", fail_segment)
+    callbacks = []
+
+    with pytest.raises(ServiceFailure) as raised:
+        asyncio.run(
+            service.start(_request(), operation_id="segment-conflict", on_created=callbacks.append)
+        )
+
+    assert raised.value.error.code == "conflict"
+    assert raised.value.error.reason == "source_changed"
+    assert callbacks == [] and factory.calls == []
+
+
 def test_later_ready_segment_cannot_admit_missing_first_ready(setup):
     _, service, factory, _ = setup(1)
     progress = asyncio.run(service.start(_request(), operation_id="ready-history"))

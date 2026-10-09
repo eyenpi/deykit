@@ -260,6 +260,19 @@ class ExecutionService:
                         safe_hash({"command": "run.first_segment", "run_id": run_id}),
                         acknowledge_cancellation=False,
                     )
+                except ServiceFailure as failure:
+                    if (
+                        failure.error.code != "internal_error"
+                        or failure.error.reason != "storage_io"
+                    ):
+                        raise
+                    raise ServiceFailure(
+                        ServiceError(
+                            code="run_incomplete",
+                            resource_id=run_id,
+                            reason="start_acknowledgement_incomplete",
+                        )
+                    ) from None
                 except OSError:
                     raise ServiceFailure(
                         ServiceError(
