@@ -36,11 +36,7 @@ class RecentProjectsStore:
             raise ValueError("APPDATA must be an absolute directory.")
         if sys_platform() == "darwin":
             return (
-                Path.home()
-                / "Library"
-                / "Application Support"
-                / "deykit"
-                / "recent-projects.json"
+                Path.home() / "Library" / "Application Support" / "deykit" / "recent-projects.json"
             )
         xdg = os.environ.get("XDG_CONFIG_HOME")
         base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".config"
@@ -59,6 +55,7 @@ class RecentProjectsStore:
             self.last_warning = "recent_projects_unavailable"
             return ()
         try:
+
             def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
                 result: dict[str, object] = {}
                 for key, value in pairs:

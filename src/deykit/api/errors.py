@@ -45,27 +45,41 @@ class TransportFailure(Exception):
 
 def safe_error(error: Exception) -> tuple[int, ErrorDTO, SelectionDetails | None]:
     if isinstance(error, TransportFailure):
-        return error.status, ErrorDTO(
-            code=error.code, message=_MESSAGES[error.code], reason=error.reason
-        ), None
+        return (
+            error.status,
+            ErrorDTO(code=error.code, message=_MESSAGES[error.code], reason=error.reason),
+            None,
+        )
     if isinstance(error, ServiceFailure):
         record = error.error
-        return _STATUSES.get(record.code, 500), ErrorDTO(
-            code=record.code,
-            message=record.message,
-            resource_id=record.resource_id,
-            row=record.row
-            if record.row is not None and 0 <= record.row <= 9007199254740991
-            else None,
-            reason=record.reason,
-        ), error.selection
+        return (
+            _STATUSES.get(record.code, 500),
+            ErrorDTO(
+                code=record.code,
+                message=record.message,
+                resource_id=record.resource_id,
+                row=record.row
+                if record.row is not None and 0 <= record.row <= 9007199254740991
+                else None,
+                reason=record.reason,
+            ),
+            error.selection,
+        )
     if isinstance(error, JsonError):
-        return 422, ErrorDTO(
-            code="validation_error", message=_MESSAGES["validation_error"], reason=error.code
-        ), None
-    return 500, ErrorDTO(
-        code="internal_error", message=_MESSAGES["internal_error"], correlation_id=uuid4().hex
-    ), None
+        return (
+            422,
+            ErrorDTO(
+                code="validation_error", message=_MESSAGES["validation_error"], reason=error.code
+            ),
+            None,
+        )
+    return (
+        500,
+        ErrorDTO(
+            code="internal_error", message=_MESSAGES["internal_error"], correlation_id=uuid4().hex
+        ),
+        None,
+    )
 
 
 def error_response(error: Exception) -> JSONResponse:

@@ -45,9 +45,7 @@ class FileDemoDestinationFactory:
             files.close()
             raise
         try:
-            receipt = source._peek_durable_receipt(
-                operation_id, intent_hash=intent_hash
-            )
+            receipt = source._peek_durable_receipt(operation_id, intent_hash=intent_hash)
             if receipt is None:
                 raise self._path_conflict()
             return ExistingDemoDestination(source, receipt)
@@ -70,9 +68,7 @@ class FileDemoDestinationFactory:
     def create_exclusive(self, path: Path) -> FileProjectSource:
         files: SafeFiles | None = None
         try:
-            files = SafeFiles.create_exclusive(
-                path, acquisition_hook=self._acquisition_hook
-            )
+            files = SafeFiles.create_exclusive(path, acquisition_hook=self._acquisition_hook)
             return FileProjectSource._from_files(
                 files, fault_hook=self._fault_hook, index_updater=self._index_updater
             )

@@ -85,7 +85,8 @@ class PosixFiles:
                 opened = os.fstat(child_fd)
                 after = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
                 if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino) or (
-                    after.st_dev, after.st_ino
+                    after.st_dev,
+                    after.st_ino,
                 ) != (opened.st_dev, opened.st_ino):
                     fail("unsafe_project_path", "conflict")
                 cls._check_spelling(parent_fd, leaf)
@@ -140,7 +141,8 @@ class PosixFiles:
                 fail("demo_path_exists", "conflict")
             after = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
             if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino) or (
-                after.st_dev, after.st_ino
+                after.st_dev,
+                after.st_ino,
             ) != (opened.st_dev, opened.st_ino):
                 fail("demo_path_exists", "conflict")
             cls._check_spelling(parent_fd, leaf)
@@ -165,10 +167,15 @@ class PosixFiles:
             named = os.stat(path, follow_symlinks=False)
         except OSError:
             fail("demo_path_exists", "conflict")
-        if not stat.S_ISDIR(named.st_mode) or (opened.st_dev, opened.st_ino) != (
-            identity.st_dev,
-            identity.st_ino,
-        ) or (named.st_dev, named.st_ino) != (identity.st_dev, identity.st_ino):
+        if (
+            not stat.S_ISDIR(named.st_mode)
+            or (opened.st_dev, opened.st_ino)
+            != (
+                identity.st_dev,
+                identity.st_ino,
+            )
+            or (named.st_dev, named.st_ino) != (identity.st_dev, identity.st_ino)
+        ):
             fail("demo_path_exists", "conflict")
 
     def close(self) -> None:

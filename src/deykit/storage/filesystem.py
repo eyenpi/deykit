@@ -7,13 +7,17 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from deykit.storage._paths import Parts, check_component
 from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
 
 __all__ = ["Parts", "SafeFiles"]
+
+if TYPE_CHECKING:
+    from deykit.storage._filesystem_posix import PosixFiles
+    from deykit.storage._filesystem_windows import WindowsFiles
 
 
 class _Files(Protocol):
@@ -61,6 +65,7 @@ class SafeFiles:
 
     @classmethod
     def open_existing(cls, root: Path) -> SafeFiles | None:
+        backend: PosixFiles | WindowsFiles | None
         if os.name == "nt":
             from deykit.storage._filesystem_windows import WindowsFiles
 
@@ -80,6 +85,7 @@ class SafeFiles:
         *,
         acquisition_hook: Callable[[str], None] | None = None,
     ) -> SafeFiles:
+        backend: PosixFiles | WindowsFiles
         if os.name == "nt":
             from deykit.storage._filesystem_windows import WindowsFiles
 

@@ -238,9 +238,7 @@ class FileProjectSource:
                 fail("operation_id_conflict", "conflict")
             return self._receipt(folder, manifest, replayed=True)
 
-    def _peek_durable_receipt(
-        self, operation_id: str, *, intent_hash: str
-    ) -> CommitReceipt | None:
+    def _peek_durable_receipt(self, operation_id: str, *, intent_hash: str) -> CommitReceipt | None:
         """Inspect one durable receipt without locks, recovery, or writes."""
         self._validate_operation(operation_id, intent_hash)
         archived = ("history", "operations", operation_id)
@@ -251,9 +249,7 @@ class FileProjectSource:
                 return None
             folder = archived if location == "archived" else journal
             try:
-                receipt = self._peek_receipt_folder(
-                    folder, operation_id, intent_hash=intent_hash
-                )
+                receipt = self._peek_receipt_folder(folder, operation_id, intent_hash=intent_hash)
             except ServiceFailure:
                 relocated = self._receipt_location(operation_id, archived, journal)
                 if attempt < 2 and relocated != location:
@@ -266,9 +262,7 @@ class FileProjectSource:
             return receipt
         fail("unstable_source", "conflict")
 
-    def _receipt_location(
-        self, operation_id: str, archived: Parts, journal: Parts
-    ) -> str | None:
+    def _receipt_location(self, operation_id: str, archived: Parts, journal: Parts) -> str | None:
         has_archive = operation_id in self.files.names(archived[:-1])
         has_journal = operation_id in self.files.names(journal[:-1])
         if has_archive and has_journal:

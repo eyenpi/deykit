@@ -310,9 +310,7 @@ class DemoService:
 
     @staticmethod
     def _incompatible_receipt() -> ServiceFailure:
-        return ServiceFailure(
-            ServiceError(code="incompatible_data", reason="invalid_demo_receipt")
-        )
+        return ServiceFailure(ServiceError(code="incompatible_data", reason="invalid_demo_receipt"))
 
     def _admit_receipt(
         self,
@@ -340,6 +338,7 @@ class DemoService:
                 actual_by_key = {row.key: (row.body, row.etag) for row in receipt.changes}
                 if actual_by_key != expected_by_key:
                     raise ValueError("invalid_demo_receipt")
+
             def records(collection: str, scope: tuple[str, ...] = ()) -> tuple[StoredRecord, ...]:
                 return tuple(
                     row
@@ -352,8 +351,7 @@ class DemoService:
             draft_rows = records("drafts")
             dataset_rows = records("datasets")
             if not all(
-                len(rows) == 1
-                for rows in (project_rows, decision_rows, draft_rows, dataset_rows)
+                len(rows) == 1 for rows in (project_rows, decision_rows, draft_rows, dataset_rows)
             ):
                 raise ValueError("invalid_demo_receipt")
             decision_id = decision_rows[0].key.resource_id
@@ -396,8 +394,7 @@ class DemoService:
             ):
                 raise ValueError("invalid_demo_receipt")
             if any(
-                row.key.scope
-                != (decision_id, dataset_rows[0].key.resource_id)
+                row.key.scope != (decision_id, dataset_rows[0].key.resource_id)
                 for row in receipt.changes
                 if row.key.collection in {"labels", "label_history"}
             ):
@@ -503,8 +500,7 @@ class DemoService:
                 or label.dataset_id != dataset.id
                 or label.case_id not in cases
                 or label.question_id != revision.definition.questions[0].id
-                or label.input_hash
-                != JsonDocument(cases[label.case_id].input_source).content_hash
+                or label.input_hash != JsonDocument(cases[label.case_id].input_source).content_hash
                 or len(label.acceptable_option_ids) != 1
                 or not set(label.acceptable_option_ids).issubset(option_ids)
                 for label in labels
@@ -589,9 +585,7 @@ class DemoService:
         finally:
             source.close()
 
-    def create_opened(
-        self, path: Path, *, operation_id: str
-    ) -> tuple[ProjectBackend, DemoInfo]:
+    def create_opened(self, path: Path, *, operation_id: str) -> tuple[ProjectBackend, DemoInfo]:
         """Create or replay a demo and return its source to a retaining caller."""
         identifier(operation_id)
         if not isinstance(path, Path):
@@ -604,14 +598,10 @@ class DemoService:
         if candidate is not None:
             source = candidate.source
             try:
-                original = self._admit_receipt(
-                    candidate.receipt, path, operation_id=operation_id
-                )
+                original = self._admit_receipt(candidate.receipt, path, operation_id=operation_id)
                 receipt = source.operation_receipt(operation_id, intent_hash=self._intent())
                 if receipt is None:
-                    raise ServiceFailure(
-                        ServiceError(code="conflict", reason="demo_path_exists")
-                    )
+                    raise ServiceFailure(ServiceError(code="conflict", reason="demo_path_exists"))
                 if (
                     candidate.receipt.operation_id != receipt.operation_id
                     or candidate.receipt.changes != receipt.changes

@@ -27,8 +27,8 @@ from deykit.contracts.records import NormalizedAnswer, PreparedCase
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
-from deykit.storage.demo_staging import DemoStagingSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 @pytest.fixture(scope="module")
@@ -40,9 +40,7 @@ def seed(tmp_path_factory):
         clock,
         staging_factory=DemoStagingSource,
         destination_factory=FileDemoDestinationFactory(),
-    ).create(
-        root, operation_id="demo"
-    )
+    ).create(root, operation_id="demo")
     with FileProjectSource(root) as source:
         fixtures = FixtureService(source, clock)
         original = fixtures.read(info.fixture_set_id).fixture_set

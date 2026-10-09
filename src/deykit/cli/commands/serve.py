@@ -22,8 +22,8 @@ from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.cli.context import CliState
 from deykit.storage import FileProjectSource
-from deykit.storage.demo_staging import DemoStagingSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 def register(root: typer.Typer) -> None:

@@ -52,9 +52,7 @@ def register(
         response_model=Success[DemoCreateDTO],
         operation_id="createAuthoredDemo",
     )
-    async def create_demo(
-        body: DemoCreateRequest, response: Response
-    ) -> Success[DemoCreateDTO]:
+    async def create_demo(body: DemoCreateRequest, response: Response) -> Success[DemoCreateDTO]:
         registration, demo = await workers.run_sync(
             registry.register_demo,
             body.path,
@@ -155,9 +153,7 @@ def register(
         info = await workers.run_sync(service.describe, registration.source)
         response.headers["ETag"] = f'"{info.etag}"'
         return Success(
-            data=_reply(
-                RegistrationReply(registration.id, registration.display_path, info)
-            )
+            data=_reply(RegistrationReply(registration.id, registration.display_path, info))
         )
 
     @router.get(
@@ -262,9 +258,7 @@ def register(
         response_model=Success[RebuildIndexDTO],
         operation_id="rebuildRegisteredProjectIndex",
     )
-    async def rebuild_index(
-        registration_id: str, body: VersionRequest
-    ) -> Success[RebuildIndexDTO]:
+    async def rebuild_index(registration_id: str, body: VersionRequest) -> Success[RebuildIndexDTO]:
         del body
         registration = registry.require(registration_id)
         count = await workers.run_sync(registration.source.rebuild_index)

@@ -13,8 +13,8 @@ from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.storage import FileProjectSource
-from deykit.storage.demo_staging import DemoStagingSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 def test_shutdown_waits_for_admitted_request_before_closing_retained_source(tmp_path):
@@ -48,14 +48,12 @@ def test_shutdown_waits_for_admitted_request_before_closing_retained_source(tmp_
             source_factory=source_factory,
             recent_store=RecentProjectsStore(clock, tmp_path / "recent.json"),
             demo_staging_factory=DemoStagingSource,
-        demo_destination_factory=FileDemoDestinationFactory(),
+            demo_destination_factory=FileDemoDestinationFactory(),
         ),
     )
 
     async def exercise() -> None:
-        client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url=origin
-        )
+        client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=origin)
         lifespan = app.app.router.lifespan_context(app.app)
         await lifespan.__aenter__()
         request_task: asyncio.Task[httpx.Response] | None = None

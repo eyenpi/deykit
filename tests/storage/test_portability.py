@@ -246,9 +246,7 @@ def test_native_module_import_is_portable():
 
 
 @WINDOWS
-def test_demo_exclusive_root_uses_relative_create_and_adopts_returned_handle(
-    tmp_path, monkeypatch
-):
+def test_demo_exclusive_root_uses_relative_create_and_adopts_returned_handle(tmp_path, monkeypatch):
     from deykit.storage import _win32 as win
     from deykit.storage._filesystem_windows import WindowsFiles
 

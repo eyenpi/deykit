@@ -14,8 +14,8 @@ from deykit.runner.backends import ProviderBackends
 from deykit.runner.history import read_history
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
-from deykit.storage.demo_staging import DemoStagingSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 def test_authored_sandbox_actual_factory_full_development_snapshot(tmp_path):
@@ -25,9 +25,7 @@ def test_authored_sandbox_actual_factory_full_development_snapshot(tmp_path):
         clock,
         staging_factory=DemoStagingSource,
         destination_factory=FileDemoDestinationFactory(),
-    ).create(
-        tmp_path / "Sandbox ü", operation_id="demo"
-    )
+    ).create(tmp_path / "Sandbox ü", operation_id="demo")
     with FileProjectSource(demo.path) as source:
         service = ExecutionService(
             source, source, ProviderBackends(source, clock), clock, waiter=clock

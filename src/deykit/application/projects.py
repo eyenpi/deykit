@@ -119,9 +119,7 @@ class ProjectService:
                 receipt = source.operation_receipt(operation_id, intent_hash=intent)
                 if receipt is None:
                     if source.list_ids("project"):
-                        raise ServiceFailure(
-                            ServiceError(code="conflict", reason="project_exists")
-                        )
+                        raise ServiceFailure(ServiceError(code="conflict", reason="project_exists"))
                     try:
                         project = ProjectRecord(
                             id=self._id(), name=name, created_at=self._clock.utc_now()
@@ -140,9 +138,7 @@ class ProjectService:
                         intent_hash=intent,
                     )
         current = self.describe(source)
-        original = next(
-            record for record in receipt.changes if record.key.collection == "project"
-        )
+        original = next(record for record in receipt.changes if record.key.collection == "project")
         return ProjectInfo(
             load_record(ProjectRecord, original.body),
             original.etag,

@@ -86,6 +86,8 @@ from deykit.runner.planner import RunRequest
 from deykit.runner.ports import Backend, BackendFactory
 from deykit.storage import FileProjectSource
 from deykit.storage.artifact_export import NativeArtifactWriter
+from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 @dataclass(frozen=True)
@@ -630,8 +632,6 @@ def fixture_graph(tmp_path_factory: pytest.TempPathFactory) -> FixtureGraph:
 
     root = tmp_path_factory.mktemp("saved-report-project") / "Deykit Fixture"
     clock = SystemClock()
-    from deykit.storage.demo_staging import DemoStagingSource
-from deykit.storage.demo_destination import FileDemoDestinationFactory
 
     project = DemoService(
         lambda path, create: FileProjectSource(path, create=create),

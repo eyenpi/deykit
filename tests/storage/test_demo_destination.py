@@ -9,8 +9,7 @@ from threading import Barrier
 
 import pytest
 
-from deykit.application.demo import DemoService
-from deykit.application.demo import ExistingDemoDestination
+from deykit.application.demo import DemoService, ExistingDemoDestination
 from deykit.application.errors import ServiceFailure
 from deykit.application.projects import ProjectService
 from deykit.contracts.ports import CommitReceipt
@@ -145,9 +144,7 @@ def test_failed_readonly_receipt_admission_closes_candidate_once(tmp_path):
 
     class ExistingFactory:
         def open_existing(self, path, *, operation_id, intent_hash):
-            return ExistingDemoDestination(
-                tracked, CommitReceipt("wrong-operation", (), False, ())
-            )
+            return ExistingDemoDestination(tracked, CommitReceipt("wrong-operation", (), False, ()))
 
         def create_exclusive(self, path):
             raise AssertionError("failed admission reached creation")
@@ -203,9 +200,7 @@ def test_replaced_acquired_directory_with_sentinel_is_refused_before_source_writ
         lambda path, create: FileProjectSource(path, create=create),
         Clock(),
         staging_factory=DemoStagingSource,
-        destination_factory=FileDemoDestinationFactory(
-            acquisition_hook=replace_after_mkdir
-        ),
+        destination_factory=FileDemoDestinationFactory(acquisition_hook=replace_after_mkdir),
     )
     with pytest.raises(ServiceFailure) as failure:
         service.create(root, operation_id="race-sentinel")

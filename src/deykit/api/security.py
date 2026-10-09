@@ -251,13 +251,7 @@ class LocalBoundary:
                 ):
                     raise TransportFailure(422, "validation_error", "invalid_query")
                 if method not in {"GET", "HEAD"}:
-                    limit = (
-                        4096
-                        if bootstrap
-                        else (
-                            16777216
-                        )
-                    )
+                    limit = 4096 if bootstrap else (16777216)
                     declared = self._body_headers(headers, limit)
                     body = await read_bounded_json(receive, limit)
                     if declared is not None and len(body) != declared:

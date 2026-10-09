@@ -16,8 +16,8 @@ from deykit.providers.choice import JevChoiceCompiler
 from deykit.providers.fixtures import FixtureTransportFactory
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
-from deykit.storage.demo_staging import DemoStagingSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 class SandboxBackends:
@@ -62,9 +62,7 @@ def test_packaged_authored_sandbox_exact_evaluation(tmp_path: Path):
         clock,
         staging_factory=DemoStagingSource,
         destination_factory=FileDemoDestinationFactory(),
-    ).create(
-        path, operation_id="demo"
-    )
+    ).create(path, operation_id="demo")
     with FileProjectSource(path) as source:
         backend = SandboxBackends(source, info.fixture_set_id)
         runner = ExecutionService(source, source, backend, clock)

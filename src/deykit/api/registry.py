@@ -103,9 +103,7 @@ class ProjectRegistry:
             existing = self._by_path.get(path_text)
             if existing is None:
                 if len(self._registrations) + self._pending >= self._max:
-                    raise ServiceFailure(
-                        ServiceError(code="conflict", reason="registration_limit")
-                    )
+                    raise ServiceFailure(ServiceError(code="conflict", reason="registration_limit"))
                 self._pending += 1
         service = ProjectService(
             self._dependencies.source_factory,
@@ -175,9 +173,7 @@ class ProjectRegistry:
             existing = self._by_path.get(path_text)
             if existing is None:
                 if len(self._registrations) + self._pending >= self._max:
-                    raise ServiceFailure(
-                        ServiceError(code="conflict", reason="registration_limit")
-                    )
+                    raise ServiceFailure(ServiceError(code="conflict", reason="registration_limit"))
                 self._pending += 1
         service = DemoService(
             self._dependencies.source_factory,

@@ -118,9 +118,7 @@ class DemoStagingSource:
             old_intent, _, receipt = previous
             if old_intent != intent_hash:
                 raise ServiceFailure(ServiceError(code="conflict", reason="operation_id_conflict"))
-            return CommitReceipt(
-                receipt.operation_id, receipt.changes, True, receipt.deleted_keys
-            )
+            return CommitReceipt(receipt.operation_id, receipt.changes, True, receipt.deleted_keys)
 
     def commit(
         self,

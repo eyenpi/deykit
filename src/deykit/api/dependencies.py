@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from deykit.application.projects import ProjectBackend
 from deykit.application.demo import DemoDestinationFactory
+from deykit.application.projects import ProjectBackend
 from deykit.contracts.ports import Clock
 
 from .recent import RecentProject

@@ -58,8 +58,12 @@ class WindowsFiles:
                 fail("demo_path_exists", "conflict")
             try:
                 child = api.open(
-                    parent, leaf, directory=True, access=win.DIRECTORY_ACCESS,
-                    share=win.SHARE_RW, disposition=win.OPEN,
+                    parent,
+                    leaf,
+                    directory=True,
+                    access=win.DIRECTORY_ACCESS,
+                    share=win.SHARE_RW,
+                    disposition=win.OPEN,
                 )
             except FileNotFoundError:
                 return None
@@ -101,8 +105,12 @@ class WindowsFiles:
                 fail("demo_path_exists", "conflict")
             try:
                 child = api.open(
-                    parent, leaf, directory=True, access=win.DIRECTORY_ACCESS,
-                    share=win.SHARE_RW, disposition=win.CREATE,
+                    parent,
+                    leaf,
+                    directory=True,
+                    access=win.DIRECTORY_ACCESS,
+                    share=win.SHARE_RW,
+                    disposition=win.CREATE,
                 )
             except OSError:
                 fail("demo_path_exists", "conflict")

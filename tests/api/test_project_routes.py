@@ -12,8 +12,8 @@ from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.storage import FileProjectSource
-from deykit.storage.demo_staging import DemoStagingSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 
 def test_register_overview_demo_replay_and_recent_projects(tmp_path):
@@ -123,9 +123,7 @@ def test_register_overview_demo_replay_and_recent_projects(tmp_path):
                     "operation_id": "create-demo",
                     "path": demo_path,
                 }
-                demo = await client.post(
-                    "/api/v1/projects/demo", headers=headers, json=payload
-                )
+                demo = await client.post("/api/v1/projects/demo", headers=headers, json=payload)
                 assert demo.status_code == 200, demo.text
                 data = demo.json()["data"]
                 assert data["demo"]["evidence_mode"] == "authored_fixture"
@@ -135,14 +133,13 @@ def test_register_overview_demo_replay_and_recent_projects(tmp_path):
                     data["demo"]["label_count"],
                 ) == ("12", "11", "9")
 
-                replay = await client.post(
-                    "/api/v1/projects/demo", headers=headers, json=payload
-                )
+                replay = await client.post("/api/v1/projects/demo", headers=headers, json=payload)
                 assert replay.status_code == 200, replay.text
                 assert replay.json()["data"]["demo"]["replayed"] is True
-                assert replay.json()["data"]["registration"]["registration_id"] == data[
-                    "registration"
-                ]["registration_id"]
+                assert (
+                    replay.json()["data"]["registration"]["registration_id"]
+                    == data["registration"]["registration_id"]
+                )
 
                 recent = await client.get(
                     "/api/v1/projects/recent",
