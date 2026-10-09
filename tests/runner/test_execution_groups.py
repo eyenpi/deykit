@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from deykit.application.dataset_support import safe_hash
 from deykit.application.diagnostics import ChoiceOrderRequest, DiagnosticService
 from deykit.application.errors import ServiceFailure
 from deykit.application.regressions import RegressionAdd, RegressionService
@@ -100,6 +101,71 @@ def test_save_regression_zero_calls_and_frozen_planner(setup):
     assert service.remove(saved.id, decision_id="decision", operation_id="remove").removed
     assert service.list("decision") == ()
     assert source.list_ids("regressions") == (saved.id,)
+
+
+def test_http_scoped_regression_rejects_cross_decision_before_identity_or_clock(setup, monkeypatch):
+    source, runner, factory, clock = setup(count=1)
+    run = asyncio.run(runner.start(request(), operation_id="origin"))
+    identity_calls = []
+    time_calls = []
+    original_utc_now = clock.utc_now
+
+    def utc_now():
+        time_calls.append(True)
+        return original_utc_now()
+
+    clock.utc_now = utc_now
+    service = RegressionService(source, clock, lambda: identity_calls.append(True) or "reg")
+    body = RegressionAdd(
+        run_id=run.run_id,
+        case_id="case-00",
+        acceptable_option_ids=("yes",),
+        reason="Route-scoped oracle.",
+    )
+    before = source.capture_snapshot()
+
+    with pytest.raises(ServiceFailure) as mismatch:
+        service.add(body, operation_id="scoped-add", expected_decision_id="another-decision")
+
+    assert mismatch.value.error.reason == "regression_decision_mismatch"
+    assert source.capture_snapshot() == before
+    assert identity_calls == [] and time_calls == [] and factory.calls
+
+    saved = service.add(body, operation_id="scoped-add", expected_decision_id="decision")
+    after = source.capture_snapshot()
+    assert saved.decision_id == "decision"
+    assert len(identity_calls) == len(time_calls) == 1
+
+    with pytest.raises(ServiceFailure) as changed_scope:
+        service.add(body, operation_id="scoped-add", expected_decision_id="another-decision")
+    assert changed_scope.value.error.code == "conflict"
+    assert source.capture_snapshot() == after
+
+    def no_current_snapshot():
+        raise AssertionError("receipt replay must not inspect the current run or labels")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(source, "capture_snapshot", no_current_snapshot)
+        replay = service.add(body, operation_id="scoped-add", expected_decision_id="decision")
+        assert replay == saved
+        assert len(identity_calls) == len(time_calls) == 1
+
+    legacy_body = body.model_copy(update={"reason": "Legacy omitted scope."})
+    receipt_hashes = []
+    original_receipt = source.operation_receipt
+
+    def record_receipt(operation_id, *, intent_hash):
+        receipt_hashes.append(intent_hash)
+        return original_receipt(operation_id, intent_hash=intent_hash)
+
+    monkeypatch.setattr(source, "operation_receipt", record_receipt)
+    service.add(legacy_body, operation_id="legacy-add")
+    assert receipt_hashes[0] == safe_hash(
+        {
+            "command": "regression.add",
+            "request": legacy_body.model_dump(mode="json"),
+        }
+    )
 
 
 def test_frozen_check_after_case_deletion_and_unavailable_baseline(setup):

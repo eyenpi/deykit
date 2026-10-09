@@ -13,6 +13,7 @@ from ..dto.common import Success
 from ..dto.execution import (
     CheckPreviewRequest,
     ChoiceOrderPreviewRequest,
+    ExecutionSettingsViewDTO,
     GroupMemberPreviewDTO,
     GroupPreviewDTO,
     MemberIdentityDTO,
@@ -35,7 +36,7 @@ def _run(value: RunPreview) -> RunPreviewDTO:
         selected_case_ids=value.selected_case_ids,
         initial_requests=str(value.initial_requests),
         invalid_cases=value.invalid_cases,
-        settings=value.settings,
+        settings=ExecutionSettingsViewDTO.from_application(value.settings),
         development_case_count=str(value.development_case_count),
         review_context_hash=value.review_context_hash,
         dry_run=value.dry_run,

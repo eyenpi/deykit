@@ -19,6 +19,7 @@ from .routes.session import register as register_session
 from .runtime import TrackedWorkers
 from .security import LocalBoundary
 from .session import SessionCapability
+from .supervisor import ExecutionSupervisor
 
 
 def create_inner_app(
@@ -28,6 +29,7 @@ def create_inner_app(
 ) -> FastAPI:
     registry = ProjectRegistry(dependencies, max_registrations=config.max_registrations)
     workers = TrackedWorkers()
+    supervisor = ExecutionSupervisor()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -35,8 +37,12 @@ def create_inner_app(
             yield
         finally:
             session.revoke()
-            await workers.wait_idle()
-            registry.close_all()
+            await supervisor.stop_admission()
+            try:
+                await supervisor.shutdown()
+            finally:
+                await workers.wait_idle()
+                registry.close_all()
 
     app = FastAPI(
         lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False
@@ -58,7 +64,21 @@ def create_inner_app(
 
     router = APIRouter(prefix="/api/v1")
     register_session(router, session, config.origin)
-    from .routes import authoring, data, labels, previews, projects, providers
+    from .routes import (
+        authoring,
+        checks,
+        comparisons,
+        data,
+        diagnostics,
+        execution,
+        labels,
+        previews,
+        projects,
+        providers,
+        regressions,
+        reports,
+        results,
+    )
 
     projects.register(router, dependencies, registry, workers)
     authoring.register(router, dependencies, registry, workers)
@@ -66,10 +86,18 @@ def create_inner_app(
     labels.register(router, dependencies, registry, workers)
     previews.register(router, dependencies, registry, workers)
     providers.register(router, dependencies, registry, workers)
+    execution.register(router, dependencies, registry, workers, supervisor)
+    diagnostics.register(router, dependencies, registry, workers, supervisor)
+    checks.register(router, dependencies, registry, workers, supervisor)
+    results.register(router, dependencies, registry, workers)
+    reports.register(router, dependencies, registry, workers)
+    comparisons.register(router, dependencies, registry, workers)
+    regressions.register(router, dependencies, registry, workers)
     app.include_router(router)
     app.state.project_registry = registry
     app.state.dependencies = dependencies
     app.state.workers = workers
+    app.state.execution_supervisor = supervisor
 
     async def asset(request: Request) -> Response:
         name = request.url.path.removeprefix("/") or "index.html"

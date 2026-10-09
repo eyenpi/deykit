@@ -98,8 +98,47 @@ class LocalBoundary:
             raise TransportFailure(403, "local_access_denied", "fetch_metadata")
 
     @staticmethod
-    def query_keys(path: str) -> set[str]:
+    def query_keys(path: str, method: str | None = None) -> set[str]:
         registrations = r"/api/v1/projects/[^/]+"
+        method_rules = (
+            (rf"{registrations}/runs", {"GET": {"decision_id", "status", "cursor", "limit"}}),
+            (
+                rf"{registrations}/runs/[^/]+/resume-preview",
+                {"POST": {"retry_unknown", "max_attempts"}},
+            ),
+            (
+                rf"{registrations}/runs/[^/]+/results",
+                {"GET": {"evaluation_id", "status", "split", "tag", "cursor", "limit"}},
+            ),
+            (
+                rf"{registrations}/runs/[^/]+/results/[^/]+",
+                {
+                    "GET": {
+                        "evaluation_id",
+                        "include_input",
+                        "include_request",
+                        "include_response",
+                        "include_attempts",
+                    }
+                },
+            ),
+            (rf"{registrations}/runs/[^/]+/evaluations", {"GET": {"cursor", "limit"}}),
+            (rf"{registrations}/runs/[^/]+/annotations", {"GET": {"case_id", "cursor", "limit"}}),
+            (
+                rf"{registrations}/diagnostics/[^/]+/resume-preview",
+                {"POST": {"retry_unknown"}},
+            ),
+            (rf"{registrations}/checks/[^/]+/resume-preview", {"POST": {"retry_unknown"}}),
+            (rf"{registrations}/comparisons", {"GET": {"cursor", "limit"}}),
+            (rf"{registrations}/reports", {"GET": {"cursor", "limit"}}),
+            (rf"{registrations}/reports/[^/]+/download", {"GET": {"format"}}),
+        )
+        for pattern, methods in method_rules:
+            if re.fullmatch(pattern, path):
+                if method is None:
+                    return set().union(*methods.values())
+                return methods.get(method.upper(), set())
+
         rules = (
             (rf"{registrations}/decisions", {"include_archived", "cursor", "limit"}),
             (rf"{registrations}/decisions/[^/]+/revisions", {"cursor", "limit"}),
@@ -121,9 +160,6 @@ class LocalBoundary:
             (rf"{registrations}/fixtures", {"cursor", "limit"}),
             (rf"{registrations}/fixtures/[^/]+", {"include_requests"}),
             (rf"{registrations}/providers/[^/]+/models", {"timeout_seconds"}),
-            (rf"{registrations}/runs", {"decision_id", "status", "cursor", "limit"}),
-            (rf"{registrations}/diagnostics/choice-order", {"cursor", "limit"}),
-            (rf"{registrations}/checks", {"cursor", "limit"}),
         )
         for pattern, keys in rules:
             if re.fullmatch(pattern, path):
@@ -276,7 +312,7 @@ class LocalBoundary:
                         for key in keys
                     )
                     or (bootstrap and keys)
-                    or not set(keys).issubset(self.query_keys(scope["path"]))
+                    or not set(keys).issubset(self.query_keys(scope["path"], method))
                 ):
                     raise TransportFailure(422, "validation_error", "invalid_query")
                 if method not in {"GET", "HEAD"}:

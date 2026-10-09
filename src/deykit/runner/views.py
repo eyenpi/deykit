@@ -61,6 +61,18 @@ class RunSourceReferences:
     provider_profile_id: str
     fixture_set_id: str | None
     option_order: tuple[str, ...] | None
+    adapter: str | None = None
+    compiler_version: str | None = None
+    compiler_id: str | None = None
+    compiler_id_unavailable_reason: (
+        Literal[
+            "no_prepared_request",
+            "prepared_compiler_mismatch",
+            "inconsistent_prepared_compiler_identity",
+        ]
+        | None
+    ) = None
+    evidence_mode: Literal["authored_fixture", "live"] | None = None
 
 
 @dataclass(frozen=True)
@@ -138,6 +150,22 @@ def preview_view(plan: RunPlan) -> RunPreview:
 def progress_view(
     history: RunHistory, *, active: bool = False, replayed: bool = False
 ) -> RunProgress:
+    prepared_requests = tuple(item.request for item in history.prepared if item.request is not None)
+    compiler_ids = {request.compiler for request in prepared_requests}
+    versions_match = all(
+        request.compiler_version == history.manifest.compiler_version
+        for request in prepared_requests
+    )
+    compiler_id = next(iter(compiler_ids)) if len(compiler_ids) == 1 and versions_match else None
+    compiler_id_unavailable_reason = (
+        None
+        if compiler_id is not None
+        else "no_prepared_request"
+        if not prepared_requests
+        else "prepared_compiler_mismatch"
+        if not versions_match
+        else "inconsistent_prepared_compiler_identity"
+    )
     attempts: list[AttemptProgress] = []
     for attempt in history.attempts:
         event = history.final_event(attempt.id)
@@ -172,6 +200,11 @@ def progress_view(
             history.manifest.provider_profile_id,
             history.manifest.fixture_set_id,
             history.manifest.option_order,
+            history.manifest.adapter,
+            history.manifest.compiler_version,
+            compiler_id,
+            compiler_id_unavailable_reason,
+            "authored_fixture" if history.manifest.mode == "fixture" else "live",
         ),
         tuple(
             CaseProgress(item.case_id, item.status, item.attempt_id, item.error)
