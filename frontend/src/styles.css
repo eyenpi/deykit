@@ -129,6 +129,11 @@ strong {
   display: grid;
   gap: 4px;
 }
+.sidebar kbd {
+  float: right;
+  color: var(--muted);
+  font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;
+}
 .sidebar-bottom {
   margin-top: auto;
 }
@@ -170,9 +175,184 @@ main {
   outline: none;
 }
 .document {
-  max-width: 816px;
+  max-width: 768px;
   padding: 48px;
   margin: 0 auto;
+}
+.authoring-page,
+.examples-page,
+.decision-document {
+  max-width: 960px;
+}
+.document-title-row,
+.section-heading-row,
+.section-heading,
+.page-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.page-heading-row {
+  align-items: flex-start;
+  margin-bottom: 28px;
+}
+.document-title-input {
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  font-size: 28px !important;
+  font-weight: 600 !important;
+  max-width: 560px;
+}
+.document-question {
+  min-height: 64px;
+  border: 0 !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  padding: 10px 0 !important;
+  font-size: 20px !important;
+  line-height: 30px;
+}
+.decision-toolbar {
+  justify-content: flex-end;
+  margin: 20px 0 28px;
+}
+.option-row {
+  align-items: flex-start;
+}
+.option-move-actions,
+.option-fields,
+.selected-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.option-move-actions {
+  flex-shrink: 0;
+}
+.option-move-actions button {
+  padding-inline: 8px;
+}
+.option-fields {
+  flex: 1;
+  min-width: 0;
+}
+.option-fields input:first-of-type {
+  flex: 1.2;
+}
+.option-fields input:last-of-type {
+  flex: 1;
+}
+.input-kind-control,
+.case-editor fieldset,
+.mapping-form fieldset,
+.split-sheet fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.input-kind-control legend,
+.case-editor legend,
+.mapping-form legend,
+.split-sheet legend {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.selected-field-row {
+  max-width: 520px;
+  margin: 8px 0;
+}
+.selected-field-row input {
+  flex: 1;
+}
+.source-block {
+  max-height: 380px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: #fafaf9;
+}
+.examples-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  gap: 28px;
+}
+.case-inspector {
+  border-top: 1px solid var(--border);
+  margin-top: 36px;
+  padding-top: 28px;
+}
+.source-preview {
+  display: inline-block;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.metadata-list {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.35fr) minmax(0, 1fr);
+  gap: 8px 16px;
+}
+.metadata-list dt {
+  color: var(--muted);
+}
+.metadata-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+}
+.resource-create-form > label {
+  display: grid;
+  gap: 8px;
+  font-weight: 500;
+  margin: 18px 0;
+}
+.command-menu label {
+  display: block;
+  margin-bottom: 8px;
+}
+.command-results {
+  padding: 0;
+  list-style: none;
+  max-height: 45vh;
+  overflow: auto;
+}
+.command-results button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  border-color: transparent;
+}
+.command-results [aria-selected="true"] button {
+  border-color: var(--focus);
+  background: #f2f7fc;
+}
+.fixture-detail,
+.fixture-create {
+  overflow-wrap: anywhere;
+}
+.fixture-context-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.fixture-context-selector label {
+  display: grid;
+  gap: 8px;
 }
 .welcome {
   padding-top: clamp(64px, 14vh, 140px);
@@ -444,6 +624,30 @@ legend {
   }
   .source-editor {
     max-width: 100%;
+  }
+  .page-heading-row,
+  .document-title-row,
+  .section-heading-row,
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .examples-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .option-row,
+  .option-fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .option-move-actions {
+    flex-wrap: wrap;
+  }
+  .document-title-input {
+    max-width: 100%;
+  }
+  .fixture-context-selector {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (prefers-reduced-motion: reduce) {

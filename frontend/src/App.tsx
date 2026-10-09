@@ -1,235 +1,290 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import type { ApiOperationBody } from "./api/client";
 import { safeMessage } from "./api/client";
 import { Modal } from "./components/Modal";
 import { ErrorSummary, LoadingState, WarningList } from "./components/States";
+import { DecisionPage } from "./features/decisions/DecisionPage";
+import { DefinitionHistory } from "./features/decisions/DefinitionHistory";
+import { ExamplesPage } from "./features/examples/ExamplesPage";
+import { FixtureLibrary } from "./features/fixtures/FixtureLibrary";
+import { ImportSheet } from "./features/imports/ImportSheet";
+import { ProviderPage } from "./features/providers/ProviderPage";
+import { SplitSheet } from "./features/splits/SplitSheet";
 import { disconnectedWorkspace } from "./workspace/gateway";
-import type {
-  ProjectAction,
-  ProjectOverview,
-  RecentProjectsResult,
-  ResourceSummary,
-  WorkspaceGateway,
-} from "./workspace/gateway";
+import type { ProjectOverview, WorkspaceGateway } from "./workspace/gateway";
 import { Overview } from "./workspace/Overview";
 import { ProjectForm } from "./workspace/ProjectForm";
 import { Shell } from "./workspace/Shell";
-import type { View } from "./workspace/Shell";
-export function App({
-  gateway = disconnectedWorkspace,
-}: {
-  gateway?: WorkspaceGateway;
-}) {
-  const [view, setView] = useState<View>("start");
+import type { WorkspaceCommand } from "./workspace/CommandMenu";
+import { WorkspaceNavigation, WorkspaceSessionState } from "./workspace/navigation";
+import { isOutcomeUnknown } from "./workspace/mutation-controller";
+import type { WorkspaceRoute } from "./workspace/routes";
+
+const EMPTY_DECISION_SOURCE = `{
+  "schema_version": 1,
+  "input_kind": "text",
+  "input_schema_source": null,
+  "selected_fields": [],
+  "questions": [
+    {
+      "id": "question",
+      "kind": "choice",
+      "instructions": "",
+      "options": [
+        { "id": "option-a", "name": "Option A", "description": null },
+        { "id": "option-b", "name": "Option B", "description": null }
+      ]
+    }
+  ]
+}`;
+
+type Creation =
+  | { kind: "decision" }
+  | { kind: "dataset" };
+
+export function App({ gateway = disconnectedWorkspace }: { gateway?: WorkspaceGateway }) {
+  const [navigation] = useState(() => new WorkspaceNavigation());
+  const [sessionState] = useState(() => new WorkspaceSessionState());
+  const [route, setRoute] = useState<WorkspaceRoute>(() => navigation.current);
   const [project, setProject] = useState<ProjectOverview>();
-  const [decision, setDecision] = useState<ResourceSummary>();
-  const [action, setAction] = useState<{
-    action: ProjectAction;
-    initialPath?: string;
-  }>();
-  const [openSequence, setOpenSequence] = useState(0);
-  const overviewHeading = useRef<HTMLHeadingElement>(null);
+  const [projectError, setProjectError] = useState<string>();
+  const [recentError, setRecentError] = useState<string>();
+  const [recent, setRecent] = useState<Awaited<ReturnType<WorkspaceGateway["recentProjects"]>>>();
+  const [reloadRecent, setReloadRecent] = useState(0);
+  const [formAction, setFormAction] = useState<{ action: "create" | "open" | "demo"; initialPath?: string }>();
+  const [creation, setCreation] = useState<Creation>();
+  const [importOpen, setImportOpen] = useState(false);
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [examplesRefresh, setExamplesRefresh] = useState(0);
+  const [createdName, setCreatedName] = useState<string>();
+  const [createdError, setCreatedError] = useState<string>();
+  const openHeading = useRef<HTMLHeadingElement>(null);
+
   useEffect(() => {
-    if (openSequence > 0) overviewHeading.current?.focus();
-  }, [openSequence]);
-  const [notice, setNotice] = useState<string>();
-  const [recent, setRecent] = useState<RecentProjectsResult>();
-  const [error, setError] = useState<string>();
-  const [reload, setReload] = useState(0);
+    const unsubscribe = navigation.subscribe(setRoute);
+    return () => {
+      unsubscribe();
+      navigation.dispose();
+    };
+  }, [navigation]);
+
   useEffect(() => {
     const controller = new AbortController();
-    setError(undefined);
     setRecent(undefined);
-    void gateway.recentProjects(controller.signal).then(
-      (result) => {
-        if (!controller.signal.aborted) setRecent(result);
-      },
-      (cause) => {
-        if (!controller.signal.aborted) setError(safeMessage(cause));
-      },
-    );
+    setRecentError(undefined);
+    void gateway.recentProjects(controller.signal).then((result) => {
+      if (!controller.signal.aborted) setRecent(result);
+    }).catch((cause: unknown) => {
+      if (!controller.signal.aborted) setRecentError(safeMessage(cause));
+    });
     return () => controller.abort();
-  }, [gateway, reload]);
-  function selectDecision(item: ResourceSummary) {
-    setDecision(item);
-    setView("decision");
-  }
-  function opened(item: ProjectOverview) {
-    setProject(item);
-    setDecision(undefined);
-    setView("overview");
-    setAction(undefined);
-    setOpenSequence((sequence) => sequence + 1);
-  }
-  async function reconnect(): Promise<void> {
-    setError(undefined);
-    try {
-      await gateway.reconnect();
+  }, [gateway, reloadRecent]);
+
+  const registrationId = route.kind === "start" ? undefined : route.registrationId;
+  useEffect(() => {
+    if (!registrationId) {
       setProject(undefined);
-      setDecision(undefined);
-      setView("start");
-      setReload((value) => value + 1);
-    } catch (cause) {
-      setError(safeMessage(cause));
-      throw cause;
+      setProjectError(undefined);
+      return;
+    }
+    if (project?.id === registrationId) return;
+    const controller = new AbortController();
+    setProject(undefined);
+    setProjectError(undefined);
+    void gateway.projectOverview(registrationId, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setProject(result);
+    }).catch((cause: unknown) => {
+      if (!controller.signal.aborted) setProjectError(safeMessage(cause));
+    });
+    return () => controller.abort();
+  }, [gateway, project?.id, registrationId]);
+
+  const decision = route.kind === "decision" || route.kind === "decision-history" || route.kind === "examples"
+    ? project?.decisions.find((item) => item.id === route.decisionId)
+    : undefined;
+  const recordProviderProfile = useCallback((profileId?: string) => {
+    if (project) sessionState.update(project.id, { selectedProviderProfileId: profileId });
+  }, [project?.id, sessionState]);
+  const commands = useMemo<WorkspaceCommand[]>(() => {
+    if (!project) return [];
+    return [
+      { id: "overview", label: project.name, context: "Project", route: { kind: "overview", registrationId: project.id } },
+      ...project.decisions.map((item) => ({ id: `decision:${item.id}`, label: item.name, context: "Decision", route: { kind: "decision" as const, registrationId: project.id, decisionId: item.id } })),
+      { id: "project-examples", label: "Project examples", context: "Examples", route: { kind: "examples", registrationId: project.id, decisionId: null } },
+      { id: "providers", label: "Providers", context: "Workspace", route: { kind: "providers", registrationId: project.id } },
+      { id: "fixtures", label: "Fixtures", context: "Workspace", route: { kind: "fixtures", registrationId: project.id } },
+    ];
+  }, [project]);
+
+  async function refreshProject(nextRegistration = project?.id): Promise<ProjectOverview | undefined> {
+    if (!nextRegistration) return undefined;
+    const refreshed = await gateway.projectOverview(nextRegistration, new AbortController().signal);
+    setProject(refreshed);
+    return refreshed;
+  }
+
+  async function opened(item: ProjectOverview) {
+    setProject(item);
+    setProjectError(undefined);
+    setFormAction(undefined);
+    await navigation.navigate({ kind: "overview", registrationId: item.id });
+    openHeading.current?.focus();
+  }
+
+  async function reconnect(): Promise<void> {
+    await gateway.reconnect();
+    setReloadRecent((current) => current + 1);
+    if (registrationId) {
+      try {
+        await refreshProject(registrationId);
+        setProjectError(undefined);
+      } catch (cause) {
+        setProjectError(safeMessage(cause));
+        throw cause;
+      }
     }
   }
-  function reconnectFromStart() {
-    void reconnect().catch(() => undefined);
+
+  function requestImport() {
+    if (route.kind === "examples" && route.datasetId && project?.datasets.some((item) => item.id === route.datasetId)) {
+      setImportOpen(true);
+    } else if (project?.datasets.length) {
+      void navigation.navigate({ kind: "examples", registrationId: project.id, decisionId: route.kind === "examples" ? route.decisionId : null, datasetId: project.datasets[0].id }).then((moved) => { if (moved) setImportOpen(true); });
+    } else {
+      setCreation({ kind: "dataset" });
+    }
   }
-  return (
-    <Shell
-      view={view}
-      onNavigate={setView}
+
+  function examplesPage() {
+    if (!project || route.kind !== "examples") return null;
+    const selectedDataset = project.datasets.find((item) => item.id === route.datasetId) ?? project.datasets.find((item) => item.id === sessionState.read(project.id).selectedDatasetId) ?? project.datasets[0];
+    return <ExamplesPage
       project={project}
       decision={decision}
-      onSelectDecision={selectDecision}
-      decisionActions={
-        <>
-          <button onClick={() => setNotice("Version history")}>History</button>
-          <button className="primary" onClick={() => setNotice("Run review")}>
-            Run…
-          </button>
-        </>
-      }
-    >
-      {view === "start" ? (
+      operations={gateway.authoring.examples}
+      datasetOperations={gateway.authoring.datasets}
+      navigation={navigation}
+      datasetFromRoute={route.datasetId ?? selectedDataset?.id}
+      caseFromRoute={route.caseId ?? (selectedDataset?.id === sessionState.read(project.id).selectedDatasetId ? sessionState.read(project.id).selectedCaseId : undefined)}
+      refreshToken={examplesRefresh}
+      onDatasetChange={(datasetId, caseId) => {
+        sessionState.update(project.id, { selectedDatasetId: datasetId, selectedCaseId: caseId });
+        void navigation.navigate({ kind: "examples", registrationId: project.id, decisionId: route.decisionId, ...(datasetId ? { datasetId } : {}), ...(caseId ? { caseId } : {}) });
+      }}
+      onImport={requestImport}
+      onSplit={() => setSplitOpen(true)}
+    />;
+  }
+
+  return (
+    <Shell route={route} onNavigate={(next) => navigation.navigate(next)} project={project} decision={decision} commands={commands}>
+      {route.kind === "start" ? (
         <article className="document welcome">
           <h1>Welcome to deykit.</h1>
           <p className="lead">Test how an AI chooses between your options.</p>
           <div className="start-actions">
-            {(
-              [
-                {
-                  action: "create",
-                  title: "Create project",
-                  description: "Start with your own decision and examples.",
-                },
-                {
-                  action: "open",
-                  title: "Open project",
-                  description: "Continue from a project folder.",
-                },
-                {
-                  action: "demo",
-                  title: "Try support demo",
-                  description: "Explore authored examples without a key.",
-                },
-              ] as const
-            ).map((item) => (
-              <button
-                className="start-action"
-                key={item.action}
-                onClick={() => setAction({ action: item.action })}
-              >
-                <span aria-hidden="true">›</span>
-                <span>
-                  <strong>{item.title}</strong>
-                  <span className="muted">{item.description}</span>
-                </span>
-              </button>
-            ))}
+            {[
+              { action: "create" as const, title: "Create project", description: "Start with your own decision and examples." },
+              { action: "open" as const, title: "Open project", description: "Continue from a project folder." },
+              { action: "demo" as const, title: "Try support demo", description: "Explore authored examples without a key." },
+            ].map((item) => <button className="start-action" key={item.action} onClick={() => setFormAction({ action: item.action })}><span aria-hidden="true">›</span><span><strong>{item.title}</strong><span className="muted">{item.description}</span></span></button>)}
           </div>
           <section className="recent-projects">
             <h2>Recent projects</h2>
-            {error ? (
-              <ErrorSummary
-                message={error}
-                retry={() => setReload(reload + 1)}
-                reconnect={reconnectFromStart}
-              />
-            ) : recent === undefined ? (
-              <LoadingState>Loading recent projects…</LoadingState>
-            ) : recent.items.length === 0 ? (
-              <>
-                <WarningList warnings={recent.warnings} />
-                <p className="muted">No recent projects yet.</p>
-              </>
-            ) : (
-              <>
-                <WarningList warnings={recent.warnings} />
-                <ul>
-                  {recent.items.map((item) => (
-                    <li key={item.id}>
-                      <strong>{item.name}</strong>
-                      <p className="path muted">{item.path}</p>
-                      <button
-                        aria-label={`Open project folder: ${item.name}`}
-                        onClick={() =>
-                          setAction({ action: "open", initialPath: item.path })
-                        }
-                      >
-                        Open project folder
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            )}
+            {recentError ? <ErrorSummary message={recentError} retry={() => setReloadRecent((value) => value + 1)} reconnect={() => void reconnect().catch(() => undefined)} /> : recent === undefined ? <LoadingState>Loading recent projects…</LoadingState> : <><WarningList warnings={recent.warnings} />{recent.items.length === 0 ? <p className="muted">No recent projects yet.</p> : <ul>{recent.items.map((item) => <li key={item.id}><strong>{item.name}</strong><p className="path muted">{item.path}</p><button aria-label={`Open project folder: ${item.name}`} onClick={() => setFormAction({ action: "open", initialPath: item.path })}>Open project folder</button></li>)}</ul>}</>}
           </section>
         </article>
-      ) : view === "overview" && project ? (
-        <Overview
-          headingRef={overviewHeading}
-          project={project}
-          onDecision={selectDecision}
-          onAction={setNotice}
-        />
-      ) : view === "help" ? (
-        <article className="document">
-          <h1>Help</h1>
-          <p>
-            Deykit is a local tool for defining bounded decisions and inspecting
-            evaluation evidence.
-          </p>
-          <section className="section">
-            <h2>Your workspace</h2>
-            <p>
-              Create or open a project folder to keep definitions, examples and
-              results together. The support demo contains authored examples and
-              uses no provider key.
-            </p>
-            <h2>Connecting the local service</h2>
-            <p>
-              The local workspace service manages project registrations and
-              reads project definitions from folders you explicitly open.
-            </p>
-          </section>
-        </article>
-      ) : (
-        <article className="document">
-          <h1>
-            {view === "providers"
-              ? "Providers"
-              : (decision?.name ?? "Workspace")}
-          </h1>
-          <p className="muted">
-            {view === "providers"
-              ? "Provider controls are not connected in the browser yet. Use the CLI to configure profiles."
-              : "This view will be available when its workspace service is connected."}
-          </p>
-        </article>
+      ) : projectError ? (
+        <article className="document"><h1>Open this project</h1><ErrorSummary message={projectError} reconnect={() => void reconnect().catch(() => undefined)} /><button onClick={() => setFormAction({ action: "open" })}>Open a project folder</button></article>
+      ) : !project ? <article className="document"><LoadingState>Opening workspace…</LoadingState></article> : (
+        route.kind === "overview" ? <Overview project={project} headingRef={openHeading} decisionOperations={gateway.authoring.decisions} onDecisionsChanged={() => void refreshProject()} onDecision={(item) => void navigation.navigate({ kind: "decision", registrationId: project.id, decisionId: item.id })} onCreateDecision={() => setCreation({ kind: "decision" })} onCreateDataset={() => setCreation({ kind: "dataset" })} onExamples={() => void navigation.navigate({ kind: "examples", registrationId: project.id, decisionId: null })} />
+          : route.kind === "decision" && decision ? <DecisionPage registrationId={project.id} decisionId={decision.id} operations={gateway.authoring.decisions} navigation={navigation} onDecisionRenamed={(name) => setProject((current) => current ? { ...current, decisions: current.decisions.map((item) => item.id === decision.id ? { ...item, name } : item) } : current)} onHistory={() => void navigation.navigate({ kind: "decision-history", registrationId: project.id, decisionId: decision.id })} onExamples={() => { sessionState.update(project.id, { selectedDecisionId: decision.id }); void navigation.navigate({ kind: "examples", registrationId: project.id, decisionId: decision.id }); }} onArchiveChanged={() => { void refreshProject(); void navigation.navigate({ kind: "overview", registrationId: project.id }); }} />
+            : route.kind === "decision-history" && decision ? <DefinitionHistory registrationId={project.id} decisionId={decision.id} operations={gateway.authoring.decisions} onRestoredToDraft={() => void navigation.navigate({ kind: "decision", registrationId: project.id, decisionId: decision.id })} />
+              : route.kind === "examples" ? examplesPage()
+                  : route.kind === "providers" ? <ProviderPage project={project} operations={gateway.authoring.providers} navigation={navigation} initialProfileId={sessionState.read(project.id).selectedProviderProfileId} onProfileChange={recordProviderProfile} />
+                  : route.kind === "fixtures" ? <FixtureLibrary project={project} operations={gateway.authoring.fixtures} navigation={navigation} initialDecisionId={sessionState.read(project.id).selectedDecisionId} initialDatasetId={sessionState.read(project.id).selectedDatasetId} initialFixtureId={sessionState.read(project.id).selectedFixtureId} onContextChange={(context) => { sessionState.update(project.id, context); }} />
+                    : <article className="document"><h1>{project.name}</h1><p className="muted">Select a workspace page.</p></article>
       )}
-      {action && (
-        <ProjectForm
-          action={action.action}
-          initialPath={action.initialPath}
-          gateway={gateway}
-          onReconnect={reconnect}
-          onOpened={opened}
-          onClose={() => setAction(undefined)}
-        />
-      )}
-      {notice && (
-        <Modal title={notice} onDismiss={() => setNotice(undefined)}>
-          <div className="modal-body">
-            <p>
-              This action requires the local workspace service. No changes have
-              been made.
-            </p>
-            <button onClick={() => setNotice(undefined)}>Close</button>
-          </div>
-        </Modal>
-      )}
+
+      {formAction && <ProjectForm action={formAction.action} initialPath={formAction.initialPath} gateway={gateway} onReconnect={reconnect} onOpened={opened} onClose={() => setFormAction(undefined)} />}
+      {creation && project && <ResourceCreationModal kind={creation.kind} project={project} gateway={gateway} onClose={() => setCreation(undefined)} onCreated={async (resourceId, name) => {
+        setCreation(undefined);
+        setCreatedName(name);
+        try {
+          const refreshed = await refreshProject(project.id);
+          if (creation.kind === "decision" && resourceId) await navigation.navigate({ kind: "decision", registrationId: project.id, decisionId: resourceId });
+          else if (creation.kind === "dataset" && resourceId) await navigation.navigate({ kind: "examples", registrationId: project.id, decisionId: null, datasetId: resourceId });
+          if (refreshed) setProject(refreshed);
+        } catch (cause) {
+          setCreatedError(safeMessage(cause));
+        }
+      }} />}
+      {createdError && <Modal title="Refresh workspace" onDismiss={() => setCreatedError(undefined)}><div className="modal-body"><ErrorSummary message={createdError} /><p>{createdName} was created. Refresh the workspace to load its current state.</p><button onClick={() => void refreshProject().then(() => setCreatedError(undefined)).catch((cause) => setCreatedError(safeMessage(cause)))}>Refresh workspace</button></div></Modal>}
+      {importOpen && project && route.kind === "examples" && route.datasetId && <ImportSheet project={project} datasetId={route.datasetId} examples={gateway.authoring.examples} sources={gateway.authoring.sources} onClose={() => setImportOpen(false)} onImported={() => { setImportOpen(false); setExamplesRefresh((value) => value + 1); void refreshProject(); }} />}
+      {splitOpen && project && route.kind === "examples" && route.datasetId && <SplitSheet project={project} datasetId={route.datasetId} examples={gateway.authoring.examples} onClose={() => setSplitOpen(false)} onApplied={() => { setSplitOpen(false); setExamplesRefresh((value) => value + 1); void refreshProject(); }} />}
     </Shell>
   );
+}
+
+function ResourceCreationModal({
+  kind,
+  project,
+  gateway,
+  onClose,
+  onCreated,
+}: {
+  kind: Creation["kind"];
+  project: ProjectOverview;
+  gateway: WorkspaceGateway;
+  onClose: () => void;
+  onCreated: (resourceId: string, name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [source, setSource] = useState(EMPTY_DECISION_SOURCE);
+  const [metadata, setMetadata] = useState("{}");
+  const [error, setError] = useState<string>();
+  const [outcomeUnknown, setOutcomeUnknown] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const retained = useRef<{ signature: string; decision: ApiOperationBody<"createDecision">; dataset: ApiOperationBody<"createDataset"> }>();
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!outcomeUnknown) {
+      const signature = [kind, name, source, metadata].map((item) => `${item.length}:${item}`).join("");
+      if (retained.current?.signature !== signature) retained.current = {
+        signature,
+        decision: { schema_version: 1, operation_id: crypto.randomUUID(), decision_id: `decision-${crypto.randomUUID()}`, name, editor_source: source },
+        dataset: { schema_version: 1, operation_id: crypto.randomUUID(), dataset_id: `dataset-${crypto.randomUUID()}`, name, metadata_source: metadata },
+      };
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (kind === "decision") {
+        const result = await gateway.authoring.decisions.create({ registrationId: project.id, body: retained.current!.decision });
+        onCreated(result.data.decision.record.id, name);
+      } else {
+        const result = await gateway.authoring.datasets.create({ registrationId: project.id, body: retained.current!.dataset });
+        onCreated(result.data.record.id, name);
+      }
+    } catch (cause) {
+      if (isOutcomeUnknown(cause)) setOutcomeUnknown(true);
+      setError(safeMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <Modal title={kind === "decision" ? "Create decision" : "Create dataset"} onDismiss={() => { if (!busy) onClose(); }}>
+    <form onSubmit={(event) => void submit(event)}>
+      <div className="modal-body resource-create-form">
+        {error && <ErrorSummary message={error} focus />}
+        {outcomeUnknown && <p role="status">The service may have created this resource. Retry uses the exact same ID, operation ID, and source.</p>}
+        <label>{kind === "decision" ? "Decision name" : "Dataset name"}<input required disabled={outcomeUnknown} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        {kind === "decision" ? <JsonSourceEditor label="Initial editable definition source" value={source} onChange={setSource} readOnly={outcomeUnknown} /> : <JsonSourceEditor label="Dataset metadata source" value={metadata} onChange={setMetadata} readOnly={outcomeUnknown} />}
+      </div>
+      <footer className="modal-footer"><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="primary" disabled={busy || !name.trim()}>{busy ? "Creating…" : outcomeUnknown ? "Retry same create" : kind === "decision" ? "Create decision" : "Create dataset"}</button></footer>
+    </form>
+  </Modal>;
 }

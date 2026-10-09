@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { App } from "./App";
 import { ApiError } from "./api/client";
+import { disconnectedWorkspace } from "./workspace/gateway";
 import type { WorkspaceGateway } from "./workspace/gateway";
 it("reports unavailable service without fictional recent projects or run controls", async () => {
   render(<App />);
@@ -13,7 +14,9 @@ it("reports unavailable service without fictional recent projects or run control
 });
 it("keeps project form values and operation ID after a failed mutation", async () => {
   const gateway: WorkspaceGateway = {
+    authoring: disconnectedWorkspace.authoring,
     recentProjects: async () => ({ items: [], warnings: [] }),
+    projectOverview: async () => { throw new Error("not used"); },
     openProject: vi
       .fn()
       .mockRejectedValue(new ApiError("conflict", "Folder already exists.")),
@@ -41,7 +44,9 @@ it(
   "renders server supplied project context and keeps Run/History within decision context",
   async () => {
     const gateway: WorkspaceGateway = {
+      authoring: disconnectedWorkspace.authoring,
       recentProjects: async () => ({ items: [], warnings: [] }),
+      projectOverview: async () => { throw new Error("not used"); },
       openProject: async () => ({
         id: "authored-test",
         name: "Authored test project",
@@ -70,6 +75,7 @@ it(
   "uses the selected recent path and focuses only the successful overview transition",
   async () => {
     const gateway: WorkspaceGateway = {
+      authoring: disconnectedWorkspace.authoring,
       recentProjects: async () => ({
         items: [
           {
@@ -80,6 +86,7 @@ it(
         ],
         warnings: [],
       }),
+      projectOverview: async () => { throw new Error("not used"); },
       openProject: vi.fn().mockImplementation(async (request) => ({
         id: "known",
         name: "Known project",
@@ -121,6 +128,7 @@ it(
 
 it("renders structured safe warnings without flattening their fields", async () => {
   const gateway: WorkspaceGateway = {
+    authoring: disconnectedWorkspace.authoring,
     recentProjects: async () => ({
       items: [],
       warnings: [
@@ -135,6 +143,7 @@ it("renders structured safe warnings without flattening their fields", async () 
         },
       ],
     }),
+    projectOverview: async () => { throw new Error("not used"); },
     openProject: async () => {
       throw new Error("not used");
     },
@@ -149,7 +158,9 @@ it("renders structured safe warnings without flattening their fields", async () 
 
 it("reconnects without losing a failed project form or its entered values", async () => {
   const gateway: WorkspaceGateway = {
+    authoring: disconnectedWorkspace.authoring,
     recentProjects: async () => ({ items: [], warnings: [] }),
+    projectOverview: async () => { throw new Error("not used"); },
     openProject: vi
       .fn()
       .mockRejectedValueOnce(
