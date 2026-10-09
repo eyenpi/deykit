@@ -113,10 +113,8 @@ it("creates a provider profile using the displayed supported default adapter", a
 
   await user.click(await screen.findByRole("button", { name: "Add provider profile" }));
   const adapter = await screen.findByLabelText("Adapter");
-  expect((adapter as HTMLSelectElement).value).toBe("jev");
-  expect(Array.from((adapter as HTMLSelectElement).options).map((option) => option.value)).toEqual([
-    "jev", "fixture",
-  ]);
+  expect((adapter as HTMLInputElement).value).toBe("jev");
+  expect((adapter as HTMLInputElement).readOnly).toBe(true);
   await user.type(screen.getByLabelText("Requested model ID"), "jev-latest");
   await user.type(screen.getByLabelText("Destination"), "https://api.typesafe.ai/v1/systemone");
   await user.click(screen.getByRole("button", { name: "Save profile" }));
@@ -157,7 +155,14 @@ it("retries an unknown OS credential write with the same request after clearing 
   await user.click(screen.getByRole("button", { name: "Store credential" }));
   await screen.findByRole("button", { name: "Retry the same credential request" });
   expect((password as HTMLInputElement).value).toBe("");
+  expect(password).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Store credential" })).toBeDisabled();
+  const replacement = "synthetic-m10-replacement-must-not-be-sent";
+  await user.type(password, replacement);
+  expect((password as HTMLInputElement).value).toBe("");
+  expect(calls).toHaveLength(1);
   expect(document.body.textContent).not.toContain(secret);
+  expect(document.body.textContent).not.toContain(replacement);
   await user.click(screen.getByRole("button", { name: "Retry the same credential request" }));
 
   expect(calls).toHaveLength(2);
@@ -167,5 +172,47 @@ it("retries an unknown OS credential write with the same request after clearing 
   expect(document.body.textContent).not.toContain(secret);
   expect(window.localStorage.length).toBe(0);
   expect(window.sessionStorage.length).toBe(0);
+  navigation.dispose();
+});
+
+it("presents fixture profiles as authored evidence without credential or model-list actions", async () => {
+  const fixtureProfile = {
+    ...profile,
+    adapter: "fixture",
+    requested_model: "authored-sandbox-v1",
+    destination: "fixture:jev-choice",
+    evidence_mode: "authored_fixture",
+  };
+  const credentialStatus = vi.fn(async () => ({
+    data: { profile_id: fixtureProfile.id, configured: false, available: false, kind: null },
+    warnings: [],
+  }));
+  const operations = {
+    list: async () => ({ data: { items: [fixtureProfile], total: "1", next_cursor: null }, warnings: [] }),
+    read: async () => ({ data: fixtureProfile, warnings: [] }),
+    credentialStatus,
+    listModels: vi.fn(),
+  } as unknown as ProviderAuthoringOperations;
+  const navigation = new WorkspaceNavigation(window);
+  const user = userEvent.setup();
+  render(
+    <ProviderPage
+      project={project}
+      operations={operations}
+      navigation={navigation}
+      initialProfileId={fixtureProfile.id}
+      onProfileChange={() => undefined}
+    />,
+  );
+
+  await screen.findByRole("heading", { name: "Authored fixture profile" });
+  expect(screen.getByRole("region", { name: "Authored fixture provider" }).textContent).toContain("authored-sandbox-v1");
+  expect(screen.queryByLabelText("Destination")).toBeNull();
+  expect(screen.queryByLabelText("Environment variable name")).toBeNull();
+  expect(screen.queryByLabelText("Store a credential in the operating system")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Refresh model list" })).toBeNull();
+  expect(credentialStatus).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Open fixture library" }));
+  expect(navigation.current).toEqual({ kind: "fixtures", registrationId: project.id });
   navigation.dispose();
 });

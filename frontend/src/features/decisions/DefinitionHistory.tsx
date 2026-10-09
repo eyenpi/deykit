@@ -5,6 +5,7 @@ import { Modal } from "../../components/Modal";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import { JsonSourceEditor } from "../../components/JsonSourceEditor";
 import type { DecisionAuthoringOperations } from "../../workspace/gateway";
+import type { DirtyNavigationGuard, WorkspaceNavigation } from "../../workspace/navigation";
 import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
 
@@ -18,11 +19,13 @@ export function DefinitionHistory({
   registrationId,
   decisionId,
   operations,
+  navigation,
   onRestoredToDraft,
 }: {
   registrationId: string;
   decisionId: string;
   operations: DecisionAuthoringOperations;
+  navigation: WorkspaceNavigation;
   onRestoredToDraft: () => void;
 }) {
   const [pages, setPages] = useState<RevisionPage[]>([]);
@@ -36,6 +39,14 @@ export function DefinitionHistory({
   const [restoreState, setRestoreState] = useState<MutationState<RestoreData>>({ kind: "idle" });
   const [reviewedDraft, setReviewedDraft] = useState<{ etag: string; source: string }>();
   const restoreMutation = useRef<RetainedMutation<RestoreBody, RestoreData>>();
+  const restoreUnknown = useRef(false);
+  restoreUnknown.current = restoreState.kind === "outcome-unknown";
+  const restoreGuard = useRef<DirtyNavigationGuard>();
+  if (!restoreGuard.current) {
+    const guard = (async () => !restoreUnknown.current) as DirtyNavigationGuard;
+    guard.isDirty = () => restoreUnknown.current;
+    restoreGuard.current = guard;
+  }
 
   useEffect(() => {
     restoreMutation.current = new RetainedMutation(async (body) => {
@@ -43,6 +54,11 @@ export function DefinitionHistory({
     }, setRestoreState);
     setRestoreState({ kind: "idle" });
   }, [decisionId, operations, registrationId]);
+
+  useEffect(() => navigation.registerDirtyGuard(
+    `revision-restore:${registrationId}:${decisionId}`,
+    restoreGuard.current as DirtyNavigationGuard,
+  ), [decisionId, navigation, registrationId]);
 
   useEffect(() => {
     const controller = new AbortController();

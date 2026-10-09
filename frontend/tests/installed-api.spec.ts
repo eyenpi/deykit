@@ -529,6 +529,10 @@ test("installed browser authors exact decision source and previews imports throu
   await restoreDialog.getByRole("button", { name: "Restore to draft", exact: true }).click();
   await expect(page.getByRole("button", { name: "Retry the same restore request" })).toBeVisible();
   await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  const restoreHashBeforeBack = page.url();
+  await page.goBack();
+  await expect(restoreDialog).toBeVisible();
+  expect(page.url()).toBe(restoreHashBeforeBack);
   await page.getByRole("button", { name: "Retry the same restore request" }).click();
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
   expect(firstRestoreStatus).toBe(200);
@@ -930,6 +934,48 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Refresh model list" }).click();
   await expect(page.getByText("fake-offline-model", { exact: true })).toBeVisible();
   await expect(page.getByText("1 models returned · network checked · 0 inference calls")).toBeVisible();
+
+  const providerProfilesResponse = await page.request.get(
+    `/api/v1/projects/${registrationId}/providers?limit=100`,
+    { headers: authorizedHeaders },
+  );
+  expect(providerProfilesResponse.status()).toBe(200);
+  const configuredProvider = (await providerProfilesResponse.json()).data.items.find(
+    (item: { adapter: string; requested_model: string }) =>
+      item.adapter === "jev" && item.requested_model === "jev-latest",
+  );
+  expect(configuredProvider).toBeTruthy();
+  const credentialValue = "synthetic-installed-os-credential-never-real";
+  const credentialBodies: Array<Record<string, unknown>> = [];
+  let firstCredentialStatus: number | undefined;
+  await page.route(`**/providers/${configuredProvider.id}/credential-os-store`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    credentialBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    const response = await route.fetch();
+    if (credentialBodies.length === 1) {
+      firstCredentialStatus = response.status();
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    await route.fulfill({ response });
+  });
+  const secretInput = page.getByLabel("Store a credential in the operating system");
+  await secretInput.fill(credentialValue);
+  await page.getByRole("button", { name: "Store credential" }).click();
+  await expect(page.getByRole("button", { name: "Retry the same credential request" })).toBeVisible();
+  await expect(secretInput).toHaveValue("");
+  await expect(secretInput).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Store credential" })).toBeDisabled();
+  expect(await page.locator("body").innerText()).not.toContain(credentialValue);
+  await page.getByRole("button", { name: "Retry the same credential request" }).click();
+  await expect(page.getByText("Configured · Available", { exact: false })).toBeVisible();
+  expect(firstCredentialStatus).toBe(200);
+  expect(credentialBodies).toHaveLength(2);
+  expect(credentialBodies[1]).toEqual(credentialBodies[0]);
+  expect(typeof credentialBodies[0].credential_value).toBe("string");
+  expect((credentialBodies[0].credential_value as string).length).toBe(credentialValue.length);
+  expect(await page.locator("body").innerText()).not.toContain(credentialValue);
+  await page.unroute(`**/providers/${configuredProvider.id}/credential-os-store`);
   await page.screenshot({ path: testInfo.outputPath("provider-setup.png"), fullPage: true });
 
   await page.getByRole("button", { name: "Fixtures", exact: true }).click();
@@ -947,6 +993,19 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("heading", { name: "Sandbox", exact: true })).toBeVisible();
   const fixtureRegistrationId = new URL(page.url()).hash.match(/^#\/p\/([A-Za-z0-9_-]+)/)?.[1] as string;
   const fixtureHeaders = { Origin: origin, "X-Deykit-Capability": capability as string };
+  const fixtureProvidersResponse = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
+    { headers: fixtureHeaders },
+  );
+  expect(fixtureProvidersResponse.status()).toBe(200);
+  const fixtureProvider = (await fixtureProvidersResponse.json()).data.items.find(
+    (item: { adapter: string }) => item.adapter === "fixture",
+  );
+  expect(fixtureProvider).toMatchObject({
+    requested_model: expect.stringMatching(/^authored-/),
+    destination: "fixture:jev-choice",
+    evidence_mode: "authored_fixture",
+  });
   const fixturePage = await page.request.get(
     `/api/v1/projects/${fixtureRegistrationId}/fixtures?limit=50`,
     { headers: fixtureHeaders },
@@ -965,6 +1024,18 @@ test("installed browser authors exact decision source and previews imports throu
     expect(binding.request_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(binding.model_identity).toBe(fixtureSummary.model_identity);
   }
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
+  await page.getByRole("button", { name: fixtureProvider.id, exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Authored fixture profile" })).toBeVisible();
+  await expect(page.locator(".fixture-provider")).toContainText(fixtureProvider.requested_model);
+  await expect(page.getByLabel("Environment variable name")).toHaveCount(0);
+  await expect(page.getByLabel("Store a credential in the operating system")).toHaveCount(0);
+  await expect(page.getByLabel("Destination")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Refresh model list" })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("fixture-provider-safe-details.png"), fullPage: true });
+  await page.getByRole("button", { name: "Open fixture library" }).click();
+  await expect(page.getByRole("heading", { name: "Fixture library" })).toBeVisible();
   await page.getByRole("button", { name: "Fixtures", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Fixture library" })).toBeVisible();
   await page.getByRole("button", { name: fixtureSummary.name, exact: true }).click();

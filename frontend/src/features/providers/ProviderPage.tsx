@@ -108,13 +108,9 @@ export function ProviderPage({
     }
     const controller = new AbortController();
     setError(undefined);
-    void Promise.all([
-      operations.read({ registrationId: project.id, profileId, signal: controller.signal }),
-      operations.credentialStatus({ registrationId: project.id, profileId, signal: controller.signal }),
-    ]).then(([profileResult, credentialResult]) => {
+    void operations.read({ registrationId: project.id, profileId, signal: controller.signal }).then(async (profileResult) => {
       if (controller.signal.aborted) return;
       setProfile(profileResult.data);
-      setCredential(credentialResult.data);
       setAdapter(profileResult.data.adapter);
       setRequestedModel(profileResult.data.requested_model);
       setDestination(profileResult.data.destination);
@@ -122,6 +118,12 @@ export function ProviderPage({
       setEnvironmentName("");
       setSecret("");
       setModels(undefined);
+      if (profileResult.data.adapter === "fixture") {
+        setCredential(undefined);
+        return;
+      }
+      const credentialResult = await operations.credentialStatus({ registrationId: project.id, profileId, signal: controller.signal });
+      if (!controller.signal.aborted) setCredential(credentialResult.data);
     }).catch((cause: unknown) => {
       if (!controller.signal.aborted) setError(safeMessage(cause));
     });
@@ -388,7 +390,21 @@ export function ProviderPage({
           {profileId && (
             <>
               <div className="field"><label htmlFor="provider-id">Profile ID</label><input id="provider-id" value={profileId} readOnly /></div>
-              <div className="field"><label htmlFor="provider-adapter">Adapter</label><select id="provider-adapter" value={adapter} disabled={busy} onChange={(event) => setAdapter(event.target.value)}><option value="jev">Jev</option><option value="fixture">Authored fixture</option></select></div>
+              {profile?.adapter === "fixture" ? (
+                <section className="section fixture-provider" aria-label="Authored fixture provider">
+                  <h3>Authored fixture profile</h3>
+                  <p>This profile uses authored answers. Configure fixture sets in the Fixtures workspace.</p>
+                  <dl>
+                    <dt>Model identity</dt><dd><code>{profile.requested_model}</code></dd>
+                    <dt>Evidence mode</dt><dd>{profile.evidence_mode}</dd>
+                  </dl>
+                  <button type="button" onClick={() => void navigation.navigate({ kind: "fixtures", registrationId: project.id })}>
+                    Open fixture library
+                  </button>
+                </section>
+              ) : (
+                <>
+              <div className="field"><label htmlFor="provider-adapter">Adapter</label><input id="provider-adapter" value="jev" readOnly /></div>
               <div className="field"><label htmlFor="provider-model">Requested model ID</label><input id="provider-model" value={requestedModel} disabled={busy} onChange={(event) => setRequestedModel(event.target.value)} /></div>
               <div className="field"><label htmlFor="provider-destination">Destination</label><input id="provider-destination" value={destination} disabled={busy} onChange={(event) => setDestination(event.target.value)} /></div>
               <div className="field"><label htmlFor="provider-credential-ref">Credential reference (non-secret)</label><input id="provider-credential-ref" value={credentialRef} disabled={busy} onChange={(event) => setCredentialRef(event.target.value)} /></div>
@@ -400,16 +416,18 @@ export function ProviderPage({
                 <section className="section credential-controls">
                   <h3>Credentials</h3>
                   <label htmlFor="environment-name">Environment variable name</label>
-                  <input id="environment-name" autoComplete="off" value={environmentName} disabled={busy} onChange={(event) => setEnvironmentName(event.target.value)} />
+                  <input id="environment-name" autoComplete="off" value={environmentName} disabled={busy || secretMutationState.kind === "outcome-unknown"} onChange={(event) => setEnvironmentName(event.target.value)} />
                   <button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown" || !environmentName} onClick={() => void attachEnvironment()}>Attach environment reference</button>
                   <label htmlFor="provider-secret">Store a credential in the operating system</label>
-                  <input id="provider-secret" type="password" autoComplete="new-password" value={secret} disabled={busy} onChange={(event) => setSecret(event.target.value)} />
-                  <button type="button" disabled={busy || !secret} onClick={() => void setOSCredential()}>{busy ? "Storing…" : "Store credential"}</button>
+                  <input id="provider-secret" type="password" autoComplete="new-password" value={secret} disabled={busy || secretMutationState.kind === "outcome-unknown"} onChange={(event) => setSecret(event.target.value)} />
+                  <button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown" || !secret} onClick={() => void setOSCredential()}>{busy ? "Storing…" : "Store credential"}</button>
                   {secretMutationState.kind === "outcome-unknown" && <button type="button" disabled={busy} onClick={() => void setOSCredential()}>Retry the same credential request</button>}
                   <button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown" || !credential?.configured} onClick={() => void forgetCredential()}>Forget credential</button>
                 </section>
               )}
-              {profile && <section className="section model-listing"><h3>Supported model IDs</h3><p>Explicit network check · 0 inference calls.</p><label htmlFor="model-timeout">Timeout in seconds</label><input id="model-timeout" inputMode="numeric" value={timeoutSeconds} disabled={busy} onChange={(event) => setTimeoutSeconds(event.target.value)} /><button type="button" disabled={busy} onClick={() => void listModels()}>{busy ? "Checking…" : "Refresh model list"}</button>{models && <><p role="status">{models.models.length} models returned · {models.network_check ? "network checked" : "not checked"} · {models.inference_calls} inference calls</p><ul>{models.models.map((item) => <li key={item.id}><code>{item.id}</code> {item.name}</li>)}</ul></>}</section>}
+              {profile && <section className="section model-listing"><h3>Supported model IDs</h3><p>Explicit network check · 0 inference calls.</p><label htmlFor="model-timeout">Timeout in seconds</label><input id="model-timeout" inputMode="numeric" value={timeoutSeconds} disabled={busy || secretMutationState.kind === "outcome-unknown"} onChange={(event) => setTimeoutSeconds(event.target.value)} /><button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown"} onClick={() => void listModels()}>{busy ? "Checking…" : "Refresh model list"}</button>{models && <><p role="status">{models.models.length} models returned · {models.network_check ? "network checked" : "not checked"} · {models.inference_calls} inference calls</p><ul>{models.models.map((item) => <li key={item.id}><code>{item.id}</code> {item.name}</li>)}</ul></>}</section>}
+                </>
+              )}
             </>
           )}
         </section>

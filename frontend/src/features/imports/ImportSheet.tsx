@@ -181,21 +181,6 @@ export function ImportSheet({
     }
   }
 
-  async function transformMapping(edit: MappingEdit) {
-    setMappingError(undefined);
-    try {
-      const result = await sources.transformMapping({
-        registrationId: project.id,
-        body: { schema_version: 1, mapping_source: mappingSource, edit },
-      });
-      setMappingSource(result.data.mapping_source);
-      setMappingForm(result.data.projection.form ?? undefined);
-      invalidatePreview();
-    } catch (cause) {
-      setMappingError(safeMessage(cause));
-    }
-  }
-
   async function previewImport() {
     if (
       mappingTransformCount.current > 0 ||
