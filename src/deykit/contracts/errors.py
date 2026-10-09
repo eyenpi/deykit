@@ -4,6 +4,7 @@ from typing import Generic, Literal, TypeVar
 
 from deykit.contracts.base import Record
 from deykit.contracts.identities import ResourceId
+from deykit.contracts.selection import SelectionDetails
 
 ErrorCode = Literal[
     "validation_error",
@@ -61,3 +62,4 @@ class Success(Record, Generic[T]):
 
 class Failure(Record):
     error: ServiceError
+    selection: SelectionDetails | None = None

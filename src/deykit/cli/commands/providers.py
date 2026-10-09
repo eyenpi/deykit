@@ -17,6 +17,7 @@ from deykit.application.execution import ExecutionService
 from deykit.cli.context import CliState, SystemClock, new_operation_id, projects_service
 from deykit.cli.input import source_text
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.codec import load_record
 from deykit.contracts.errors import ErrorCode, ServiceError
 from deykit.contracts.json_value import JsonError
@@ -149,7 +150,8 @@ def provider_list(
 def provider_show(ctx: typer.Context, profile_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return _configured(ProviderProfiles(source).view(profile_id))
+            with selection_context(source, (selector_hint("provider", profile_id, ()),)):
+                return _configured(ProviderProfiles(source).view(profile_id))
 
     execute(ctx, work)
 
@@ -178,17 +180,18 @@ def provider_configure(
             credential_env=credential_env,
         )
         with cli.source() as source:
-            profiles = ProviderProfiles(source)
-            receipt = profiles.configure(
-                candidate,
-                expected_etag=_etag(profiles, profile_id, if_hash),
-                operation_id=actual,
-            )
-            return {
-                "operation_id": actual,
-                "profile": _configured(profiles.from_receipt(receipt)),
-                "replayed": receipt.replayed,
-            }
+            with selection_context(source, (selector_hint("provider", profile_id, ()),)):
+                profiles = ProviderProfiles(source)
+                receipt = profiles.configure(
+                    candidate,
+                    expected_etag=_etag(profiles, profile_id, if_hash),
+                    operation_id=actual,
+                )
+                return {
+                    "operation_id": actual,
+                    "profile": _configured(profiles.from_receipt(receipt)),
+                    "replayed": receipt.replayed,
+                }
 
     execute(ctx, work)
 
@@ -210,7 +213,8 @@ def credential_status(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return _status(ProviderProfiles(source).read(provider))
+            with selection_context(source, (selector_hint("provider", provider, ()),)):
+                return _status(ProviderProfiles(source).read(provider))
 
     execute(ctx, work)
 
@@ -241,7 +245,10 @@ def credential_set(
     def work(cli: CliState) -> object:
         if sum((env is not None, stdin, prompt)) != 1:
             raise _failure("validation_error", "input_mode_conflict")
-        with cli.source() as source:
+        with (
+            cli.source() as source,
+            selection_context(source, (selector_hint("provider", provider, ()),)),
+        ):
             profiles = ProviderProfiles(source)
             reference = (
                 "env:" + env
@@ -295,7 +302,10 @@ def credential_forget(
     actual = new_operation_id(operation_id)
 
     def work(cli: CliState) -> object:
-        with cli.source() as source:
+        with (
+            cli.source() as source,
+            selection_context(source, (selector_hint("provider", provider, ()),)),
+        ):
             profiles = ProviderProfiles(source)
             expected = if_hash if if_hash is not None else profiles.view(provider).etag
             replay = profiles.credential_replay(
@@ -360,7 +370,8 @@ def provider_models(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            profile = ProviderProfiles(source).read(profile_id)
+            with selection_context(source, (selector_hint("provider", profile_id, ()),)):
+                profile = ProviderProfiles(source).read(profile_id)
         return {
             "profile_id": profile_id,
             "network_check": True,
@@ -428,7 +439,19 @@ def doctor(
             raise _failure("validation_error", "live_smoke_required")
         path = cli.require_project()
         project = projects_service().validate(path)
-        with cli.source() as source:
+        hints = tuple(
+            hint
+            for hint in (
+                selector_hint("provider", provider, ()) if provider is not None else None,
+                selector_hint("decision", decision, ()) if live_smoke and decision else None,
+                selector_hint("dataset", dataset, ()) if live_smoke and dataset else None,
+                selector_hint("case", case, (dataset,))
+                if live_smoke and case and dataset
+                else None,
+            )
+            if hint is not None
+        )
+        with cli.source() as source, selection_context(source, hints):
             profiles = ProviderProfiles(source)
             listed = profiles.list()
             selected = profiles.read(provider) if provider is not None else None

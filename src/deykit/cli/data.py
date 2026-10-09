@@ -16,6 +16,7 @@ from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
 from deykit.cli.preview import import_preview
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.cli.splits import split_dataset
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import parse_json
@@ -66,8 +67,12 @@ def list_datasets(
 def show_dataset(ctx: typer.Context, dataset_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            service = DatasetService(source, SystemClock())
-            return {"dataset": service.read(dataset_id), "cases": service.list_cases(dataset_id)}
+            with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
+                service = DatasetService(source, SystemClock())
+                return {
+                    "dataset": service.read(dataset_id),
+                    "cases": service.list_cases(dataset_id),
+                }
 
     execute(ctx, work)
 
@@ -103,15 +108,18 @@ def edit_dataset(
 ) -> None:
     def work(cli: CliState, op: str) -> object:
         with cli.source() as source:
-            service = DatasetService(source, SystemClock())
-            metadata = source_text(file=file, stdin=stdin) if file is not None or stdin else None
-            return service.update(
-                dataset_id,
-                name=name,
-                metadata_source=metadata,
-                expected_etag=if_hash if if_hash is not None else service.read(dataset_id).etag,
-                operation_id=op,
-            )
+            with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
+                service = DatasetService(source, SystemClock())
+                metadata = (
+                    source_text(file=file, stdin=stdin) if file is not None or stdin else None
+                )
+                return service.update(
+                    dataset_id,
+                    name=name,
+                    metadata_source=metadata,
+                    expected_etag=if_hash if if_hash is not None else service.read(dataset_id).etag,
+                    operation_id=op,
+                )
 
     _mutate(ctx, operation_id, work)
 
@@ -126,11 +134,12 @@ def _dataset_state_change(
 ) -> None:
     def work(cli: CliState, op: str) -> object:
         with cli.source() as source:
-            service = DatasetService(source, SystemClock())
-            expected = if_hash if if_hash is not None else service.read(dataset_id).etag
-            if restore:
-                return service.restore(dataset_id, expected_etag=expected, operation_id=op)
-            return service.archive(dataset_id, expected_etag=expected, operation_id=op)
+            with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
+                service = DatasetService(source, SystemClock())
+                expected = if_hash if if_hash is not None else service.read(dataset_id).etag
+                if restore:
+                    return service.restore(dataset_id, expected_etag=expected, operation_id=op)
+                return service.archive(dataset_id, expected_etag=expected, operation_id=op)
 
     _mutate(ctx, operation_id, work)
 
@@ -188,9 +197,10 @@ def import_dataset(
                 )
             frozen = import_preview(preview, dataset_id)
             with cli.source() as source:
-                return ImportService(source, SystemClock()).commit(
-                    frozen, operation_id=op, skip_invalid=skip_invalid
-                )
+                with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
+                    return ImportService(source, SystemClock()).commit(
+                        frozen, operation_id=op, skip_invalid=skip_invalid
+                    )
         if format is None or mapping is None:
             raise ServiceFailure(
                 ServiceError(code="validation_error", reason="import_options_required")
@@ -198,19 +208,29 @@ def import_dataset(
         text = source_text(file=file, stdin=stdin)
         mapping_text = mapping.read_text(encoding="utf-8")
         with cli.source() as source:
-            service = ImportService(source, SystemClock())
-            parsed = service.parse_mapping(mapping_text)
-            plan = service.preview(
-                dataset_id,
-                text,
-                format=format,  # type: ignore[arg-type]
-                mapping=parsed,
-                decision_id=decision,
-                decision_selector=revision or "draft",
+            hints = (
+                (selector_hint("dataset", dataset_id, ()),)
+                + ((selector_hint("decision", decision, ()),) if decision else ())
+                + (
+                    (selector_hint("revision", revision, (decision,)),)
+                    if revision and decision
+                    else ()
+                )
             )
-            if dry_run:
-                return {"preview": plan, "would_import": len(plan.valid_rows)}
-            return service.commit(plan, operation_id=op, skip_invalid=skip_invalid)
+            with selection_context(source, hints):
+                service = ImportService(source, SystemClock())
+                parsed = service.parse_mapping(mapping_text)
+                plan = service.preview(
+                    dataset_id,
+                    text,
+                    format=format,  # type: ignore[arg-type]
+                    mapping=parsed,
+                    decision_id=decision,
+                    decision_selector=revision or "draft",
+                )
+                if dry_run:
+                    return {"preview": plan, "would_import": len(plan.valid_rows)}
+                return service.commit(plan, operation_id=op, skip_invalid=skip_invalid)
 
     if dry_run:
         execute(ctx, lambda cli: work(cli, new_operation_id(operation_id)))
@@ -230,9 +250,10 @@ def list_cases(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return DatasetService(source, SystemClock()).list_cases(
-                dataset, cursor=cursor, limit=limit, tag=tag, group_id=group_id, split=split
-            )
+            with selection_context(source, (selector_hint("dataset", dataset, ()),)):
+                return DatasetService(source, SystemClock()).list_cases(
+                    dataset, cursor=cursor, limit=limit, tag=tag, group_id=group_id, split=split
+                )
 
     execute(ctx, work)
 
@@ -245,7 +266,12 @@ def show_case(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return DatasetService(source, SystemClock()).case(dataset, case_id)
+            hints = (
+                selector_hint("dataset", dataset, ()),
+                selector_hint("case", case_id, (dataset,)),
+            )
+            with selection_context(source, hints):
+                return DatasetService(source, SystemClock()).case(dataset, case_id)
 
     execute(ctx, work)
 
@@ -263,13 +289,18 @@ def add_case(
     def work(cli: CliState, op: str) -> object:
         value = _case_input(source_text(file=file, stdin=stdin))
         with cli.source() as source:
-            service = DatasetService(source, SystemClock())
-            expected = (
-                if_dataset_hash if if_dataset_hash is not None else service.read(dataset).etag
-            )
-            return service.add_case(
-                dataset, value, expected_dataset_etag=expected, operation_id=op, case_id=case_id
-            )
+            with selection_context(source, (selector_hint("dataset", dataset, ()),)):
+                service = DatasetService(source, SystemClock())
+                expected = (
+                    if_dataset_hash if if_dataset_hash is not None else service.read(dataset).etag
+                )
+                return service.add_case(
+                    dataset,
+                    value,
+                    expected_dataset_etag=expected,
+                    operation_id=op,
+                    case_id=case_id,
+                )
 
     _mutate(ctx, operation_id, work)
 
@@ -288,19 +319,26 @@ def edit_case(
     def work(cli: CliState, op: str) -> object:
         value = _case_input(source_text(file=file, stdin=stdin))
         with cli.source() as source:
-            service = DatasetService(source, SystemClock())
-            expected_dataset = (
-                if_dataset_hash if if_dataset_hash is not None else service.read(dataset).etag
+            hints = (
+                selector_hint("dataset", dataset, ()),
+                selector_hint("case", case_id, (dataset,)),
             )
-            expected_case = if_hash if if_hash is not None else service.case(dataset, case_id).etag
-            return service.edit_case(
-                dataset,
-                case_id,
-                value,
-                expected_dataset_etag=expected_dataset,
-                expected_case_etag=expected_case,
-                operation_id=op,
-            )
+            with selection_context(source, hints):
+                service = DatasetService(source, SystemClock())
+                expected_dataset = (
+                    if_dataset_hash if if_dataset_hash is not None else service.read(dataset).etag
+                )
+                expected_case = (
+                    if_hash if if_hash is not None else service.case(dataset, case_id).etag
+                )
+                return service.edit_case(
+                    dataset,
+                    case_id,
+                    value,
+                    expected_dataset_etag=expected_dataset,
+                    expected_case_etag=expected_case,
+                    operation_id=op,
+                )
 
     _mutate(ctx, operation_id, work)
 
@@ -316,17 +354,24 @@ def remove_case(
 ) -> None:
     def work(cli: CliState, op: str) -> object:
         with cli.source() as source:
-            service = DatasetService(source, SystemClock())
-            expected_dataset = (
-                if_dataset_hash if if_dataset_hash is not None else service.read(dataset).etag
+            hints = (
+                selector_hint("dataset", dataset, ()),
+                selector_hint("case", case_id, (dataset,)),
             )
-            expected_case = if_hash if if_hash is not None else service.case(dataset, case_id).etag
-            return service.remove_case(
-                dataset,
-                case_id,
-                expected_dataset_etag=expected_dataset,
-                expected_case_etag=expected_case,
-                operation_id=op,
-            )
+            with selection_context(source, hints):
+                service = DatasetService(source, SystemClock())
+                expected_dataset = (
+                    if_dataset_hash if if_dataset_hash is not None else service.read(dataset).etag
+                )
+                expected_case = (
+                    if_hash if if_hash is not None else service.case(dataset, case_id).etag
+                )
+                return service.remove_case(
+                    dataset,
+                    case_id,
+                    expected_dataset_etag=expected_dataset,
+                    expected_case_etag=expected_case,
+                    operation_id=op,
+                )
 
     _mutate(ctx, operation_id, work)

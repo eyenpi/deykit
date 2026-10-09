@@ -51,6 +51,8 @@ from deykit.contracts.ports import (
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
+    ChoiceOption,
+    ChoiceQuestion,
     ComparisonRecord,
     CompiledRequest,
     DispatchOutcome,
@@ -65,6 +67,7 @@ from deykit.contracts.records import (
     RunManifest,
 )
 from deykit.contracts.redaction import Sanitizer
+from deykit.diagnostics.orders import choice_orders
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
 from deykit.reports.admission import ReportAdmissionError, admit_report, report_hash
@@ -1613,18 +1616,59 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
     assert isinstance(selection_settings, dict)
     selection_settings["max_attempts"] = Decimal(100)
     selection_request.pop("seed", None)
+    selection_request["orders"] = 4
     selection_text = dump_json(selection_source)
     assert '"max_attempts":1e2' in selection_text
     selection_snapshot = replace(
         diagnostic_partial,
         group=diagnostic_partial.group.model_copy(update={"selection_source": selection_text}),
     )
-    seed, algorithm, option_orders = _selection(selection_snapshot)
+    two_option_definition = ChoiceDefinition(
+        input_kind="text",
+        questions=(
+            ChoiceQuestion(
+                id="q",
+                instructions="Choose one of two options.",
+                options=(
+                    ChoiceOption(id="accept", name="Accept"),
+                    ChoiceOption(id="review", name="Review"),
+                ),
+            ),
+        ),
+    )
+    two_option_revision = diagnostic_partial.members[0].revision.model_copy(
+        update={"definition": two_option_definition}
+    )
+    expected_orders = choice_orders(("accept", "review"), orders=4, seed=0)
+    assert len(expected_orders) == 2
+    projected_members = tuple(
+        replace(
+            member,
+            revision=two_option_revision,
+            manifest=member.manifest.model_copy(update={"option_order": option_order}),
+        )
+        for member, option_order in zip(
+            diagnostic_partial.members[:2], expected_orders, strict=True
+        )
+    )
+    deduplicated_snapshot = replace(selection_snapshot, members=projected_members)
+    seed, algorithm, option_orders = _selection(deduplicated_snapshot)
     assert seed == 0
     assert algorithm == "deykit-choice-order-v1"
-    assert option_orders == tuple(
-        member.manifest.option_order for member in diagnostic_partial.members
+    assert option_orders == expected_orders
+    first_order = projected_members[0].manifest.option_order
+    assert first_order is not None
+    duplicate_member = replace(
+        projected_members[1],
+        manifest=projected_members[1].manifest.model_copy(update={"option_order": first_order}),
     )
+    inconsistent = replace(
+        deduplicated_snapshot,
+        members=(projected_members[0], duplicate_member),
+    )
+    with pytest.raises(ServiceFailure) as inconsistent_selection:
+        _selection(inconsistent)
+    assert inconsistent_selection.value.error.reason == "report_group_selection_mismatch"
     diagnostic_latest = diagnostic_snapshot_from_records(
         all_records, graph.diagnostic_complete_snapshot_id
     )

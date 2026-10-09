@@ -12,6 +12,7 @@ from deykit.application.regressions import RegressionAdd, RegressionService
 from deykit.cli.commands.execution import service
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
+from deykit.cli.selection import SelectorOwner, selection_context, selector_hint
 from deykit.contracts.records import ExecutionSettings
 
 regressions_app = typer.Typer(help="Save immutable input and explicit expected-option regressions.")
@@ -39,20 +40,41 @@ def add(
 
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return RegressionService(source, SystemClock()).add(
-                RegressionAdd(
-                    run_id=run_id,
-                    case_id=case_id,
-                    acceptable_option_ids=tuple(expected),
-                    reason=reason,
-                    result_snapshot_id=result_snapshot,
-                    provenance=cast(
-                        Literal["human", "authored_fixture", "imported_unknown", "model_generated"],
-                        provenance,
+            hints = (
+                selector_hint("run", run_id, ()),
+                selector_hint("case", case_id, (), owner=SelectorOwner("run", run_id)),
+            ) + (
+                (
+                    selector_hint(
+                        "result_snapshot",
+                        result_snapshot,
+                        (),
+                        owner=SelectorOwner("run", run_id),
                     ),
-                ),
-                operation_id=new_operation_id(operation_id),
+                )
+                if result_snapshot is not None
+                else ()
             )
+            with selection_context(source, hints):
+                return RegressionService(source, SystemClock()).add(
+                    RegressionAdd(
+                        run_id=run_id,
+                        case_id=case_id,
+                        acceptable_option_ids=tuple(expected),
+                        reason=reason,
+                        result_snapshot_id=result_snapshot,
+                        provenance=cast(
+                            Literal[
+                                "human",
+                                "authored_fixture",
+                                "imported_unknown",
+                                "model_generated",
+                            ],
+                            provenance,
+                        ),
+                    ),
+                    operation_id=new_operation_id(operation_id),
+                )
 
     execute(ctx, work)
 
@@ -63,7 +85,8 @@ def list_regressions(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return RegressionService(source, SystemClock()).list(decision)
+            with selection_context(source, (selector_hint("decision", decision, ()),)):
+                return RegressionService(source, SystemClock()).list(decision)
 
     execute(ctx, work)
 
@@ -79,9 +102,19 @@ def remove(
 
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return RegressionService(source, SystemClock()).remove(
-                regression_id, decision_id=decision, operation_id=new_operation_id(operation_id)
+            hints = (
+                selector_hint("decision", decision, ()),
+                selector_hint(
+                    "regression",
+                    regression_id,
+                    (),
+                    owner=SelectorOwner("decision", decision),
+                ),
             )
+            with selection_context(source, hints):
+                return RegressionService(source, SystemClock()).remove(
+                    regression_id, decision_id=decision, operation_id=new_operation_id(operation_id)
+                )
 
     execute(ctx, work)
 
@@ -122,10 +155,29 @@ def check(
         )
         with cli.source() as source:
             checks = CheckService(service(source))
-            if dry_run:
-                return CommandOutcome(checks.preview(request))
-            result = asyncio.run(checks.start(request, operation_id=new_operation_id(operation_id)))
-            return CommandOutcome(result, result.exit_code)
+            hints = [selector_hint("decision", decision, ())]
+            if provider is not None:
+                hints.append(selector_hint("provider", provider, ()))
+            if fixture_set is not None:
+                hints.append(selector_hint("fixture", fixture_set, ()))
+            if revision is not None:
+                hints.append(selector_hint("revision", revision, (decision,)))
+            hints.extend(
+                selector_hint(
+                    "regression",
+                    regression_id,
+                    (),
+                    owner=SelectorOwner("decision", decision),
+                )
+                for regression_id in (regressions or ())
+            )
+            with selection_context(source, tuple(hints)):
+                if dry_run:
+                    return CommandOutcome(checks.preview(request))
+                result = asyncio.run(
+                    checks.start(request, operation_id=new_operation_id(operation_id))
+                )
+                return CommandOutcome(result, result.exit_code)
 
     execute_outcome(ctx, work)
 
@@ -134,7 +186,8 @@ def check(
 def show(ctx: typer.Context, group_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return CheckService(service(source)).read(group_id)
+            with selection_context(source, (selector_hint("execution_group", group_id, ()),)):
+                return CheckService(service(source)).read(group_id)
 
     execute(ctx, work)
 
@@ -148,13 +201,14 @@ def resume(
 ) -> None:
     def work(cli: CliState) -> CommandOutcome:
         with cli.source() as source:
-            result = asyncio.run(
-                CheckService(service(source)).resume(
-                    group_id,
-                    operation_id=new_operation_id(operation_id),
-                    retry_unknown=retry_unknown,
+            with selection_context(source, (selector_hint("execution_group", group_id, ()),)):
+                result = asyncio.run(
+                    CheckService(service(source)).resume(
+                        group_id,
+                        operation_id=new_operation_id(operation_id),
+                        retry_unknown=retry_unknown,
+                    )
                 )
-            )
-            return CommandOutcome(result, result.exit_code)
+                return CommandOutcome(result, result.exit_code)
 
     execute_outcome(ctx, work)

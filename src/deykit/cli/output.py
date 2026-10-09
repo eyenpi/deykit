@@ -16,6 +16,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.cli.context import CliState, state
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import JsonDocument, JsonError
+from deykit.contracts.selection import SelectionDetails
 
 T = TypeVar("T")
 
@@ -121,11 +122,16 @@ def emit(cli: CliState, data: object, warnings: tuple[ServiceError, ...] = ()) -
             typer.echo(f"Warning: {warning.message} ({warning.reason})", err=True)
 
 
-def emit_error(cli: CliState, error: ServiceError) -> None:
+def emit_error(
+    cli: CliState, error: ServiceError, *, selection: SelectionDetails | None = None
+) -> None:
     if cli.json_output:
+        envelope: dict[str, object] = {"schema_version": 1, "error": error.safe_dict()}
+        if selection is not None:
+            envelope["selection"] = _plain(selection)
         typer.echo(
             json.dumps(
-                {"schema_version": 1, "error": error.safe_dict()},
+                envelope,
                 sort_keys=True,
                 ensure_ascii=False,
                 separators=(",", ":"),
@@ -134,6 +140,11 @@ def emit_error(cli: CliState, error: ServiceError) -> None:
     else:
         reason = f" ({error.reason})" if error.reason else ""
         typer.echo(f"Error: {error.message}{reason}", err=True)
+        if selection is not None:
+            for choice in selection.choices:
+                scope = "/".join(choice.scope)
+                suffix = f" in {scope}" if scope else ""
+                typer.echo(f"Available: {choice.kind}/{choice.resource_id}{suffix}", err=True)
 
 
 def execute(ctx: typer.Context, work: Callable[[CliState], T]) -> None:
@@ -147,7 +158,7 @@ def execute_outcome(ctx: typer.Context, work: Callable[[CliState], CommandOutcom
         outcome = work(cli)
         emit(cli, outcome.data, outcome.warnings)
     except ServiceFailure as failure:
-        emit_error(cli, failure.error)
+        emit_error(cli, failure.error, selection=failure.selection)
         raise typer.Exit(1 if failure.error.code == "internal_error" else 2) from None
     except JsonError as error:
         emit_error(cli, ServiceError(code="validation_error", reason=error.code))

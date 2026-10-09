@@ -17,6 +17,7 @@ from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.json_value import JsonError, JsonValue, dump_json, parse_json
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.redaction import Sanitizer
+from deykit.diagnostics.orders import ORDER_ALGORITHM, choice_orders
 from deykit.reports.models import (
     CheckCaseDisplay,
     CheckReport,
@@ -162,13 +163,22 @@ def _selection(frozen: FrozenDiagnosticSnapshot) -> tuple[int, str, tuple[tuple[
         seed = _exact_bounded_integer(raw_seed, minimum=-(2**63), maximum=(2**63) - 1)
     except (JsonError, ValueError):
         fail("report_group_selection_mismatch", "incompatible_data")
+    if not frozen.members:
+        fail("report_group_selection_mismatch", "incompatible_data")
     member_orders = tuple(member.manifest.option_order for member in frozen.members)
+    option_ids = tuple(
+        option.id for option in frozen.members[0].revision.definition.questions[0].options
+    )
+    try:
+        expected_orders = choice_orders(option_ids, orders=orders, seed=seed)
+    except ValueError:
+        fail("report_group_selection_mismatch", "incompatible_data")
     if (
-        orders != len(frozen.members)
-        or tuple(order for order in member_orders if order is not None) != member_orders
+        any(order is None for order in member_orders)
+        or cast(tuple[tuple[str, ...], ...], member_orders) != expected_orders
     ):
         fail("report_group_selection_mismatch", "incompatible_data")
-    return seed, "deykit-choice-order-v1", cast(tuple[tuple[str, ...], ...], member_orders)
+    return seed, ORDER_ALGORITHM, expected_orders
 
 
 def _exact_bounded_integer(value: JsonValue, *, minimum: int, maximum: int) -> int:

@@ -1,0 +1,5750 @@
+{
+  "schema_version": 1,
+  "contract": "authoritative_cli_parser_interface",
+  "provenance": {
+    "observed_source_commit": "8a42421f4f258ab259083d7f3ee5da7f1ddb7eee",
+    "reconciliation": [
+      "Every implemented command has a feature-guide reference; those guides define command purpose and semantic constraints.",
+      "Parameter fields record the installed Typer/Click parser surface, including aliases, defaults, required state, and numeric bounds.",
+      "Parser types remain distinct from application-level validation; for example report target-kind and format values are validated by the report command while their parser type is str.",
+      "Global --project and --json options are documented separately in guide/cli-reference.md and are not repeated as leaf parameters.",
+      "All observed options are public help entries; hidden is explicitly false for every committed leaf parameter.",
+      "The root callback adds --project and --json plus the eager --version flag; their parser metadata is recorded separately from leaf commands.",
+      "Typer injects --install-completion and --show-completion on the root command; they are recorded as framework-provided global flags and remain enabled."
+    ]
+  },
+  "global_options": [
+    {
+      "name": "project",
+      "options": [
+        "--project"
+      ],
+      "type": "path",
+      "default": null,
+      "required": false,
+      "is_flag": false,
+      "eager": false
+    },
+    {
+      "name": "json_output",
+      "options": [
+        "--json"
+      ],
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "is_flag": true,
+      "eager": false
+    },
+    {
+      "name": "version",
+      "options": [
+        "--version"
+      ],
+      "type": "boolean",
+      "default": false,
+      "required": false,
+      "is_flag": true,
+      "eager": true
+    },
+    {
+      "name": "install_completion",
+      "options": [
+        "--install-completion"
+      ],
+      "type": "boolean",
+      "default": null,
+      "required": false,
+      "is_flag": true,
+      "eager": false
+    },
+    {
+      "name": "show_completion",
+      "options": [
+        "--show-completion"
+      ],
+      "type": "boolean",
+      "default": null,
+      "required": false,
+      "is_flag": true,
+      "eager": false
+    }
+  ],
+  "semantic_values": [
+    {
+      "command": "report export",
+      "parameter": "target_kind",
+      "parser_type": "str",
+      "accepted_values": [
+        "run",
+        "evaluation",
+        "comparison",
+        "diagnostic",
+        "check"
+      ],
+      "guide": "guide/reports.md",
+      "authority": "Report command validation and ReportRequest contract; not Click choices."
+    },
+    {
+      "command": "report export",
+      "parameter": "format_name",
+      "parser_type": "str",
+      "accepted_values": [
+        "json",
+        "markdown"
+      ],
+      "guide": "guide/reports.md",
+      "authority": "Report command validation; not Click choices."
+    }
+  ],
+  "commands": {
+    "case add": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "case_id",
+          "options": [
+            "--id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_dataset_hash",
+          "options": [
+            "--if-dataset-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "case edit": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_dataset_hash",
+          "options": [
+            "--if-dataset-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "case list": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "tag",
+          "options": [
+            "--tag"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "group_id",
+          "options": [
+            "--group"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "split",
+          "options": [
+            "--split"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "case remove": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_dataset_hash",
+          "options": [
+            "--if-dataset-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "case show": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "check": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "mode",
+          "options": [
+            "--mode"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "provider",
+          "options": [
+            "--provider"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "fixture_set",
+          "options": [
+            "--fixture-set"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "revision",
+          "options": [
+            "--revision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "regressions",
+          "options": [
+            "--regression"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": true,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "attempt_limit",
+          "options": [
+            "--attempt-limit"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 100,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "concurrency",
+          "options": [
+            "--concurrency"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 2,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 64,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "timeout_seconds",
+          "options": [
+            "--timeout-seconds"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 60,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 600,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "deadline_seconds",
+          "options": [
+            "--deadline-seconds"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 600,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 86400,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "rate_retries",
+          "options": [
+            "--rate-retries"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 1,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 0,
+          "maximum": 1,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dry_run",
+          "options": [
+            "--dry-run"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "checks resume": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "group_id",
+          "options": [
+            "group_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "retry_unknown",
+          "options": [
+            "--retry-unknown"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "checks show": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "group_id",
+          "options": [
+            "group_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "compare": {
+      "guide": "guide/comparisons.md",
+      "parameters": [
+        {
+          "name": "run_a",
+          "options": [
+            "run_a"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "run_b",
+          "options": [
+            "run_b"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "evaluation_a",
+          "options": [
+            "--evaluation-a"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "evaluation_b",
+          "options": [
+            "--evaluation-b"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "credential forget": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "provider",
+          "options": [
+            "--provider"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "credential set": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "provider",
+          "options": [
+            "--provider"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "env",
+          "options": [
+            "--env"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "prompt",
+          "options": [
+            "--prompt"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "credential status": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "provider",
+          "options": [
+            "--provider"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset archive": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset_id",
+          "options": [
+            "dataset_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset create": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset_id",
+          "options": [
+            "dataset_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "name",
+          "options": [
+            "--name"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset edit": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset_id",
+          "options": [
+            "dataset_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "name",
+          "options": [
+            "--name"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset import": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset_id",
+          "options": [
+            "dataset_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "format",
+          "options": [
+            "--format"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "mapping",
+          "options": [
+            "--mapping"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "preview",
+          "options": [
+            "--preview"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "revision",
+          "options": [
+            "--revision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dry_run",
+          "options": [
+            "--dry-run"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "skip_invalid",
+          "options": [
+            "--skip-invalid"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset list": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "include_archived",
+          "options": [
+            "--include-archived"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset restore": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset_id",
+          "options": [
+            "dataset_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset show": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset_id",
+          "options": [
+            "dataset_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "dataset split": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "dataset_id",
+          "options": [
+            "dataset_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "seed",
+          "options": [
+            "--seed"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "development",
+          "options": [
+            "--development"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "calibration",
+          "options": [
+            "--calibration"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "test",
+          "options": [
+            "--test"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "assignments",
+          "options": [
+            "--assignments"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "preview",
+          "options": [
+            "--preview"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dry_run",
+          "options": [
+            "--dry-run"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision archive": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision create": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "name",
+          "options": [
+            "--name"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision diff": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "before",
+          "options": [
+            "before"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "after",
+          "options": [
+            "after"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision edit": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "editor",
+          "options": [
+            "--editor"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "from_revision",
+          "options": [
+            "--from-revision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision history": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision list": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "include_archived",
+          "options": [
+            "--include-archived"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision rename": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "name",
+          "options": [
+            "--name"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision restore": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision save": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "note",
+          "options": [
+            "--note"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": "",
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_draft_hash",
+          "options": [
+            "--if-draft-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_decision_hash",
+          "options": [
+            "--if-decision-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision show": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "revision",
+          "options": [
+            "--revision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "decision validate": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision_id",
+          "options": [
+            "decision_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "demo": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "path",
+          "options": [
+            "path"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "diagnose choice-order": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "mode",
+          "options": [
+            "--mode"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "provider",
+          "options": [
+            "--provider"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "fixture_set",
+          "options": [
+            "--fixture-set"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "revision",
+          "options": [
+            "--revision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "split",
+          "options": [
+            "--split"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": "all",
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cases",
+          "options": [
+            "--case"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": true,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "orders",
+          "options": [
+            "--orders"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 4,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 4,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "seed",
+          "options": [
+            "--seed"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 0,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "attempt_limit",
+          "options": [
+            "--attempt-limit"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 100,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "concurrency",
+          "options": [
+            "--concurrency"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 2,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 64,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "timeout_seconds",
+          "options": [
+            "--timeout-seconds"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 60,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 600,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "deadline_seconds",
+          "options": [
+            "--deadline-seconds"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 600,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 86400,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "rate_retries",
+          "options": [
+            "--rate-retries"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 1,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 0,
+          "maximum": 1,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dry_run",
+          "options": [
+            "--dry-run"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "diagnose resume": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "group_id",
+          "options": [
+            "group_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "retry_unknown",
+          "options": [
+            "--retry-unknown"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "diagnose show": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "group_id",
+          "options": [
+            "group_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "doctor": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "provider",
+          "options": [
+            "--provider"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "network_check",
+          "options": [
+            "--network-check"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "live_smoke",
+          "options": [
+            "--live-smoke"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "case",
+          "options": [
+            "--case"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "timeout_seconds",
+          "options": [
+            "--timeout-seconds"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 60,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 600,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "fixture create": {
+      "guide": "guide/fixtures.md",
+      "parameters": [
+        {
+          "name": "fixture_id",
+          "options": [
+            "fixture_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "name",
+          "options": [
+            "--name"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "model",
+          "options": [
+            "--model"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "fixture list": {
+      "guide": "guide/fixtures.md",
+      "parameters": [
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "fixture show": {
+      "guide": "guide/fixtures.md",
+      "parameters": [
+        {
+          "name": "fixture_id",
+          "options": [
+            "fixture_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "request",
+          "options": [
+            "--request"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "init": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "path",
+          "options": [
+            "path"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "name",
+          "options": [
+            "--name"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": "Untitled project",
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "label clear": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "review",
+          "options": [
+            "--review"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "label dispute": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "reason",
+          "options": [
+            "--reason"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "review",
+          "options": [
+            "--review"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "label history": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "label list": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "status",
+          "options": [
+            "--status"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "label resolve": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "expected",
+          "options": [
+            "--expected"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": true,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "provenance",
+          "options": [
+            "--provenance"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "note",
+          "options": [
+            "--note"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "review",
+          "options": [
+            "--review"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "label set": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "expected",
+          "options": [
+            "--expected"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": true,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "provenance",
+          "options": [
+            "--provenance"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "note",
+          "options": [
+            "--note"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "review",
+          "options": [
+            "--review"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "label show": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": [
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "project rebuild-index": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": []
+    },
+    "project show": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": []
+    },
+    "project validate": {
+      "guide": "guide/cli-authoring.md",
+      "parameters": []
+    },
+    "provider configure": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "profile_id",
+          "options": [
+            "profile_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "adapter",
+          "options": [
+            "--adapter"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "model",
+          "options": [
+            "--model"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "credential_env",
+          "options": [
+            "--credential-env"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "if_hash",
+          "options": [
+            "--if-hash"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "provider list": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "provider models": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "profile_id",
+          "options": [
+            "profile_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "timeout_seconds",
+          "options": [
+            "--timeout-seconds"
+          ],
+          "secondary_options": [],
+          "type": "float",
+          "default": 60,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "provider show": {
+      "guide": "guide/providers.md",
+      "parameters": [
+        {
+          "name": "profile_id",
+          "options": [
+            "profile_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "reevaluate": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "result_snapshot",
+          "options": [
+            "--result-snapshot"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "regression add": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "expected",
+          "options": [
+            "--expected"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": true,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "reason",
+          "options": [
+            "--reason"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "result_snapshot",
+          "options": [
+            "--result-snapshot"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "provenance",
+          "options": [
+            "--provenance"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": "human",
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "regression list": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "regression remove": {
+      "guide": "guide/diagnostics-regressions.md",
+      "parameters": [
+        {
+          "name": "regression_id",
+          "options": [
+            "regression_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "report export": {
+      "guide": "guide/reports.md",
+      "parameters": [
+        {
+          "name": "output",
+          "options": [
+            "--output",
+            "--destination",
+            "-o"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "target_id",
+          "options": [
+            "target_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "report_id",
+          "options": [
+            "--report-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "format_name",
+          "options": [
+            "--format"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": "markdown",
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "target_kind",
+          "options": [
+            "--target-kind"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "evaluation",
+          "options": [
+            "--evaluation"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "result_snapshot",
+          "options": [
+            "--result-snapshot"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "group_snapshot",
+          "options": [
+            "--group-snapshot"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "include_raw_inputs",
+          "options": [
+            "--include-raw-inputs"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "include_raw_requests",
+          "options": [
+            "--include-raw-requests"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "include_raw_responses",
+          "options": [
+            "--include-raw-responses"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "report list": {
+      "guide": "guide/reports.md",
+      "parameters": [
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "report show": {
+      "guide": "guide/reports.md",
+      "parameters": [
+        {
+          "name": "report_id",
+          "options": [
+            "report_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "results annotate": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "note",
+          "options": [
+            "--note"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "file",
+          "options": [
+            "--file"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "stdin",
+          "options": [
+            "--stdin"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "results list": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "evaluation",
+          "options": [
+            "--evaluation"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "status",
+          "options": [
+            "--status"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "split",
+          "options": [
+            "--split"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "tag",
+          "options": [
+            "--tag"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "results show": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "case_id",
+          "options": [
+            "case_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "evaluation",
+          "options": [
+            "--evaluation"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "request",
+          "options": [
+            "--request"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "response",
+          "options": [
+            "--response"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "attempts",
+          "options": [
+            "--attempts"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "run": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dataset",
+          "options": [
+            "--dataset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "mode",
+          "options": [
+            "--mode"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "provider",
+          "options": [
+            "--provider"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "fixture_set",
+          "options": [
+            "--fixture-set"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "revision",
+          "options": [
+            "--revision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "split",
+          "options": [
+            "--split"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": "all",
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cases",
+          "options": [
+            "--case"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": true,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "attempt_limit",
+          "options": [
+            "--attempt-limit"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 100,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "concurrency",
+          "options": [
+            "--concurrency"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 2,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 64,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "timeout_seconds",
+          "options": [
+            "--timeout-seconds"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 60,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 600,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "deadline_seconds",
+          "options": [
+            "--deadline-seconds"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 600,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 86400,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "rate_retries",
+          "options": [
+            "--rate-retries"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 1,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 0,
+          "maximum": 1,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dry_run",
+          "options": [
+            "--dry-run"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "runs cancel": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "runs list": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "decision",
+          "options": [
+            "--decision"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "status",
+          "options": [
+            "--status"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "cursor",
+          "options": [
+            "--cursor"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "limit",
+          "options": [
+            "--limit"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 50,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": 500,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "runs resume": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "retry_unknown",
+          "options": [
+            "--retry-unknown"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "attempt_limit",
+          "options": [
+            "--attempt-limit"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 1,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dry_run",
+          "options": [
+            "--dry-run"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "runs show": {
+      "guide": "guide/runs.md",
+      "parameters": [
+        {
+          "name": "run_id",
+          "options": [
+            "run_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    }
+  }
+}

@@ -373,13 +373,53 @@
       }
     },
     {
+      "path": "demo --open",
+      "service": "DemoService.create + browser preview",
+      "owner": "P15",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "fixture create",
+      "service": "FixtureService.create",
+      "owner": "M06",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
+        "behavior": "tests/cli/test_selectors.py::test_cli_fixture_create_and_missing_case_choices_are_dataset_scoped"
+      }
+    },
+    {
+      "path": "fixture list",
+      "service": "FixtureService.list",
+      "owner": "M06",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
+        "behavior": "tests/test_fixture_service.py::test_fixture_page_and_identity_summary_keep_requests_private_by_default"
+      }
+    },
+    {
+      "path": "fixture show",
+      "service": "FixtureService.read_summary",
+      "owner": "M06",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
+        "behavior": "tests/test_fixture_service.py::test_fixture_page_and_identity_summary_keep_requests_private_by_default"
+      }
+    },
+    {
       "path": "provider list",
       "service": "ProviderProfiles.list_views",
       "owner": "P09",
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -389,7 +429,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -399,7 +439,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -409,7 +449,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_models_cli_uses_one_authenticated_get_and_redacts_fake_secret"
       }
     },
     {
@@ -419,7 +459,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -429,7 +469,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_provider_profile_commands_and_credential_refs_are_offline"
       }
     },
     {
@@ -439,7 +479,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_forget_recovers_native_deletion_after_source_failure_and_replays_original"
       }
     },
     {
@@ -449,7 +489,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
-        "behavior": "tests/test_cli_providers.py"
+        "behavior": "tests/test_cli_providers.py::test_doctor_smoke_preflight_has_zero_dispatch_and_modes_are_exclusive"
       },
       "variants": {
         "--network-check": {
@@ -482,30 +522,30 @@
       "path": "runs list",
       "service": "RunService.list",
       "owner": "P08",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "src/deykit/cli/commands/execution.py::list_runs"
       }
     },
     {
       "path": "runs show",
       "service": "RunService.read",
       "owner": "P08",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "src/deykit/cli/commands/execution.py::show_run"
       }
     },
     {
       "path": "runs cancel",
       "service": "RunService.cancel",
       "owner": "P08",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "src/deykit/cli/commands/execution.py::cancel_run"
       }
     },
     {
@@ -624,8 +664,8 @@
       "owner": "P13",
       "status": "implemented",
       "verification": {
-        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
-        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_exports_each_target_and_pinned_group_snapshots"
+        "registration": "tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "tests/reports/test_cli_reports.py::test_console_exports_each_target_and_pinned_group_snapshots"
       }
     },
     {
@@ -634,8 +674,8 @@
       "owner": "P13",
       "status": "implemented",
       "verification": {
-        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
-        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
+        "registration": "tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
       }
     },
     {
@@ -644,8 +684,8 @@
       "owner": "P13",
       "status": "implemented",
       "verification": {
-        "registration": "planned: tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
-        "behavior": "planned: tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
+        "registration": "tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags",
+        "behavior": "tests/reports/test_cli_reports.py::test_console_saved_export_and_metadata_pagination"
       }
     },
     {

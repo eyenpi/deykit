@@ -6,9 +6,10 @@ import shutil
 import pytest
 
 from deykit.application.errors import ServiceFailure
-from deykit.application.fixtures import FixtureService
+from deykit.application.fixtures import FixtureService, StoredFixtureSet
 from deykit.application.projects import ProjectService
 from deykit.contracts.codec import dump_record
+from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.ports import ResourceKey, SourceChange
 from deykit.contracts.records import (
     CaseRecord,
@@ -18,9 +19,12 @@ from deykit.contracts.records import (
     DatasetRecord,
     DecisionRecord,
     FixtureBinding,
+    FixtureSet,
     NormalizedAnswer,
 )
+from deykit.contracts.redaction import Sanitizer
 from deykit.providers.choice import compile_choice
+from deykit.providers.fixtures import fixture_set_hash, validate_fixture_set
 from deykit.storage import FileProjectSource
 
 STAMP = "2026-10-05T12:00:00Z"
@@ -107,19 +111,18 @@ def test_create_replay_copy_and_index_rebuild_preserve_authored_binding(tmp_path
             operation_id="fixture-create",
         )
         assert service.list_ids() == ("set",)
+        assert first.replayed is False
         assert service.read("set") == first
-        assert (
-            service.create(
-                "set",
-                "decision",
-                "dataset",
-                "Authored",
-                MODEL,
-                (source_text,),
-                operation_id="fixture-create",
-            )
-            == first
+        replayed = service.create(
+            "set",
+            "decision",
+            "dataset",
+            "Authored",
+            MODEL,
+            (source_text,),
+            operation_id="fixture-create",
         )
+        assert replayed == first and replayed.replayed is True
         with pytest.raises(ServiceFailure) as changed:
             service.create(
                 "set",
@@ -193,6 +196,96 @@ def test_missing_context_case_and_bad_binding_source_fail_without_partial_set(tm
             )
         assert missing_case.value.error.reason == "fixture_case_missing"
         assert service.list_ids() == ()
+
+
+def test_fixture_page_and_identity_summary_keep_requests_private_by_default(tmp_path):
+    root = initialized(tmp_path)
+    with FileProjectSource(root) as source:
+        service = FixtureService(source, Clock())
+        for fixture_id in ("a-set", "b-set", "c-set"):
+            service.create(
+                fixture_id,
+                "decision",
+                "dataset",
+                "Authored",
+                MODEL,
+                (dump_record(binding()),),
+                operation_id=f"create-{fixture_id}",
+            )
+
+        first = service.list(limit=2)
+        assert [item.id for item in first.items] == ["a-set", "b-set"]
+        assert first.total == 3 and first.next_cursor == "b-set"
+        second = service.list(cursor=first.next_cursor, limit=2)
+        assert [item.id for item in second.items] == ["c-set"]
+        assert second.total == 3 and second.next_cursor is None
+        summary = service.read_summary("a-set")
+        assert summary.binding_count == 1
+        assert summary.bindings[0].request_hash == binding().request.body_hash
+        assert summary.requests == ()
+        with_requests = service.read_summary("a-set", include_requests=True)
+        assert with_requests.requests == (binding().request.body.decode("utf-8"),)
+
+        with pytest.raises(ServiceFailure) as bad_limit:
+            service.list(limit=0)
+        assert bad_limit.value.error.reason == "invalid_page_limit"
+        with pytest.raises(ServiceFailure) as bad_cursor:
+            service.list(cursor="bad id")
+        assert bad_cursor.value.error.reason == "invalid_resource_id"
+
+
+def test_fixture_request_projection_redacts_without_rewriting_authored_hashes():
+    selected_state = {
+        "text": "Bearer fixture-secret",
+        "api_key": "fixture-secret",
+        "exact": 9007199254740993,
+    }
+    compiled = compile_choice(
+        ChoiceDefinition(
+            input_kind="json",
+            selected_fields=("text", "api_key", "exact"),
+            questions=(
+                ChoiceQuestion(
+                    id="q",
+                    instructions="Choose",
+                    options=(
+                        ChoiceOption(id="yes", name="Yes"),
+                        ChoiceOption(id="no", name="No"),
+                    ),
+                ),
+            ),
+        ),
+        selected_state,
+        MODEL,
+        adapter="fixture",
+    )
+    original_body = compiled.body
+    authored = binding()
+    record = FixtureSet(
+        id="fixture-set",
+        decision_id="decision",
+        dataset_id="dataset",
+        name="Bearer fixture-secret",
+        model_identity=MODEL,
+        bindings=(authored.model_copy(update={"request": compiled}),),
+        created_at=STAMP,
+        content_hash="0" * 64,
+    )
+    record = record.model_copy(update={"content_hash": fixture_set_hash(record)})
+    assert validate_fixture_set(record) == record
+    summary = FixtureService.identity_summary(
+        StoredFixtureSet(record, "fixture-etag"),
+        include_requests=True,
+        sanitizer=Sanitizer(("fixture-secret",)),
+    )
+
+    assert summary.name == "Bearer [REDACTED]"
+    assert summary.model_identity == MODEL
+    assert summary.bindings[0].model_identity == MODEL
+    assert summary.bindings[0].request_hash == bytes_hash(original_body)
+    assert "fixture-secret" not in summary.requests[0]
+    assert '"api_key":"[REDACTED]"' in summary.requests[0]
+    assert '"exact":9007199254740993' in summary.requests[0]
 
 
 def test_fixture_profile_and_invalid_public_inputs(tmp_path):
