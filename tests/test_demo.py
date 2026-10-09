@@ -529,10 +529,15 @@ def fault(point):
     if point == checkpoint:
         os._exit(73)
 
-DemoService(source_factory, type('Clock', (), {
-    'utc_now': lambda self: '2026-10-05T12:00:00Z',
-    'monotonic': lambda self: 0.0,
-})(), staging_factory=DemoStagingSource, destination_factory=FileDemoDestinationFactory(fault_hook=fault)).create(root, operation_id='crashed-demo')
+DemoService(
+    source_factory,
+    type('Clock', (), {
+        'utc_now': lambda self: '2026-10-05T12:00:00Z',
+        'monotonic': lambda self: 0.0,
+    })(),
+    staging_factory=DemoStagingSource,
+    destination_factory=FileDemoDestinationFactory(fault_hook=fault),
+).create(root, operation_id='crashed-demo')
 """
 
 
