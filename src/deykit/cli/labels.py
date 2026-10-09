@@ -14,6 +14,7 @@ from deykit.application.labels import Action, LabelEdit, LabelReview, LabelServi
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
+from deykit.cli.selection import SelectorHint, selector_hint, selection_context
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import JsonValue, parse_json
 
@@ -102,9 +103,14 @@ def list_labels(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return LabelService(source, SystemClock()).list(
-                decision, dataset, status=status, cursor=cursor, limit=limit
+            hints = (
+                selector_hint("decision", decision, ()),
+                selector_hint("dataset", dataset, ()),
             )
+            with selection_context(source, hints):
+                return LabelService(source, SystemClock()).list(
+                    decision, dataset, status=status, cursor=cursor, limit=limit
+                )
 
     execute(ctx, work)
 
@@ -118,7 +124,13 @@ def show_label(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return LabelService(source, SystemClock()).read(decision, dataset, case_id)
+            hints = (
+                selector_hint("decision", decision, ()),
+                selector_hint("dataset", dataset, ()),
+                selector_hint("case", case_id, (dataset,)),
+            )
+            with selection_context(source, hints):
+                return LabelService(source, SystemClock()).read(decision, dataset, case_id)
 
     execute(ctx, work)
 
@@ -132,7 +144,13 @@ def label_history(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return LabelService(source, SystemClock()).history(decision, dataset, case_id)
+            hints = (
+                selector_hint("decision", decision, ()),
+                selector_hint("dataset", dataset, ()),
+                selector_hint("case", case_id, (dataset,)),
+            )
+            with selection_context(source, hints):
+                return LabelService(source, SystemClock()).history(decision, dataset, case_id)
 
     execute(ctx, work)
 
@@ -161,15 +179,21 @@ def set_label(
         if case_id is None:
             raise _invalid("case_id_required")
         with cli.source() as source:
-            service = LabelService(source, SystemClock())
-            token = _selected_review(service, decision, dataset, case_id, review)
-            return service.set(
-                token,
-                tuple(expected or ()),
-                provenance=cast(Provenance | None, provenance),
-                note=note,
-                operation_id=op,
+            hints = (
+                selector_hint("decision", decision, ()),
+                selector_hint("dataset", dataset, ()),
+                selector_hint("case", case_id, (dataset,)),
             )
+            with selection_context(source, hints):
+                service = LabelService(source, SystemClock())
+                token = _selected_review(service, decision, dataset, case_id, review)
+                return service.set(
+                    token,
+                    tuple(expected or ()),
+                    provenance=cast(Provenance | None, provenance),
+                    note=note,
+                    operation_id=op,
+                )
 
     _mutate(ctx, operation_id, work)
 
@@ -184,55 +208,67 @@ def _batch(cli: CliState, decision: str, dataset: str, data: JsonValue, op: str)
     ):
         raise _invalid("invalid_label_batch")
     with cli.source() as source:
-        service = LabelService(source, SystemClock())
-        edits: list[LabelEdit] = []
+        hints: list[SelectorHint] = [
+            selector_hint("decision", decision, ()),
+            selector_hint("dataset", dataset, ()),
+        ]
         for item in data["items"]:
-            if not isinstance(item, dict) or set(item) - {
-                "case_id",
-                "question_id",
-                "action",
-                "expected",
-                "provenance",
-                "note",
-                "review",
-            }:
-                raise _invalid("invalid_label_batch")
-            case_id = item.get("case_id")
-            action = item.get("action")
-            if type(case_id) is not str or action not in ("set", "clear", "dispute", "resolve"):
-                raise _invalid("invalid_label_batch")
-            supplied = item.get("review")
-            question_id = item.get("question_id")
-            if question_id is not None and type(question_id) is not str:
-                raise _invalid("invalid_label_batch")
-            token = (
-                _review(supplied)
-                if supplied is not None
-                else service.read(decision, dataset, case_id, question_id=question_id).review
-            )
-            if (token.decision_id, token.dataset_id, token.case_id) != (decision, dataset, case_id):
-                raise _invalid("label_review_target_mismatch")
-            if question_id is not None and token.question_id != question_id:
-                raise _invalid("label_review_target_mismatch")
-            values = item.get("expected", [])
-            if not isinstance(values, list) or any(type(value) is not str for value in values):
-                raise _invalid("invalid_label_batch")
-            provenance = item.get("provenance")
-            note = item.get("note")
-            if provenance is not None and type(provenance) is not str:
-                raise _invalid("invalid_label_batch")
-            if note is not None and type(note) is not str:
-                raise _invalid("invalid_label_batch")
-            edits.append(
-                LabelEdit(
-                    token,
-                    cast(Action, action),
-                    tuple(cast(list[str], values)),
-                    cast(Provenance | None, provenance),
-                    note,
+            if isinstance(item, dict) and type(item.get("case_id")) is str:
+                hints.append(selector_hint("case", item["case_id"], (dataset,)))
+        with selection_context(source, tuple(hints)):
+            service = LabelService(source, SystemClock())
+            edits: list[LabelEdit] = []
+            for item in data["items"]:
+                if not isinstance(item, dict) or set(item) - {
+                    "case_id",
+                    "question_id",
+                    "action",
+                    "expected",
+                    "provenance",
+                    "note",
+                    "review",
+                }:
+                    raise _invalid("invalid_label_batch")
+                case_id = item.get("case_id")
+                action = item.get("action")
+                if type(case_id) is not str or action not in ("set", "clear", "dispute", "resolve"):
+                    raise _invalid("invalid_label_batch")
+                supplied = item.get("review")
+                question_id = item.get("question_id")
+                if question_id is not None and type(question_id) is not str:
+                    raise _invalid("invalid_label_batch")
+                token = (
+                    _review(supplied)
+                    if supplied is not None
+                    else service.read(decision, dataset, case_id, question_id=question_id).review
                 )
-            )
-        return service.batch(tuple(edits), operation_id=op)
+                if (token.decision_id, token.dataset_id, token.case_id) != (
+                    decision,
+                    dataset,
+                    case_id,
+                ):
+                    raise _invalid("label_review_target_mismatch")
+                if question_id is not None and token.question_id != question_id:
+                    raise _invalid("label_review_target_mismatch")
+                values = item.get("expected", [])
+                if not isinstance(values, list) or any(type(value) is not str for value in values):
+                    raise _invalid("invalid_label_batch")
+                provenance = item.get("provenance")
+                note = item.get("note")
+                if provenance is not None and type(provenance) is not str:
+                    raise _invalid("invalid_label_batch")
+                if note is not None and type(note) is not str:
+                    raise _invalid("invalid_label_batch")
+                edits.append(
+                    LabelEdit(
+                        token,
+                        cast(Action, action),
+                        tuple(cast(list[str], values)),
+                        cast(Provenance | None, provenance),
+                        note,
+                    )
+                )
+            return service.batch(tuple(edits), operation_id=op)
 
 
 def _single_action(
@@ -249,19 +285,25 @@ def _single_action(
 ) -> None:
     def work(cli: CliState, op: str) -> object:
         with cli.source() as source:
-            service = LabelService(source, SystemClock())
-            token = _selected_review(service, decision, dataset, case_id, review)
-            if action == "clear":
-                return service.clear(token, operation_id=op)
-            if action == "dispute":
-                return service.dispute(token, reason=note or "", operation_id=op)
-            return service.resolve(
-                token,
-                expected,
-                provenance=cast(Provenance | None, provenance),
-                note=note,
-                operation_id=op,
+            hints = (
+                selector_hint("decision", decision, ()),
+                selector_hint("dataset", dataset, ()),
+                selector_hint("case", case_id, (dataset,)),
             )
+            with selection_context(source, hints):
+                service = LabelService(source, SystemClock())
+                token = _selected_review(service, decision, dataset, case_id, review)
+                if action == "clear":
+                    return service.clear(token, operation_id=op)
+                if action == "dispute":
+                    return service.dispute(token, reason=note or "", operation_id=op)
+                return service.resolve(
+                    token,
+                    expected,
+                    provenance=cast(Provenance | None, provenance),
+                    note=note,
+                    operation_id=op,
+                )
 
     _mutate(ctx, operation_id, work)
 

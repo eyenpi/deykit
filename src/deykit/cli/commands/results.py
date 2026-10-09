@@ -14,6 +14,7 @@ from deykit.application.results import ResultInspection
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
+from deykit.cli.selection import SelectorOwner, selector_hint, selection_context
 from deykit.contracts.errors import ServiceError
 
 results_app = typer.Typer(help="Browse immutable results and their evidence.")
@@ -39,19 +40,29 @@ def list_results(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return (
-                ResultInspection(source)
-                .list(
-                    run_id,
-                    evaluation_id=evaluation,
-                    status=status,
-                    split=split,  # validated by service
-                    tag=tag,
-                    cursor=cursor,
-                    limit=limit,
+            hints = (selector_hint("run", run_id, ()),) + (
+                (
+                    selector_hint(
+                        "evaluation", evaluation, (), owner=SelectorOwner("run", run_id)
+                    ),
                 )
-                .source()
+                if evaluation is not None
+                else ()
             )
+            with selection_context(source, hints):
+                return (
+                    ResultInspection(source)
+                    .list(
+                        run_id,
+                        evaluation_id=evaluation,
+                        status=status,
+                        split=split,  # validated by service
+                        tag=tag,
+                        cursor=cursor,
+                        limit=limit,
+                    )
+                    .source()
+                )
 
     execute(ctx, work)
 
@@ -68,18 +79,31 @@ def show_result(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return (
-                ResultInspection(source)
-                .show(
-                    run_id,
-                    case_id,
-                    evaluation_id=evaluation,
-                    include_request=request,
-                    include_response=response,
-                    include_attempts=attempts,
+            hints = (
+                selector_hint("run", run_id, ()),
+                selector_hint("case", case_id, (), owner=SelectorOwner("run", run_id)),
+            ) + (
+                (
+                    selector_hint(
+                        "evaluation", evaluation, (), owner=SelectorOwner("run", run_id)
+                    ),
                 )
-                .source()
+                if evaluation is not None
+                else ()
             )
+            with selection_context(source, hints):
+                return (
+                    ResultInspection(source)
+                    .show(
+                        run_id,
+                        case_id,
+                        evaluation_id=evaluation,
+                        include_request=request,
+                        include_response=response,
+                        include_attempts=attempts,
+                    )
+                    .source()
+                )
 
     execute(ctx, work)
 
@@ -103,16 +127,21 @@ def annotate_result(
             )
         content = note if note is not None else source_text(file=file, stdin=stdin)
         with cli.source() as source:
-            saved = AnnotationService(source, SystemClock()).add(
-                run_id, case_id, content, operation_id=actual
+            hints = (
+                selector_hint("run", run_id, ()),
+                selector_hint("case", case_id, (), owner=SelectorOwner("run", run_id)),
             )
-            return {
-                "operation_id": actual,
-                "annotation_id": saved.annotation.id,
-                "run_id": run_id,
-                "case_id": case_id,
-                "replayed": saved.replayed,
-            }
+            with selection_context(source, hints):
+                saved = AnnotationService(source, SystemClock()).add(
+                    run_id, case_id, content, operation_id=actual
+                )
+                return {
+                    "operation_id": actual,
+                    "annotation_id": saved.annotation.id,
+                    "run_id": run_id,
+                    "case_id": case_id,
+                    "replayed": saved.replayed,
+                }
 
     execute(ctx, work)
 
@@ -128,21 +157,35 @@ def reevaluate(
 
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            snapshot_id = (
-                result_snapshot or ResultInspection(source).list(run_id, limit=1).result_snapshot_id
+            hints = (selector_hint("run", run_id, ()),) + (
+                (
+                    selector_hint(
+                        "result_snapshot",
+                        result_snapshot,
+                        (),
+                        owner=SelectorOwner("run", run_id),
+                    ),
+                )
+                if result_snapshot is not None
+                else ()
             )
-            saved = EvaluationService(source, SystemClock()).reevaluate_current_labels(
-                run_id, snapshot_id, operation_id=actual
-            )
-            return {
-                "operation_id": actual,
-                "evaluation_id": saved.record.id,
-                "run_id": run_id,
-                "result_snapshot_id": saved.record.result_snapshot_id,
-                "label_snapshot_id": saved.record.label_snapshot_id,
-                "replayed": saved.replayed,
-                "metrics": saved.metrics,
-                "dispatch_count": 0,
-            }
+            with selection_context(source, hints):
+                snapshot_id = (
+                    result_snapshot
+                    or ResultInspection(source).list(run_id, limit=1).result_snapshot_id
+                )
+                saved = EvaluationService(source, SystemClock()).reevaluate_current_labels(
+                    run_id, snapshot_id, operation_id=actual
+                )
+                return {
+                    "operation_id": actual,
+                    "evaluation_id": saved.record.id,
+                    "run_id": run_id,
+                    "result_snapshot_id": saved.record.result_snapshot_id,
+                    "label_snapshot_id": saved.record.label_snapshot_id,
+                    "replayed": saved.replayed,
+                    "metrics": saved.metrics,
+                    "dispatch_count": 0,
+                }
 
     execute(ctx, work)

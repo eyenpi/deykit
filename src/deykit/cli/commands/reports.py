@@ -12,6 +12,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.application.reports import ReportService
 from deykit.cli.context import CliState, SystemClock, new_operation_id, state
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
+from deykit.cli.selection import SelectorHint, SelectorOwner, selector_hint, selection_context
 from deykit.contracts.errors import ServiceError
 from deykit.reports.models import (
     ExportOutcome,
@@ -158,20 +159,93 @@ def export(
             mode = "created"
 
         with cli.source() as source:
-            service = ReportService(source, SystemClock())
-            if request is not None:
-                assert actual_operation_id is not None
-                saved = service.create(request, operation_id=actual_operation_id)
-                selected_report_id = saved.record.id
-            assert selected_report_id is not None
-            writer = NativeArtifactWriter((source.root,), sanitizer=service.sanitizer)
-            captured = service.export(
-                selected_report_id,
-                format=selected_format,
-                destination=output,
-                writer=writer,
-            )
-            return _outcome(cli, captured, mode)
+            if report_id is not None:
+                hints = (selector_hint("report", report_id, ()),)
+            else:
+                allowed = (
+                    ("run", "evaluation", "comparison")
+                    if target_kind is None
+                    else {
+                        "run": ("run",),
+                        "evaluation": ("evaluation",),
+                        "comparison": ("comparison",),
+                        "diagnostic": ("execution_group",),
+                        "check": ("execution_group",),
+                    }.get(target_kind, ())
+                )
+                target_hint = SelectorHint(
+                    kinds=allowed,  # type: ignore[arg-type]
+                    resource_id=target_id or "",
+                    scopes={kind: () for kind in allowed},  # type: ignore[misc]
+                )
+                hints_list: list[SelectorHint] = [target_hint]
+                if evaluation is not None:
+                    hints_list.append(
+                        selector_hint(
+                            "evaluation",
+                            evaluation,
+                            (),
+                            owner=(
+                                SelectorOwner("run", target_id)
+                                if target_kind == "run" and target_id is not None
+                                else None
+                            ),
+                        )
+                    )
+                if result_snapshot is not None:
+                    if target_kind == "run":
+                        hints_list.append(
+                            selector_hint(
+                                "result_snapshot",
+                                result_snapshot,
+                                (),
+                                owner=(
+                                    SelectorOwner("run", target_id)
+                                    if target_id is not None
+                                    else None
+                                ),
+                            )
+                        )
+                    elif target_kind is None:
+                        hints_list.append(
+                            selector_hint("result_snapshot", result_snapshot, ())
+                        )
+                if group_snapshot is not None and target_kind in {"diagnostic", "check"}:
+                    snapshot_kind = (
+                        "diagnostic_snapshot" if target_kind == "diagnostic" else "check_snapshot"
+                    )
+                    hints_list.append(
+                        SelectorHint(
+                            (snapshot_kind,),
+                            group_snapshot,
+                            {snapshot_kind: ()},
+                            SelectorOwner(
+                                "execution_group",
+                                target_id or "",
+                                (
+                                    "choice_order"
+                                    if target_kind == "diagnostic"
+                                    else "regression_check"
+                                ),
+                            ),
+                        )
+                    )
+                hints = tuple(hints_list)
+            with selection_context(source, hints):
+                service = ReportService(source, SystemClock())
+                if request is not None:
+                    assert actual_operation_id is not None
+                    saved = service.create(request, operation_id=actual_operation_id)
+                    selected_report_id = saved.record.id
+                assert selected_report_id is not None
+                writer = NativeArtifactWriter((source.root,), sanitizer=service.sanitizer)
+                captured = service.export(
+                    selected_report_id,
+                    format=selected_format,
+                    destination=output,
+                    writer=writer,
+                )
+                return _outcome(cli, captured, mode)
 
     execute_outcome(ctx, work)
     assert captured is not None
@@ -183,7 +257,8 @@ def show(ctx: typer.Context, report_id: str) -> None:
     def work(cli: CliState) -> object:
         selected = identifier(report_id)
         with cli.source() as source:
-            return ReportService(source, SystemClock()).metadata(selected)
+            with selection_context(source, (selector_hint("report", selected, ()),)):
+                return ReportService(source, SystemClock()).metadata(selected)
 
     execute(ctx, work)
 

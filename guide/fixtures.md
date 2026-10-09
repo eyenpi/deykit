@@ -2,7 +2,31 @@
 
 The Sandbox contains twelve neutral text-category examples and explicit authored fixture answers. It needs no provider key and makes no network request. Its displayed 75% (6/8) example accuracy is an authored test scenario, not measured model performance.
 
-Until the CLI demo command is connected, create a project with the Python service:
+For a quick local example, the CLI demo command creates a project without provider
+requests. For the six-case workflow that teaches exact selectors, authored fixtures,
+reevaluation, comparisons, diagnostics, reports, and frozen checks, use the packaged
+walkthrough in [cli-workflow.md](cli-workflow.md).
+
+```sh
+deykit --json demo './Sandbox'
+```
+
+Use `fixture create` to save versioned binding lines as immutable fixture evidence.
+Each binding must contain the exact request compiled for its case, compiler,
+compiler version, and model identity; Deykit never fabricates a response. The
+default list/show summaries omit request bodies. Pagination uses the returned
+cursor, and `--request` opts in to showing exact request source:
+
+```sh
+deykit --project ./sandbox --json fixture create reviewed-v1 \
+  --decision DECISION --dataset DATASET --name 'Reviewed v1' \
+  --model authored-fixture-v1 --file bindings.jsonl
+deykit --project ./sandbox --json fixture list --limit 20
+deykit --project ./sandbox --json fixture show reviewed-v1
+deykit --project ./sandbox --json fixture show reviewed-v1 --request
+```
+
+To embed project creation directly in Python, use the service:
 
 ```python
 from datetime import datetime, timezone

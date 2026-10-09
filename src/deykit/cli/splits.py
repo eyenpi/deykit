@@ -13,6 +13,7 @@ from deykit.application.splits import SplitService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import execute
 from deykit.cli.preview import split_preview
+from deykit.cli.selection import selector_hint, selection_context
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import JsonValue, dump_json, parse_json
 from deykit.domain.splits import DEFAULT_RATIOS, Split
@@ -88,7 +89,8 @@ def split_dataset(
                 raise _invalid("input_mode_conflict")
             frozen = split_preview(preview, dataset_id)
             with cli.source() as source:
-                return SplitService(source, SystemClock()).commit(frozen, operation_id=op)
+                with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
+                    return SplitService(source, SystemClock()).commit(frozen, operation_id=op)
         if assignments is not None and any(
             (seed is not None, development is not None, calibration is not None, test is not None)
         ):
@@ -100,16 +102,17 @@ def split_dataset(
         )
         chosen = _assignments(assignments) if assignments is not None else None
         with cli.source() as source:
-            service = SplitService(source, SystemClock())
-            plan = service.preview(
-                dataset_id,
-                seed=seed if seed is not None else 0,
-                ratios_source=source_ratios,
-                assignments=chosen,
-            )
-            if dry_run:
-                return {"preview": plan}
-            return service.commit(plan, operation_id=op)
+            with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
+                service = SplitService(source, SystemClock())
+                plan = service.preview(
+                    dataset_id,
+                    seed=seed if seed is not None else 0,
+                    ratios_source=source_ratios,
+                    assignments=chosen,
+                )
+                if dry_run:
+                    return {"preview": plan}
+                return service.commit(plan, operation_id=op)
 
     if dry_run:
         execute(ctx, lambda cli: work(cli, new_operation_id(operation_id)))

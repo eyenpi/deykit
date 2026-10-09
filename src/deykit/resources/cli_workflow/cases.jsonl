@@ -1,0 +1,6 @@
+{"id":"c-001","input":{"text":"Please accept the invoice.","amount":9007199254740993,"ratio":0.1234567890123456789}}
+{"id":"c-002","input":{"text":"Please review this request.","amount":42,"ratio":0.5}}
+{"id":"c-003","input":{"text":"Either answer is acceptable.","amount":7,"ratio":0.25}}
+{"id":"c-004","input":{"text":"This case has no current expectation.","amount":1,"ratio":0.75}}
+{"id":"c-005","input":{"amount":3,"ratio":0.125}}
+{"id":"c-006","input":{"text":"Authored response error case.","amount":9,"ratio":0.875}}

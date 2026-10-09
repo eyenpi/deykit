@@ -12,6 +12,7 @@ from deykit.application.definitions import DecisionService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import optional_source, source_text
 from deykit.cli.output import execute
+from deykit.cli.selection import selector_hint, selection_context
 from deykit.contracts.identities import new_id
 
 decision_app = typer.Typer(help="Author choice definitions and immutable revisions.")
@@ -55,11 +56,18 @@ def show_decision(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            service = DecisionService(source, SystemClock())
-            view = service.read(decision_id)
-            if revision is None:
-                return view
-            return {"decision": view.decision, "revision": service.revision(decision_id, revision)}
+            hints = (selector_hint("decision", decision_id, ()),) + (
+                (selector_hint("revision", revision, (decision_id,)),) if revision else ()
+            )
+            with selection_context(source, hints):
+                service = DecisionService(source, SystemClock())
+                view = service.read(decision_id)
+                if revision is None:
+                    return view
+                return {
+                    "decision": view.decision,
+                    "revision": service.revision(decision_id, revision),
+                }
 
     execute(ctx, work)
 
@@ -76,9 +84,10 @@ def create_decision(
     def work(cli: CliState, op: str) -> object:
         text = optional_source(file=file, stdin=stdin)
         with cli.source() as source:
-            return DecisionService(source, SystemClock()).create(
-                decision_id, name, text, operation_id=op
-            )
+            with selection_context(source, (selector_hint("decision", decision_id, ()),)):
+                return DecisionService(source, SystemClock()).create(
+                    decision_id, name, text, operation_id=op
+                )
 
     _mutate(ctx, operation_id, work)
 
@@ -103,24 +112,35 @@ def edit_decision(
                 ServiceError(code="validation_error", reason="input_mode_conflict")
             )
         with cli.source() as source:
-            service = DecisionService(source, SystemClock())
-            view = service.read(decision_id) if if_hash is None or editor else None
-            if if_hash is None:
-                assert view is not None
-                expected = view.draft.etag
-            else:
-                expected = if_hash
-            if from_revision is not None:
-                return service.restore_revision_to_draft(
-                    decision_id, from_revision, expected_draft_etag=expected, operation_id=op
-                )
-            text = source_text(
-                file=file,
-                stdin=stdin,
-                editor=editor,
-                initial=view.draft.record.editor_source if view is not None else "",
+            hints = (selector_hint("decision", decision_id, ()),) + (
+                (selector_hint("revision", from_revision, (decision_id,)),)
+                if from_revision
+                else ()
             )
-            return service.update_draft(decision_id, text, expected_etag=expected, operation_id=op)
+            with selection_context(source, hints):
+                service = DecisionService(source, SystemClock())
+                view = service.read(decision_id) if if_hash is None or editor else None
+                if if_hash is None:
+                    assert view is not None
+                    expected = view.draft.etag
+                else:
+                    expected = if_hash
+                if from_revision is not None:
+                    return service.restore_revision_to_draft(
+                        decision_id,
+                        from_revision,
+                        expected_draft_etag=expected,
+                        operation_id=op,
+                    )
+                text = source_text(
+                    file=file,
+                    stdin=stdin,
+                    editor=editor,
+                    initial=view.draft.record.editor_source if view is not None else "",
+                )
+                return service.update_draft(
+                    decision_id, text, expected_etag=expected, operation_id=op
+                )
 
     _mutate(ctx, operation_id, work)
 
@@ -129,7 +149,8 @@ def edit_decision(
 def validate_decision(ctx: typer.Context, decision_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return DecisionService(source, SystemClock()).validate(decision_id)
+            with selection_context(source, (selector_hint("decision", decision_id, ()),)):
+                return DecisionService(source, SystemClock()).validate(decision_id)
 
     execute(ctx, work)
 
@@ -145,22 +166,23 @@ def save_decision(
 ) -> None:
     def work(cli: CliState, op: str) -> object:
         with cli.source() as source:
-            service = DecisionService(source, SystemClock(), new_id)
-            if if_draft_hash is None or if_decision_hash is None:
-                view = service.read(decision_id)
-                draft_hash = if_draft_hash if if_draft_hash is not None else view.draft.etag
-                decision_hash = (
-                    if_decision_hash if if_decision_hash is not None else view.decision.etag
+            with selection_context(source, (selector_hint("decision", decision_id, ()),)):
+                service = DecisionService(source, SystemClock(), new_id)
+                if if_draft_hash is None or if_decision_hash is None:
+                    view = service.read(decision_id)
+                    draft_hash = if_draft_hash if if_draft_hash is not None else view.draft.etag
+                    decision_hash = (
+                        if_decision_hash if if_decision_hash is not None else view.decision.etag
+                    )
+                else:
+                    draft_hash, decision_hash = if_draft_hash, if_decision_hash
+                return service.save(
+                    decision_id,
+                    expected_draft_etag=draft_hash,
+                    expected_decision_etag=decision_hash,
+                    operation_id=op,
+                    note=note,
                 )
-            else:
-                draft_hash, decision_hash = if_draft_hash, if_decision_hash
-            return service.save(
-                decision_id,
-                expected_draft_etag=draft_hash,
-                expected_decision_etag=decision_hash,
-                operation_id=op,
-                note=note,
-            )
 
     _mutate(ctx, operation_id, work)
 
@@ -174,9 +196,10 @@ def decision_history(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return DecisionService(source, SystemClock()).history(
-                decision_id, cursor=cursor, limit=limit
-            )
+            with selection_context(source, (selector_hint("decision", decision_id, ()),)):
+                return DecisionService(source, SystemClock()).history(
+                    decision_id, cursor=cursor, limit=limit
+                )
 
     execute(ctx, work)
 
@@ -185,7 +208,13 @@ def decision_history(
 def diff_decision(ctx: typer.Context, decision_id: str, before: str, after: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return DecisionService(source, SystemClock()).diff(decision_id, before, after)
+            hints = (
+                selector_hint("decision", decision_id, ()),
+                selector_hint("revision", before, (decision_id,)),
+                selector_hint("revision", after, (decision_id,)),
+            )
+            with selection_context(source, hints):
+                return DecisionService(source, SystemClock()).diff(decision_id, before, after)
 
     execute(ctx, work)
 
@@ -200,14 +229,15 @@ def _change(
 ) -> None:
     def work(cli: CliState, op: str) -> object:
         with cli.source() as source:
-            service = DecisionService(source, SystemClock())
-            etag = if_hash if if_hash is not None else service.read(decision_id).decision.etag
-            if action == "rename":
-                assert name is not None
-                return service.rename(decision_id, name, expected_etag=etag, operation_id=op)
-            if action == "archive":
-                return service.archive(decision_id, expected_etag=etag, operation_id=op)
-            return service.restore(decision_id, expected_etag=etag, operation_id=op)
+            with selection_context(source, (selector_hint("decision", decision_id, ()),)):
+                service = DecisionService(source, SystemClock())
+                etag = if_hash if if_hash is not None else service.read(decision_id).decision.etag
+                if action == "rename":
+                    assert name is not None
+                    return service.rename(decision_id, name, expected_etag=etag, operation_id=op)
+                if action == "archive":
+                    return service.archive(decision_id, expected_etag=etag, operation_id=op)
+                return service.restore(decision_id, expected_etag=etag, operation_id=op)
 
     _mutate(ctx, operation_id, work)
 

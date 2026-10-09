@@ -11,6 +11,7 @@ from deykit.application.diagnostics import ChoiceOrderRequest, DiagnosticService
 from deykit.cli.commands.execution import service
 from deykit.cli.context import CliState, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
+from deykit.cli.selection import selector_hint, selection_context
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.planner import RunRequest
 
@@ -75,12 +76,24 @@ def choice_order(
         )
         with cli.source() as source:
             diagnostic = DiagnosticService(service(source))
-            if dry_run:
-                return CommandOutcome(diagnostic.preview(request))
-            result = asyncio.run(
-                diagnostic.start(request, operation_id=new_operation_id(operation_id))
-            )
-            return _outcome(result)
+            hints = [
+                selector_hint("decision", decision, ()),
+                selector_hint("dataset", dataset, ()),
+            ]
+            if provider is not None:
+                hints.append(selector_hint("provider", provider, ()))
+            if fixture_set is not None:
+                hints.append(selector_hint("fixture", fixture_set, ()))
+            if revision is not None:
+                hints.append(selector_hint("revision", revision, (decision,)))
+            hints.extend(selector_hint("case", case_id, (dataset,)) for case_id in (cases or ()))
+            with selection_context(source, tuple(hints)):
+                if dry_run:
+                    return CommandOutcome(diagnostic.preview(request))
+                result = asyncio.run(
+                    diagnostic.start(request, operation_id=new_operation_id(operation_id))
+                )
+                return _outcome(result)
 
     execute_outcome(ctx, work)
 
@@ -89,7 +102,10 @@ def choice_order(
 def show(ctx: typer.Context, group_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return _outcome(DiagnosticService(service(source)).read(group_id)).data
+            with selection_context(
+                source, (selector_hint("execution_group", group_id, ()),)
+            ):
+                return _outcome(DiagnosticService(service(source)).read(group_id)).data
 
     execute(ctx, work)
 
@@ -105,14 +121,17 @@ def resume(
 
     def work(cli: CliState) -> CommandOutcome:
         with cli.source() as source:
-            return _outcome(
-                asyncio.run(
-                    DiagnosticService(service(source)).resume(
-                        group_id,
-                        operation_id=new_operation_id(operation_id),
-                        retry_unknown=retry_unknown,
+            with selection_context(
+                source, (selector_hint("execution_group", group_id, ()),)
+            ):
+                return _outcome(
+                    asyncio.run(
+                        DiagnosticService(service(source)).resume(
+                            group_id,
+                            operation_id=new_operation_id(operation_id),
+                            retry_unknown=retry_unknown,
+                        )
                     )
                 )
-            )
 
     execute_outcome(ctx, work)

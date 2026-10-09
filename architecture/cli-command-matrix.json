@@ -373,6 +373,46 @@
       }
     },
     {
+      "path": "demo --open",
+      "service": "DemoService.create + browser preview",
+      "owner": "P15",
+      "status": "planned",
+      "verification": {
+        "registration": "pending",
+        "behavior": "pending"
+      }
+    },
+    {
+      "path": "fixture create",
+      "service": "FixtureService.create",
+      "owner": "M06",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/cli/test_inventory.py",
+        "behavior": "tests/cli/test_workflow.py"
+      }
+    },
+    {
+      "path": "fixture list",
+      "service": "FixtureService.list",
+      "owner": "M06",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/cli/test_inventory.py",
+        "behavior": "tests/test_fixture_service.py"
+      }
+    },
+    {
+      "path": "fixture show",
+      "service": "FixtureService.read_summary",
+      "owner": "M06",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/cli/test_inventory.py",
+        "behavior": "tests/test_fixture_service.py"
+      }
+    },
+    {
       "path": "provider list",
       "service": "ProviderProfiles.list_views",
       "owner": "P09",
@@ -482,30 +522,30 @@
       "path": "runs list",
       "service": "RunService.list",
       "owner": "P08",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "src/deykit/cli/commands/execution.py::list_runs"
       }
     },
     {
       "path": "runs show",
       "service": "RunService.read",
       "owner": "P08",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "src/deykit/cli/commands/execution.py::show_run"
       }
     },
     {
       "path": "runs cancel",
       "service": "RunService.cancel",
       "owner": "P08",
-      "status": "planned",
+      "status": "implemented",
       "verification": {
-        "registration": "pending",
-        "behavior": "pending"
+        "registration": "tests/test_cli_authoring.py::test_machine_readable_inventory_matches_registered_help",
+        "behavior": "src/deykit/cli/commands/execution.py::cancel_run"
       }
     },
     {

@@ -12,6 +12,7 @@ from deykit.application.evaluations import EvaluationService
 from deykit.application.execution import ExecutionService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
+from deykit.cli.selection import selector_hint, selection_context
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.backends import ProviderBackends
@@ -129,15 +130,27 @@ def run(
         )
         with cli.source() as source:
             runner = service(source)
-            if dry_run:
-                return CommandOutcome(runner.preview(request))
-            actual = new_operation_id(operation_id)
-            result = asyncio.run(
-                runner.start(
-                    request, operation_id=actual, on_created=_created, on_progress=_progress
+            hints = [
+                selector_hint("decision", decision, ()),
+                selector_hint("dataset", dataset, ()),
+            ]
+            if provider is not None:
+                hints.append(selector_hint("provider", provider, ()))
+            if fixture_set is not None:
+                hints.append(selector_hint("fixture", fixture_set, ()))
+            if revision is not None:
+                hints.append(selector_hint("revision", revision, (decision,)))
+            hints.extend(selector_hint("case", case_id, (dataset,)) for case_id in (cases or ()))
+            with selection_context(source, tuple(hints)):
+                if dry_run:
+                    return CommandOutcome(runner.preview(request))
+                actual = new_operation_id(operation_id)
+                result = asyncio.run(
+                    runner.start(
+                        request, operation_id=actual, on_created=_created, on_progress=_progress
+                    )
                 )
-            )
-            return _evaluated(source, result, actual)
+                return _evaluated(source, result, actual)
 
     execute_outcome(ctx, work)
 
@@ -152,9 +165,14 @@ def list_runs(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return service(source).list(
-                decision_id=decision, status=status, cursor=cursor, limit=limit
-            )
+            if decision is None:
+                return service(source).list(
+                    decision_id=decision, status=status, cursor=cursor, limit=limit
+                )
+            with selection_context(source, (selector_hint("decision", decision, ()),)):
+                return service(source).list(
+                    decision_id=decision, status=status, cursor=cursor, limit=limit
+                )
 
     execute(ctx, work)
 
@@ -163,7 +181,8 @@ def list_runs(
 def show_run(ctx: typer.Context, run_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            return service(source).show(run_id)
+            with selection_context(source, (selector_hint("run", run_id, ()),)):
+                return service(source).show(run_id)
 
     execute(ctx, work)
 
@@ -177,10 +196,11 @@ def cancel_run(
     def work(cli: CliState) -> object:
         actual = new_operation_id(operation_id)
         with cli.source() as source:
-            return {
-                "operation_id": actual,
-                "run": service(source).cancel(run_id, operation_id=actual),
-            }
+            with selection_context(source, (selector_hint("run", run_id, ()),)):
+                return {
+                    "operation_id": actual,
+                    "run": service(source).cancel(run_id, operation_id=actual),
+                }
 
     execute(ctx, work)
 
@@ -197,23 +217,24 @@ def resume_run(
     def work(cli: CliState) -> CommandOutcome:
         with cli.source() as source:
             runner = service(source)
-            if dry_run:
-                return CommandOutcome(
-                    runner.preview_resume(
-                        run_id, retry_unknown=retry_unknown, max_attempts=attempt_limit
+            with selection_context(source, (selector_hint("run", run_id, ()),)):
+                if dry_run:
+                    return CommandOutcome(
+                        runner.preview_resume(
+                            run_id, retry_unknown=retry_unknown, max_attempts=attempt_limit
+                        )
+                    )
+                actual = new_operation_id(operation_id)
+                result = asyncio.run(
+                    runner.resume(
+                        run_id,
+                        operation_id=actual,
+                        retry_unknown=retry_unknown,
+                        max_attempts=attempt_limit,
+                        on_resumed=_resumed,
+                        on_progress=_progress,
                     )
                 )
-            actual = new_operation_id(operation_id)
-            result = asyncio.run(
-                runner.resume(
-                    run_id,
-                    operation_id=actual,
-                    retry_unknown=retry_unknown,
-                    max_attempts=attempt_limit,
-                    on_resumed=_resumed,
-                    on_progress=_progress,
-                )
-            )
-            return _evaluated(source, result, actual)
+                return _evaluated(source, result, actual)
 
     execute_outcome(ctx, work)
