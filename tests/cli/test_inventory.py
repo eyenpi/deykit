@@ -3,28 +3,28 @@
 import json
 from pathlib import Path
 
-from click import Group
+from typer.core import TyperGroup
 from typer.main import get_command
 from typer.testing import CliRunner
 
 from deykit.cli.main import app
 
 
-def _leaves(group: Group, prefix: tuple[str, ...] = ()) -> set[str]:
+def _leaves(group: TyperGroup, prefix: tuple[str, ...] = ()) -> set[str]:
     paths: set[str] = set()
     for name, command in group.commands.items():
         path = (*prefix, name)
-        if isinstance(command, Group):
+        if isinstance(command, TyperGroup):
             paths.update(_leaves(command, path))
         else:
             paths.add(" ".join(path))
     return paths
 
 
-def _groups(group: Group, prefix: tuple[str, ...] = ()) -> set[tuple[str, ...]]:
+def _groups(group: TyperGroup, prefix: tuple[str, ...] = ()) -> set[tuple[str, ...]]:
     paths: set[tuple[str, ...]] = {prefix}
     for name, command in group.commands.items():
-        if isinstance(command, Group):
+        if isinstance(command, TyperGroup):
             paths.update(_groups(command, (*prefix, name)))
     return paths
 

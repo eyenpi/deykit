@@ -11,9 +11,9 @@ from typing import Literal, cast
 from deykit.application.evaluations import admit_evaluation_record, frozen_evaluation_from_records
 from deykit.application.errors import ServiceFailure
 from deykit.application.selectors import require_one_of, require_resource
+from deykit.contracts.execution_groups import CheckSnapshot, DiagnosticSnapshot
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
-from deykit.contracts.records import CheckSnapshot, DiagnosticSnapshot
 from deykit.contracts.selection import ResourceChoice, ResourceKind, SelectionDetails
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.history import history_from_records
