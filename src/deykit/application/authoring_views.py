@@ -492,16 +492,24 @@ def project_schema(schema_source: str | None) -> SchemaProjectionV1:
         compile_schema(schema_source)
         root, properties, required = _schema_parts(schema_source)
     except JsonError as error:
-        return SchemaProjectionV1(1, schema_source, digest, None, error.code, (), ())
+        return SchemaProjectionV1(
+            schema_version=1,
+            schema_source=schema_source,
+            source_hash=digest,
+            fields=None,
+            advanced_keywords=(),
+            form_unavailable_reason=error.code,
+            validation_advice=(),
+        )
     except ValueError as error:
         return SchemaProjectionV1(
-            1,
-            schema_source,
-            digest,
-            None,
-            str(error) or "schema_form_unavailable",
-            (),
-            (),
+            schema_version=1,
+            schema_source=schema_source,
+            source_hash=digest,
+            fields=None,
+            advanced_keywords=(),
+            form_unavailable_reason=str(error) or "schema_form_unavailable",
+            validation_advice=(),
         )
     fields: list[SchemaFieldV1] = []
     for name, raw in properties.items():
