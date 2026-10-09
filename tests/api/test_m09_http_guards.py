@@ -22,7 +22,7 @@ from deykit.application.definitions import DecisionService
 from deykit.application.fixtures import FixtureService
 from deykit.application.labels import LabelService
 from deykit.application.reports import ReportService
-from deykit.contracts.codec import dump_record
+from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.json_value import JsonDocument
 from deykit.contracts.records import (
     ChoiceDefinition,
@@ -199,6 +199,56 @@ def _seed_one_case(source: ApiProjectSource, dependencies: ApiDependencies) -> N
     )
 
 
+def _add_second_case_order_fixture(
+    source: ApiProjectSource, dependencies: ApiDependencies
+) -> None:
+    decision = DecisionService(source, dependencies.clock, dependencies.id_factory).read("decision")
+    definition = load_record(ChoiceDefinition, decision.draft.record.editor_source)
+    datasets = DatasetService(source, dependencies.clock, dependencies.id_factory)
+    dataset = datasets.read("dataset")
+    case_source = '{"text":"world"}'
+    case = datasets.add_case(
+        "dataset",
+        CaseInput(
+            input_kind="json",
+            input_source=case_source,
+            tags=("gold",),
+            split="development",
+        ),
+        expected_dataset_etag=dataset.etag,
+        operation_id="seed-second-case",
+        case_id="case-two",
+    )
+    assert case.case is not None
+    bindings = []
+    for case_id, input_source in (("case", '{"text":"hello"}'), ("case-two", case_source)):
+        compiled = compile_choice(
+            definition,
+            select_input(definition, JsonDocument(input_source)).value,
+            "authored-api-v1",
+            adapter="fixture",
+        )
+        bindings.append(
+            FixtureBinding(
+                id=f"binding-{case_id}",
+                case_id=case_id,
+                request=compiled,
+                answer=NormalizedAnswer(
+                    question_id="question", option_id="yes", reported_model="authored-api-v1"
+                ),
+            )
+        )
+    FixtureService(source, dependencies.clock).create(
+        "fixture-set-two-cases",
+        "decision",
+        "dataset",
+        "Authored two-case fixture",
+        "authored-api-v1",
+        tuple(dump_record(binding) for binding in bindings),
+        operation_id="seed-two-case-fixture-set",
+    )
+
+
 def _run_request() -> dict[str, object]:
     return {
         "decision_id": "decision",
@@ -226,8 +276,9 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
                     registration_id
                 ).source
                 _seed_one_case(source, context.dependencies)
+                _add_second_case_order_fixture(source, context.dependencies)
                 base = f"/api/v1/projects/{registration_id}"
-                run_request = _run_request()
+                run_request = {**_run_request(), "fixture_set_id": "fixture-set-two-cases"}
                 preview = await client.post(
                     f"{base}/runs/preview",
                     headers=headers,
@@ -251,7 +302,7 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
 
                 choice_request = {
                     "run": {**run_request, "settings": {"max_attempts": 3, "concurrency": 1}},
-                    "orders": 4,
+                    "orders": 2,
                     "seed": "0",
                 }
                 group_preview = await client.post(
@@ -259,21 +310,20 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
                     headers=headers,
                     json={"schema_version": 1, "request": choice_request},
                 )
-                if group_preview.status_code == 200:
-                    group_start = await client.post(
-                        f"{base}/diagnostics/choice-order",
-                        headers=headers,
-                        json={
-                            "schema_version": 1,
-                            "operation_id": "cap-three-group",
-                            "expected_review_context_hash": group_preview.json()["data"][
-                                "review_context_hash"
-                            ],
-                            "request": choice_request,
-                        },
-                    )
-                else:
-                    group_start = group_preview
+                assert group_preview.status_code == 200, group_preview.text
+                assert group_preview.json()["data"]["initial_requests"] == "4"
+                group_start = await client.post(
+                    f"{base}/diagnostics/choice-order",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "operation_id": "cap-three-group",
+                        "expected_review_context_hash": group_preview.json()["data"][
+                            "review_context_hash"
+                        ],
+                        "request": choice_request,
+                    },
+                )
                 assert group_start.status_code == 422
                 assert group_start.json()["error"]["reason"] == (
                     "group_initial_requests_exceed_cap"
