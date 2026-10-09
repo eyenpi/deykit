@@ -212,4 +212,30 @@ def test_decision_editor_projection_and_transform_are_protected_and_exact(tmp_pa
                 )
                 assert data["incompatible_references"] == []
 
+                decision_path = f"/api/v1/projects/{registration_id}/decisions/decision"
+                current = await client.get(decision_path, headers=headers)
+                assert current.status_code == 200, current.text
+                draft = current.json()["data"]["draft"]
+                remove_last_option = await client.post(
+                    f"{decision_path}/editor-transform",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "editor_source": draft["record"]["editor_source"],
+                        "expected_draft_etag": draft["etag"],
+                        "edit": {"kind": "remove_option", "id": "no"},
+                    },
+                )
+                assert remove_last_option.status_code == 200, remove_last_option.text
+                reviewed = remove_last_option.json()["data"]
+                assert reviewed["transform"]["projection"]["validation_advice"]
+                assert len(reviewed["transform"]["projection"]["form"]["options"]) == 1
+                assert reviewed["incompatible_references"] is None
+
+                unchanged = await client.get(decision_path, headers=headers)
+                assert unchanged.status_code == 200, unchanged.text
+                after_draft = unchanged.json()["data"]["draft"]
+                assert after_draft["record"]["editor_source"] == draft["record"]["editor_source"]
+                assert after_draft["etag"] == draft["etag"]
+
     asyncio.run(exercise())

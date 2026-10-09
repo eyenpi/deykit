@@ -667,7 +667,7 @@ class DecisionService:
             if view.draft.etag != expected_draft_etag:
                 raise _failure("conflict", decision_id, "draft_changed")
             transformed = transform_editor(editor_source, edit)
-            if transformed.projection.form is None:
+            if transformed.projection.form is None or transformed.projection.validation_advice:
                 references = None
             else:
                 definition = self._definition(transformed.editor_source, decision_id)

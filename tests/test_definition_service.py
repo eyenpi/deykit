@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from deykit.application.authoring_views import RemoveOption
 from deykit.application.definitions import DecisionService
 from deykit.application.errors import ServiceFailure
 from deykit.contracts.codec import dump_record
@@ -267,6 +268,69 @@ def test_option_rename_and_deletion_keep_references_visible(authoring):
         for item in diff.incompatible_references
     ] == [("label", "label", "d", "data", "case", "q", ("one",))]
     assert label.acceptable_option_ids == ("one",)
+
+
+def test_invalid_last_option_transform_returns_advice_without_computable_impact(authoring):
+    service, store = authoring
+    source = definition_source(options=("one", "two"))
+    created = service.create("d", "D", source, operation_id="create")
+    operations_before = set(store.operations)
+
+    reviewed = service.review_draft_transform(
+        "d",
+        source,
+        RemoveOption(kind="remove_option", id="one"),
+        expected_draft_etag=created.draft.etag,
+    )
+
+    projection = reviewed.transform.projection
+    assert projection.form is not None
+    assert len(projection.form.options) == 1
+    assert projection.editor_source == reviewed.transform.editor_source
+    assert projection.validation_advice
+    assert reviewed.incompatible_references is None
+    assert set(store.operations) == operations_before
+    assert service.read("d").draft.record.editor_source == source
+
+
+def test_valid_three_option_transform_reports_references_for_removed_choice(authoring):
+    service, store = authoring
+    source = definition_source(options=("one", "two", "three"))
+    created = service.create("d", "D", source, operation_id="create")
+    label = LabelRecord(
+        id="label",
+        decision_id="d",
+        dataset_id="data",
+        case_id="case",
+        question_id="q",
+        input_hash="a" * 64,
+        acceptable_option_ids=("one",),
+        provenance="human",
+        updated_at="2026-10-05T12:00:00Z",
+    )
+    dataset_key = ResourceKey("datasets", "data")
+    label_key = ResourceKey("labels", "label", ("d", "data"))
+    store.records[dataset_key] = StoredRecord(dataset_key, b"{}", bytes_hash(b"{}"))
+    store.records[label_key] = StoredRecord(
+        label_key, dump_record(label), bytes_hash(dump_record(label))
+    )
+    operations_before = set(store.operations)
+
+    reviewed = service.review_draft_transform(
+        "d",
+        source,
+        RemoveOption(kind="remove_option", id="one"),
+        expected_draft_etag=created.draft.etag,
+    )
+
+    assert reviewed.transform.projection.validation_advice == ()
+    assert reviewed.incompatible_references is not None
+    assert [
+        (item.resource_id, item.case_id, item.missing_option_ids)
+        for item in reviewed.incompatible_references
+    ] == [("label", "case", ("one",))]
+    assert set(store.operations) == operations_before
+    assert service.read("d").draft.record.editor_source == source
 
 
 def test_metadata_hash_and_archival_history_are_independent(authoring):
