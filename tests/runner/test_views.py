@@ -55,6 +55,23 @@ def test_progress_view_maps_live_provenance_and_avoids_inconsistent_compiler_cho
         progress.sources.compiler_id_unavailable_reason == "inconsistent_prepared_compiler_identity"
     )
 
+    version_mismatch = replace(
+        history,
+        prepared=(
+            first,
+            second.model_copy(
+                update={
+                    "request": second.request.model_copy(update={"compiler_version": "2"})
+                }
+            ),
+        ),
+    )
+    version_progress = progress_view(version_mismatch)
+
+    assert version_progress.sources.compiler_id is None
+    assert version_progress.sources.compiler_version == history.manifest.compiler_version
+    assert version_progress.sources.compiler_id_unavailable_reason == "prepared_compiler_mismatch"
+
 
 def test_legacy_run_source_references_constructor_keeps_defaults():
     value = RunSourceReferences(

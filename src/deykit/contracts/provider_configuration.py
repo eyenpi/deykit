@@ -150,6 +150,7 @@ class ProfileWriter(Protocol):
         *,
         expected_etag: str,
         operation_id: str,
+        before_commit: Callable[[], None] | None = None,
     ) -> CommitReceipt: ...
 
     def from_receipt(self, receipt: CommitReceipt) -> ProfileView: ...
