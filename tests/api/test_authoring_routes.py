@@ -12,14 +12,14 @@ from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.dto.authoring import EditorTransformRequest, MappingTransformRequest
-from deykit.application.authoring_views import (
-    ReplaceMappingFields,
-    ReplaceOptionAliases,
-    ReorderOptions,
-    SetSelectedFields,
-)
 from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
+from deykit.application.authoring_views import (
+    ReorderOptions,
+    ReplaceMappingFields,
+    ReplaceOptionAliases,
+    SetSelectedFields,
+)
 from deykit.contracts.json_value import dump_json
 from deykit.providers.configuration import create_provider_operations
 from deykit.runner.backends import ProviderBackends
