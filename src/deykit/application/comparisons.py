@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import cast
 
-from deykit.application.dataset_support import fail, identifier
+from deykit.application.dataset_support import fail, identifier, page
 from deykit.application.evaluations import (
     EvaluationView,
     FrozenEvaluation,
