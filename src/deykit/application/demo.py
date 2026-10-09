@@ -33,10 +33,10 @@ from deykit.contracts.ports import Clock, CommitReceipt, SourceChange, StoredRec
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
+    DatasetRecord,
     DecisionDraft,
     DecisionRecord,
     DecisionRevision,
-    DatasetRecord,
     FixtureBinding,
     FixtureSet,
     LabelChange,

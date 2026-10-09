@@ -113,12 +113,12 @@ def test_shutdown_waits_for_admitted_request_before_closing_retained_source(tmp_
             assert response.status_code == 200
             assert await shutdown_task is False
             assert source.files.closed
-            assert (
-                await client.get(
-                    f"/api/v1/projects/{registration_id}",
-                    headers={"x-deykit-capability": capability},
-                )
-            ).status_code == 503
+            revoked_response = await client.get(
+                f"/api/v1/projects/{registration_id}",
+                headers={"x-deykit-capability": capability},
+            )
+            assert revoked_response.status_code == 403
+            assert revoked_response.json()["error"]["code"] == "local_access_denied"
         finally:
             release.set()
             if request_task is not None and not request_task.done():

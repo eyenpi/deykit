@@ -8,7 +8,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import cast
 
 from deykit.application.demo import DemoInfo, DemoService
 from deykit.application.errors import ServiceFailure
@@ -62,7 +61,9 @@ def _path(value: str) -> Path:
         path = Path(value)
         encoded = value.encode("utf-8", errors="strict")
     except (UnicodeError, ValueError):
-        raise ServiceFailure(ServiceError(code="validation_error", reason="invalid_project_path")) from None
+        raise ServiceFailure(
+            ServiceError(code="validation_error", reason="invalid_project_path")
+        ) from None
     if not path.is_absolute() or len(encoded) > 4096:
         raise ServiceFailure(ServiceError(code="validation_error", reason="invalid_project_path"))
     return path
@@ -196,7 +197,7 @@ class ProjectRegistry:
             opened: ApiProjectSource | None = None
             try:
                 opened_source, demo = service._create_opened(path, operation_id=operation_id)
-                opened = cast(ApiProjectSource, opened_source)
+                opened = opened_source
                 info = ProjectService(
                     self._dependencies.source_factory,
                     self._dependencies.clock,

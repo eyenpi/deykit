@@ -1,5 +1,4 @@
 from pathlib import Path
-from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
