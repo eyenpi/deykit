@@ -1,0 +1,785 @@
+{
+  "BootstrapReply": {
+    "$id": "urn:deykit:transport:BootstrapReply",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "api_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Api Version",
+        "type": "integer"
+      },
+      "capability": {
+        "pattern": "^[A-Za-z0-9_-]{43}$",
+        "title": "Capability",
+        "type": "string"
+      },
+      "origin": {
+        "title": "Origin",
+        "type": "string"
+      }
+    },
+    "required": [
+      "capability",
+      "origin"
+    ],
+    "title": "BootstrapReply",
+    "type": "object"
+  },
+  "BootstrapRequest": {
+    "$id": "urn:deykit:transport:BootstrapRequest",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "schema_version"
+    ],
+    "title": "BootstrapRequest",
+    "type": "object"
+  },
+  "DemoCreateDTO": {
+    "$id": "urn:deykit:transport:DemoCreateDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "demo": {
+        "$ref": "urn:deykit:transport:DemoSummaryDTO#"
+      },
+      "registration": {
+        "$ref": "urn:deykit:transport:RegistrationDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "demo",
+      "registration",
+      "schema_version"
+    ],
+    "title": "DemoCreateDTO",
+    "type": "object"
+  },
+  "DemoCreateRequest": {
+    "$id": "urn:deykit:transport:DemoCreateRequest",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "operation_id": {
+        "title": "Operation Id",
+        "type": "string"
+      },
+      "path": {
+        "minLength": 1,
+        "title": "Path",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "operation_id",
+      "path",
+      "schema_version"
+    ],
+    "title": "DemoCreateRequest",
+    "type": "object"
+  },
+  "DemoSummaryDTO": {
+    "$id": "urn:deykit:transport:DemoSummaryDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "binding_count": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Binding Count",
+        "type": "string"
+      },
+      "case_count": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Case Count",
+        "type": "string"
+      },
+      "dataset_id": {
+        "title": "Dataset Id",
+        "type": "string"
+      },
+      "decision_id": {
+        "title": "Decision Id",
+        "type": "string"
+      },
+      "evidence_mode": {
+        "const": "authored_fixture",
+        "title": "Evidence Mode",
+        "type": "string"
+      },
+      "fixture_set_id": {
+        "title": "Fixture Set Id",
+        "type": "string"
+      },
+      "label_count": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Label Count",
+        "type": "string"
+      },
+      "operation_id": {
+        "title": "Operation Id",
+        "type": "string"
+      },
+      "profile_id": {
+        "title": "Profile Id",
+        "type": "string"
+      },
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "replayed": {
+        "title": "Replayed",
+        "type": "boolean"
+      },
+      "revision_id": {
+        "title": "Revision Id",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "binding_count",
+      "case_count",
+      "dataset_id",
+      "decision_id",
+      "evidence_mode",
+      "fixture_set_id",
+      "label_count",
+      "operation_id",
+      "profile_id",
+      "project_id",
+      "replayed",
+      "revision_id",
+      "schema_version"
+    ],
+    "title": "DemoSummaryDTO",
+    "type": "object"
+  },
+  "ErrorDTO": {
+    "$id": "urn:deykit:transport:ErrorDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "code": {
+        "title": "Code",
+        "type": "string"
+      },
+      "correlation_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Correlation Id"
+      },
+      "message": {
+        "title": "Message",
+        "type": "string"
+      },
+      "reason": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Reason"
+      },
+      "resource_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resource Id"
+      },
+      "row": {
+        "anyOf": [
+          {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Row"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "code",
+      "message",
+      "schema_version"
+    ],
+    "title": "ErrorDTO",
+    "type": "object"
+  },
+  "Failure": {
+    "$id": "urn:deykit:transport:Failure",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "error": {
+        "$ref": "urn:deykit:transport:ErrorDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "error",
+      "schema_version"
+    ],
+    "title": "Failure",
+    "type": "object"
+  },
+  "ProjectOverviewDTO": {
+    "$id": "urn:deykit:transport:ProjectOverviewDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "datasets": {
+        "items": {
+          "$ref": "urn:deykit:transport:ResourceSummaryDTO#"
+        },
+        "title": "Datasets",
+        "type": "array"
+      },
+      "decisions": {
+        "items": {
+          "$ref": "urn:deykit:transport:ResourceSummaryDTO#"
+        },
+        "title": "Decisions",
+        "type": "array"
+      },
+      "registration": {
+        "$ref": "urn:deykit:transport:RegistrationDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "datasets",
+      "decisions",
+      "registration",
+      "schema_version"
+    ],
+    "title": "ProjectOverviewDTO",
+    "type": "object"
+  },
+  "ProjectRecordDTO": {
+    "$id": "urn:deykit:transport:ProjectRecordDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "default_provider_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Default Provider Id"
+      },
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "name": {
+        "minLength": 1,
+        "title": "Name",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "created_at",
+      "id",
+      "name",
+      "schema_version"
+    ],
+    "title": "ProjectRecordDTO",
+    "type": "object"
+  },
+  "RebuildIndexDTO": {
+    "$id": "urn:deykit:transport:RebuildIndexDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "record_count": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Record Count",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "record_count",
+      "schema_version"
+    ],
+    "title": "RebuildIndexDTO",
+    "type": "object"
+  },
+  "RecentProjectDTO": {
+    "$id": "urn:deykit:transport:RecentProjectDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "last_opened_at": {
+        "title": "Last Opened At",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "path": {
+        "title": "Path",
+        "type": "string"
+      },
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id",
+      "last_opened_at",
+      "name",
+      "path",
+      "project_id",
+      "schema_version"
+    ],
+    "title": "RecentProjectDTO",
+    "type": "object"
+  },
+  "RecentProjectsDTO": {
+    "$id": "urn:deykit:transport:RecentProjectsDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "items": {
+          "$ref": "urn:deykit:transport:RecentProjectDTO#"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "items",
+      "schema_version"
+    ],
+    "title": "RecentProjectsDTO",
+    "type": "object"
+  },
+  "RegisterProjectRequest": {
+    "$id": "urn:deykit:transport:RegisterProjectRequest",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "action": {
+        "enum": [
+          "open",
+          "create"
+        ],
+        "title": "Action",
+        "type": "string"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Name"
+      },
+      "operation_id": {
+        "title": "Operation Id",
+        "type": "string"
+      },
+      "path": {
+        "minLength": 1,
+        "title": "Path",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "action",
+      "operation_id",
+      "path",
+      "schema_version"
+    ],
+    "title": "RegisterProjectRequest",
+    "type": "object"
+  },
+  "RegistrationDTO": {
+    "$id": "urn:deykit:transport:RegistrationDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "demo": {
+        "title": "Demo",
+        "type": "null"
+      },
+      "execution_active": {
+        "title": "Execution Active",
+        "type": "boolean"
+      },
+      "path": {
+        "title": "Path",
+        "type": "string"
+      },
+      "project": {
+        "$ref": "urn:deykit:transport:ProjectRecordDTO#"
+      },
+      "project_etag": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Project Etag",
+        "type": "string"
+      },
+      "record_count": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Record Count",
+        "type": "string"
+      },
+      "registration_id": {
+        "title": "Registration Id",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "execution_active",
+      "path",
+      "project",
+      "project_etag",
+      "record_count",
+      "registration_id",
+      "schema_version"
+    ],
+    "title": "RegistrationDTO",
+    "type": "object"
+  },
+  "ResourceSummaryDTO": {
+    "$id": "urn:deykit:transport:ResourceSummaryDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "schema_version"
+    ],
+    "title": "ResourceSummaryDTO",
+    "type": "object"
+  },
+  "Success_BootstrapReply_": {
+    "$id": "urn:deykit:transport:Success_BootstrapReply_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:BootstrapReply#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[BootstrapReply]",
+    "type": "object"
+  },
+  "Success_DemoCreateDTO_": {
+    "$id": "urn:deykit:transport:Success_DemoCreateDTO_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:DemoCreateDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[DemoCreateDTO]",
+    "type": "object"
+  },
+  "Success_ProjectOverviewDTO_": {
+    "$id": "urn:deykit:transport:Success_ProjectOverviewDTO_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:ProjectOverviewDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[ProjectOverviewDTO]",
+    "type": "object"
+  },
+  "Success_RebuildIndexDTO_": {
+    "$id": "urn:deykit:transport:Success_RebuildIndexDTO_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:RebuildIndexDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[RebuildIndexDTO]",
+    "type": "object"
+  },
+  "Success_RecentProjectsDTO_": {
+    "$id": "urn:deykit:transport:Success_RecentProjectsDTO_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:RecentProjectsDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[RecentProjectsDTO]",
+    "type": "object"
+  },
+  "Success_RegistrationDTO_": {
+    "$id": "urn:deykit:transport:Success_RegistrationDTO_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:RegistrationDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[RegistrationDTO]",
+    "type": "object"
+  },
+  "VersionRequest": {
+    "$id": "urn:deykit:transport:VersionRequest",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "schema_version": {
+        "const": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "schema_version"
+    ],
+    "title": "VersionRequest",
+    "type": "object"
+  }
+}

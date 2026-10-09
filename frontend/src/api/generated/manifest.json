@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "inputs": {
+    "openapi": "cc1ae4470e23617b1aaea528656377470cd8d83cbdc513c367fe729139459ee2",
+    "schemas": "b7b6c3d371cf2da588862adfdcabb3d95d668a14578eb1a81b6d3543c71452ed"
+  },
+  "outputs": {
+    "openapi.d.ts": "5fd261e81cbfdb71237639a77cb437574d154b50ca7daef4060bf70f92e353d3",
+    "validators.cjs": "050d2ae7207776e875f996f384774cedd44c7a788f21fd2093c29b3e56466c9b",
+    "validators.d.cts": "dfe6a916e9249524f3759e1dae8934186b0c340c4bda5a21c9c4dcfb317d5f70"
+  },
+  "generators": {
+    "typescript": "5.9.3",
+    "openapiTypescript": "7.13.0",
+    "ajv": "8.20.0",
+    "prettier": "3.9.9"
+  }
+}

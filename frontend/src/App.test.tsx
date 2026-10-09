@@ -141,9 +141,9 @@ it("renders structured safe warnings without flattening their fields", async () 
     reconnect: async () => {},
   };
   render(<App gateway={gateway} />);
-  expect(await screen.findByRole("status", { name: "Warnings" })).toHaveTextContent(
-    "preflight_failed",
-  );
+  expect(
+    (await screen.findByRole("status", { name: "Warnings" })).textContent,
+  ).toContain("preflight_failed");
   expect(screen.getByText("recent_projects_unavailable")).toBeTruthy();
 });
 
