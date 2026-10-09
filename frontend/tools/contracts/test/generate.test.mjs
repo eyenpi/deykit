@@ -79,7 +79,63 @@ test("schema ordering does not affect deterministic declarations, validators or 
     schemas: hash("new"),
   });
   assert.notEqual(forward.get("manifest.json"), changed.get("manifest.json"));
-  assert.equal(forward.size, 4);
+  assert.equal(forward.size, 5);
+});
+
+test("operation metadata is derived only from registered OpenAPI operations", async () => {
+  const sample = inputs();
+  sample.openapi.components.schemas.Source = structuredClone(localSchema);
+  sample.openapi.paths["/api/v1/projects/{registration_id}"] = {
+    get: {
+      operationId: "showProject",
+      parameters: [
+        {
+          name: "registration_id",
+          in: "path",
+          required: true,
+          schema: { type: "string" },
+        },
+        { name: "cursor", in: "query", schema: { type: "string" } },
+      ],
+      responses: {
+        "200": {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Source" },
+            },
+          },
+        },
+      },
+    },
+  };
+  sample.openapi.paths["/api/v1/session/bootstrap"] = {
+    post: {
+      operationId: "bootstrapSession",
+      "x-deykit-client-internal": true,
+      responses: {
+        "200": {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Source" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const artifacts = await generateArtifacts(
+    sample.openapi,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  const declarations = artifacts.get("operations.ts");
+  assert.match(declarations, /showProject/);
+  assert.doesNotMatch(declarations, /bootstrapSession/);
+  assert.match(declarations, /"method": "GET"/);
+  assert.match(declarations, /"pathParams": \[\s+"registration_id"/);
+  assert.match(declarations, /"queryParams": \[\s+"cursor"/);
+  assert.match(declarations, /"successValidator": "validateSource"/);
+  assert.match(artifacts.get("openapi.d.ts"), /bootstrapSession/);
 });
 
 test("standalone validator enforces explicit version, strict fields and Unicode code points", async () => {

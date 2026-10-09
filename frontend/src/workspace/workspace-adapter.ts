@@ -1,12 +1,11 @@
 import { ApiClient } from "../api/client";
-import type { ApiWarning } from "../api/client";
+import type { ApiOperationBody, ApiWarning } from "../api/client";
 import {
   decodeProjectOverview,
   decodeDemoRegistration,
   decodeRecentProjects,
   decodeRegistration,
 } from "../api/codecs";
-import type { RegisterProjectRequest } from "../api/transport-types";
 import type { WorkspaceGateway } from "./gateway";
 
 export function createWorkspaceGateway(
@@ -18,10 +17,10 @@ export function createWorkspaceGateway(
   >();
   return {
     async recentProjects(signal) {
-      const result = await client.request(
-        "/api/v1/projects/recent",
-        decodeRecentProjects,
+      const result = await client.operation(
+        "listRecentProjects",
         { signal },
+        decodeRecentProjects,
       );
       return { items: result.data, warnings: result.warnings };
     },
@@ -33,8 +32,9 @@ export function createWorkspaceGateway(
       });
       const previous = completedRegistrations.get(request.operationId);
       if (previous?.signature === signature) {
-        const overview = await client.request(
-          `/api/v1/projects/${previous.id}/overview`,
+        const overview = await client.operation(
+          "projectOverview",
+          { path: { registration_id: previous.id } },
           decodeProjectOverview,
         );
         completedRegistrations.delete(request.operationId);
@@ -45,39 +45,38 @@ export function createWorkspaceGateway(
       }
       const registration =
         request.action === "demo"
-          ? await client.request(
-              "/api/v1/projects/demo",
-              decodeDemoRegistration,
+          ? await client.operation(
+              "createAuthoredDemo",
               {
-                method: "POST",
                 body: {
                   schema_version: 1,
                   operation_id: request.operationId,
                   path: request.path,
                 },
               },
+              decodeDemoRegistration,
             )
-          : await client.request(
-              "/api/v1/projects/register",
-              decodeRegistration,
+          : await client.operation(
+              "registerProject",
               {
-                method: "POST",
                 body: {
                   schema_version: 1,
                   operation_id: request.operationId,
                   action: request.action,
                   path: request.path,
                   name: request.action === "create" ? request.name : null,
-                } satisfies RegisterProjectRequest,
+                } satisfies ApiOperationBody<"registerProject">,
               },
+              decodeRegistration,
             );
       completedRegistrations.set(request.operationId, {
         signature,
         id: registration.data,
         warnings: registration.warnings,
       });
-      const overview = await client.request(
-        `/api/v1/projects/${registration.data}/overview`,
+      const overview = await client.operation(
+        "projectOverview",
+        { path: { registration_id: registration.data } },
         decodeProjectOverview,
       );
       completedRegistrations.delete(request.operationId);

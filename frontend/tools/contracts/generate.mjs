@@ -38,6 +38,7 @@ const fixedSchemaError =
   "Contracts use an unsupported standalone schema feature.";
 const fileNames = Object.freeze([
   "openapi.d.ts",
+  "operations.ts",
   "validators.cjs",
   "validators.d.cts",
   "manifest.json",
@@ -287,6 +288,124 @@ function validatorAlias(name) {
   return `validate${name}`;
 }
 
+const httpMethods = new Set([
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "head",
+]);
+
+function componentSchemaName(schema) {
+  const reference = schema?.$ref;
+  const prefix = "#/components/schemas/";
+  if (typeof reference !== "string" || !reference.startsWith(prefix))
+    throw new Error("Every API operation must reference a generated JSON schema.");
+  const name = decodeURIComponent(reference.slice(prefix.length));
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name))
+    throw new Error("API operation schema references are invalid.");
+  return name;
+}
+
+function apiOperations(openapi) {
+  const found = [];
+  const paths = openapi.paths;
+  if (paths === null || typeof paths !== "object" || Array.isArray(paths))
+    throw new Error("OpenAPI paths are invalid.");
+  for (const [path, item] of Object.entries(paths).sort(([a], [b]) =>
+    compare(a, b),
+  )) {
+    if (item === null || typeof item !== "object" || Array.isArray(item))
+      throw new Error("OpenAPI path items are invalid.");
+    for (const [method, operation] of Object.entries(item).sort(([a], [b]) =>
+      compare(a, b),
+    )) {
+      if (!httpMethods.has(method)) continue;
+      if (operation === null || typeof operation !== "object")
+        throw new Error("OpenAPI operations are invalid.");
+      if (
+        typeof operation.operationId !== "string" ||
+        !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(operation.operationId)
+      ) {
+        throw new Error("Every API operation must have a stable operationId.");
+      }
+      const parameters = [
+        ...(Array.isArray(item.parameters) ? item.parameters : []),
+        ...(Array.isArray(operation.parameters) ? operation.parameters : []),
+      ];
+      const pathParams = [...path.matchAll(/\{([^}]+)\}/g)].map(
+        (match) => match[1],
+      );
+      const queryParams = parameters
+        .filter((parameter) => parameter?.in === "query")
+        .map((parameter) => parameter.name)
+        .filter((name) => typeof name === "string");
+      const bodySchema =
+        operation.requestBody?.content?.["application/json"]?.schema;
+      const success = Object.entries(operation.responses ?? {})
+        .filter(([status]) => /^2[0-9][0-9]$/.test(status))
+        .sort(([a], [b]) => Number(a) - Number(b))[0]?.[1];
+      const responseSchema =
+        success?.content?.["application/json"]?.schema;
+      if (!responseSchema)
+        throw new Error("Every API operation must declare a JSON success response.");
+      found.push({
+        id: operation.operationId,
+        internal: operation["x-deykit-client-internal"] === true,
+        method: method.toUpperCase(),
+        path,
+        pathParams,
+        queryParams: [...new Set(queryParams)].sort(compare),
+        bodyValidator: bodySchema
+          ? validatorAlias(componentSchemaName(bodySchema))
+          : null,
+        bodyRequired: Boolean(operation.requestBody?.required),
+        successValidator: validatorAlias(componentSchemaName(responseSchema)),
+      });
+    }
+  }
+  found.sort((a, b) => compare(a.id, b.id));
+  if (new Set(found.map((operation) => operation.id)).size !== found.length)
+    throw new Error("API operationIds must be unique.");
+  return found;
+}
+
+function operationDeclarations(openapi) {
+  const entries = apiOperations(openapi).filter((operation) => !operation.internal);
+  const object = Object.fromEntries(
+    entries.map((operation) => [
+      operation.id,
+      {
+        method: operation.method,
+        path: operation.path,
+        pathParams: operation.pathParams,
+        queryParams: operation.queryParams,
+        bodyValidator: operation.bodyValidator,
+        bodyRequired: operation.bodyRequired,
+        successValidator: operation.successValidator,
+      },
+    ]),
+  );
+  return [
+    "export type ApiOperationId = keyof typeof operationMetadata;",
+    "",
+    "export interface ApiOperationMetadata {",
+    '  readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";',
+    "  readonly path: string;",
+    "  readonly pathParams: readonly string[];",
+    "  readonly queryParams: readonly string[];",
+    "  readonly bodyValidator: string | null;",
+    "  readonly bodyRequired: boolean;",
+    "  readonly successValidator: string;",
+    "}",
+    "",
+    "export const operationMetadata = ",
+    `${JSON.stringify(object, null, 2)} as const satisfies Record<ApiOperationId, ApiOperationMetadata>;`,
+    "",
+  ].join("\n");
+}
+
 async function formatted(contents, parser) {
   return prettier.format(contents, { parser });
 }
@@ -355,6 +474,10 @@ export async function generateArtifacts(openapi, schemas, inputHashes) {
 
   const contents = new Map([
     ["openapi.d.ts", await formatted(types, "typescript")],
+    [
+      "operations.ts",
+      await formatted(operationDeclarations(openapi), "typescript"),
+    ],
     ["validators.cjs", await formatted(validatorSource, "babel")],
     ["validators.d.cts", await formatted(declarationSource, "typescript")],
   ]);

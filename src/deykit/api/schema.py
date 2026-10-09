@@ -72,6 +72,10 @@ def contract_documents() -> dict[str, bytes]:
     config = LocalServerConfig("127.0.0.1:8765", "http://127.0.0.1:8765", AssetCatalog({}))
     app = create_inner_app(config, SessionCapability.create(), _schema_dependencies())
     openapi = app.openapi()
+    for path_item in openapi["paths"].values():
+        for operation in path_item.values():
+            if operation.get("operationId") == "bootstrapSession":
+                operation["x-deykit-client-internal"] = True
     failure = Failure.model_json_schema(ref_template="#/components/schemas/{model}")
     definitions = failure.pop("$defs", {})
     openapi["components"]["schemas"].update(definitions)
