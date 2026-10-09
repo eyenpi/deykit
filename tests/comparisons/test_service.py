@@ -28,6 +28,7 @@ from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 
 @pytest.fixture(scope="module")
@@ -38,6 +39,7 @@ def seed(tmp_path_factory):
         lambda path, create: FileProjectSource(path, create=create),
         clock,
         staging_factory=DemoStagingSource,
+        destination_factory=FileDemoDestinationFactory(),
     ).create(
         root, operation_id="demo"
     )

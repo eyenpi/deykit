@@ -184,6 +184,7 @@ class ProjectRegistry:
             self._dependencies.clock,
             self._dependencies.id_factory,
             staging_factory=staging_factory,
+            destination_factory=self._dependencies.demo_destination_factory,
         )
         if existing is not None:
             demo = service.create_in(existing.source, path, operation_id=operation_id)
@@ -196,7 +197,7 @@ class ProjectRegistry:
         else:
             opened: ApiProjectSource | None = None
             try:
-                opened_source, demo = service._create_opened(path, operation_id=operation_id)
+                opened_source, demo = service.create_opened(path, operation_id=operation_id)
                 opened = opened_source
                 info = ProjectService(
                     self._dependencies.source_factory,

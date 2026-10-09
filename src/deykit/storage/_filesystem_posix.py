@@ -57,6 +57,120 @@ class PosixFiles:
         self.root = root.resolve()
         self.closed = False
 
+    @classmethod
+    def open_existing(cls, root: Path) -> PosixFiles | None:
+        if os.name != "posix":
+            fail("unsupported_storage_platform", "preflight_failed")
+        display = root.absolute()
+        leaf = display.name
+        check_component(leaf)
+        try:
+            parent_fd = os.open(display.parent, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        except OSError:
+            fail("unsafe_project_path", "conflict")
+        try:
+            parent_identity = os.fstat(parent_fd)
+            cls._check_spelling(parent_fd, leaf)
+            try:
+                before = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return None
+            if not stat.S_ISDIR(before.st_mode):
+                fail("unsafe_project_path", "conflict")
+            try:
+                child_fd = os.open(leaf, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=parent_fd)
+            except OSError:
+                fail("unsafe_project_path", "conflict")
+            try:
+                opened = os.fstat(child_fd)
+                after = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+                if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino) or (
+                    after.st_dev, after.st_ino
+                ) != (opened.st_dev, opened.st_ino):
+                    fail("unsafe_project_path", "conflict")
+                cls._check_spelling(parent_fd, leaf)
+                cls._verify_parent(display.parent, parent_fd, parent_identity)
+                instance = cls.__new__(cls)
+                instance.fd = child_fd
+                instance.root = display
+                instance.closed = False
+                child_fd = -1
+                return instance
+            finally:
+                if child_fd >= 0:
+                    os.close(child_fd)
+        finally:
+            os.close(parent_fd)
+
+    @classmethod
+    def create_exclusive(
+        cls,
+        root: Path,
+        *,
+        acquisition_hook: Callable[[str], None] | None = None,
+    ) -> PosixFiles:
+        if os.name != "posix":
+            fail("unsupported_storage_platform", "preflight_failed")
+        display = root.absolute()
+        leaf = display.name
+        check_component(leaf)
+        try:
+            parent_fd = os.open(display.parent, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        except OSError:
+            fail("unsafe_project_path", "conflict")
+        child_fd = -1
+        try:
+            parent_identity = os.fstat(parent_fd)
+            cls._check_spelling(parent_fd, leaf)
+            try:
+                os.mkdir(leaf, mode=0o700, dir_fd=parent_fd)
+            except FileExistsError:
+                fail("demo_path_exists", "conflict")
+            os.fsync(parent_fd)
+            if acquisition_hook is not None:
+                acquisition_hook("after_mkdir")
+            before = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISDIR(before.st_mode):
+                fail("demo_path_exists", "conflict")
+            child_fd = os.open(leaf, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW, dir_fd=parent_fd)
+            opened = os.fstat(child_fd)
+            if acquisition_hook is not None:
+                acquisition_hook("after_open")
+            if os.listdir(child_fd):
+                fail("demo_path_exists", "conflict")
+            after = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino) or (
+                after.st_dev, after.st_ino
+            ) != (opened.st_dev, opened.st_ino):
+                fail("demo_path_exists", "conflict")
+            cls._check_spelling(parent_fd, leaf)
+            cls._verify_parent(display.parent, parent_fd, parent_identity)
+            instance = cls.__new__(cls)
+            instance.fd = child_fd
+            instance.root = display
+            instance.closed = False
+            child_fd = -1
+            return instance
+        except OSError:
+            fail("demo_path_unavailable", "internal_error")
+        finally:
+            if child_fd >= 0:
+                os.close(child_fd)
+            os.close(parent_fd)
+
+    @staticmethod
+    def _verify_parent(path: Path, descriptor: int, identity: os.stat_result) -> None:
+        opened = os.fstat(descriptor)
+        try:
+            named = os.stat(path, follow_symlinks=False)
+        except OSError:
+            fail("demo_path_exists", "conflict")
+        if not stat.S_ISDIR(named.st_mode) or (opened.st_dev, opened.st_ino) != (
+            identity.st_dev,
+            identity.st_ino,
+        ) or (named.st_dev, named.st_ino) != (identity.st_dev, identity.st_ino):
+            fail("demo_path_exists", "conflict")
+
     def close(self) -> None:
         if not self.closed:
             self.closed = True

@@ -15,6 +15,7 @@ from deykit.runner.history import read_history
 from deykit.runner.planner import RunRequest
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 
 def test_authored_sandbox_actual_factory_full_development_snapshot(tmp_path):
@@ -23,6 +24,7 @@ def test_authored_sandbox_actual_factory_full_development_snapshot(tmp_path):
         lambda path, create: FileProjectSource(path, create=create),
         clock,
         staging_factory=DemoStagingSource,
+        destination_factory=FileDemoDestinationFactory(),
     ).create(
         tmp_path / "Sandbox ü", operation_id="demo"
     )

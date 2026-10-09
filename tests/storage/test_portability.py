@@ -246,6 +246,69 @@ def test_native_module_import_is_portable():
 
 
 @WINDOWS
+def test_demo_exclusive_root_uses_relative_create_and_adopts_returned_handle(
+    tmp_path, monkeypatch
+):
+    from deykit.storage import _win32 as win
+    from deykit.storage._filesystem_windows import WindowsFiles
+
+    requested = tmp_path / "new-demo"
+    roots = []
+    opened = []
+    close_calls = []
+    original_root = win.Native.root
+    original_open = win.Native.open
+    original_close = win.Native.close
+
+    def root(api, path, *, access=win.DIRECTORY_ACCESS):
+        roots.append((path, access))
+        return original_root(api, path, access=access)
+
+    def open_relative(api, parent, name, **kwargs):
+        handle = original_open(api, parent, name, **kwargs)
+        opened.append((parent, name, kwargs, handle))
+        return handle
+
+    def close(api, value):
+        close_calls.append(value)
+        return original_close(api, value)
+
+    monkeypatch.setattr(win.Native, "root", root)
+    monkeypatch.setattr(win.Native, "open", open_relative)
+    monkeypatch.setattr(win.Native, "close", close)
+    backend = WindowsFiles.create_exclusive(requested)
+    try:
+        assert roots == [(requested.parent, win.DIRECTORY_ACCESS | 0x0004)]
+        assert len(opened) == 1
+        parent, leaf, options, created_handle = opened[0]
+        assert parent is backend.parent_guard
+        assert leaf == requested.name
+        assert options["disposition"] == win.CREATE
+        assert options["directory"] is True
+        assert options["share"] == win.SHARE_RW
+        assert backend.handle is created_handle
+    finally:
+        backend.close()
+    assert len(close_calls) == 2
+
+    failed_path = tmp_path / "failed-demo"
+
+    def stop_after_create(phase):
+        raise RuntimeError(phase)
+
+    with pytest.raises(RuntimeError):
+        WindowsFiles.create_exclusive(failed_path, acquisition_hook=stop_after_create)
+    assert len(close_calls) == 4
+    assert failed_path.is_dir()
+    assert list(failed_path.iterdir()) == []
+
+    with pytest.raises(ServiceFailure):
+        WindowsFiles.create_exclusive(requested)
+    assert len(close_calls) == 5
+    assert list(requested.iterdir()) == []
+
+
+@WINDOWS
 @pytest.mark.parametrize("location", ["source", "history", ".deykit", ".deykit/locks"])
 def test_junction_rejection_preserves_outside_sentinel(tmp_path, location):
     root, outside = tmp_path / "project", tmp_path / "outside"

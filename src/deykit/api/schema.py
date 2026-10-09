@@ -19,6 +19,14 @@ from .runtime import SystemClock, new_id
 from .session import SessionCapability
 
 
+class _SchemaDemoDestinationFactory:
+    def open_existing(self, path: Path, *, operation_id: str, intent_hash: str) -> None:
+        raise AssertionError("schema export must not inspect a demo destination")
+
+    def create_exclusive(self, path: Path) -> ProjectBackend:
+        raise AssertionError("schema export must not create a demo destination")
+
+
 def _required_versions(value: Any) -> None:
     if isinstance(value, dict):
         properties = value.get("properties", {})
@@ -51,6 +59,7 @@ def _schema_dependencies() -> ApiDependencies:
         source_factory=no_source,
         recent_store=_SchemaRecentProjects(),
         demo_staging_factory=lambda: cast(ProjectBackend, None),
+        demo_destination_factory=_SchemaDemoDestinationFactory(),
     )
 
 

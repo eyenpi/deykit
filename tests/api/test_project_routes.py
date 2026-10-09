@@ -13,6 +13,7 @@ from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 
 def test_register_overview_demo_replay_and_recent_projects(tmp_path):
@@ -26,6 +27,7 @@ def test_register_overview_demo_replay_and_recent_projects(tmp_path):
         source_factory=lambda path, create: FileProjectSource(path, create=create),
         recent_store=RecentProjectsStore(clock, tmp_path / "recent.json"),
         demo_staging_factory=DemoStagingSource,
+        demo_destination_factory=FileDemoDestinationFactory(),
     )
     app = create_app(
         LocalServerConfig(

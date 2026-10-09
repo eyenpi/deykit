@@ -17,6 +17,7 @@ from deykit.api.recent import RecentProject
 from deykit.api.runtime import SystemClock, new_id
 from deykit.contracts.ports import Clock
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 # Captured at collection, before the root autouse fixture installs its network denial.
 # This is never a blanket restore: admission below compares exact family and address.
@@ -45,6 +46,7 @@ def api_dependencies() -> ApiDependencies:
         source_factory=forbidden_source,
         recent_store=EmptyRecentProjects(),
         demo_staging_factory=DemoStagingSource,
+        demo_destination_factory=FileDemoDestinationFactory(),
     )
 
 

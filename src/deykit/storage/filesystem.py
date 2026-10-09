@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import Protocol
@@ -49,6 +49,48 @@ class SafeFiles:
         self.root = self._backend.root
         self.closed = False
         self._mutex = threading.RLock()
+
+    @classmethod
+    def _adopt(cls, backend: _Files) -> SafeFiles:
+        files = cls.__new__(cls)
+        files._backend = backend
+        files.root = backend.root
+        files.closed = False
+        files._mutex = threading.RLock()
+        return files
+
+    @classmethod
+    def open_existing(cls, root: Path) -> SafeFiles | None:
+        if os.name == "nt":
+            from deykit.storage._filesystem_windows import WindowsFiles
+
+            backend = WindowsFiles.open_existing(root)
+        elif os.name == "posix":
+            from deykit.storage._filesystem_posix import PosixFiles
+
+            backend = PosixFiles.open_existing(root)
+        else:
+            fail("unsupported_storage_platform", "preflight_failed")
+        return None if backend is None else cls._adopt(backend)
+
+    @classmethod
+    def create_exclusive(
+        cls,
+        root: Path,
+        *,
+        acquisition_hook: Callable[[str], None] | None = None,
+    ) -> SafeFiles:
+        if os.name == "nt":
+            from deykit.storage._filesystem_windows import WindowsFiles
+
+            backend = WindowsFiles.create_exclusive(root, acquisition_hook=acquisition_hook)
+        elif os.name == "posix":
+            from deykit.storage._filesystem_posix import PosixFiles
+
+            backend = PosixFiles.create_exclusive(root, acquisition_hook=acquisition_hook)
+        else:
+            fail("unsupported_storage_platform", "preflight_failed")
+        return cls._adopt(backend)
 
     def close(self) -> None:
         with self._mutex:

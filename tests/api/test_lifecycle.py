@@ -14,6 +14,7 @@ from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 
 def test_shutdown_waits_for_admitted_request_before_closing_retained_source(tmp_path):
@@ -47,6 +48,7 @@ def test_shutdown_waits_for_admitted_request_before_closing_retained_source(tmp_
             source_factory=source_factory,
             recent_store=RecentProjectsStore(clock, tmp_path / "recent.json"),
             demo_staging_factory=DemoStagingSource,
+        demo_destination_factory=FileDemoDestinationFactory(),
         ),
     )
 

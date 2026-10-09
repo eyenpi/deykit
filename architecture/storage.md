@@ -206,6 +206,35 @@ trusted project selection is not a security sandbox against arbitrary hostile
 same-user mutation. Full P18 packaging, bundled browser assets, physical keyboard/UI
 acceptance, and authorized provider evidence remain separate integration gates.
 
+## Demo destination admission (M07)
+
+Path-based demo creation uses the application `DemoDestinationFactory` port. The file
+adapter first opens an existing final directory without creating `.deykit`, locking,
+recovering, indexing, or changing its contents. It admits the directory only when the
+requested operation has a complete durable create-only receipt with the matching
+demo intent. A decided journal may be inspected this way; ordinary source recovery
+runs only after application receipt admission. A prepared-only journal, empty folder,
+ordinary project, malformed receipt, or unrelated user folder is refused without
+adoption or cleanup. Matching replay returns the original recorded identities and
+counts even when current mutable records have since changed.
+
+For a new path, the application validates and stages the complete authored corpus
+before `SafeFiles.create_exclusive` acquires the final component. POSIX uses
+`mkdirat`, flushes the parent, compares no-follow stat identity with the opened child,
+and transfers that child descriptor directly into `FileProjectSource`. Windows uses
+relative native `CREATE`, keeps the parent guard, and transfers the returned directory
+handle without reopening the display path. Both paths preserve a competing directory
+and any contents when exclusive creation loses. The retained source is the same native
+root used for receipt admission and subsequent recovery.
+
+POSIX `mkdirat` does not return a directory descriptor. The checks reject observed
+substitution before project writes and all later access remains anchored to the opened
+child, but they do not promise atomic isolation from an arbitrary hostile same-user
+process racing an empty directory. This retains the trusted user-selection boundary
+above. Windows-specific code and authored call checks are not evidence of execution on
+Windows; native Windows validation remains a separate gate. Neither path adds a
+power-loss durability claim.
+
 `portability.yml` runs the full offline suite on `ubuntu-24.04`, `macos-15` and
 `windows-2025`, Python 3.11/3.13. It records OS/build, Python patch, architecture,
 filesystem, SQLite, commit and lockfile identity, and archives JUnit skip/results.

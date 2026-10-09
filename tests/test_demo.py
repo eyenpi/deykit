@@ -29,6 +29,7 @@ from deykit.domain.definitions import select_input
 from deykit.providers.choice import compile_choice
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 STAMP = "2026-10-05T12:00:00Z"
 EXPECTED_LABELS = {
@@ -79,7 +80,8 @@ def demo(tmp_path):
     sequence = ids()
     root = tmp_path / "Sandbox ü"
     info = DemoService(
-        source_factory, Clock(), lambda: next(sequence), staging_factory=DemoStagingSource
+        source_factory, Clock(), lambda: next(sequence), staging_factory=DemoStagingSource,
+        destination_factory=FileDemoDestinationFactory(),
     ).create(
         root, operation_id="create-demo"
     )
@@ -237,7 +239,8 @@ def test_demo_refuses_existing_user_path_without_overwrite(tmp_path):
     sentinel.write_text("keep me")
     with pytest.raises(ServiceFailure) as conflict:
         DemoService(
-            source_factory, Clock(), staging_factory=DemoStagingSource
+            source_factory, Clock(), staging_factory=DemoStagingSource,
+            destination_factory=FileDemoDestinationFactory(),
         ).create(existing, operation_id="demo-existing")
     assert conflict.value.error.reason == "demo_path_exists"
     assert sentinel.read_text() == "keep me"
@@ -252,13 +255,13 @@ def test_demo_stages_before_creating_and_replays_the_original_receipt(tmp_path):
         stage_saw_path.append(root.exists())
         return DemoStagingSource()
 
-    service = DemoService(source_factory, Clock(), staging_factory=staging_factory)
-    source, created = service._create_opened(root, operation_id="staged-demo")
+    service = DemoService(source_factory, Clock(), staging_factory=staging_factory, destination_factory=FileDemoDestinationFactory())
+    source, created = service.create_opened(root, operation_id="staged-demo")
     assert stage_saw_path == [False]
     assert created.replayed is False
     source.close()
 
-    replay_source, replayed = service._create_opened(root, operation_id="staged-demo")
+    replay_source, replayed = service.create_opened(root, operation_id="staged-demo")
     try:
         assert stage_saw_path == [False]
         assert replayed.replayed is True
@@ -268,11 +271,97 @@ def test_demo_stages_before_creating_and_replays_the_original_receipt(tmp_path):
         replay_source.close()
 
 
+def test_destination_port_orders_fresh_create_and_transfers_source_ownership(tmp_path):
+    events: list[str] = []
+    root = tmp_path / "Port Sandbox"
+    delegate = FileDemoDestinationFactory()
+
+    class TrackingSource:
+        def __init__(self, source):
+            self.source = source
+            self.close_count = 0
+
+        def __getattr__(self, name):
+            value = getattr(self.source, name)
+            if name == "operation_receipt":
+                def operation_receipt(*args, **kwargs):
+                    events.append("final_receipt")
+                    return value(*args, **kwargs)
+                return operation_receipt
+            if name == "commit":
+                def commit(*args, **kwargs):
+                    events.append("commit")
+                    return value(*args, **kwargs)
+                return commit
+            return value
+
+        def close(self):
+            self.close_count += 1
+            self.source.close()
+
+    class TrackingDestinationFactory:
+        sources: list[TrackingSource] = []
+
+        def open_existing(self, path, *, operation_id, intent_hash):
+            events.append("open_existing")
+            candidate = delegate.open_existing(
+                path, operation_id=operation_id, intent_hash=intent_hash
+            )
+            if candidate is None:
+                return None
+            tracked = TrackingSource(candidate.source)
+            self.sources.append(tracked)
+            return type(candidate)(tracked, candidate.receipt)
+
+        def create_exclusive(self, path):
+            events.append("create_exclusive")
+            tracked = TrackingSource(delegate.create_exclusive(path))
+            self.sources.append(tracked)
+            return tracked
+
+    class TrackingStagingSource(DemoStagingSource):
+        def capture_snapshot(self, keys=None):
+            records = super().capture_snapshot(keys)
+            events.append("stage_complete")
+            return records
+
+    destinations = TrackingDestinationFactory()
+    service = DemoService(
+        source_factory,
+        Clock(),
+        staging_factory=TrackingStagingSource,
+        destination_factory=destinations,
+    )
+    retained, created = service.create_opened(root, operation_id="port-demo")
+    assert events == [
+        "open_existing",
+        "stage_complete",
+        "create_exclusive",
+        "final_receipt",
+        "commit",
+    ]
+    assert retained is destinations.sources[0]
+    assert retained.close_count == 0
+    retained.close()
+    assert retained.close_count == 1
+
+    replay_service = DemoService(
+        source_factory,
+        Clock(),
+        staging_factory=TrackingStagingSource,
+        destination_factory=destinations,
+    )
+    replay = replay_service.create(root, operation_id=created.operation_id)
+    assert replay.replayed is True
+    assert destinations.sources[-1].close_count == 1
+    assert events[-2:] == ["open_existing", "final_receipt"]
+
+
 @pytest.mark.parametrize("mutation", ["operation_id", "etag", "incomplete"])
 def test_demo_receipt_rejects_wrong_operation_or_row_hash(tmp_path, mutation):
     root, info = demo(tmp_path)
     source = FileProjectSource(root)
-    service = DemoService(source_factory, Clock(), staging_factory=DemoStagingSource)
+    service = DemoService(source_factory, Clock(), staging_factory=DemoStagingSource, destination_factory=FileDemoDestinationFactory())
     receipt = source.operation_receipt(info.operation_id, intent_hash=service._intent())
     assert receipt is not None
     if mutation == "operation_id":
@@ -326,12 +415,26 @@ def test_demo_replay_uses_receipt_before_corpus_clock_or_ids(tmp_path, monkeypat
         ForbiddenClock(),
         forbidden,
         staging_factory=forbidden,
-    )._create_opened(root, operation_id=created.operation_id)
+        destination_factory=FileDemoDestinationFactory(),
+    ).create_opened(root, operation_id=created.operation_id)
     try:
         assert replayed.replayed is True
         assert replayed.project_id == created.project_id
     finally:
         source.close()
+
+    copied = root.parent / "Copied without cache"
+    shutil.copytree(root, copied)
+    shutil.rmtree(copied / ".deykit")
+    copied_replay = DemoService(
+        source_factory,
+        ForbiddenClock(),
+        forbidden,
+        staging_factory=forbidden,
+        destination_factory=FileDemoDestinationFactory(),
+    ).create(copied, operation_id=created.operation_id)
+    assert copied_replay.replayed is True
+    assert copied_replay.project_id == created.project_id
 
 
 def test_invalid_demo_corpus_does_not_create_the_requested_path(tmp_path, monkeypatch):
@@ -341,7 +444,7 @@ def test_invalid_demo_corpus_does_not_create_the_requested_path(tmp_path, monkey
         lambda: (_ for _ in ()).throw(ValueError("invalid fixture")),
     )
     with pytest.raises(ValueError):
-        DemoService(source_factory, Clock(), staging_factory=DemoStagingSource).create(
+        DemoService(source_factory, Clock(), staging_factory=DemoStagingSource, destination_factory=FileDemoDestinationFactory()).create(
             root, operation_id="invalid-demo"
         )
     assert not root.exists()
@@ -361,11 +464,12 @@ def test_demo_rejects_operation_id_already_used_for_another_intent(tmp_path):
             return DemoStagingSource()
 
         with pytest.raises(ServiceFailure) as error:
-            DemoService(source_factory, Clock(), staging_factory=staging_factory).create_in(
+            DemoService(source_factory, Clock(), staging_factory=staging_factory, destination_factory=FileDemoDestinationFactory()).create_in(
                 source, root, operation_id="shared-operation"
             )
         assert error.value.error.code == "conflict"
         assert staged == []
+        assert not source.files.closed
 
 
 DEMO_CRASH_CHILD = r"""
@@ -374,23 +478,28 @@ from pathlib import Path
 from deykit.application.demo import DemoService
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 root = Path(sys.argv[1])
 checkpoint = sys.argv[2]
 def source_factory(path, create):
-    def fault(point):
-        if point == checkpoint:
-            os._exit(73)
-    return FileProjectSource(path, create=create, fault_hook=fault)
+    return FileProjectSource(path, create=create)
+
+def fault(point):
+    if point == checkpoint:
+        os._exit(73)
 
 DemoService(source_factory, type('Clock', (), {
     'utc_now': lambda self: '2026-10-05T12:00:00Z',
     'monotonic': lambda self: 0.0,
-})(), staging_factory=DemoStagingSource).create(root, operation_id='crashed-demo')
+})(), staging_factory=DemoStagingSource, destination_factory=FileDemoDestinationFactory(fault_hook=fault)).create(root, operation_id='crashed-demo')
 """
 
 
-@pytest.mark.parametrize("checkpoint,committed", [("prepared", False), ("decided", True)])
+@pytest.mark.parametrize(
+    "checkpoint,committed",
+    [("prepared", False), ("decided", True), ("applied:0", True), ("archived", True)],
+)
 def test_demo_process_crash_recovers_only_the_real_atomic_decision(
     tmp_path, checkpoint, committed
 ):
@@ -402,16 +511,42 @@ def test_demo_process_crash_recovers_only_the_real_atomic_decision(
     )
     assert result.returncode == 73, result.stderr.decode()
 
+    if not committed:
+        before = tuple(
+            sorted(
+                (path.relative_to(root).as_posix(), path.is_dir(),
+                 None if path.is_dir() else path.read_bytes())
+                for path in root.rglob("*")
+            )
+        )
+        with pytest.raises(ServiceFailure) as refused:
+            DemoService(
+                source_factory,
+                Clock(),
+                staging_factory=DemoStagingSource,
+                destination_factory=FileDemoDestinationFactory(),
+            ).create(root, operation_id="crashed-demo")
+        assert refused.value.error.reason == "demo_path_exists"
+        after = tuple(
+            sorted(
+                (path.relative_to(root).as_posix(), path.is_dir(),
+                 None if path.is_dir() else path.read_bytes())
+                for path in root.rglob("*")
+            )
+        )
+        assert after == before
+        with FileProjectSource(root) as source:
+            assert source.capture_snapshot() == ()
+            assert source.operation_receipt(
+                "crashed-demo", intent_hash=DemoService._intent()
+            ) is None
+        return
+
     with FileProjectSource(root) as source:
         records = source.capture_snapshot()
         receipt = source.operation_receipt(
             "crashed-demo", intent_hash=DemoService._intent()
         )
-        if not committed:
-            assert records == ()
-            assert receipt is None
-            return
-
         assert receipt is not None
         assert receipt.replayed is True
         assert len(records) == len(receipt.changes)
@@ -421,7 +556,8 @@ def test_demo_process_crash_recovers_only_the_real_atomic_decision(
         original = tuple((row.key, row.body, row.etag) for row in receipt.changes)
 
     replay = DemoService(
-        source_factory, Clock(), staging_factory=DemoStagingSource
+        source_factory, Clock(), staging_factory=DemoStagingSource,
+        destination_factory=FileDemoDestinationFactory(),
     ).create(root, operation_id="crashed-demo")
     assert replay.replayed is True
     assert (replay.case_count, replay.binding_count, replay.label_count) == (12, 11, 9)
@@ -431,6 +567,45 @@ def test_demo_process_crash_recovers_only_the_real_atomic_decision(
         )
         assert receipt is not None
         assert tuple((row.key, row.body, row.etag) for row in receipt.changes) == original
+
+
+@pytest.mark.parametrize("corruption", ["decision", "blob"])
+def test_corrupt_decided_demo_is_refused_without_recovery_writes(tmp_path, corruption):
+    root = tmp_path / f"Corrupt {corruption}"
+    result = subprocess.run(
+        [sys.executable, "-c", DEMO_CRASH_CHILD, str(root), "decided"],
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == 73, result.stderr.decode()
+    target = (
+        root / "history" / "journal" / "crashed-demo" / "commit.json"
+        if corruption == "decision"
+        else root / "history" / "journal" / "crashed-demo" / "new-0.json"
+    )
+    target.write_bytes(b"corrupt bytes")
+    before = tuple(
+        sorted(
+            (path.relative_to(root).as_posix(), path.is_dir(),
+             None if path.is_dir() else path.read_bytes())
+            for path in root.rglob("*")
+        )
+    )
+    with pytest.raises(ServiceFailure):
+        DemoService(
+            source_factory,
+            Clock(),
+            staging_factory=DemoStagingSource,
+            destination_factory=FileDemoDestinationFactory(),
+        ).create(root, operation_id="crashed-demo")
+    after = tuple(
+        sorted(
+            (path.relative_to(root).as_posix(), path.is_dir(),
+             None if path.is_dir() else path.read_bytes())
+            for path in root.rglob("*")
+        )
+    )
+    assert after == before
 
 
 def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp_path):
@@ -450,6 +625,7 @@ def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp
                 source_factory,
                 Clock(),
                 staging_factory=SynchronizedStagingSource,
+                destination_factory=FileDemoDestinationFactory(),
             )
             return service.create_in(source, root, operation_id="parallel-demo")
 
@@ -474,8 +650,10 @@ def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp
         assert len([row for row in receipt.changes if row.key.collection == "project"]) == 1
 
         replay = DemoService(
-            source_factory, Clock(), staging_factory=DemoStagingSource
+            source_factory, Clock(), staging_factory=DemoStagingSource,
+            destination_factory=FileDemoDestinationFactory(),
         ).create_in(source, root, operation_id="parallel-demo")
         assert replay.replayed is True
         assert replay.project_id == outcomes[0].project_id
         assert (replay.case_count, replay.binding_count, replay.label_count) == (12, 11, 9)
+        assert not source.files.closed

@@ -86,13 +86,33 @@ class FileProjectSource:
         fault_hook: FaultHook | None = None,
         index_updater: IndexUpdater | None = None,
     ) -> None:
-        self.files = SafeFiles(root, create=create)
+        self._initialize(SafeFiles(root, create=create), fault_hook, index_updater)
+
+    def _initialize(
+        self,
+        files: SafeFiles,
+        fault_hook: FaultHook | None,
+        index_updater: IndexUpdater | None,
+    ) -> None:
+        self.files = files
         self.root = self.files.root
         self._hook = fault_hook or (lambda _: None)
         self._index = index_updater or SourceIndex(self.files).rebuild
         self._mutex = threading.RLock()
         self._local = threading.local()
         self.last_index_error: str | None = None
+
+    @classmethod
+    def _from_files(
+        cls,
+        files: SafeFiles,
+        *,
+        fault_hook: FaultHook | None = None,
+        index_updater: IndexUpdater | None = None,
+    ) -> FileProjectSource:
+        source = cls.__new__(cls)
+        source._initialize(files, fault_hook, index_updater)
+        return source
 
     def close(self) -> None:
         self.files.close()
@@ -217,6 +237,72 @@ class FileProjectSource:
             if manifest.intent_hash != intent_hash:
                 fail("operation_id_conflict", "conflict")
             return self._receipt(folder, manifest, replayed=True)
+
+    def _peek_durable_receipt(
+        self, operation_id: str, *, intent_hash: str
+    ) -> CommitReceipt | None:
+        """Inspect one durable receipt without locks, recovery, or writes."""
+        self._validate_operation(operation_id, intent_hash)
+        archived = ("history", "operations", operation_id)
+        journal = ("history", "journal", operation_id)
+        for attempt in range(3):
+            location = self._receipt_location(operation_id, archived, journal)
+            if location is None:
+                return None
+            folder = archived if location == "archived" else journal
+            try:
+                receipt = self._peek_receipt_folder(
+                    folder, operation_id, intent_hash=intent_hash
+                )
+            except ServiceFailure:
+                relocated = self._receipt_location(operation_id, archived, journal)
+                if attempt < 2 and relocated != location:
+                    continue
+                raise
+            if self._receipt_location(operation_id, archived, journal) != location:
+                if attempt < 2:
+                    continue
+                fail("unstable_source", "conflict")
+            return receipt
+        fail("unstable_source", "conflict")
+
+    def _receipt_location(
+        self, operation_id: str, archived: Parts, journal: Parts
+    ) -> str | None:
+        has_archive = operation_id in self.files.names(archived[:-1])
+        has_journal = operation_id in self.files.names(journal[:-1])
+        if has_archive and has_journal:
+            fail("journal_integrity_error", "conflict")
+        return "archived" if has_archive else "journal" if has_journal else None
+
+    def _peek_receipt_folder(
+        self, folder: Parts, operation_id: str, *, intent_hash: str
+    ) -> CommitReceipt:
+        manifest_body = self.files.read((*folder, "manifest.json"))
+        if manifest_body is None:
+            fail("journal_manifest_missing", "conflict")
+        manifest = self._manifest(folder)
+        if manifest.intent_hash != intent_hash:
+            fail("operation_id_conflict", "conflict")
+        expected_files = {"manifest.json", "commit.json"}
+        for index, entry in enumerate(manifest.entries):
+            for old in (True, False):
+                body = self._blob(folder, index, entry, old=old)
+                if body is not None:
+                    expected_files.add(f"{'old' if old else 'new'}-{index}.json")
+        if set(self.files.names(folder)) != expected_files:
+            fail("journal_integrity_error", "conflict")
+        if manifest.operation_id != operation_id:
+            fail("journal_identity_mismatch", "conflict")
+        # Demo creation is a create-only operation. The application checks its graph.
+        if any(entry.old_hash is not None or entry.new_hash is None for entry in manifest.entries):
+            fail("journal_integrity_error", "conflict")
+        if (
+            self.files.read((*folder, "manifest.json")) != manifest_body
+            or self._manifest(folder) != manifest
+        ):
+            fail("unstable_source", "conflict")
+        return self._receipt(folder, manifest, replayed=True)
 
     @staticmethod
     def _validate_operation(operation_id: str, intent_hash: str | None) -> None:

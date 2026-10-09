@@ -12,6 +12,7 @@ from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import execute
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
 
 
 def register(root: typer.Typer) -> None:
@@ -33,7 +34,8 @@ def demo(
             lambda project_path, create: FileProjectSource(project_path, create=create),
             SystemClock(),
             staging_factory=DemoStagingSource,
-        ).create(path.resolve(), operation_id=actual)
+            destination_factory=FileDemoDestinationFactory(),
+        ).create(path.absolute(), operation_id=actual)
         created.append(info)
         return {"operation_id": actual, "info": info}
 

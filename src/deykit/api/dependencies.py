@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from deykit.application.projects import ProjectBackend
+from deykit.application.demo import DemoDestinationFactory
 from deykit.contracts.ports import Clock
 
 from .recent import RecentProject
@@ -25,6 +26,7 @@ class ApiDependencies:
     source_factory: Callable[[Path, bool], ProjectBackend]
     recent_store: RecentProjects
     demo_staging_factory: Callable[[], ProjectBackend]
+    demo_destination_factory: DemoDestinationFactory
 
 
 ApiProjectSource = ProjectBackend

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal, Protocol, Self
 
 from pydantic import Field, ValidationError, model_validator
 
@@ -118,6 +118,20 @@ def _invalid_corpus() -> ServiceFailure:
 DEMO_OPERATION_INTENT = semantic_hash({"command": "demo.create", "demo_id": "sandbox"})
 
 
+@dataclass(frozen=True)
+class ExistingDemoDestination:
+    source: ProjectBackend
+    receipt: CommitReceipt
+
+
+class DemoDestinationFactory(Protocol):
+    def open_existing(
+        self, path: Path, *, operation_id: str, intent_hash: str
+    ) -> ExistingDemoDestination | None: ...
+
+    def create_exclusive(self, path: Path) -> ProjectBackend: ...
+
+
 def read_sandbox_corpus() -> SandboxCorpus:
     """The package resource is authored content; enforce its whole declared contract."""
     try:
@@ -197,10 +211,12 @@ class DemoService:
         id_factory: Callable[[], str] = new_id,
         *,
         staging_factory: Callable[[], ProjectBackend],
+        destination_factory: DemoDestinationFactory,
     ) -> None:
         self._factory = source_factory
         self._clock, self._id = clock, id_factory
         self._staging_factory = staging_factory
+        self._destination_factory = destination_factory
 
     @staticmethod
     def _intent() -> str:
@@ -567,11 +583,13 @@ class DemoService:
 
     def create(self, path: Path, *, operation_id: str) -> DemoInfo:
         """Create a fresh demo folder or replay its matching original receipt."""
-        source, info = self._create_opened(path, operation_id=operation_id)
-        source.close()
-        return info
+        source, info = self.create_opened(path, operation_id=operation_id)
+        try:
+            return info
+        finally:
+            source.close()
 
-    def _create_opened(
+    def create_opened(
         self, path: Path, *, operation_id: str
     ) -> tuple[ProjectBackend, DemoInfo]:
         """Create or replay a demo and return its source to a retaining caller."""
@@ -580,32 +598,65 @@ class DemoService:
             raise ServiceFailure(
                 ServiceError(code="validation_error", reason="invalid_demo_path")
             ) from None
-        if path.exists():
+        candidate = self._destination_factory.open_existing(
+            path, operation_id=operation_id, intent_hash=self._intent()
+        )
+        if candidate is not None:
+            source = candidate.source
             try:
-                source = self._factory(path, False)
-            except (OSError, ServiceFailure):
-                raise ServiceFailure(
-                    ServiceError(code="conflict", reason="demo_path_exists")
-                ) from None
-            try:
+                original = self._admit_receipt(
+                    candidate.receipt, path, operation_id=operation_id
+                )
                 receipt = source.operation_receipt(operation_id, intent_hash=self._intent())
                 if receipt is None:
-                    raise ServiceFailure(ServiceError(code="conflict", reason="demo_path_exists"))
-                return source, self._admit_receipt(receipt, path, operation_id=operation_id)
+                    raise ServiceFailure(
+                        ServiceError(code="conflict", reason="demo_path_exists")
+                    )
+                if (
+                    candidate.receipt.operation_id != receipt.operation_id
+                    or candidate.receipt.changes != receipt.changes
+                    or candidate.receipt.deleted_keys != receipt.deleted_keys
+                ):
+                    raise self._incompatible_receipt()
+                info = self._admit_receipt(receipt, path, operation_id=operation_id)
+                original_identity = (
+                    original.project_id,
+                    original.decision_id,
+                    original.revision_id,
+                    original.dataset_id,
+                    original.profile_id,
+                    original.fixture_set_id,
+                    original.case_count,
+                    original.binding_count,
+                    original.label_count,
+                )
+                final_identity = (
+                    info.project_id,
+                    info.decision_id,
+                    info.revision_id,
+                    info.dataset_id,
+                    info.profile_id,
+                    info.fixture_set_id,
+                    info.case_count,
+                    info.binding_count,
+                    info.label_count,
+                )
+                if original_identity != final_identity:
+                    raise self._incompatible_receipt()
+                return source, info
             except BaseException:
                 source.close()
                 raise
         corpus = read_sandbox_corpus()
         records = self._stage(corpus, operation_id)
         try:
-            path.mkdir()
-        except FileExistsError:
-            raise ServiceFailure(ServiceError(code="conflict", reason="demo_path_exists")) from None
+            source = self._destination_factory.create_exclusive(path)
+        except ServiceFailure:
+            raise
         except OSError:
             raise ServiceFailure(
                 ServiceError(code="internal_error", reason="demo_path_unavailable")
             ) from None
-        source = self._factory(path, True)
         try:
             return source, self._commit_staged(source, path, operation_id, records)
         except BaseException:
