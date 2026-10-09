@@ -206,7 +206,7 @@ def test_union_schema_field_type_stays_raw_and_cannot_be_replaced_by_scalar_edit
     assert round_trip.form is not None
     assert round_trip.form.input_schema_source == schema
 
-    with pytest.raises(ValueError, match="schema_field_edit_unsafe"):
+    with pytest.raises(ValueError, match="invalid_editor_edit") as caught:
         transform_editor(
             source,
             SchemaField(
@@ -216,6 +216,8 @@ def test_union_schema_field_type_stays_raw_and_cannot_be_replaced_by_scalar_edit
                 required=False,
             ),
         )
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert str(caught.value.__cause__) == "schema_field_edit_unsafe"
     unchanged = project_editor(source)
     assert unchanged.form is not None
     assert unchanged.form.input_schema_source == schema
