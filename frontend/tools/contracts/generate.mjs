@@ -228,25 +228,6 @@ function assertSchemaSubset(schemas) {
     "unevaluatedProperties",
     "unevaluatedItems",
   ]);
-  const schemaMaps = new Set([
-    "$defs",
-    "properties",
-    "patternProperties",
-    "dependentSchemas",
-  ]);
-  const schemaSingles = new Set([
-    "additionalProperties",
-    "propertyNames",
-    "items",
-    "contains",
-    "not",
-    "if",
-    "then",
-    "else",
-    "unevaluatedProperties",
-    "unevaluatedItems",
-  ]);
-  const schemaArrays = new Set(["prefixItems", "allOf", "anyOf", "oneOf"]);
   const inspectSchema = (schema) => {
     if (schema === true || schema === false) return;
     if (
@@ -277,7 +258,7 @@ function assertSchemaSubset(schemas) {
         }
         continue;
       }
-      if (schemaMaps.has(keyword)) {
+      if (schemaMapKeywords.has(keyword)) {
         if (
           value === null ||
           typeof value !== "object" ||
@@ -287,12 +268,12 @@ function assertSchemaSubset(schemas) {
         }
         for (const child of Object.values(value)) inspectSchema(child);
       } else if (
-        schemaSingles.has(keyword) &&
+        schemaSingleKeywords.has(keyword) &&
         value !== true &&
         value !== false
       ) {
         inspectSchema(value);
-      } else if (schemaArrays.has(keyword)) {
+      } else if (schemaArrayKeywords.has(keyword)) {
         if (!Array.isArray(value)) throw new Error(fixedSchemaError);
         for (const child of value) inspectSchema(child);
       }
@@ -301,13 +282,65 @@ function assertSchemaSubset(schemas) {
   for (const schema of Object.values(schemas)) inspectSchema(schema);
 }
 
-function withoutDiscriminator(value) {
-  if (Array.isArray(value)) return value.map(withoutDiscriminator);
-  if (value === null || typeof value !== "object") return value;
+const schemaMapKeywords = new Set([
+  "$defs",
+  "properties",
+  "patternProperties",
+  "dependentSchemas",
+]);
+const schemaSingleKeywords = new Set([
+  "additionalProperties",
+  "propertyNames",
+  "items",
+  "contains",
+  "not",
+  "if",
+  "then",
+  "else",
+  "unevaluatedProperties",
+  "unevaluatedItems",
+]);
+const schemaArrayKeywords = new Set(["prefixItems", "allOf", "anyOf", "oneOf"]);
+
+function withoutDiscriminator(schema) {
+  if (
+    schema === null ||
+    typeof schema !== "object" ||
+    Array.isArray(schema)
+  ) {
+    return schema;
+  }
   return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => key !== "discriminator")
-      .map(([key, child]) => [key, withoutDiscriminator(child)]),
+    Object.entries(schema).flatMap(([keyword, value]) => {
+      if (keyword === "discriminator") return [];
+      if (schemaMapKeywords.has(keyword)) {
+        return [
+          [
+            keyword,
+            Object.fromEntries(
+              Object.entries(value).map(([name, child]) => [
+                name,
+                withoutDiscriminator(child),
+              ]),
+            ),
+          ],
+        ];
+      }
+      if (schemaSingleKeywords.has(keyword)) {
+        return [
+          [
+            keyword,
+            value === true || value === false
+              ? value
+              : withoutDiscriminator(value),
+          ],
+        ];
+      }
+      if (schemaArrayKeywords.has(keyword)) {
+        return [[keyword, value.map(withoutDiscriminator)]];
+      }
+      return [[keyword, value]];
+    }),
   );
 }
 

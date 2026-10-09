@@ -145,8 +145,13 @@ test("OpenAPI discriminators retain oneOf validation in generated validators", a
     $id: "urn:deykit:test:Tagged",
     type: "object",
     additionalProperties: false,
-    required: ["edit"],
+    required: ["edit", "discriminator"],
     properties: {
+      discriminator: {
+        type: "object",
+        const: { label: "literal", discriminator: "preserved" },
+        default: { discriminator: "default-value" },
+      },
       edit: {
         discriminator: {
           propertyName: "kind",
@@ -173,8 +178,31 @@ test("OpenAPI discriminators retain oneOf validation in generated validators", a
   );
   const validators = await validatorsFor(generated);
 
-  assert.equal(validators.validateTagged({ edit: { kind: "set", value: "x" } }), true);
-  assert.equal(validators.validateTagged({ edit: { kind: "other", value: "x" } }), false);
+  assert.equal(
+    validators.validateTagged({
+      discriminator: { label: "literal", discriminator: "preserved" },
+      edit: { kind: "set", value: "x" },
+    }),
+    true,
+  );
+  assert.deepEqual(
+    sample.schemas.Tagged.properties.discriminator.default,
+    { discriminator: "default-value" },
+  );
+  assert.equal(
+    validators.validateTagged({
+      discriminator: { label: "literal", discriminator: "preserved" },
+      edit: { kind: "other", value: "x" },
+    }),
+    false,
+  );
+
+  const malformed = structuredClone(sample.schemas);
+  malformed.Tagged.properties.edit.discriminator.propertyName = 1;
+  await assert.rejects(
+    generateArtifacts(sample.openapi, malformed, sample.inputHashes),
+    /unsupported standalone schema feature/,
+  );
 });
 
 test("standalone validator enforces explicit version, strict fields and Unicode code points", async () => {
