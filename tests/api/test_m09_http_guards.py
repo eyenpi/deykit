@@ -278,7 +278,11 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
                 _seed_one_case(source, context.dependencies)
                 _add_second_case_order_fixture(source, context.dependencies)
                 base = f"/api/v1/projects/{registration_id}"
-                run_request = {**_run_request(), "fixture_set_id": "fixture-set-two-cases"}
+                run_request = {
+                    **_run_request(),
+                    "fixture_set_id": "fixture-set-two-cases",
+                    "settings": {"max_attempts": 3, "concurrency": 1},
+                }
                 preview = await client.post(
                     f"{base}/runs/preview",
                     headers=headers,
@@ -300,18 +304,22 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
                 assert stale.json()["error"]["reason"] == "run_source_changed"
                 assert source.capture_snapshot() == before
 
-                choice_request = {
-                    "run": {**run_request, "settings": {"max_attempts": 3, "concurrency": 1}},
+                choice_preview_request = {
+                    "run": {**run_request, "settings": {"max_attempts": 4, "concurrency": 1}},
                     "orders": 2,
                     "seed": "0",
                 }
                 group_preview = await client.post(
                     f"{base}/diagnostics/choice-order/preview",
                     headers=headers,
-                    json={"schema_version": 1, "request": choice_request},
+                    json={"schema_version": 1, "request": choice_preview_request},
                 )
                 assert group_preview.status_code == 200, group_preview.text
                 assert group_preview.json()["data"]["initial_requests"] == "4"
+                choice_start_request = {
+                    **choice_preview_request,
+                    "run": {**run_request, "settings": {"max_attempts": 3, "concurrency": 1}},
+                }
                 group_start = await client.post(
                     f"{base}/diagnostics/choice-order",
                     headers=headers,
@@ -321,7 +329,7 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
                         "expected_review_context_hash": group_preview.json()["data"][
                             "review_context_hash"
                         ],
-                        "request": choice_request,
+                        "request": choice_start_request,
                     },
                 )
                 assert group_start.status_code == 422
