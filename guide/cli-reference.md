@@ -33,6 +33,8 @@ choices are considered. Changed arguments with the same operation ID fail as a
 conflict. Missing-resource alternatives are read-only, project-local, and are
 attached only when an explicit exact selector fails.
 
-`serve` and `demo --open` remain planned. The CLI matrix marks those rows
-explicitly; the packaged tutorial covers the available local workflow without
-starting an API server or browser.
+`serve` starts the packaged local browser workspace on the loopback interface.
+Use `serve --no-open` to keep the browser closed, or `serve --port 0` to request
+an available port. `demo PATH --open` creates the authored Sandbox first, then
+starts the same workspace with that project registered and opens the browser
+after the service is ready. See the [local workspace guide](local-api.md).

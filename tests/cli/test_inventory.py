@@ -91,7 +91,10 @@ def test_matrix_implemented_rows_match_registered_cli_leaves() -> None:
     assert len(paths) == len(set(paths))
     implemented = {row["path"] for row in rows if row["status"] == "implemented"}
     command_root = get_command(app)
-    assert implemented == _leaves(command_root)
+    command_leaves = _leaves(command_root)
+    implemented_leaves = implemented & command_leaves
+    variants = implemented - command_leaves
+    assert implemented_leaves == command_leaves
     for row in rows:
         assert row["status"] in {"implemented", "planned"}
         assert set(row["verification"]) == {"registration", "behavior"}
@@ -115,10 +118,20 @@ def test_matrix_implemented_rows_match_registered_cli_leaves() -> None:
         result = runner.invoke(app, [*path, "--help"] if path else ["--help"])
         assert result.exit_code == 0, " ".join(path)
         assert "Usage:" in result.output, " ".join(path)
-    for path in sorted(implemented):
+    for path in sorted(implemented_leaves):
         result = runner.invoke(app, [*path.split(), "--help"])
         assert result.exit_code == 0, path
         assert "Usage:" in result.output, path
+    for path in sorted(variants):
+        parts = path.split()
+        command_path = " ".join(part for part in parts if not part.startswith("-"))
+        flags = [part for part in parts if part.startswith("-")]
+        assert command_path in command_leaves, path
+        assert flags, path
+        result = runner.invoke(app, [*command_path.split(), "--help"])
+        assert result.exit_code == 0, command_path
+        for flag in flags:
+            assert flag in result.output, (path, flag)
 
 
 def test_documented_cli_parameter_inventory_matches_typer_metadata() -> None:
@@ -126,14 +139,21 @@ def test_documented_cli_parameter_inventory_matches_typer_metadata() -> None:
     inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
     root = get_command(app)
     assert isinstance(root, TyperGroup)
+    matrix_rows = json.loads(
+        (inventory_path.parent / "cli-command-matrix.json").read_text(encoding="utf-8")
+    )["commands"]
+    command_leaves = _leaves(root)
     implemented = {
         row["path"]
-        for row in json.loads(
-            (inventory_path.parent / "cli-command-matrix.json").read_text(encoding="utf-8")
-        )["commands"]
-        if row["status"] == "implemented"
+        for row in matrix_rows
+        if row["status"] == "implemented" and row["path"] in command_leaves
     }
     assert set(inventory["commands"]) == implemented
+    for row in matrix_rows:
+        if row["status"] != "implemented" or row["path"] in command_leaves:
+            continue
+        command_path = " ".join(part for part in row["path"].split() if not part.startswith("-"))
+        assert command_path in inventory["commands"], row["path"]
 
     for path, command_contract in inventory["commands"].items():
         command = _command(root, tuple(path.split()))

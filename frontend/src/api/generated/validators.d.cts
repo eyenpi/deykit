@@ -1,0 +1,27 @@
+declare const validators: {
+  readonly validateBootstrapReply: (value: unknown) => boolean;
+  readonly validateBootstrapRequest: (value: unknown) => boolean;
+  readonly validateDemoCreateDTO: (value: unknown) => boolean;
+  readonly validateDemoCreateRequest: (value: unknown) => boolean;
+  readonly validateDemoSummaryDTO: (value: unknown) => boolean;
+  readonly validateErrorDTO: (value: unknown) => boolean;
+  readonly validateFailure: (value: unknown) => boolean;
+  readonly validateProjectOverviewDTO: (value: unknown) => boolean;
+  readonly validateProjectRecordDTO: (value: unknown) => boolean;
+  readonly validateRebuildIndexDTO: (value: unknown) => boolean;
+  readonly validateRecentProjectDTO: (value: unknown) => boolean;
+  readonly validateRecentProjectsDTO: (value: unknown) => boolean;
+  readonly validateRegisterProjectRequest: (value: unknown) => boolean;
+  readonly validateRegistrationDTO: (value: unknown) => boolean;
+  readonly validateResourceChoice: (value: unknown) => boolean;
+  readonly validateResourceSummaryDTO: (value: unknown) => boolean;
+  readonly validateSelectionDetails: (value: unknown) => boolean;
+  readonly validateSuccess_BootstrapReply_: (value: unknown) => boolean;
+  readonly validateSuccess_DemoCreateDTO_: (value: unknown) => boolean;
+  readonly validateSuccess_ProjectOverviewDTO_: (value: unknown) => boolean;
+  readonly validateSuccess_RebuildIndexDTO_: (value: unknown) => boolean;
+  readonly validateSuccess_RecentProjectsDTO_: (value: unknown) => boolean;
+  readonly validateSuccess_RegistrationDTO_: (value: unknown) => boolean;
+  readonly validateVersionRequest: (value: unknown) => boolean;
+};
+export = validators;

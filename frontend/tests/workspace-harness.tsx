@@ -13,13 +13,14 @@ const recent = [
 ];
 const gateway: WorkspaceGateway = {
   async recentProjects() {
-    return recent;
+    return { items: recent, warnings: [] };
   },
   async openProject(request) {
     const project = recent.find((item) => item.path === request.path);
     if (!project)
       throw new Error("Authored test expected a known project path");
-    return { ...project, decisions: [], datasets: [] };
+    return { ...project, decisions: [], datasets: [], warnings: [] };
   },
+  async reconnect() {},
 };
 createRoot(document.getElementById("root")!).render(<App gateway={gateway} />);

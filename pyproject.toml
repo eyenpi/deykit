@@ -15,6 +15,9 @@ dependencies = [
     "referencing>=0.37,<1",
     "typer>=0.20,<1",
     "httpx>=0.28.1,<0.29",
+    "fastapi==0.142.2",
+    "starlette==1.7.0",
+    "uvicorn==0.54.0",
 ]
 
 [project.scripts]
@@ -30,9 +33,78 @@ dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.19,<2", "types-jsonschema>=4.2
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/deykit"]
+artifacts = [
+    "src/deykit/api/static/**",
+    "src/deykit/api/GENERATED-ASSETS.md",
+    "src/deykit/api/THIRD-PARTY-NOTICES.md",
+]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/tests", "/architecture", "/guide", "/README.md", "/LICENSE", "/pyproject.toml", "/uv.lock", "/AGENTS.md"]
+include = [
+    "/src",
+    "/tests",
+    "/architecture",
+    "/guide",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+    "/uv.lock",
+    "/AGENTS.md",
+    "/frontend",
+    "/scripts",
+]
+exclude = [
+    "**/node_modules",
+    "**/node_modules/**",
+    "**/dist",
+    "**/dist/**",
+    "**/build",
+    "**/build/**",
+    "**/test-results",
+    "**/test-results/**",
+    "**/playwright-report",
+    "**/playwright-report/**",
+    "**/playwright/.cache",
+    "**/playwright/.cache/**",
+    "**/.playwright",
+    "**/.playwright/**",
+    "**/.cache",
+    "**/.cache/**",
+    "**/.vite",
+    "**/.vite/**",
+    "**/coverage",
+    "**/coverage/**",
+    "**/.env",
+    "**/.env.*",
+    "**/.npmrc",
+    "**/.pypirc",
+    "**/.netrc",
+    "**/.ssh",
+    "**/.ssh/**",
+    "**/.aws",
+    "**/.aws/**",
+    "**/secrets",
+    "**/secrets/**",
+    "**/credentials",
+    "**/credentials/**",
+    "**/secrets.json",
+    "**/credentials.json",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.token",
+    "**/*.local",
+    "**/*.local.*",
+    "**/*.tsbuildinfo",
+    "**/*.log",
+    "**/.DS_Store",
+]
+
+[tool.hatch.build.targets.sdist.force-include]
+"frontend/tools/contracts/generate.mjs" = "frontend/tools/contracts/generate.mjs"
+"frontend/tools/contracts/package.json" = "frontend/tools/contracts/package.json"
+"frontend/tools/contracts/test/generate.test.mjs" = "frontend/tools/contracts/test/generate.test.mjs"
+"frontend/tools/contracts/test/typecheck.cts" = "frontend/tools/contracts/test/typecheck.cts"
+"frontend/tools/contracts/test/validator-bundle-entry.mjs" = "frontend/tools/contracts/test/validator-bundle-entry.mjs"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

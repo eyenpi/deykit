@@ -1,8 +1,9 @@
-# Foundation development
+# Local development
 
-Requires Python 3.11+ and uv. Current CLI scope is `deykit --version` and
-`deykit --help`; project authoring, demo, run, serve and UI commands follow in later
-milestone tasks. No provider credential is needed for these checks.
+Requires Python 3.11+ and uv. The local CLI includes project authoring, the
+authored fixture demo, and the loopback browser workspace. The demo and workspace
+need no provider credential; `demo --open` starts the workspace after successful
+demo creation.
 
 ```sh
 uv sync --locked --python 3.11
@@ -14,12 +15,9 @@ uv build
 uv run python tests/check_install.py
 ```
 
-Tests block socket connections and validate authored software fixtures, not model
-quality. Dependency installation/build may access package registries. The install
-check creates separate clean wheel/sdist environments in paths containing spaces and
-non-ASCII characters, imports the installed package outside this checkout, and runs
-CLI version/help with only the environment's executable directory on PATH. It needs
-no Node executable. Package publication and bundled browser assets are later gates.
+Most tests block socket connections and validate authored software fixtures, not
+model quality. Focused API and installed-browser qualification uses explicit local
+loopback sockets. Dependency installation/build may access package registries.
 
 The `Offline foundation` CI tests Python 3.11/3.13 on Ubuntu. Its conditional frontend
 job activates when frontend sources arrive, with Node 22, npm 11.19.1, unit/build/format

@@ -89,6 +89,11 @@ class ProjectService:
     @staticmethod
     def _info(source: ProjectBackend) -> ProjectInfo:
         # Opening a project remains metadata-only; keep the legacy private spelling.
+        return ProjectService.describe(source)
+
+    @staticmethod
+    def describe(source: ProjectBackend) -> ProjectInfo:
+        """Describe a caller-owned opened project without closing it."""
         active = source.execution_active()
         records = source.capture_snapshot()
         return ProjectService._info_from_records(
@@ -100,47 +105,47 @@ class ProjectService:
     def create(self, path: Path, name: str, operation_id: str) -> ProjectInfo:
         source = self._factory(path, True)
         try:
-            intent = semantic_hash({"command": "project_create", "name": name})
-            receipt = source.operation_receipt(operation_id, intent_hash=intent)
-            if receipt is None:
-                with source.consistent_read():
-                    # Another caller may commit this intent after our first lookup.
-                    receipt = source.operation_receipt(operation_id, intent_hash=intent)
-                    if receipt is None:
-                        if source.list_ids("project"):
-                            raise ServiceFailure(
-                                ServiceError(code="conflict", reason="project_exists")
-                            )
-                        try:
-                            project = ProjectRecord(
-                                id=self._id(), name=name, created_at=self._clock.utc_now()
-                            )
-                        except ValidationError:
-                            raise ServiceFailure(
-                                ServiceError(code="validation_error", reason="invalid_project")
-                            ) from None
-                        receipt = source.commit(
-                            operation_id,
-                            (
-                                SourceChange(
-                                    ResourceKey("project", project.id), dump_record(project), None
-                                ),
-                            ),
-                            intent_hash=intent,
-                        )
-            current = self._info(source)
-            original = next(
-                record for record in receipt.changes if record.key.collection == "project"
-            )
-            return ProjectInfo(
-                load_record(ProjectRecord, original.body),
-                original.etag,
-                current.execution_active,
-                current.record_count,
-                current.index_warning,
-            )
+            return self.create_in(source, name, operation_id)
         finally:
             source.close()
+
+    def create_in(self, source: ProjectBackend, name: str, operation_id: str) -> ProjectInfo:
+        """Create or replay a project using a caller-owned opened source."""
+        intent = semantic_hash({"command": "project_create", "name": name})
+        receipt = source.operation_receipt(operation_id, intent_hash=intent)
+        if receipt is None:
+            with source.consistent_read():
+                # Another caller may commit this intent after our first lookup.
+                receipt = source.operation_receipt(operation_id, intent_hash=intent)
+                if receipt is None:
+                    if source.list_ids("project"):
+                        raise ServiceFailure(ServiceError(code="conflict", reason="project_exists"))
+                    try:
+                        project = ProjectRecord(
+                            id=self._id(), name=name, created_at=self._clock.utc_now()
+                        )
+                    except ValidationError:
+                        raise ServiceFailure(
+                            ServiceError(code="validation_error", reason="invalid_project")
+                        ) from None
+                    receipt = source.commit(
+                        operation_id,
+                        (
+                            SourceChange(
+                                ResourceKey("project", project.id), dump_record(project), None
+                            ),
+                        ),
+                        intent_hash=intent,
+                    )
+        current = self.describe(source)
+        original = next(record for record in receipt.changes if record.key.collection == "project")
+        return ProjectInfo(
+            load_record(ProjectRecord, original.body),
+            original.etag,
+            current.execution_active,
+            current.record_count,
+            current.index_warning,
+        )
 
     def open(self, path: Path) -> ProjectInfo:
         source = self._factory(path, False)

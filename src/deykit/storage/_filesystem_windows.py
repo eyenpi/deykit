@@ -25,6 +25,7 @@ class WindowsFiles:
         if create:
             root.mkdir(parents=True, exist_ok=True)
         self.root = root.absolute()
+        self.parent_guard: win.Handle | None = None
         try:
             self.handle = self.api.root(self.root)
         except OSError:
@@ -35,7 +36,100 @@ class WindowsFiles:
             raise
 
     def close(self) -> None:
-        self.handle.close()
+        try:
+            self.handle.close()
+        finally:
+            if self.parent_guard is not None:
+                self.parent_guard.close()
+                self.parent_guard = None
+
+    @classmethod
+    def open_existing(cls, root: Path) -> WindowsFiles | None:
+        api = win.Native()
+        display = root.absolute()
+        leaf = display.name
+        check_component(leaf)
+        parent: win.Handle | None = None
+        child: win.Handle | None = None
+        try:
+            parent = api.root(display.parent)
+            matches = [name for name in api.names(parent) if name.casefold() == leaf.casefold()]
+            if matches and matches != [leaf]:
+                fail("demo_path_exists", "conflict")
+            try:
+                child = api.open(
+                    parent,
+                    leaf,
+                    directory=True,
+                    access=win.DIRECTORY_ACCESS,
+                    share=win.SHARE_RW,
+                    disposition=win.OPEN,
+                )
+            except FileNotFoundError:
+                return None
+            matches = [name for name in api.names(parent) if name.casefold() == leaf.casefold()]
+            if matches != [leaf] or api.final_component(child) != leaf:
+                fail("demo_path_exists", "conflict")
+            instance = cls.__new__(cls)
+            instance.api = api
+            instance.handle = child
+            instance.root = display
+            instance.parent_guard = parent
+            child = parent = None
+            return instance
+        except OSError:
+            fail("demo_path_exists", "conflict")
+        finally:
+            if child is not None:
+                child.close()
+            if parent is not None:
+                parent.close()
+
+    @classmethod
+    def create_exclusive(
+        cls,
+        root: Path,
+        *,
+        acquisition_hook: Callable[[str], None] | None = None,
+    ) -> WindowsFiles:
+        api = win.Native()
+        display = root.absolute()
+        leaf = display.name
+        check_component(leaf)
+        parent: win.Handle | None = None
+        child: win.Handle | None = None
+        try:
+            parent = api.root(display.parent, access=win.DIRECTORY_ACCESS | 0x0004)
+            matches = [name for name in api.names(parent) if name.casefold() == leaf.casefold()]
+            if matches:
+                fail("demo_path_exists", "conflict")
+            try:
+                child = api.open(
+                    parent,
+                    leaf,
+                    directory=True,
+                    access=win.DIRECTORY_ACCESS,
+                    share=win.SHARE_RW,
+                    disposition=win.CREATE,
+                )
+            except OSError:
+                fail("demo_path_exists", "conflict")
+            if acquisition_hook is not None:
+                acquisition_hook("after_create")
+            if api.final_component(child) != leaf:
+                fail("demo_path_exists", "conflict")
+            instance = cls.__new__(cls)
+            instance.api = api
+            instance.handle = child
+            instance.root = display
+            instance.parent_guard = parent
+            child = parent = None
+            return instance
+        finally:
+            if child is not None:
+                child.close()
+            if parent is not None:
+                parent.close()
 
     @contextmanager
     def directory(self, parts: Parts, *, create: bool = False) -> Iterator[win.Handle]:

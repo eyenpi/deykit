@@ -10,7 +10,10 @@ are supplied at this boundary.
 
 Project/decision/dataset/case/label command modules adapt typed service
 results. The `demo` extension module invokes `DemoService` and reports actual
-created IDs and `authored_fixture` provenance. Input files and stdin are
+created IDs and `authored_fixture` provenance. Its optional `--open` starts
+the loopback workspace only after the durable demo operation returns. The
+`serve` command binds that workspace and waits for readiness before optionally
+opening a browser. Input files and stdin are
 decoded as UTF-8; user JSON stays source text and passes the contracts codec.
 The JSON output adapter only
 serializes service DTOs and source strings. It never builds user input or
@@ -29,12 +32,13 @@ Each public module exports `register(root: typer.Typer) -> None`; the root
 loads them in sorted name order. Modules with leading underscores are not
 loaded. Registration is synchronous and failures are visible, so a missing
 command cannot silently masquerade as implemented. A feature module owns only
-its group or top-level command, imports no transport/network module merely to
-register it, and uses `CliState`, `execute` or `execute_outcome` for the common
-result contract. `CommandOutcome` applies the run/check exit code after emitting
-the result. The [command matrix](cli-command-matrix.json) tracks the full
-planned surface and the commands actually registered; its implemented entries
-are checked against `--help` in the offline suite.
+its group or top-level command and uses `CliState`, `execute` or `execute_outcome`
+for the common result contract. Transport-backed `serve` registers synchronously
+but binds a socket only when invoked; `demo --open` starts it after demo creation
+has returned successfully. `CommandOutcome` applies the run/check exit code after
+emitting the result. The [command matrix](cli-command-matrix.json) tracks the
+full planned surface and registered command variants; implemented entries are
+checked against `--help` in the offline suite.
 
 The tested runtime is locked Typer 0.27.2. It bundles its own command parser,
 so the CLI imports public Typer context/testing APIs without a separate Click

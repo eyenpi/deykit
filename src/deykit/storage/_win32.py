@@ -232,7 +232,7 @@ class Native:
         assert result.value is not None
         return Handle(self, result.value)
 
-    def root(self, path: Path) -> Handle:
+    def root(self, path: Path, *, access: int = DIRECTORY_ACCESS) -> Handle:
         absolute = os.path.abspath(path)
         # Extended syntax is applied only to the explicit user-selected root.
         if not absolute.startswith("\\\\?\\"):
@@ -242,7 +242,7 @@ class Native:
                 else "\\\\?\\" + absolute
             )
         value = self._create(
-            absolute, DIRECTORY_ACCESS, SHARE_RW, None, 3, 0x02000000 | 0x00200000, None
+            absolute, access, SHARE_RW, None, 3, 0x02000000 | 0x00200000, None
         )  # BACKUP_SEMANTICS | OPEN_REPARSE_POINT
         if value == HANDLE(-1).value:
             raise self._error(self._last_error())

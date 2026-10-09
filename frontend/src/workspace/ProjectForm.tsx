@@ -16,12 +16,14 @@ export function ProjectForm({
   action,
   initialPath = "",
   gateway,
+  onReconnect,
   onOpened,
   onClose,
 }: {
   action: ProjectAction;
   initialPath?: string;
   gateway: WorkspaceGateway;
+  onReconnect: () => Promise<void>;
   onOpened: (project: ProjectOverview) => void;
   onClose: () => void;
 }) {
@@ -70,7 +72,16 @@ export function ProjectForm({
                 ? "Create a local copy of authored examples. The demo uses fixtures and needs no provider key."
                 : "Choose a local folder for your decision definitions and examples."}
           </p>
-          {error && <ErrorSummary message={error} focus />}
+          {error && (
+            <ErrorSummary
+              message={error}
+              focus
+              reconnect={() => {
+                setError(undefined);
+                void onReconnect().catch((cause) => setError(safeMessage(cause)));
+              }}
+            />
+          )}
           {action === "create" && (
             <div className="field">
               <label htmlFor="project-name">Project name</label>
