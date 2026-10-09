@@ -1,9 +1,10 @@
 """Typed execution-group preparation and safe progress views."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from deykit.application.dataset_support import fail
+from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import CompiledRequest
 from deykit.runner.planner import RunPlan
 from deykit.runner.views import RunPreview, RunProgress
@@ -18,6 +19,7 @@ class GroupPlan:
     max_attempts: int
     deadline_seconds: int
     default_regression_ids: tuple[str, ...] | None = None
+    review_membership_records: tuple[StoredRecord, ...] = field(kw_only=True)
 
     def validate(self) -> None:
         if self.kind not in ("choice_order", "regression_check") or not self.plans:
@@ -79,6 +81,7 @@ class GroupPreview:
     initial_requests: int
     attempt_limit: int
     deadline_seconds: int
+    review_context_hash: str
     dry_run: bool = True
     identities: tuple[MemberIdentity, ...] = ()
     independent_case_count: int = 0

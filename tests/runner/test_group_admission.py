@@ -352,7 +352,7 @@ def test_production_32mib_whole_freeze_boundary_includes_segment_ready_bytes(set
                 )
             )
         group, changes = service.store.stage_freeze(
-            GroupPlan("choice_order", tuple(plans), 100, 600),
+            GroupPlan("choice_order", tuple(plans), 100, 600, review_membership_records=()),
             "boundary",
             digest,
             selection_source + " " * trailing,
@@ -392,7 +392,10 @@ def test_concurrent_group_reservations_compete_for_last_lifetime_slot(setup):
     with source.execution_owner():
         with source.consistent_read():
             group, changes = service.store.stage_freeze(
-                GroupPlan("choice_order", plans, 3, 600), "start", digest, dump_json(selection)
+                GroupPlan("choice_order", plans, 3, 600, review_membership_records=()),
+                "start",
+                digest,
+                dump_json(selection),
             )
             segment, operational = service.store.stage_segment(
                 group, "start", 1, False, service._staged(changes), initial=True

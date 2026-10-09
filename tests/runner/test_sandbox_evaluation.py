@@ -10,7 +10,7 @@ from deykit.application.evaluations import EvaluationService
 from deykit.application.execution import ExecutionService
 from deykit.cli.context import SystemClock
 from deykit.contracts.codec import load_record
-from deykit.contracts.ports import ResourceKey
+from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.contracts.records import FixtureSet, ProviderProfile, ResultSnapshot
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.providers.fixtures import FixtureTransportFactory
@@ -38,10 +38,26 @@ class SandboxBackends:
         assert profile_source is not None
         return load_record(ProviderProfile, profile_source.body)
 
+    def profile_captured(
+        self,
+        provider_id: str | None,
+        fixture_set_id: str | None,
+        records: tuple[StoredRecord, ...],
+    ) -> ProviderProfile:
+        return self.profile(provider_id, fixture_set_id)
+
     def resolve(self, profile: ProviderProfile, fixture_set_id: str | None) -> SandboxBackends:
         assert fixture_set_id == self.fixture_set.id
         self.transport = FixtureTransportFactory(self.fixture_set, profile)
         return self
+
+    def resolve_captured(
+        self,
+        profile: ProviderProfile,
+        fixture_set_id: str | None,
+        records: tuple[StoredRecord, ...],
+    ) -> SandboxBackends:
+        return self.resolve(profile, fixture_set_id)
 
     def preflight(self, decision_id: str, dataset_id: str, definition=None):
         assert (decision_id, dataset_id) == (

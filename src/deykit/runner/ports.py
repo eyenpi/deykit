@@ -7,6 +7,7 @@ from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import (
     ChoiceCompiler,
     ProviderTransport,
+    StoredRecord,
 )
 from deykit.contracts.records import ChoiceDefinition, ProviderProfile
 
@@ -30,6 +31,18 @@ class Backend(Protocol):
 class BackendFactory(Protocol):
     def profile(self, provider_id: str | None, fixture_set_id: str | None) -> ProviderProfile: ...
     def resolve(self, profile: ProviderProfile, fixture_set_id: str | None) -> Backend: ...
+    def profile_captured(
+        self,
+        provider_id: str | None,
+        fixture_set_id: str | None,
+        records: tuple[StoredRecord, ...],
+    ) -> ProviderProfile: ...
+    def resolve_captured(
+        self,
+        profile: ProviderProfile,
+        fixture_set_id: str | None,
+        records: tuple[StoredRecord, ...],
+    ) -> Backend: ...
 
 
 class Waiter(Protocol):

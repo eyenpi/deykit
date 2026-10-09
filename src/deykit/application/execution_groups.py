@@ -12,7 +12,7 @@ from deykit.contracts.execution_groups import (
     ExecutionGroup,
     ExecutionGroupSegment,
 )
-from deykit.contracts.json_value import JsonDocument, JsonError, JsonSource, bytes_hash
+from deykit.contracts.json_value import JsonSource, bytes_hash
 from deykit.contracts.ports import CommitReceipt, SourceChange, StoredRecord
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.group_models import (
@@ -22,9 +22,20 @@ from deykit.runner.group_models import (
     MemberIdentity,
     request_identity,
 )
+from deykit.runner.group_selection import (
+    decode_group_start_selection,
+    encode_group_start_selection,
+    group_start_intent,
+)
 from deykit.runner.group_repository import GroupRepository
 from deykit.runner.history import history_from_records
 from deykit.runner.planner import MAX_PLAN_BYTES
+from deykit.runner.review import (
+    _record_identities,
+    group_review_hash,
+    regression_membership_records,
+    require_review_hash,
+)
 from deykit.runner.views import preview_view, progress_view
 
 
@@ -44,11 +55,13 @@ class GroupExecutionService:
     def preview(self, prepare: Callable[[], GroupPlan], *, selection_source: str) -> GroupPreview:
         plan = prepare()
         plan.validate()
-        # Include the same initial segment and readiness footprints as start.
-        digest = safe_hash(
-            {"command": "execution_group.start", "selection": JsonDocument(selection_source).value}
+        review_context_hash = group_review_hash(plan, selection_source)
+        selection = encode_group_start_selection(
+            selection_source, expected_review_context_hash=review_context_hash
         )
-        group, changes = self.store.stage_freeze(plan, "preview", digest, selection_source)
+        # Include the reviewed selection envelope and same initial segment/readiness footprints.
+        digest = group_start_intent(selection)
+        group, changes = self.store.stage_freeze(plan, "preview", digest, selection.stored_source)
         records = self._staged(changes)
         segment, segment_changes = self.store.stage_segment(
             group, "preview", 1, False, records, initial=True
@@ -61,6 +74,7 @@ class GroupExecutionService:
             sum(p.initial_requests for p in plan.plans),
             plan.max_attempts,
             plan.deadline_seconds,
+            review_context_hash,
             identities=tuple(
                 MemberIdentity(
                     p.selection.option_order,
@@ -77,7 +91,9 @@ class GroupExecutionService:
     def _seed(group: ExecutionGroup) -> int | None:
         if group.kind != "choice_order":
             return None
-        selection = JsonDocument(group.selection_source).value
+        selection = decode_group_start_selection(
+            group.selection_source, expected_kind=group.kind
+        ).original_selection
         if type(selection) is not dict or type(selection.get("request")) is not dict:
             fail("invalid_group_selection", "incompatible_data")
         request = selection["request"]
@@ -104,14 +120,26 @@ class GroupExecutionService:
             fail("execution_group_resource_limit", "preflight_failed")
 
     def _check_selection(self, plan: GroupPlan) -> None:
-        if plan.default_regression_ids is not None:
-            from deykit.application.regressions import visible_regressions
-
-            current = visible_regressions(
-                self.source.capture_snapshot(), plan.plans[0].selection.decision_id
+        if plan.kind != "regression_check":
+            return
+        captured = self.source.capture_snapshot()
+        explicit_ids = (
+            None
+            if plan.default_regression_ids is not None
+            else tuple(
+                record.key.resource_id
+                for record in plan.review_membership_records
+                if record.key.collection == "regressions"
             )
-            if tuple(r.id for r in current) != plan.default_regression_ids:
-                fail("regression_selection_changed", "conflict")
+        )
+        try:
+            current = regression_membership_records(
+                captured, plan.plans[0].selection.decision_id, explicit_ids
+            )
+        except ServiceFailure:
+            fail("run_source_changed", "conflict")
+        if _record_identities(current) != _record_identities(plan.review_membership_records):
+            fail("run_source_changed", "conflict")
 
     def _receipt(self, operation_id: str, digest: str) -> CommitReceipt | None:
         with self.source.consistent_read():
@@ -206,20 +234,21 @@ class GroupExecutionService:
         )
 
     async def start(
-        self, *, selection_source: JsonSource, prepare: Callable[[], GroupPlan], operation_id: str
+        self,
+        *,
+        selection_source: JsonSource,
+        prepare: Callable[[], GroupPlan],
+        operation_id: str,
+        expected_review_context_hash: str | None = None,
     ) -> GroupProgress:
         identifier(operation_id)
         if type(selection_source) is not str:
             fail("invalid_group_selection")
-        try:
-            digest = safe_hash(
-                {
-                    "command": "execution_group.start",
-                    "selection": JsonDocument(selection_source).value,
-                }
-            )
-        except JsonError:
-            fail("invalid_group_selection")
+        selection = encode_group_start_selection(
+            selection_source,
+            expected_review_context_hash=expected_review_context_hash,
+        )
+        digest = group_start_intent(selection)
         receipt = self._receipt(operation_id, digest)
         if receipt is not None:
             return self._replay(receipt)
@@ -236,8 +265,12 @@ class GroupExecutionService:
                     else:
                         self._check_selection(plan)
                         self.runner.planner.check_contexts(plan.plans)
+                        require_review_hash(
+                            expected_review_context_hash,
+                            group_review_hash(plan, selection_source),
+                        )
                         group, changes = self.store.stage_freeze(
-                            plan, operation_id, digest, selection_source
+                            plan, operation_id, digest, selection.stored_source
                         )
                         staged_records = tuple(
                             StoredRecord(item.key, item.body, bytes_hash(item.body))

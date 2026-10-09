@@ -92,15 +92,20 @@ class ExecutionService:
         operation_id: str,
         on_created: Callable[[RunCreated], None] | None = None,
         on_progress: Callable[[RunProgress], None] | None = None,
+        expected_review_context_hash: str | None = None,
     ) -> RunProgress:
         request, operation_id = validate_request(request), identifier(operation_id)
-        digest = start_intent(request)
+        digest = start_intent(request, expected_review_context_hash)
         receipt = self._receipt(operation_id, digest)
         if receipt is not None:
             return self._start_replay(receipt, on_created)
         try:
             return await self._start_owned(
-                request, operation_id=operation_id, on_created=on_created, on_progress=on_progress
+                request,
+                operation_id=operation_id,
+                on_created=on_created,
+                on_progress=on_progress,
+                expected_review_context_hash=expected_review_context_hash,
             )
         except ServiceFailure as failure:
             if failure.error.code == "execution_locked":
@@ -116,9 +121,10 @@ class ExecutionService:
         operation_id: str,
         on_created: Callable[[RunCreated], None] | None = None,
         on_progress: Callable[[RunProgress], None] | None = None,
+        expected_review_context_hash: str | None = None,
     ) -> RunProgress:
         request, operation_id = validate_request(request), identifier(operation_id)
-        digest = start_intent(request)
+        digest = start_intent(request, expected_review_context_hash)
         with self.execution.execution_owner():
             with self.source.consistent_read():
                 replay = self.source.operation_receipt(operation_id, intent_hash=digest)
@@ -133,6 +139,9 @@ class ExecutionService:
                     run_id = self.repository.replay_run(replay)
                 else:
                     self.planner.check_context(plan)
+                    from deykit.runner.review import require_review_hash, run_review_hash
+
+                    require_review_hash(expected_review_context_hash, run_review_hash(plan))
                     run_id = self.repository.freeze(plan, operation_id, digest)
             history = self.repository.history(run_id)
             self._created(history, replay is not None, on_created)

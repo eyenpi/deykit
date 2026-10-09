@@ -25,6 +25,9 @@ class Clock(Protocol):
 class ChoiceCompiler(Protocol):
     """Pure compilation and response validation; no credentials or network."""
 
+    @property
+    def review_identity(self) -> CompilerIdentity: ...
+
     def compile(
         self, definition: ChoiceDefinition, selected_state: JsonValue, profile: ProviderProfile
     ) -> CompiledRequest: ...
@@ -32,6 +35,12 @@ class ChoiceCompiler(Protocol):
     def validate_response(
         self, request: CompiledRequest, response_source: str
     ) -> NormalizedAnswer: ...
+
+
+@dataclass(frozen=True)
+class CompilerIdentity:
+    compiler: str
+    compiler_version: str
 
 
 class ProviderTransport(Protocol):

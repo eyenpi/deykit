@@ -20,6 +20,7 @@ from deykit.runner.group_evidence import (
     member_prepared_hash,
 )
 from deykit.runner.group_models import GroupPlan
+from deykit.runner.group_selection import decode_group_start_selection, group_start_intent
 from deykit.runner.history import history_from_records
 from deykit.runner.planner import MAX_PLAN_BYTES
 from deykit.runner.repository import RunRepository, change, deadline_at
@@ -33,6 +34,9 @@ class GroupRepository:
         self, plan: GroupPlan, operation_id: str, digest: str, selection_source: str
     ) -> tuple[ExecutionGroup, tuple[SourceChange, ...]]:
         plan.validate()
+        selection = decode_group_start_selection(selection_source, expected_kind=plan.kind)
+        if group_start_intent(selection) != digest:
+            fail("group_selection_intent_mismatch", "conflict")
         group_id = self.repo.identity()
         changes: list[SourceChange] = []
         members: list[ExecutionMember] = []

@@ -10,6 +10,7 @@ from deykit.contracts.json_value import (
     dump_json,
     parse_json,
 )
+from deykit.contracts.ports import CompilerIdentity
 from deykit.contracts.records import (
     ChoiceDefinition,
     CompiledRequest,
@@ -17,6 +18,7 @@ from deykit.contracts.records import (
     ProviderProfile,
 )
 
+COMPILER_ID = "jev-choice"
 COMPILER_VERSION = "1"
 JEV_DESTINATION = "https://api.typesafe.ai/v1/systemone"
 MODELS_DESTINATION = "https://api.typesafe.ai/v1/models"
@@ -102,7 +104,7 @@ def compile_choice(
     ).encode("utf-8")
     return CompiledRequest(
         adapter=adapter,
-        compiler="jev-choice",
+        compiler=COMPILER_ID,
         compiler_version=COMPILER_VERSION,
         requested_model=requested_model,
         destination=JEV_DESTINATION if adapter == "jev" else "fixture:jev-choice",
@@ -169,6 +171,10 @@ def validate_response(request: "CompiledRequest", source: str | bytes) -> "Norma
 
 
 class JevChoiceCompiler:
+    @property
+    def review_identity(self) -> CompilerIdentity:
+        return CompilerIdentity(compiler=COMPILER_ID, compiler_version=COMPILER_VERSION)
+
     def compile(
         self,
         definition: ChoiceDefinition,

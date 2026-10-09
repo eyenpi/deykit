@@ -112,10 +112,13 @@ class RunPreview:
     invalid_cases: tuple[ServiceError, ...]
     settings: ExecutionSettings
     development_case_count: int
+    review_context_hash: str
     dry_run: bool = True
 
 
 def preview_view(plan: RunPlan) -> RunPreview:
+    from deykit.runner.review import run_review_hash
+
     return RunPreview(
         plan.selection.decision_id,
         plan.selection.dataset_id,
@@ -128,6 +131,7 @@ def preview_view(plan: RunPlan) -> RunPreview:
         tuple(item.error for item in plan.prepared if item.error),
         plan.selection.settings,
         len(plan.development_cases),
+        run_review_hash(plan),
     )
 
 
