@@ -4,7 +4,6 @@ import asyncio
 from dataclasses import replace
 
 import pytest
-
 from test_execution_groups import request
 
 from deykit.application.checks import CheckService
