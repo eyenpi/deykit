@@ -222,6 +222,17 @@ test("report download metadata is admitted only for the exact annotated binary c
   assert.match(generated.get("operations.ts"), /kind:\s*"report-download"/);
   assert.match(generated.get("operations.ts"), /"downloadReport"/);
   assert.doesNotMatch(generated.get("operations.ts"), /binary/);
+  const revisedDescription = structuredClone(sample.openapi);
+  revisedDescription.paths[
+    "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+  ].get.responses["200"].headers["Content-Disposition"].description =
+    "Descriptive wording may evolve without changing download policy.";
+  const revisedArtifacts = await generateArtifacts(
+    revisedDescription,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  assert.equal(revisedArtifacts.get("operations.ts"), generated.get("operations.ts"));
 
   for (const mutate of [
     (operation) => { delete operation["x-deykit-report-download-v1"]; },

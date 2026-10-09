@@ -238,6 +238,15 @@ const downloadReply = (
       client.download("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" }, query: { format: "json" }, headers: { Authorization: "secret" } });
       // @ts-expect-error download arguments do not accept bodies
       client.download("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" }, query: { format: "json" }, body: {} });
+      const downloaded = await client.download("downloadReport", {
+        path: { registration_id: "registration-1", report_id: "report-1" },
+        query: { format: "json" },
+      });
+      const filename: string = downloaded.filename;
+      void filename;
+      // @ts-expect-error the transport returns bytes and a filename, never an object URL
+      const href: string = downloaded.href;
+      void href;
     }
   });
 
@@ -259,6 +268,7 @@ const downloadReply = (
       .mockResolvedValueOnce(downloadReply(markdownBytes, "text/plain; charset=utf-8", "report-report_1.md"));
     const client = new ApiClient(transport);
     client.setCapability("local-session");
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL");
 
     const result = await client.download("downloadReport", {
       path: { registration_id: "registration-1", report_id: "report_1" },
@@ -274,6 +284,8 @@ const downloadReply = (
     expect(new Headers(transport.mock.calls[0][1]?.headers).get("Accept")).toBe(
       "application/octet-stream, application/json",
     );
+    expect(String(transport.mock.calls[0][0])).not.toContain("local-session");
+    expect(String(transport.mock.calls[0][0])).not.toContain("capability");
     expect(transport.mock.calls[0][1]?.cache).toBe("no-store");
     expect(transport.mock.calls[0][1]?.credentials).toBe("omit");
 
@@ -287,6 +299,8 @@ const downloadReply = (
     expect(transport.mock.calls[1][0]).toBe(
       "/api/v1/projects/registration-1/reports/report_1/download?format=markdown",
     );
+    expect(createObjectUrl).not.toHaveBeenCalled();
+    createObjectUrl.mockRestore();
   });
 
   it("rejects invalid download formats and extra arguments before transport", async () => {
@@ -349,6 +363,198 @@ const downloadReply = (
       code: "response_invalid",
       status: 202,
     });
+  });
+
+  it("rejects unsafe download media, disposition and protection headers", async () => {
+    const badHeaders: Array<[string, Record<string, string>]> = [
+      ["wrong media", { "Content-Type": "text/html" }],
+      ["malformed media", { "Content-Type": "application/jsonp" }],
+      ["extra media parameter", { "Content-Type": "application/octet-stream; charset=utf-8" }],
+      ["inline disposition", { "Content-Disposition": 'inline; filename="report-report-1.json"' }],
+      ["wrong filename", { "Content-Disposition": 'attachment; filename="../report-report-1.json"' }],
+      ["extended filename", { "Content-Disposition": 'attachment; filename="report-report-1.json"; filename*=UTF-8%27%27private.json' }],
+      ["missing no-store", { "Cache-Control": "private" }],
+      ["missing nosniff", { "X-Content-Type-Options": "sniff" }],
+    ];
+    const cancelled: boolean[] = [];
+    const responses = badHeaders.map(([, overrides]) => {
+      const index = cancelled.length;
+      cancelled.push(false);
+      const body = new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled[index] = true;
+        },
+      });
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": 'attachment; filename="report-report-1.json"',
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+          ...overrides,
+        },
+      });
+    });
+    const transport = vi.fn<typeof fetch>();
+    for (const response of responses) transport.mockResolvedValueOnce(response);
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+    const args = {
+      path: { registration_id: "registration-1", report_id: "report-1" },
+      query: { format: "json" as const },
+    };
+
+    for (const [label] of badHeaders) {
+      await expect(client.download("downloadReport", args), label).rejects.toMatchObject({
+        code: "response_invalid",
+        status: 200,
+      });
+    }
+    expect(cancelled).toEqual(badHeaders.map(() => true));
+  });
+
+  it("rejects malformed, oversized, short and long Content-Length values", async () => {
+    const cases: Array<[string, string]> = [
+      ["malformed", "08"],
+      ["oversized", "8388609"],
+      ["short", "1"],
+      ["long", "3"],
+    ];
+    const responses = cases.map(([, length]) =>
+      downloadReply(
+        new Uint8Array([1, 2]),
+        "application/octet-stream",
+        "report-report-1.json",
+        200,
+        { "Content-Length": length },
+      ),
+    );
+    const transport = vi.fn<typeof fetch>();
+    for (const response of responses) transport.mockResolvedValueOnce(response);
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+    const args = {
+      path: { registration_id: "registration-1", report_id: "report-1" },
+      query: { format: "json" as const },
+    };
+
+    for (const [label] of cases) {
+      await expect(client.download("downloadReport", args), label).rejects.toMatchObject({
+        code: "response_invalid",
+        status: 200,
+      });
+    }
+    for (const response of responses) expect(response.body?.locked).toBe(false);
+  });
+
+  it("cancels and releases a failed or aborted download reader", async () => {
+    const args = {
+      path: { registration_id: "registration-1", report_id: "report-1" },
+      query: { format: "json" as const },
+    };
+    const makeResponse = (reader: {
+      read: () => Promise<ReadableStreamReadResult<Uint8Array>>;
+      cancel: () => Promise<void>;
+      releaseLock: () => void;
+    }) => {
+      const response = downloadReply(
+        new Uint8Array(),
+        "application/octet-stream",
+        "report-report-1.json",
+      );
+      Object.defineProperty(response, "body", {
+        value: { getReader: () => reader } as unknown as ReadableStream<Uint8Array>,
+      });
+      return response;
+    };
+    const makeReader = (
+      read: () => Promise<ReadableStreamReadResult<Uint8Array>>,
+      cancel: () => Promise<void>,
+    ) => ({
+      read: vi.fn(read),
+      cancel: vi.fn(cancel),
+      releaseLock: vi.fn(),
+    });
+
+    const failedReader = makeReader(
+      () => Promise.reject(new Error("PRIVATE read failure")),
+      async () => undefined,
+    );
+    const failedTransport = vi.fn<typeof fetch>().mockResolvedValue(makeResponse(failedReader));
+    const failedClient = new ApiClient(failedTransport);
+    failedClient.setCapability("local-session");
+    await expect(failedClient.download("downloadReport", args)).rejects.toMatchObject({
+      code: "response_invalid",
+    });
+    expect(failedReader.cancel).toHaveBeenCalled();
+    expect(failedReader.releaseLock).toHaveBeenCalledOnce();
+
+    const alreadyAborted = new AbortController();
+    alreadyAborted.abort();
+    const beforeReadReader = makeReader(
+      async () => ({ done: true, value: undefined }),
+      async () => undefined,
+    );
+    const beforeReadClient = new ApiClient(
+      vi.fn<typeof fetch>().mockResolvedValue(makeResponse(beforeReadReader)),
+    );
+    beforeReadClient.setCapability("local-session");
+    await expect(
+      beforeReadClient.download("downloadReport", { ...args, signal: alreadyAborted.signal }),
+    ).rejects.toMatchObject({ code: "cancelled" });
+    expect(beforeReadReader.read).not.toHaveBeenCalled();
+    expect(beforeReadReader.cancel).toHaveBeenCalled();
+    expect(beforeReadReader.releaseLock).toHaveBeenCalledOnce();
+
+    let finishRead!: (result: ReadableStreamReadResult<Uint8Array>) => void;
+    const readStarted = vi.fn<() => void>();
+    const pendingRead = new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+      finishRead = resolve;
+    });
+    const duringReadReader = makeReader(
+      () => {
+        readStarted();
+        return pendingRead;
+      },
+      async () => {
+        finishRead({ done: true, value: undefined });
+      },
+    );
+    const duringReadClient = new ApiClient(
+      vi.fn<typeof fetch>().mockResolvedValue(makeResponse(duringReadReader)),
+    );
+    duringReadClient.setCapability("local-session");
+    const controller = new AbortController();
+    const pendingDownload = duringReadClient.download("downloadReport", {
+      ...args,
+      signal: controller.signal,
+    });
+    while (!readStarted.mock.calls.length) await Promise.resolve();
+    controller.abort();
+    await expect(pendingDownload).rejects.toMatchObject({ code: "cancelled" });
+    expect(duringReadReader.cancel).toHaveBeenCalled();
+    expect(duringReadReader.releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it("rejects malformed JSON download failures without exposing their body", async () => {
+    const response = new Response("PRIVATE malformed failure", {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+    const client = new ApiClient(vi.fn<typeof fetch>().mockResolvedValue(response));
+    client.setCapability("local-session");
+
+    try {
+      await client.download("downloadReport", {
+        path: { registration_id: "registration-1", report_id: "report-1" },
+        query: { format: "json" },
+      });
+      expect.fail("malformed JSON error bodies must be rejected");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "response_invalid", status: 404 });
+      expect(String(error)).not.toContain("PRIVATE");
+    }
   });
 
   it("accepts the exact byte cap and cancels single-chunk and cumulative overflow", async () => {
