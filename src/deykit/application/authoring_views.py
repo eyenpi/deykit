@@ -544,10 +544,7 @@ def project_schema(schema_source: str | None) -> SchemaProjectionV1:
             continue
         field_type = raw.get("type")
         simple_type = field_type if type(field_type) is str else None
-        valid_type = (
-            "type" not in raw
-            or (simple_type is not None and simple_type in _SCHEMA_TYPES)
-        )
+        valid_type = "type" not in raw or (simple_type is not None and simple_type in _SCHEMA_TYPES)
         advanced = tuple(sorted(set(raw).difference({"type"})))
         fields.append(
             SchemaFieldV1(
@@ -772,11 +769,7 @@ def _mapping_form(value: dict[str, JsonValue], source: str) -> MappingFormV1 | N
         source_field = item["source"]
         target = item["target"]
         parse_json = item["parse_json"]
-        if (
-            type(source_field) is not str
-            or type(target) is not str
-            or type(parse_json) is not bool
-        ):
+        if type(source_field) is not str or type(target) is not str or type(parse_json) is not bool:
             return None
         fields.append(MappingFieldFormV1(source_field, target, parse_json))
     if not _is_array(raw_aliases):
@@ -790,6 +783,7 @@ def _mapping_form(value: dict[str, JsonValue], source: str) -> MappingFormV1 | N
         if type(alias_value) is not str or type(option_id) is not str:
             return None
         aliases.append(MappingAliasFormV1(alias_value, option_id))
+
     def optional_string(name: str) -> str | None:
         field_value = value.get(name)
         return cast(str | None, field_value)
@@ -840,9 +834,7 @@ def project_import_mapping(mapping_source: str) -> MappingProjectionV1:
     return MappingProjectionV1(1, mapping_source, digest, form, None, advice)
 
 
-def transform_import_mapping(
-    mapping_source: str, edit: MappingEditV1
-) -> MappingTransformV1:
+def transform_import_mapping(mapping_source: str, edit: MappingEditV1) -> MappingTransformV1:
     projection = project_import_mapping(mapping_source)
     if projection.form is None or projection.source_hash is None:
         raise ValueError("mapping_form_unavailable")

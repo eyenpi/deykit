@@ -222,9 +222,7 @@ def test_provider_model_listing_requires_version_body_without_opening_secrets(
                 )
                 assert project.status_code == 200, project.text
                 registration_id = project.json()["data"]["registration_id"]
-                profile_path = (
-                    f"/api/v1/projects/{registration_id}/providers/provider-1"
-                )
+                profile_path = f"/api/v1/projects/{registration_id}/providers/provider-1"
                 configured = await client.put(
                     profile_path,
                     headers=headers,

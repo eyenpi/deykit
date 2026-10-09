@@ -156,9 +156,7 @@ def test_common_schema_edit_keeps_advanced_exact_constraints_and_unedited_source
     assert transformed_schema["additionalProperties"] is False
     assert transformed_schema["$defs"]["tag"]["type"] == "string"
 
-    removed = transform_editor(
-        source, RemoveSchemaField(kind="remove_schema_field", name="score")
-    )
+    removed = transform_editor(source, RemoveSchemaField(kind="remove_schema_field", name="score"))
     removed_schema = JsonDocument(
         project_editor(removed.editor_source).form.input_schema_source
     ).value
