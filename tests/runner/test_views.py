@@ -44,7 +44,7 @@ def test_progress_view_maps_live_provenance_and_avoids_inconsistent_compiler_cho
     history = replace(
         history,
         manifest=history.manifest.model_copy(update={"mode": "live"}),
-        prepared=(first, replace(second, request=second_request)),
+        prepared=(first, second.model_copy(update={"request": second_request})),
     )
 
     progress = progress_view(history)
