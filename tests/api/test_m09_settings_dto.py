@@ -64,7 +64,9 @@ def test_http_settings_convert_to_unchanged_domain_settings_and_intent() -> None
     )
     transport = RunRequestDTO.model_validate(source)
     domain = transport.to_application()
-    direct = RunRequest.model_validate({**source, "settings": ExecutionSettings(**source["settings"])})
+    direct = RunRequest.model_validate(
+        {**source, "settings": ExecutionSettings(**source["settings"])}
+    )
 
     assert domain.settings == ExecutionSettings(**source["settings"])
     assert start_intent(domain) == start_intent(direct)

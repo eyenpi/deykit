@@ -1,5 +1,7 @@
 """Reviewed run and execution-group preview transport records."""
 
+from __future__ import annotations
+
 from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, field_validator
