@@ -16,10 +16,8 @@ from deykit.contracts.ports import (
     SourceChange,
     StoredRecord,
 )
-from deykit.contracts.provider_configuration import (
-    ProfilePage as ProfilePage,
-    ProfileView as ProfileView,
-)
+from deykit.contracts.provider_configuration import ProfilePage as ProfilePage
+from deykit.contracts.provider_configuration import ProfileView as ProfileView
 from deykit.contracts.records import ProviderProfile
 from deykit.providers.credentials import CredentialReference
 from deykit.providers.fixtures import FixtureInvalid, validate_fixture_profile

@@ -10,20 +10,16 @@ from deykit.contracts.provider_configuration import (
     CredentialReference,
     CredentialUnavailable,
     ModelDescription,
-    ProviderCapabilities,
     ProfilePage,
     ProfileView,
+    ProviderCapabilities,
 )
 from deykit.contracts.records import ProviderProfile
 from deykit.providers.choice import JEV_DESTINATION
-from deykit.providers.credentials import (
-    CredentialReference as LegacyCredentialReference,
-    CredentialUnavailable as LegacyCredentialUnavailable,
-)
-from deykit.providers.profiles import (
-    ProfilePage as LegacyProfilePage,
-    ProfileView as LegacyProfileView,
-)
+from deykit.providers.credentials import CredentialReference as LegacyCredentialReference
+from deykit.providers.credentials import CredentialUnavailable as LegacyCredentialUnavailable
+from deykit.providers.profiles import ProfilePage as LegacyProfilePage
+from deykit.providers.profiles import ProfileView as LegacyProfileView
 
 
 class References:

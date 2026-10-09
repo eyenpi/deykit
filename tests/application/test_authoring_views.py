@@ -9,8 +9,8 @@ from deykit.application.authoring_views import (
     RemoveOption,
     RemoveSchemaField,
     RenameOption,
-    ReplaceSchema,
     ReorderOptions,
+    ReplaceSchema,
     SchemaField,
     SetInputKind,
     SetInstructions,
@@ -244,7 +244,9 @@ def test_mapping_transform_changes_one_column_and_retains_all_supported_values()
 def test_invalid_schema_and_mapping_sources_keep_raw_text_without_a_form():
     wrong_editor_version = editor_source().replace('"schema_version":1', '"schema_version":1.0', 1)
     assert project_editor(wrong_editor_version).form is None
-    exponent_editor_version = editor_source().replace('"schema_version":1', '"schema_version":1e0', 1)
+    exponent_editor_version = editor_source().replace(
+        '"schema_version":1', '"schema_version":1e0', 1
+    )
     assert project_editor(exponent_editor_version).form is None
 
     duplicate = '{"type":"object","type":"array"}'

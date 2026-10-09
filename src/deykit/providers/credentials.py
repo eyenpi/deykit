@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from deykit.contracts.provider_configuration import (
     CredentialReference as CredentialReference,
+)
+from deykit.contracts.provider_configuration import (
     CredentialUnavailable as CredentialUnavailable,
 )
 

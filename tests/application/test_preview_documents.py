@@ -28,7 +28,12 @@ def test_split_preview_decoder_accepts_exact_source_as_text_or_bytes():
     [
         (split_document(), "other"),
         (split_document().replace('"warnings":[]', '"warnings":[],"extra":true'), "data"),
-        (split_document().replace('"dataset_id":"data"', '"dataset_id":"data","extra":true'), "data"),
+        (
+            split_document().replace(
+                '"dataset_id":"data"', '"dataset_id":"data","extra":true'
+            ),
+            "data",
+        ),
     ],
 )
 def test_split_preview_decoder_rejects_context_and_extra_fields(source: str, dataset_id: str):

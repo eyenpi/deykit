@@ -8,6 +8,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.application.provider_operations import ProviderOperations
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import validate_resource_id
+from deykit.contracts.ports import ProjectSource
 from deykit.contracts.provider_configuration import (
     CompilerInfo,
     CredentialReference,
@@ -16,7 +17,6 @@ from deykit.contracts.provider_configuration import (
     ModelLister,
     ProviderCapabilities,
 )
-from deykit.contracts.ports import ProjectSource
 from deykit.contracts.records import ProviderProfile
 from deykit.providers.choice import COMPILER_ID, COMPILER_VERSION
 from deykit.providers.credentials import Credentials, SecretStore, os_secret_store

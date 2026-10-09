@@ -656,13 +656,13 @@ def transform_editor(editor_source: str, edit: EditorEditV1) -> EditorTransformV
             option["description"] = admitted.description
         elif isinstance(admitted, ReorderOptions):
             existing: dict[str, JsonValue] = {}
-            for option in options:
-                if not _is_object(option):
+            for candidate in options:
+                if not _is_object(candidate):
                     raise ValueError("invalid_option_order")
-                option_id = option.get("id")
+                option_id = candidate.get("id")
                 if type(option_id) is not str:
                     raise ValueError("invalid_option_order")
-                existing[option_id] = option
+                existing[option_id] = candidate
             if len(existing) != len(options) or set(existing) != set(admitted.option_ids):
                 raise ValueError("invalid_option_order")
             options[:] = [existing[key] for key in admitted.option_ids]
@@ -766,12 +766,16 @@ def _mapping_form(value: dict[str, JsonValue], source: str) -> MappingFormV1 | N
     for item in raw_fields:
         if not _is_object(item) or set(item) != {"source", "target", "parse_json"}:
             return None
-        source = item["source"]
+        source_field = item["source"]
         target = item["target"]
         parse_json = item["parse_json"]
-        if type(source) is not str or type(target) is not str or type(parse_json) is not bool:
+        if (
+            type(source_field) is not str
+            or type(target) is not str
+            or type(parse_json) is not bool
+        ):
             return None
-        fields.append(MappingFieldFormV1(source, target, parse_json))
+        fields.append(MappingFieldFormV1(source_field, target, parse_json))
     if not _is_array(raw_aliases):
         return None
     aliases: list[MappingAliasFormV1] = []
