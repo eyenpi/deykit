@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 from typer.testing import CliRunner
@@ -48,9 +48,7 @@ from deykit.providers.choice import compile_choice
 from deykit.storage import FileProjectSource
 
 
-def stored(
-    collection: Collection, resource_id: str, scope: tuple[str, ...] = ()
-) -> StoredRecord:
+def stored(collection: Collection, resource_id: str, scope: tuple[str, ...] = ()) -> StoredRecord:
     return StoredRecord(ResourceKey(collection, resource_id, scope), b"{}", "0" * 64)
 
 
@@ -95,9 +93,9 @@ def test_missing_selector_returns_only_sorted_safe_ids_in_scope() -> None:
 
 def test_cross_kind_selection_keeps_equal_ids_distinct() -> None:
     records = (stored("runs", "shared"), stored("evaluations", "shared"))
-    assert [(item.kind, item.resource_id) for item in choices_for_kinds(
-        records, ("run", "evaluation")
-    )] == [("evaluation", "shared"), ("run", "shared")]
+    assert [
+        (item.kind, item.resource_id) for item in choices_for_kinds(records, ("run", "evaluation"))
+    ] == [("evaluation", "shared"), ("run", "shared")]
 
     with pytest.raises(ServiceFailure) as ambiguous:
         require_one_of(records, ("run", "evaluation"), "shared")
@@ -110,9 +108,7 @@ def test_cross_kind_selection_keeps_equal_ids_distinct() -> None:
 
 
 def test_selection_details_are_transient_top_level_cli_metadata(capsys) -> None:
-    selection = SelectionDetails(
-        choices=(ResourceChoice(kind="decision", resource_id="known"),)
-    )
+    selection = SelectionDetails(choices=(ResourceChoice(kind="decision", resource_id="known"),))
     failure = ServiceFailure(ServiceError(code="not_found"), selection=selection)
     emit_error(CliState(None, True), failure.error, selection=failure.selection)
 

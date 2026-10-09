@@ -17,7 +17,7 @@ from deykit.application.execution import ExecutionService
 from deykit.cli.context import CliState, SystemClock, new_operation_id, projects_service
 from deykit.cli.input import source_text
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.codec import load_record
 from deykit.contracts.errors import ErrorCode, ServiceError
 from deykit.contracts.json_value import JsonError
@@ -245,8 +245,9 @@ def credential_set(
     def work(cli: CliState) -> object:
         if sum((env is not None, stdin, prompt)) != 1:
             raise _failure("validation_error", "input_mode_conflict")
-        with cli.source() as source, selection_context(
-            source, (selector_hint("provider", provider, ()),)
+        with (
+            cli.source() as source,
+            selection_context(source, (selector_hint("provider", provider, ()),)),
         ):
             profiles = ProviderProfiles(source)
             reference = (
@@ -301,8 +302,9 @@ def credential_forget(
     actual = new_operation_id(operation_id)
 
     def work(cli: CliState) -> object:
-        with cli.source() as source, selection_context(
-            source, (selector_hint("provider", provider, ()),)
+        with (
+            cli.source() as source,
+            selection_context(source, (selector_hint("provider", provider, ()),)),
         ):
             profiles = ProviderProfiles(source)
             expected = if_hash if if_hash is not None else profiles.view(provider).etag

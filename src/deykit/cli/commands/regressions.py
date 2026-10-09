@@ -12,7 +12,7 @@ from deykit.application.regressions import RegressionAdd, RegressionService
 from deykit.cli.commands.execution import service
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
-from deykit.cli.selection import SelectorOwner, selector_hint, selection_context
+from deykit.cli.selection import SelectorOwner, selection_context, selector_hint
 from deykit.contracts.records import ExecutionSettings
 
 regressions_app = typer.Typer(help="Save immutable input and explicit expected-option regressions.")

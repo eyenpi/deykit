@@ -13,7 +13,7 @@ from deykit.application.splits import SplitService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import execute
 from deykit.cli.preview import split_preview
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import JsonValue, dump_json, parse_json
 from deykit.domain.splits import DEFAULT_RATIOS, Split

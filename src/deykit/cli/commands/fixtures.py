@@ -60,9 +60,7 @@ def create_fixture(
                 )
             except ServiceFailure as original:
                 try:
-                    bindings = tuple(
-                        load_record(FixtureBinding, line) for line in binding_lines
-                    )
+                    bindings = tuple(load_record(FixtureBinding, line) for line in binding_lines)
                 except (JsonError, ValidationError):
                     bindings = ()
                 hints.extend(

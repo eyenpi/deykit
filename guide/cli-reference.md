@@ -18,6 +18,10 @@ include transient `selection.choices`. Choices contain exact IDs and owning scop
 They do not accept display names as aliases. A case choice is scoped to its
 dataset; a revision choice is scoped to its decision.
 
+Typer also provides root-level `--install-completion` and `--show-completion`
+flags for shell completion. `--version` prints the installed version; `--help`
+shows the current command interface.
+
 List commands return `total` and `next_cursor`; request the next page with the
 same command's `--cursor` and a `--limit` from 1 through 500. Fixture summaries
 omit raw request bodies by default. Add `fixture show ID --request` only when the

@@ -16,7 +16,7 @@ from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
 from deykit.cli.preview import import_preview
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.cli.splits import split_dataset
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import parse_json
@@ -110,7 +110,9 @@ def edit_dataset(
         with cli.source() as source:
             with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
                 service = DatasetService(source, SystemClock())
-                metadata = source_text(file=file, stdin=stdin) if file is not None or stdin else None
+                metadata = (
+                    source_text(file=file, stdin=stdin) if file is not None or stdin else None
+                )
                 return service.update(
                     dataset_id,
                     name=name,
@@ -206,12 +208,14 @@ def import_dataset(
         text = source_text(file=file, stdin=stdin)
         mapping_text = mapping.read_text(encoding="utf-8")
         with cli.source() as source:
-            hints = (selector_hint("dataset", dataset_id, ()),) + (
-                (selector_hint("decision", decision, ()),) if decision else ()
-            ) + (
-                (selector_hint("revision", revision, (decision,)),)
-                if revision and decision
-                else ()
+            hints = (
+                (selector_hint("dataset", dataset_id, ()),)
+                + ((selector_hint("decision", decision, ()),) if decision else ())
+                + (
+                    (selector_hint("revision", revision, (decision,)),)
+                    if revision and decision
+                    else ()
+                )
             )
             with selection_context(source, hints):
                 service = ImportService(source, SystemClock())

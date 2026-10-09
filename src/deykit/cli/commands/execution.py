@@ -12,7 +12,7 @@ from deykit.application.evaluations import EvaluationService
 from deykit.application.execution import ExecutionService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.backends import ProviderBackends

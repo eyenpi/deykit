@@ -235,9 +235,7 @@ def test_fixture_page_and_identity_summary_keep_requests_private_by_default(tmp_
 
 def test_fixture_request_projection_redacts_without_rewriting_authored_hashes():
     original_source = (
-        '{"text":"Bearer fixture-secret",'
-        '"api_key":"fixture-secret",'
-        '"exact":9007199254740993}'
+        '{"text":"Bearer fixture-secret","api_key":"fixture-secret","exact":9007199254740993}'
     )
     original_body = original_source.encode("utf-8")
     compiled = compile_choice(

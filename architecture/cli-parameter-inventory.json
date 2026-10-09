@@ -9,7 +9,8 @@
       "Parser types remain distinct from application-level validation; for example report target-kind and format values are validated by the report command while their parser type is str.",
       "Global --project and --json options are documented separately in guide/cli-reference.md and are not repeated as leaf parameters.",
       "All observed options are public help entries; hidden is explicitly false for every committed leaf parameter.",
-      "The root callback adds --project and --json plus the eager --version flag; their parser metadata is recorded separately from leaf commands."
+      "The root callback adds --project and --json plus the eager --version flag; their parser metadata is recorded separately from leaf commands.",
+      "Typer injects --install-completion and --show-completion on the root command; they are recorded as framework-provided global flags and remain enabled."
     ]
   },
   "global_options": [
@@ -45,6 +46,28 @@
       "required": false,
       "is_flag": true,
       "eager": true
+    },
+    {
+      "name": "install_completion",
+      "options": [
+        "--install-completion"
+      ],
+      "type": "boolean",
+      "default": null,
+      "required": false,
+      "is_flag": true,
+      "eager": false
+    },
+    {
+      "name": "show_completion",
+      "options": [
+        "--show-completion"
+      ],
+      "type": "boolean",
+      "default": null,
+      "required": false,
+      "is_flag": true,
+      "eager": false
     }
   ],
   "semantic_values": [

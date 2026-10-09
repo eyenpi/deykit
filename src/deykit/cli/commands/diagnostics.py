@@ -11,7 +11,7 @@ from deykit.application.diagnostics import ChoiceOrderRequest, DiagnosticService
 from deykit.cli.commands.execution import service
 from deykit.cli.context import CliState, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.planner import RunRequest
 
@@ -102,9 +102,7 @@ def choice_order(
 def show(ctx: typer.Context, group_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            with selection_context(
-                source, (selector_hint("execution_group", group_id, ()),)
-            ):
+            with selection_context(source, (selector_hint("execution_group", group_id, ()),)):
                 return _outcome(DiagnosticService(service(source)).read(group_id)).data
 
     execute(ctx, work)
@@ -121,9 +119,7 @@ def resume(
 
     def work(cli: CliState) -> CommandOutcome:
         with cli.source() as source:
-            with selection_context(
-                source, (selector_hint("execution_group", group_id, ()),)
-            ):
+            with selection_context(source, (selector_hint("execution_group", group_id, ()),)):
                 return _outcome(
                     asyncio.run(
                         DiagnosticService(service(source)).resume(

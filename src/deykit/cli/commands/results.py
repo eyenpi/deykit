@@ -14,7 +14,7 @@ from deykit.application.results import ResultInspection
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import source_text
 from deykit.cli.output import execute
-from deykit.cli.selection import SelectorOwner, selector_hint, selection_context
+from deykit.cli.selection import SelectorOwner, selection_context, selector_hint
 from deykit.contracts.errors import ServiceError
 
 results_app = typer.Typer(help="Browse immutable results and their evidence.")
@@ -41,11 +41,7 @@ def list_results(
     def work(cli: CliState) -> object:
         with cli.source() as source:
             hints = (selector_hint("run", run_id, ()),) + (
-                (
-                    selector_hint(
-                        "evaluation", evaluation, (), owner=SelectorOwner("run", run_id)
-                    ),
-                )
+                (selector_hint("evaluation", evaluation, (), owner=SelectorOwner("run", run_id)),)
                 if evaluation is not None
                 else ()
             )
@@ -83,11 +79,7 @@ def show_result(
                 selector_hint("run", run_id, ()),
                 selector_hint("case", case_id, (), owner=SelectorOwner("run", run_id)),
             ) + (
-                (
-                    selector_hint(
-                        "evaluation", evaluation, (), owner=SelectorOwner("run", run_id)
-                    ),
-                )
+                (selector_hint("evaluation", evaluation, (), owner=SelectorOwner("run", run_id)),)
                 if evaluation is not None
                 else ()
             )

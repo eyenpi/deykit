@@ -12,7 +12,7 @@ from deykit.application.definitions import DecisionService
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.input import optional_source, source_text
 from deykit.cli.output import execute
-from deykit.cli.selection import selector_hint, selection_context
+from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.identities import new_id
 
 decision_app = typer.Typer(help="Author choice definitions and immutable revisions.")
@@ -113,9 +113,7 @@ def edit_decision(
             )
         with cli.source() as source:
             hints = (selector_hint("decision", decision_id, ()),) + (
-                (selector_hint("revision", from_revision, (decision_id,)),)
-                if from_revision
-                else ()
+                (selector_hint("revision", from_revision, (decision_id,)),) if from_revision else ()
             )
             with selection_context(source, hints):
                 service = DecisionService(source, SystemClock())
