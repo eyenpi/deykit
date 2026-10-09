@@ -150,11 +150,12 @@ def _seed_one_case(source: ApiProjectSource, dependencies: ApiDependencies) -> N
     )
     datasets = DatasetService(source, dependencies.clock, dependencies.id_factory)
     dataset = datasets.create("Dataset", dataset_id="dataset", operation_id="seed-dataset")
+    case_source = '{"text":"hello"}'
     case = datasets.add_case(
         "dataset",
         CaseInput(
             input_kind="json",
-            input_source='{"text":"hello"}',
+            input_source=case_source,
             tags=("gold",),
             split="development",
         ),
@@ -167,7 +168,7 @@ def _seed_one_case(source: ApiProjectSource, dependencies: ApiDependencies) -> N
     fixtures.create_profile("fixture-provider", "authored-api-v1", operation_id="seed-profile")
     compiled = compile_choice(
         definition,
-        select_input(definition, JsonDocument(case.case.input_source)).value,
+        select_input(definition, JsonDocument(case_source)).value,
         "authored-api-v1",
         adapter="fixture",
     )
