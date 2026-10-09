@@ -13,6 +13,7 @@ from deykit.application.diagnostics import (
     diagnostic_snapshot_from_records,
 )
 from deykit.application.errors import ServiceFailure
+from deykit.application.labels import LabelService
 from deykit.application.regressions import RegressionAdd, RegressionService
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.execution_groups import ExecutionGroup
@@ -599,8 +600,42 @@ def test_same_etag_regression_provenance_substitution_conflicts_before_check_gro
     assert len(factory.calls) == 1
 
 
-def test_default_check_review_binds_excluded_and_removed_regression_records(setup):
+def test_default_check_review_binds_label_provenance_and_regression_membership(setup):
     source, runner, factory, clock = setup(count=1)
+    label_ids = iter(("label-change-1", "label-change-2"))
+    labels = LabelService(source, clock, lambda: next(label_ids))
+    initial_review = labels.read("decision", "data", "case-00").review
+    labels.set(
+        initial_review,
+        ("yes",),
+        provenance="human",
+        operation_id="save-label",
+    )
+    run_review_hash_before_label_edit = runner.preview(request()).review_context_hash
+    current_review = labels.read("decision", "data", "case-00").review
+    labels.set(
+        current_review,
+        ("yes",),
+        provenance="authored_fixture",
+        operation_id="change-label-provenance",
+    )
+    before_label_stale_start = source.capture_snapshot()
+    label_callbacks = []
+    with pytest.raises(ServiceFailure) as label_failure:
+        asyncio.run(
+            runner.start(
+                request(),
+                operation_id="stale-label-provenance",
+                expected_review_context_hash=run_review_hash_before_label_edit,
+                on_created=label_callbacks.append,
+            )
+        )
+    assert label_failure.value.error.code == "conflict"
+    assert source.capture_snapshot() == before_label_stale_start
+    assert source.list_ids("runs") == ()
+    assert label_callbacks == []
+    assert factory.calls == []
+
     origin = asyncio.run(runner.start(request(), operation_id="membership-origin"))
     ids = iter(("reg-a", "reg-b", "remove-a"))
     regressions = RegressionService(source, clock, lambda: next(ids))
@@ -679,8 +714,11 @@ def test_legacy_group_selection_remains_admitted_and_report_readable(setup):
 
 
 def test_same_etag_body_substitution_conflicts_in_admission_port(setup, monkeypatch):
-    source, runner, _factory, _ = setup(count=1)
+    source, runner, factory, _ = setup(count=1)
     plan = runner.planner.prepare(request())
+    review_hash = run_review_hash(plan)
+    original_capture = source.capture_snapshot
+    original_records = original_capture()
     case_record = next(
         record
         for record in plan.review_records
@@ -688,16 +726,36 @@ def test_same_etag_body_substitution_conflicts_in_admission_port(setup, monkeypa
     )
     case = load_record(CaseRecord, case_record.body)
     substituted = case.model_copy(update={"input_source": '{"text":"same-etag substitution"}'})
-    current = source.capture_snapshot()
     faulted = tuple(
         replace(record, body=dump_record(substituted))
         if record.key == case_record.key
         else record
-        for record in current
+        for record in original_records
     )
-    monkeypatch.setattr(source, "capture_snapshot", lambda: faulted)
-    with pytest.raises(ServiceFailure) as failure:
-        runner.planner.check_context(plan)
-    assert failure.value.error.code == "conflict"
     captured = next(record for record in faulted if record.key == case_record.key)
     assert captured.etag == case_record.etag
+    commits = []
+    original_commit = source.commit
+
+    def track_commit(*args, **kwargs):
+        commits.append((args, kwargs))
+        return original_commit(*args, **kwargs)
+
+    monkeypatch.setattr(source, "capture_snapshot", lambda: faulted)
+    monkeypatch.setattr(source, "commit", track_commit)
+    callbacks = []
+    with pytest.raises(ServiceFailure) as failure:
+        asyncio.run(
+            runner.start(
+                request(),
+                operation_id="same-etag-case-fault",
+                expected_review_context_hash=review_hash,
+                on_created=callbacks.append,
+            )
+        )
+    assert failure.value.error.code == "conflict"
+    assert original_capture() == original_records
+    assert commits == []
+    assert source.list_ids("runs") == ()
+    assert callbacks == []
+    assert factory.calls == []

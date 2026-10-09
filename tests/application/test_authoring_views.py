@@ -117,7 +117,8 @@ def test_common_schema_edit_keeps_advanced_exact_constraints_and_unedited_source
     schema = (
         '{"type":"object","properties":{"name":{"type":"string","description":"Keep",'
         '"minLength":1},"score":{"type":"number","minimum":9007199254740993,'
-        '"multipleOf":0.125}},"required":["name"],"additionalProperties":false,'
+        '"multipleOf":0.125},"fraction":{"type":"number",'
+        '"maximum":0.1234567890123456789}},"required":["name"],"additionalProperties":false,'
         '"$defs":{"tag":{"type":"string"}}}'
     )
     projection = project_schema(schema)
@@ -127,6 +128,8 @@ def test_common_schema_edit_keeps_advanced_exact_constraints_and_unedited_source
     score = next(item for item in projection.fields if item.name == "score")
     assert score.field_type == "number"
     assert score.advanced_keywords == ("minimum", "multipleOf")
+    fraction = next(item for item in projection.fields if item.name == "fraction")
+    assert fraction.advanced_keywords == ("maximum",)
     assert "additionalProperties" in projection.advanced_keywords
 
     source = editor_source(schema)
@@ -145,6 +148,9 @@ def test_common_schema_edit_keeps_advanced_exact_constraints_and_unedited_source
     assert score_schema["type"] == "integer"
     assert score_schema["minimum"] == Decimal("9007199254740993")
     assert score_schema["multipleOf"] == Decimal("0.125")
+    assert transformed_schema["properties"]["fraction"]["maximum"] == Decimal(
+        "0.1234567890123456789"
+    )
     assert transformed_schema["properties"]["name"]["description"] == "Keep"
     assert transformed_schema["required"] == ["name", "score"]
     assert transformed_schema["additionalProperties"] is False
