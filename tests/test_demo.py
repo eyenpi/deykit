@@ -23,6 +23,7 @@ from deykit.contracts.records import (
     ChoiceDefinition,
     ChoiceQuestion,
     DecisionRevision,
+    FixtureSet,
     LabelRecord,
     ProjectRecord,
 )
@@ -753,10 +754,23 @@ def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp
         graph_counts = {
             "project": 1,
             "cases": 12,
-            "bindings": 11,
             "labels": 9,
+            "fixtures": 1,
         }
         assert {name: collections[name] for name in graph_counts} == graph_counts
+        case_ids = {
+            row.key.resource_id
+            for row in receipt.changes
+            if row.key.collection == "cases"
+        }
+        fixture_row = next(
+            row for row in receipt.changes if row.key.collection == "fixtures"
+        )
+        fixture_set = load_record(FixtureSet, fixture_row.body)
+        bound_case_ids = {binding.case_id for binding in fixture_set.bindings}
+        assert len(fixture_set.bindings) == 11
+        assert len(bound_case_ids) == 11
+        assert bound_case_ids <= case_ids
 
         # Retry only after both racing calls have settled. It must replay the
         # winning graph and leave its receipt and original identifiers intact.
