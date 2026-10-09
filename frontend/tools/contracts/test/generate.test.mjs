@@ -138,6 +138,45 @@ test("operation metadata is derived only from registered OpenAPI operations", as
   assert.match(artifacts.get("openapi.d.ts"), /bootstrapSession/);
 });
 
+test("OpenAPI discriminators retain oneOf validation in generated validators", async () => {
+  const sample = inputs();
+  sample.schemas.Tagged = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "urn:deykit:test:Tagged",
+    type: "object",
+    additionalProperties: false,
+    required: ["edit"],
+    properties: {
+      edit: {
+        discriminator: {
+          propertyName: "kind",
+          mapping: { set: "#/components/schemas/SetEdit" },
+        },
+        oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "value"],
+            properties: {
+              kind: { const: "set" },
+              value: { type: "string" },
+            },
+          },
+        ],
+      },
+    },
+  };
+  const generated = await generateArtifacts(
+    sample.openapi,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  const validators = await validatorsFor(generated);
+
+  assert.equal(validators.validateTagged({ edit: { kind: "set", value: "x" } }), true);
+  assert.equal(validators.validateTagged({ edit: { kind: "other", value: "x" } }), false);
+});
+
 test("standalone validator enforces explicit version, strict fields and Unicode code points", async () => {
   const sample = inputs();
   const generated = await generateArtifacts(

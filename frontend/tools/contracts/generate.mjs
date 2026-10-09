@@ -188,6 +188,7 @@ function assertSchemaSubset(schemas) {
     "deprecated",
     "readOnly",
     "writeOnly",
+    "discriminator",
     "type",
     "enum",
     "const",
@@ -258,6 +259,24 @@ function assertSchemaSubset(schemas) {
     for (const [keyword, value] of Object.entries(schema)) {
       if (!vocabulary.has(keyword)) throw new Error(fixedSchemaError);
       if (keyword === "format") throw new Error(fixedSchemaError);
+      if (keyword === "discriminator") {
+        if (
+          value === null ||
+          typeof value !== "object" ||
+          Array.isArray(value) ||
+          typeof value.propertyName !== "string" ||
+          !value.propertyName ||
+          Object.keys(value).some((key) => !["propertyName", "mapping"].includes(key)) ||
+          (value.mapping !== undefined &&
+            (value.mapping === null ||
+              typeof value.mapping !== "object" ||
+              Array.isArray(value.mapping) ||
+              Object.values(value.mapping).some((target) => typeof target !== "string")))
+        ) {
+          throw new Error(fixedSchemaError);
+        }
+        continue;
+      }
       if (schemaMaps.has(keyword)) {
         if (
           value === null ||
@@ -280,6 +299,16 @@ function assertSchemaSubset(schemas) {
     }
   };
   for (const schema of Object.values(schemas)) inspectSchema(schema);
+}
+
+function withoutDiscriminator(value) {
+  if (Array.isArray(value)) return value.map(withoutDiscriminator);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "discriminator")
+      .map(([key, child]) => [key, withoutDiscriminator(child)]),
+  );
 }
 
 function validatorAlias(name) {
@@ -460,7 +489,8 @@ export async function generateArtifacts(openapi, schemas, inputHashes) {
     allErrors: false,
     code: { source: true, esm: false },
   });
-  for (const [name, schema] of sortedSchemas) ajv.addSchema(schema, name);
+  for (const [name, schema] of sortedSchemas)
+    ajv.addSchema(withoutDiscriminator(schema), name);
   const validatorSource = standaloneCode(ajv, validators);
   const declarationSource = [
     "declare const validators: {",
