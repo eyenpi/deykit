@@ -368,8 +368,18 @@ class Workflow:
         listed_labels = self.data(
             "label", "list", "--decision", self.decision_id, "--dataset", self.dataset_id
         )
-        if listed_labels["total"] != 4:
-            raise RuntimeError("the four independently authored labels are not visible")
+        labeled_case_ids = {
+            item["case"]["id"] for item in listed_labels["items"] if item["label"] is not None
+        }
+        unlabelled_case_ids = {
+            item["case"]["id"] for item in listed_labels["items"] if item["label"] is None
+        }
+        if (
+            listed_labels["total"] != ORACLE["case_count"]
+            or labeled_case_ids != {"c-001", "c-002", "c-003", "c-006"}
+            or unlabelled_case_ids != {"c-004", "c-005"}
+        ):
+            raise RuntimeError("label listing does not distinguish authored and unlabelled cases")
         # Exercise every label transition on the separate, initially unlabelled c-004 row.
         self.data(
             "label",
