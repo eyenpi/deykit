@@ -263,7 +263,7 @@ def test_original_reviewed_run_replays_before_mutable_preflight(setup, monkeypat
     assert len(factory.calls) == 1
 
 
-@pytest.mark.parametrize("change", ["profile", "fixture", "compiler"])
+@pytest.mark.parametrize("change", ["profile", "compiler"])
 def test_reviewed_run_rejects_real_context_mutations_before_effects(setup, change):
     source, runner, factory, _ = setup(count=1, invalid=(0,) if change == "compiler" else ())
     selected = request()
@@ -290,18 +290,6 @@ def test_reviewed_run_rejects_real_context_mutations_before_effects(setup, chang
             profile.model_copy(update={"requested_model": "authored-v2"}),
             operation_id="edit-review-profile",
         )
-    elif change == "fixture":
-        stored = source.read(ResourceKey("fixtures", "set"))
-        assert stored is not None
-        fixture = load_record(FixtureSet, stored.body)
-        changed_fixture = fixture.model_copy(update={"name": "Renamed evidence"})
-        assert fixture_set_hash(changed_fixture) == fixture.content_hash
-        replace_record(
-            source,
-            stored.key,
-            changed_fixture,
-            operation_id="edit-review-fixture",
-        )
     else:
         class AlternateCompiler:
             review_identity = CompilerIdentity("alternate-choice", "9")
@@ -327,6 +315,45 @@ def test_reviewed_run_rejects_real_context_mutations_before_effects(setup, chang
     assert source.list_ids("runs") == ()
     assert callbacks == []
     assert not runner.execution.execution_active()
+    assert factory.calls == []
+
+
+def test_reviewed_start_rejects_same_etag_fixture_body_substitution_before_effects(
+    setup, monkeypatch
+):
+    source, runner, factory, _ = setup(count=1)
+    preview_hash = runner.preview(request()).review_context_hash
+    fixture_record = next(
+        record
+        for record in source.capture_snapshot()
+        if record.key == ResourceKey("fixtures", "set")
+    )
+    fixture = load_record(FixtureSet, fixture_record.body)
+    substituted_fixture = fixture.model_copy(update={"name": "Renamed evidence"})
+    assert fixture_set_hash(substituted_fixture) == fixture.content_hash
+    faulted = tuple(
+        replace(record, body=dump_record(substituted_fixture))
+        if record.key == fixture_record.key
+        else record
+        for record in source.capture_snapshot()
+    )
+    captured = next(record for record in faulted if record.key == fixture_record.key)
+    assert captured.etag == fixture_record.etag
+    monkeypatch.setattr(source, "capture_snapshot", lambda: faulted)
+    callbacks = []
+
+    with pytest.raises(ServiceFailure) as failure:
+        asyncio.run(
+            runner.start(
+                request(),
+                operation_id="stale-fixture-bytes",
+                expected_review_context_hash=preview_hash,
+                on_created=callbacks.append,
+            )
+        )
+    assert failure.value.error.code == "conflict"
+    assert source.list_ids("runs") == ()
+    assert callbacks == []
     assert factory.calls == []
 
 
