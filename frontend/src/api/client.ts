@@ -120,6 +120,17 @@ export interface ApiDownload {
 const validatorsByName = validators as unknown as Readonly<
   Record<string, (value: unknown) => boolean>
 >;
+const typedArrayNameGetter = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype),
+  Symbol.toStringTag,
+)?.get;
+
+function isUint8ArrayChunk(value: unknown): value is Uint8Array {
+  return (
+    ArrayBuffer.isView(value) &&
+    typedArrayNameGetter?.call(value) === "Uint8Array"
+  );
+}
 
 function exactRecord(
   value: unknown,
@@ -706,7 +717,7 @@ export class ApiClient {
         if (signal?.aborted)
           throw new ApiError("cancelled", "The request was cancelled.");
         if (part.done) break;
-        if (!(part.value instanceof Uint8Array))
+        if (!isUint8ArrayChunk(part.value))
           throw this.#responseInvalid(response.status);
         received += part.value.byteLength;
         if (received > maxBytes) throw this.#responseInvalid(response.status);
