@@ -45,9 +45,7 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
     origin = "http://127.0.0.1:8748"
 
     def provider_operations(source):
-        return create_provider_operations(
-            source, environment={}, os_store_factory=lambda: store
-        )
+        return create_provider_operations(source, environment={}, os_store_factory=lambda: store)
 
     dependencies = ApiDependencies(
         clock=clock,
@@ -93,9 +91,7 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 registration_id = registered.json()["data"]["registration_id"]
                 source = app.app.state.project_registry.require(registration_id).source
                 profiles = ProviderProfiles(source)
-                profile_path = (
-                    f"/api/v1/projects/{registration_id}/providers/profile"
-                )
+                profile_path = f"/api/v1/projects/{registration_id}/providers/profile"
                 configured = await client.put(
                     profile_path,
                     headers=headers,
@@ -124,10 +120,7 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 )
                 assert set_response.status_code == 500, set_response.text
                 assert set_response.json()["error"]["code"] == "internal_error"
-                assert (
-                    set_response.json()["error"]["reason"]
-                    == "credential_update_outcome_unknown"
-                )
+                assert set_response.json()["error"]["reason"] == "credential_update_outcome_unknown"
                 assert set_response.json()["error"]["resource_id"] == "profile"
                 assert "SECRET_SENTINEL" not in set_response.text
                 assert store.values[("deykit", "profile")] == "SECRET_SENTINEL"
@@ -176,8 +169,7 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 assert forget_response.status_code == 500, forget_response.text
                 assert forget_response.json()["error"]["code"] == "internal_error"
                 assert (
-                    forget_response.json()["error"]["reason"]
-                    == "credential_update_outcome_unknown"
+                    forget_response.json()["error"]["reason"] == "credential_update_outcome_unknown"
                 )
                 assert forget_response.json()["error"]["resource_id"] == "profile"
                 assert "SECRET_SENTINEL" not in forget_response.text

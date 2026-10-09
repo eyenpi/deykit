@@ -114,9 +114,7 @@ def assert_unknown(failure: ServiceFailure) -> None:
 
 def assert_secret_absent_from_project(source: FileProjectSource) -> None:
     assert not any(
-        b"SECRET_SENTINEL" in path.read_bytes()
-        for path in source.root.rglob("*")
-        if path.is_file()
+        b"SECRET_SENTINEL" in path.read_bytes() for path in source.root.rglob("*") if path.is_file()
     )
 
 
@@ -228,9 +226,7 @@ def test_forget_store_factory_failure_is_safe_before_external_action(tmp_path: P
         store=unavailable_factory,
     )
     with pytest.raises(ServiceFailure) as failure:
-        service.forget_credential(
-            "profile", expected_etag=etag, operation_id="forget-unavailable"
-        )
+        service.forget_credential("profile", expected_etag=etag, operation_id="forget-unavailable")
 
     assert failure.value.error.code == "preflight_failed"
     assert failure.value.error.reason == "credential_store_unavailable"
@@ -291,9 +287,7 @@ def test_commit_failure_is_unknown_and_exact_replay_controls_retry(
 ) -> None:
     store = MemoryCredentials()
     reference = "keyring:deykit/profile" if action == "forget" else None
-    source, writer, service, etag = setup(
-        tmp_path, profile=live_profile(reference), store=store
-    )
+    source, writer, service, etag = setup(tmp_path, profile=live_profile(reference), store=store)
     commit = source.commit
     operation_id = f"{action}-commit-failure"
 
@@ -315,9 +309,7 @@ def test_commit_failure_is_unknown_and_exact_replay_controls_retry(
                 expected_etag=etag,
                 operation_id=operation_id,
             )
-        return service.forget_credential(
-            "profile", expected_etag=etag, operation_id=operation_id
-        )
+        return service.forget_credential("profile", expected_etag=etag, operation_id=operation_id)
 
     monkeypatch.setattr(source, "commit", fail_commit)
     with pytest.raises(ServiceFailure) as failure:
@@ -355,9 +347,7 @@ def test_posthook_source_admission_errors_are_unknown_for_both_actions(
 ) -> None:
     store = MemoryCredentials()
     reference = "keyring:deykit/profile" if action == "forget" else None
-    source, writer, service, etag = setup(
-        tmp_path, profile=live_profile(reference), store=store
-    )
+    source, writer, service, etag = setup(tmp_path, profile=live_profile(reference), store=store)
     admitted_source = source.capture_snapshot()
     operation_id = f"{action}-posthook-{reason}"
 
@@ -375,9 +365,7 @@ def test_posthook_source_admission_errors_are_unknown_for_both_actions(
                 operation_id=operation_id,
             )
         else:
-            service.forget_credential(
-                "profile", expected_etag=etag, operation_id=operation_id
-            )
+            service.forget_credential("profile", expected_etag=etag, operation_id=operation_id)
 
     assert_unknown(failure.value)
     assert "SECRET_SENTINEL" not in repr(failure.value.error.safe_dict())
@@ -427,9 +415,7 @@ def test_credential_action_and_competing_project_edit_share_one_source_epoch(
                     operation_id="held-set",
                 )
             else:
-                service.forget_credential(
-                    "profile", expected_etag=etag, operation_id="held-forget"
-                )
+                service.forget_credential("profile", expected_etag=etag, operation_id="held-forget")
         except Exception as error:
             errors.append(error)
 
@@ -442,9 +428,7 @@ def test_credential_action_and_competing_project_edit_share_one_source_epoch(
 
     def compete() -> None:
         try:
-            competing_writer.configure(
-                changed, expected_etag=etag, operation_id="competing-edit"
-            )
+            competing_writer.configure(changed, expected_etag=etag, operation_id="competing-edit")
         except Exception as error:
             competing_errors.append(error)
         finally:

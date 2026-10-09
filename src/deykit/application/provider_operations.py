@@ -77,9 +77,7 @@ class ProviderOperations:
         view = self._reader.view(profile_id)
         return self._presentation(view.profile, view.etag)
 
-    def list(
-        self, *, cursor: str | None = None, limit: int = 50
-    ) -> ProviderPresentationPage:
+    def list(self, *, cursor: str | None = None, limit: int = 50) -> ProviderPresentationPage:
         page = self._reader.list_views(cursor=cursor, limit=limit)
         return ProviderPresentationPage(
             tuple(self._presentation(view.profile, view.etag) for view in page.items),
@@ -275,9 +273,7 @@ class ProviderOperations:
                 ) from None
             raise
 
-    async def list_models(
-        self, profile_id: str, *, timeout_seconds: float = 60
-    ) -> ModelList:
+    async def list_models(self, profile_id: str, *, timeout_seconds: float = 60) -> ModelList:
         profile = self._reader.view(profile_id).profile
         return await self._list_models_for_profile(profile, timeout_seconds=timeout_seconds)
 

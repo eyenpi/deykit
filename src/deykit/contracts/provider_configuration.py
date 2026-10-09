@@ -173,9 +173,7 @@ class CredentialReferences(Protocol):
 
 
 class ProviderDescriptor(Protocol):
-    def describe(
-        self, profile: ProviderProfile
-    ) -> tuple[CompilerInfo, ProviderCapabilities]: ...
+    def describe(self, profile: ProviderProfile) -> tuple[CompilerInfo, ProviderCapabilities]: ...
 
 
 class ModelLister(Protocol):

@@ -60,9 +60,7 @@ def test_progress_view_maps_live_provenance_and_avoids_inconsistent_compiler_cho
         prepared=(
             first,
             second.model_copy(
-                update={
-                    "request": second.request.model_copy(update={"compiler_version": "2"})
-                }
+                update={"request": second.request.model_copy(update={"compiler_version": "2"})}
             ),
         ),
     )
