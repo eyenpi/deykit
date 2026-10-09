@@ -24,6 +24,9 @@ def test_schema_export_has_only_real_routes_and_required_version(tmp_path: Path)
     assert "HTTPValidationError" not in openapi["components"]["schemas"]
     schemas = json.loads(first["schemas.json"])
     assert "schema_version" in schemas["Success_BootstrapReply_"]["required"]
+    failure = schemas["Failure"]
+    assert failure["properties"]["selection"]["anyOf"]
+    assert failure["properties"]["selection"]["default"] is None
     export_contracts(tmp_path)
     export_contracts(tmp_path, check=True)
     (tmp_path / "openapi.json").write_text("{}")

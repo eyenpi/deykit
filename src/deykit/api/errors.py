@@ -6,6 +6,7 @@ from starlette.responses import JSONResponse
 
 from deykit.application.errors import ServiceFailure
 from deykit.contracts.json_value import JsonError
+from deykit.contracts.selection import SelectionDetails
 
 from .dto.common import ErrorDTO, Failure
 
@@ -42,11 +43,11 @@ class TransportFailure(Exception):
         super().__init__(code)
 
 
-def safe_error(error: Exception) -> tuple[int, ErrorDTO]:
+def safe_error(error: Exception) -> tuple[int, ErrorDTO, SelectionDetails | None]:
     if isinstance(error, TransportFailure):
         return error.status, ErrorDTO(
             code=error.code, message=_MESSAGES[error.code], reason=error.reason
-        )
+        ), None
     if isinstance(error, ServiceFailure):
         record = error.error
         return _STATUSES.get(record.code, 500), ErrorDTO(
@@ -57,20 +58,20 @@ def safe_error(error: Exception) -> tuple[int, ErrorDTO]:
             if record.row is not None and 0 <= record.row <= 9007199254740991
             else None,
             reason=record.reason,
-        )
+        ), error.selection
     if isinstance(error, JsonError):
         return 422, ErrorDTO(
             code="validation_error", message=_MESSAGES["validation_error"], reason=error.code
-        )
+        ), None
     return 500, ErrorDTO(
         code="internal_error", message=_MESSAGES["internal_error"], correlation_id=uuid4().hex
-    )
+    ), None
 
 
 def error_response(error: Exception) -> JSONResponse:
-    status, dto = safe_error(error)
+    status, dto, selection = safe_error(error)
     return JSONResponse(
-        Failure(error=dto).model_dump(mode="json"),
+        Failure(error=dto, selection=selection).model_dump(mode="json"),
         status_code=status,
         headers={"Allow": "GET, HEAD, POST, PUT, PATCH, DELETE"} if status == 405 else None,
     )

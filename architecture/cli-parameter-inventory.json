@@ -2635,6 +2635,62 @@
           "maximum": null,
           "choices": [],
           "hidden": false
+        },
+        {
+          "name": "open_browser",
+          "options": [
+            "--open"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "serve": {
+      "guide": "guide/local-api.md",
+      "parameters": [
+        {
+          "name": "port",
+          "options": [
+            "--port"
+          ],
+          "secondary_options": [],
+          "type": "int range",
+          "default": 8765,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": 0,
+          "maximum": 65535,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "no_open",
+          "options": [
+            "--no-open"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
         }
       ]
     },

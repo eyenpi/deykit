@@ -10,6 +10,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   const demoPath = join(root, "<img src=x onerror=window.__xss=1>");
   const operationIds: string[] = [];
   const demoResponses: Array<{ status: number; replayed: boolean }> = [];
+  let demoRegistrationId: string | undefined;
   const requestUrls: string[] = [];
   const consoleMessages: string[] = [];
   let capability: string | undefined;
@@ -30,6 +31,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
     operationIds.push(request.postDataJSON().operation_id);
     const committed = await route.fetch({ headers: request.headers() });
     const body = await committed.json();
+    demoRegistrationId = body.data.registration.registration_id;
     demoResponses.push({ status: committed.status(), replayed: body.data.demo.replayed });
     if (!droppedCommittedResponse) {
       droppedCommittedResponse = true;
@@ -63,6 +65,100 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   await expect(page.getByText(demoPath, { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("open-demo.png"), fullPage: true });
 
+  expect(
+    typeof capability === "string" && /^[A-Za-z0-9_-]{43}$/.test(capability),
+  ).toBe(true);
+  expect(demoRegistrationId).toBeTruthy();
+  const sessionCapability = capability as string;
+  const registrationId = demoRegistrationId as string;
+  const origin = new URL(page.url()).origin;
+  const authorizedHeaders = {
+    Origin: origin,
+    "X-Deykit-Capability": sessionCapability,
+  };
+
+  const unauthorized = await page.request.get(
+    `/api/v1/projects/${registrationId}/overview`,
+    { headers: { Origin: origin } },
+  );
+  expect(unauthorized.status()).toBe(403);
+  expect((await unauthorized.json()).error.code).toBe("local_access_denied");
+
+  const demoRegistration = await page.request.get(
+    `/api/v1/projects/${registrationId}`,
+    { headers: authorizedHeaders },
+  );
+  expect(demoRegistration.status()).toBe(200);
+  expect((await demoRegistration.json()).data.registration_id).toBe(registrationId);
+  const demoOverview = await page.request.get(
+    `/api/v1/projects/${registrationId}/overview`,
+    { headers: authorizedHeaders },
+  );
+  expect(demoOverview.status()).toBe(200);
+  expect((await demoOverview.json()).data.registration.project.name).toBe("Sandbox");
+  const demoValidated = await page.request.post(
+    `/api/v1/projects/${registrationId}/validate`,
+    { headers: authorizedHeaders, data: { schema_version: 1 } },
+  );
+  expect(demoValidated.status()).toBe(200);
+
+  const createdPath = join(root, "Created project");
+  const createProject = await page.request.post("/api/v1/projects/register", {
+    headers: authorizedHeaders,
+    data: {
+      schema_version: 1,
+      operation_id: "installed-create-project",
+      action: "create",
+      path: createdPath,
+      name: "Installed project",
+    },
+  });
+  expect(createProject.status()).toBe(200);
+  const createdRegistration = (await createProject.json()).data;
+  const createdId = createdRegistration.registration_id as string;
+  const createdProjectId = createdRegistration.project.id as string;
+
+  const reopened = await page.request.post("/api/v1/projects/register", {
+    headers: authorizedHeaders,
+    data: {
+      schema_version: 1,
+      operation_id: "installed-open-project",
+      action: "open",
+      path: createdPath,
+    },
+  });
+  expect(reopened.status()).toBe(200);
+  expect((await reopened.json()).data).toMatchObject({
+    registration_id: createdId,
+    project: { id: createdProjectId, name: "Installed project" },
+  });
+
+  const createdOverview = await page.request.get(
+    `/api/v1/projects/${createdId}/overview`,
+    { headers: authorizedHeaders },
+  );
+  expect(createdOverview.status()).toBe(200);
+  expect((await createdOverview.json()).data).toMatchObject({
+    registration: { registration_id: createdId },
+    decisions: [],
+    datasets: [],
+  });
+  const createdValidated = await page.request.post(
+    `/api/v1/projects/${createdId}/validate`,
+    { headers: authorizedHeaders, data: { schema_version: 1 } },
+  );
+  expect(createdValidated.status()).toBe(200);
+  const recent = await page.request.get("/api/v1/projects/recent", {
+    headers: authorizedHeaders,
+  });
+  expect(recent.status()).toBe(200);
+  expect((await recent.json()).data.items).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: createdPath, name: "Installed project" }),
+      expect.objectContaining({ path: demoPath, name: "Sandbox" }),
+    ]),
+  );
+
   expect(operationIds).toHaveLength(2);
   expect(operationIds[0]).toBe(operationIds[1]);
   expect(demoResponses).toEqual([
@@ -80,9 +176,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   expect(
     requestUrls.every((url) => new URL(url).origin === new URL(page.url()).origin),
   ).toBe(true);
-  if (capability) {
-    expect(page.url()).not.toContain(capability);
-    expect(requestUrls.every((url) => !url.includes(capability))).toBe(true);
-    expect(consoleMessages.join("\n")).not.toContain(capability);
-  }
+  expect(page.url()).not.toContain(sessionCapability);
+  expect(requestUrls.every((url) => !url.includes(sessionCapability))).toBe(true);
+  expect(consoleMessages.join("\n")).not.toContain(sessionCapability);
 });

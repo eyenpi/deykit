@@ -104,6 +104,48 @@ describe("local API boundary", () => {
       client.request("/api/v1/drafts", jsonSource),
     ).rejects.toMatchObject({ code: "response_invalid" });
   });
+
+  it("preserves transient resource choices from the top-level failure envelope", async () => {
+    const selection = {
+      choices: [
+        {
+          kind: "decision",
+          resource_id: "decision-1",
+          scope: ["project-1"],
+        },
+      ],
+    };
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(
+      reply(
+        {
+          schema_version: 1,
+          error: {
+            schema_version: 1,
+            code: "not_found",
+            message: "The requested resource was not found.",
+            resource_id: "missing",
+            row: 7,
+            reason: "resource_missing",
+            correlation_id: "request-1",
+          },
+          selection,
+        },
+        404,
+      ),
+    );
+    const client = new ApiClient(transport);
+    client.setCapability("session");
+
+    await expect(client.request("/api/v1/projects", jsonSource)).rejects.toMatchObject({
+      code: "not_found",
+      status: 404,
+      resource_id: "missing",
+      row: 7,
+      reason: "resource_missing",
+      correlation_id: "request-1",
+      selection,
+    });
+  });
 });
 
 it("encodes pagination separately and captures the response revision", async () => {

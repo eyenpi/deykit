@@ -6,6 +6,7 @@ export type Decoder<T> = (value: unknown) => T;
 import validators from "./generated/validators.cjs";
 import type { components } from "./generated/openapi";
 export type ApiWarning = components["schemas"]["ErrorDTO"];
+export type ApiSelection = components["schemas"]["SelectionDetails"];
 export class ApiError extends Error {
   constructor(
     public readonly code: string,
@@ -15,6 +16,7 @@ export class ApiError extends Error {
     public readonly resource_id?: string | null,
     public readonly row?: number | null,
     public readonly correlation_id?: string | null,
+    public readonly selection?: ApiSelection | null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -272,6 +274,11 @@ export class ApiClient {
       typeof error.correlation_id === "string"
         ? error.correlation_id
         : error.correlation_id === null ? null : undefined,
+      envelope.selection === null
+        ? null
+        : validators.validateSelectionDetails(envelope.selection)
+          ? (envelope.selection as ApiSelection)
+          : undefined,
     );
   }
 }

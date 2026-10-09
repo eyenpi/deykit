@@ -6,6 +6,7 @@ from pydantic import Field, StringConstraints, field_validator
 
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.identities import ContentHash, ResourceId
+from deykit.contracts.selection import SelectionDetails
 
 SafeInt = Annotated[int, Field(strict=True, ge=-9007199254740991, le=9007199254740991)]
 Count = Annotated[int, Field(strict=True, ge=0, le=9007199254740991)]
@@ -56,6 +57,7 @@ class Success(ResponseRecord, Generic[T]):
 
 class Failure(ResponseRecord):
     error: ErrorDTO
+    selection: SelectionDetails | None = None
 
 
 class Versioned(FrozenModel, Generic[T]):
