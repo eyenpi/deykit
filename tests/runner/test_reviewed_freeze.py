@@ -323,9 +323,11 @@ def test_reviewed_start_rejects_same_etag_fixture_body_substitution_before_effec
 ):
     source, runner, factory, _ = setup(count=1)
     preview_hash = runner.preview(request()).review_context_hash
+    original_capture = source.capture_snapshot
+    original_records = original_capture()
     fixture_record = next(
         record
-        for record in source.capture_snapshot()
+        for record in original_records
         if record.key == ResourceKey("fixtures", "set")
     )
     fixture = load_record(FixtureSet, fixture_record.body)
@@ -339,7 +341,16 @@ def test_reviewed_start_rejects_same_etag_fixture_body_substitution_before_effec
     )
     captured = next(record for record in faulted if record.key == fixture_record.key)
     assert captured.etag == fixture_record.etag
+
+    commits = []
+    original_commit = source.commit
+
+    def track_commit(*args, **kwargs):
+        commits.append((args, kwargs))
+        return original_commit(*args, **kwargs)
+
     monkeypatch.setattr(source, "capture_snapshot", lambda: faulted)
+    monkeypatch.setattr(source, "commit", track_commit)
     callbacks = []
 
     with pytest.raises(ServiceFailure) as failure:
@@ -352,6 +363,8 @@ def test_reviewed_start_rejects_same_etag_fixture_body_substitution_before_effec
             )
         )
     assert failure.value.error.code == "conflict"
+    assert original_capture() == original_records
+    assert commits == []
     assert source.list_ids("runs") == ()
     assert callbacks == []
     assert factory.calls == []
