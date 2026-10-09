@@ -428,7 +428,7 @@ def test_cli_fixture_create_and_missing_case_choices_are_dataset_scoped(tmp_path
         answer=NormalizedAnswer(question_id="q", option_id="yes", reported_model="authored-model"),
     )
     bindings_file = tmp_path / "bindings.jsonl"
-    bindings_file.write_text(dump_record(binding) + "\n", encoding="utf-8")
+    bindings_file.write_bytes(dump_record(binding) + b"\n")
     prefix = ["--project", str(project), "--json"]
     authored = runner.invoke(
         app,
@@ -461,7 +461,7 @@ def test_cli_fixture_create_and_missing_case_choices_are_dataset_scoped(tmp_path
     assert json.loads(shown.stdout)["data"]["requests"] == [compiled.body.decode("utf-8")]
 
     missing_binding = binding.model_copy(update={"case_id": "missing-case"})
-    bindings_file.write_text(dump_record(missing_binding) + "\n", encoding="utf-8")
+    bindings_file.write_bytes(dump_record(missing_binding) + b"\n")
     missing = runner.invoke(
         app,
         [
