@@ -536,7 +536,9 @@ def test_original_reviewed_group_replays_before_mutable_preflight(setup, monkeyp
     assert len(factory.calls) == 2
 
 
-def test_stale_regression_provenance_conflicts_before_check_group_writes(setup):
+def test_same_etag_regression_provenance_substitution_conflicts_before_check_group_writes(
+    setup, monkeypatch
+):
     source, runner, factory, clock = setup(count=1)
     origin = asyncio.run(runner.start(request(), operation_id="provenance-origin"))
     regressions = RegressionService(source, clock, lambda: "review-regression")
@@ -554,17 +556,33 @@ def test_stale_regression_provenance_conflicts_before_check_group_writes(setup):
         decision_id="decision", mode="fixture", fixture_set_id="set"
     )
     preview_hash = service.preview(check_request).review_context_hash
-    stored = source.read(ResourceKey("regressions", "review-regression"))
-    assert stored is not None
+    original_capture = source.capture_snapshot
+    original_records = original_capture()
+    stored = next(
+        record
+        for record in original_records
+        if record.key == ResourceKey("regressions", "review-regression")
+    )
     regression = load_record(RegressionRecord, stored.body)
     changed = regression.model_copy(update={"provenance": "authored_fixture"})
-    replace_record(
-        source,
-        stored.key,
-        changed.model_copy(update={"content_hash": regression_hash(changed)}),
-        operation_id="edit-regression-provenance",
+    substituted = changed.model_copy(update={"content_hash": regression_hash(changed)})
+    faulted = tuple(
+        replace(record, body=dump_record(substituted))
+        if record.key == stored.key
+        else record
+        for record in original_records
     )
-    before = source.capture_snapshot()
+    captured = next(record for record in faulted if record.key == stored.key)
+    assert captured.etag == stored.etag
+    commits = []
+    original_commit = source.commit
+
+    def track_commit(*args, **kwargs):
+        commits.append((args, kwargs))
+        return original_commit(*args, **kwargs)
+
+    monkeypatch.setattr(source, "capture_snapshot", lambda: faulted)
+    monkeypatch.setattr(source, "commit", track_commit)
     with pytest.raises(ServiceFailure) as failure:
         asyncio.run(
             service.start(
@@ -574,7 +592,8 @@ def test_stale_regression_provenance_conflicts_before_check_group_writes(setup):
             )
         )
     assert failure.value.error.code == "conflict"
-    assert source.capture_snapshot() == before
+    assert original_capture() == original_records
+    assert commits == []
     assert source.list_ids("execution_groups") == ()
     assert len(source.list_ids("runs")) == 1
     assert len(factory.calls) == 1
