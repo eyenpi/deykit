@@ -94,9 +94,7 @@ class ExecutionSupervisor:
             if error is not None:
                 self._pre_ack(
                     acknowledged,
-                    ServiceFailure(
-                        ServiceError(code="internal_error", reason="execution_failed")
-                    ),
+                    ServiceFailure(ServiceError(code="internal_error", reason="execution_failed")),
                 )
 
     @staticmethod

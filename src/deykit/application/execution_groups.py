@@ -374,9 +374,7 @@ class GroupExecutionService:
                 ServiceError(code="internal_error", reason=reason, resource_id=value.group.id)
             ) from None
 
-    def _backend_captured(
-        self, history: RunHistory, records: tuple[StoredRecord, ...]
-    ) -> Backend:
+    def _backend_captured(self, history: RunHistory, records: tuple[StoredRecord, ...]) -> Backend:
         profile = history.manifest.provider
         if profile is None:
             fail("missing_frozen_provider", "incompatible_data")
@@ -524,8 +522,7 @@ class GroupExecutionService:
                 GroupMemberResumePreview(
                     history.manifest.id,
                     tuple(
-                        item.prepared.case_id
-                        for item in history.work(retry_unknown=retry_unknown)
+                        item.prepared.case_id for item in history.work(retry_unknown=retry_unknown)
                     ),
                 )
                 for history in histories
@@ -661,9 +658,7 @@ class GroupExecutionService:
                             operation_id, digest, command="start", replayed=True
                         )
                         if acknowledged is None:
-                            self._acknowledgement_incomplete(
-                                self._receipt_group_id(receipt)
-                            )
+                            self._acknowledgement_incomplete(self._receipt_group_id(receipt))
                         self._notify_acknowledged(
                             on_created, acknowledged, reason="group_created_callback_failed"
                         )
@@ -688,9 +683,7 @@ class GroupExecutionService:
                             operation_id, digest, command="start", replayed=True
                         )
                         if acknowledged is None:
-                            self._acknowledgement_incomplete(
-                                self._receipt_group_id(receipt)
-                            )
+                            self._acknowledgement_incomplete(self._receipt_group_id(receipt))
                         self._notify_acknowledged(
                             on_created, acknowledged, reason="group_created_callback_failed"
                         )

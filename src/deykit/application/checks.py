@@ -187,9 +187,7 @@ class CheckService:
             )
         )
 
-    def preview_resume(
-        self, group_id: str, *, retry_unknown: bool = False
-    ) -> GroupResumePreview:
+    def preview_resume(self, group_id: str, *, retry_unknown: bool = False) -> GroupResumePreview:
         return self.groups.preview_resume(
             group_id, retry_unknown=retry_unknown, expected_kind="regression_check"
         )

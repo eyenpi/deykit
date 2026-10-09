@@ -118,17 +118,13 @@ class DiagnosticService:
             )
         )
 
-    def preview_resume(
-        self, group_id: str, *, retry_unknown: bool = False
-    ) -> GroupResumePreview:
+    def preview_resume(self, group_id: str, *, retry_unknown: bool = False) -> GroupResumePreview:
         return self.groups.preview_resume(
             group_id, retry_unknown=retry_unknown, expected_kind="choice_order"
         )
 
     def cancel(self, group_id: str, *, operation_id: str) -> GroupProgress:
-        return self.groups.cancel(
-            group_id, operation_id=operation_id, expected_kind="choice_order"
-        )
+        return self.groups.cancel(group_id, operation_id=operation_id, expected_kind="choice_order")
 
     def read(self, group_id: str) -> DiagnosticView:
         return self._view(self.groups.show(group_id))

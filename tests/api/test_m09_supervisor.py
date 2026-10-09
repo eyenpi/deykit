@@ -325,9 +325,7 @@ def test_shutdown_cancels_two_accepted_runs_and_stops_new_reservations():
         supervisor = ExecutionSupervisor()
         services = (_RunService(), _RunService())
         registrations = (_registration("project-a"), _registration("project-b"))
-        for index, (registration, service) in enumerate(
-            zip(registrations, services, strict=True)
-        ):
+        for index, (registration, service) in enumerate(zip(registrations, services, strict=True)):
             await supervisor.start_run(
                 registration,
                 service,

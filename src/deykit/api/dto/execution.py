@@ -16,7 +16,6 @@ from deykit.runner.planner import RunRequest
 from .common import CountText, ErrorDTO, Mutation, ResponseRecord, VersionRequest
 from .data import SeedText
 
-
 HttpPositiveInt = Annotated[int, Field(strict=True, ge=1, le=9007199254740991)]
 HttpDeadline = Annotated[int, Field(strict=True, ge=1, le=86_400)]
 HttpRetryCount = Annotated[int, Field(strict=True, ge=0, le=1)]
