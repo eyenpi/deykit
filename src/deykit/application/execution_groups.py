@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal, cast
+from typing import Literal, NoReturn, cast
 
 from deykit.application.dataset_support import decoded, fail, identifier, safe_hash
 from deykit.application.errors import ServiceFailure
@@ -181,7 +181,7 @@ class GroupExecutionService:
             fail("invalid_execution_group_kind")
 
     @staticmethod
-    def _acknowledgement_incomplete(group_id: str | None) -> None:
+    def _acknowledgement_incomplete(group_id: str | None) -> NoReturn:
         raise ServiceFailure(
             ServiceError(
                 code="run_incomplete",
