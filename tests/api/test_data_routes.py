@@ -5,13 +5,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from threading import local
 from types import SimpleNamespace
+from typing import NoReturn
 
 import httpx
 import pytest
 from fastapi import APIRouter, FastAPI
 from pydantic import ValidationError
 
-from deykit.api.dependencies import ApiDependencies
+from deykit.api.dependencies import ApiDependencies, ApiProjectSource
 from deykit.api.dto.data import (
     CaseInputRequest,
     DatasetPatchRequest,
@@ -315,6 +316,21 @@ def test_case_read_and_page_capture_etags_in_one_worker_epoch(
         def remember(self, path: str, project_id: str, name: str):
             return None
 
+    provider_factory_calls = 0
+    backend_factory_calls = 0
+
+    def forbidden_provider_factory(source: ApiProjectSource) -> NoReturn:
+        nonlocal provider_factory_calls
+        provider_factory_calls += 1
+        raise AssertionError("the case route must not construct provider services")
+
+    def forbidden_backend_factory(
+        source: ApiProjectSource, clock: _Clock
+    ) -> NoReturn:
+        nonlocal backend_factory_calls
+        backend_factory_calls += 1
+        raise AssertionError("the case route must not construct provider backends")
+
     dependencies = ApiDependencies(
         clock=clock,
         id_factory=id_factory,
@@ -322,6 +338,8 @@ def test_case_read_and_page_capture_etags_in_one_worker_epoch(
         recent_store=Recent(),
         demo_staging_factory=DemoStagingSource,
         demo_destination_factory=FileDemoDestinationFactory(),
+        provider_operations_factory=forbidden_provider_factory,
+        backends_factory=forbidden_backend_factory,
     )
     router = APIRouter()
     register_data_routes(router, dependencies, Registry(), workers)  # type: ignore[arg-type]
@@ -337,6 +355,8 @@ def test_case_read_and_page_capture_etags_in_one_worker_epoch(
     try:
         response = asyncio.run(request())
         assert response.status_code == 200, response.text
+        assert provider_factory_calls == 0
+        assert backend_factory_calls == 0
         assert workers.calls == 1
         observed_epochs = {epoch for _, _, epoch, _ in epoch_source.reads}
         assert len(observed_epochs) == 1
