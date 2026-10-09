@@ -5,7 +5,7 @@ import copy
 import json
 import re
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from deykit.api.recent import RecentProject
 from deykit.application.projects import ProjectBackend
@@ -52,7 +52,7 @@ class _SchemaRecentProjects:
 
 
 def _schema_dependencies() -> ApiDependencies:
-    def no_source(path: Path, create: bool) -> ProjectBackend:
+    def no_source(path: Path, create: bool) -> NoReturn:
         raise AssertionError("schema export must not open a project")
 
     return ApiDependencies(

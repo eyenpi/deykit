@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+from typing import cast
 
 from deykit.application.demo import DemoInfo, DemoService
 from deykit.application.errors import ServiceFailure
@@ -193,19 +194,24 @@ class ProjectRegistry:
         else:
             opened: ApiProjectSource | None = None
             try:
-                opened_source, demo = service.create_opened(path, operation_id=operation_id)
+                opened_backend, demo = service.create_opened(path, operation_id=operation_id)
+                # The application port is broader than the API's retained-source contract.
+                opened_source = cast(ApiProjectSource, opened_backend)
                 opened = opened_source
                 info = ProjectService(
                     self._dependencies.source_factory,
                     self._dependencies.clock,
                     self._dependencies.id_factory,
-                ).describe(opened)
+                ).describe(opened_source)
                 if info.project.id != demo.project_id:
                     raise ServiceFailure(
                         ServiceError(code="incompatible_data", reason="invalid_demo_receipt")
                     )
                 registration = Registration(
-                    self._dependencies.id_factory(), opened, path_text, info.project.id
+                    self._dependencies.id_factory(),
+                    opened_source,
+                    path_text,
+                    info.project.id,
                 )
                 with self._lock:
                     winner = self._by_path.get(path_text)
@@ -213,10 +219,10 @@ class ProjectRegistry:
                         self._registrations[registration.id] = registration
                         self._by_path[path_text] = registration
                     else:
-                        opened.close()
+                        opened_source.close()
                         opened = None
                         registration = winner
-                if registration.source is not opened:
+                if registration.source is not opened_source:
                     demo = service.create_in(registration.source, path, operation_id=operation_id)
                     info = ProjectService(
                         self._dependencies.source_factory,

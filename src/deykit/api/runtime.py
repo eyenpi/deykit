@@ -1,7 +1,7 @@
 """Server-local clock and identity adapters."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Any, TypeVar
@@ -36,7 +36,10 @@ class TrackedWorkers:
         return await asyncio.shield(task)
 
     async def run_async(
-        self, function: Callable[..., Awaitable[R]], *args: Any, **kwargs: Any
+        self,
+        function: Callable[..., Coroutine[Any, Any, R]],
+        *args: Any,
+        **kwargs: Any,
     ) -> R:
         task = asyncio.create_task(function(*args, **kwargs))
         self._tasks.add(task)
