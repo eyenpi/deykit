@@ -29,6 +29,25 @@ const registerProjectRequest = {
   name: "Project",
 };
 
+const downloadReply = (
+  value: Uint8Array,
+  contentType: string,
+  filename: string,
+  status = 200,
+  extra: Record<string, string> = {},
+) =>
+  new Response(new Uint8Array(value).buffer, {
+    status,
+    headers: {
+      "Content-Type": contentType,
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Length": String(value.byteLength),
+      ...extra,
+    },
+  });
+
 describe("generated local API operations", () => {
   it("preserves exact source strings inside a validated registered request", async () => {
     const source =
@@ -43,24 +62,6 @@ describe("generated local API operations", () => {
       ),
     );
 
-    const downloadReply = (
-      value: Uint8Array,
-      contentType: string,
-      filename: string,
-      status = 200,
-      extra: Record<string, string> = {},
-    ) =>
-      new Response(value, {
-        status,
-        headers: {
-          "Content-Type": contentType,
-          "Content-Disposition": `attachment; filename="${filename}"`,
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-          "Content-Length": String(value.byteLength),
-          ...extra,
-        },
-      });
     const client = new ApiClient(transport);
     client.setCapability("local-session");
 
@@ -242,27 +243,29 @@ describe("generated local API operations", () => {
       client.download("downloadReport", {
         path: { registration_id: "registration-1", report_id: "report-1" },
       });
-      // @ts-expect-error only the generated format enum is admitted
       client.download("downloadReport", {
         path: { registration_id: "registration-1", report_id: "report-1" },
-        query: { format: "html" },
+        query: {
+          // @ts-expect-error only the generated format enum is admitted
+          format: "html",
+        },
       });
-      // @ts-expect-error download arguments do not accept a destination
       client.download("downloadReport", {
         path: { registration_id: "registration-1", report_id: "report-1" },
         query: { format: "json" },
+        // @ts-expect-error download arguments do not accept a destination
         destination: "/tmp/report.json",
       });
-      // @ts-expect-error download arguments do not accept caller headers
       client.download("downloadReport", {
         path: { registration_id: "registration-1", report_id: "report-1" },
         query: { format: "json" },
+        // @ts-expect-error download arguments do not accept caller headers
         headers: { Authorization: "secret" },
       });
-      // @ts-expect-error download arguments do not accept bodies
       client.download("downloadReport", {
         path: { registration_id: "registration-1", report_id: "report-1" },
         query: { format: "json" },
+        // @ts-expect-error download arguments do not accept bodies
         body: {},
       });
       const downloaded = await client.download("downloadReport", {

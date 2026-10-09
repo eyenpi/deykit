@@ -688,7 +688,7 @@ export class ApiClient {
     const body = response.body;
     if (!body) throw this.#responseInvalid(response.status);
     const reader = body.getReader();
-    const chunks: Uint8Array[] = [];
+    const chunks: ArrayBuffer[] = [];
     let received = 0;
     let failed = false;
     const contentLength = response.headers.get("content-length");
@@ -710,7 +710,9 @@ export class ApiClient {
           throw this.#responseInvalid(response.status);
         received += part.value.byteLength;
         if (received > maxBytes) throw this.#responseInvalid(response.status);
-        chunks.push(part.value);
+        const ownedChunk = new Uint8Array(part.value.byteLength);
+        ownedChunk.set(part.value);
+        chunks.push(ownedChunk.buffer);
       }
       if (expectedLength !== undefined && received !== expectedLength)
         throw this.#responseInvalid(response.status);
