@@ -16,11 +16,7 @@ def test_m09_route_inventory_and_binary_report_policy():
         LocalServerConfig("127.0.0.1:8741", "http://127.0.0.1:8741", AssetCatalog.from_package()),
         api_dependencies(),
     ).app
-    routes = {
-        (route.path, method): route
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-    }
+    openapi = app.app.openapi()
     expected = {
         ("/api/v1/projects/{registration_id}/runs", "POST"),
         ("/api/v1/projects/{registration_id}/runs", "GET"),
@@ -107,31 +103,37 @@ def test_m09_route_inventory_and_binary_report_policy():
         "readReport",
         "downloadReport",
     }
-    actual = {
-        (route.path, method)
-        for route in app.routes
-        if getattr(route, "operation_id", None) in m09_operation_ids
-        for method in getattr(route, "methods", set())
+    operations = {
+        (path, method.upper()): operation
+        for path, path_item in openapi["paths"].items()
+        for method, operation in path_item.items()
+        if method in {"get", "post", "put", "patch", "delete"}
+        and operation.get("operationId") in m09_operation_ids
     }
+    actual = set(operations)
     assert actual == expected
-    for path, method in expected:
-        if path.endswith("/runs") and method == "POST":
-            assert routes[path, method].status_code == 202
-        if path.endswith("/choice-order") or path.endswith("/checks"):
-            assert routes[path, method].status_code == 202
-    download = routes["/api/v1/projects/{registration_id}/reports/{report_id}/download", "GET"]
-    assert download.operation_id == "downloadReport"
-    assert download.openapi_extra == {
-        "x-deykit-report-download-v1": {
-            "formatParameter": "format",
-            "reportIdParameter": "report_id",
-            "maxBytes": 8388608,
-            "formats": {
-                "json": {"contentType": "application/octet-stream", "extension": "json"},
-                "markdown": {"contentType": "text/plain; charset=utf-8", "extension": "md"},
-            },
-        }
+    for key in (
+        ("/api/v1/projects/{registration_id}/runs", "POST"),
+        ("/api/v1/projects/{registration_id}/diagnostics/choice-order", "POST"),
+        ("/api/v1/projects/{registration_id}/checks", "POST"),
+    ):
+        assert "202" in operations[key]["responses"]
+    download = operations[
+        ("/api/v1/projects/{registration_id}/reports/{report_id}/download", "GET")
+    ]
+    assert download["operationId"] == "downloadReport"
+    assert download["x-deykit-report-download-v1"] == {
+        "formatParameter": "format",
+        "reportIdParameter": "report_id",
+        "maxBytes": 8388608,
+        "formats": {
+            "json": {"contentType": "application/octet-stream", "extension": "json"},
+            "markdown": {"contentType": "text/plain; charset=utf-8", "extension": "md"},
+        },
     }
+    content = download["responses"]["200"]["content"]
+    for media_type in ("application/octet-stream", "text/plain; charset=utf-8"):
+        assert content[media_type]["schema"] == {"type": "string", "format": "binary"}
 
 
 def test_m09_query_keys_are_exact_and_route_specific():
