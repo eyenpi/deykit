@@ -319,22 +319,35 @@ def test_destination_port_orders_fresh_create_and_transfers_source_ownership(tmp
             self.sources.append(tracked)
             return tracked
 
+    stage_sources = []
+
     class TrackingStagingSource(DemoStagingSource):
-        def capture_snapshot(self, keys=None):
-            records = super().capture_snapshot(keys)
+        def __init__(self):
+            super().__init__()
+            self.close_count = 0
+
+        def close(self):
+            self.close_count += 1
             events.append("stage_complete")
-            return records
+            super().close()
+
+    def staging_factory():
+        events.append("stage_begin")
+        stage = TrackingStagingSource()
+        stage_sources.append(stage)
+        return stage
 
     destinations = TrackingDestinationFactory()
     service = DemoService(
         source_factory,
         Clock(),
-        staging_factory=TrackingStagingSource,
+        staging_factory=staging_factory,
         destination_factory=destinations,
     )
     retained, created = service.create_opened(root, operation_id="port-demo")
     assert events == [
         "open_existing",
+        "stage_begin",
         "stage_complete",
         "create_exclusive",
         "final_receipt",
@@ -342,19 +355,21 @@ def test_destination_port_orders_fresh_create_and_transfers_source_ownership(tmp
     ]
     assert retained is destinations.sources[0]
     assert retained.close_count == 0
+    assert len(stage_sources) == 1 and stage_sources[0].close_count == 1
     retained.close()
     assert retained.close_count == 1
 
     replay_service = DemoService(
         source_factory,
         Clock(),
-        staging_factory=TrackingStagingSource,
+        staging_factory=staging_factory,
         destination_factory=destinations,
     )
     replay = replay_service.create(root, operation_id=created.operation_id)
     assert replay.replayed is True
     assert destinations.sources[-1].close_count == 1
     assert events[-2:] == ["open_existing", "final_receipt"]
+    assert len(stage_sources) == 1 and stage_sources[0].close_count == 1
 
 
 @pytest.mark.parametrize("mutation", ["operation_id", "etag", "incomplete"])
