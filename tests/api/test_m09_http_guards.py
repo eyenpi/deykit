@@ -320,6 +320,16 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
                     **choice_preview_request,
                     "run": {**run_request, "settings": {"max_attempts": 3, "concurrency": 1}},
                 }
+                cap_rejected_preview = await client.post(
+                    f"{base}/diagnostics/choice-order/preview",
+                    headers=headers,
+                    json={"schema_version": 1, "request": choice_start_request},
+                )
+                assert cap_rejected_preview.status_code == 422, cap_rejected_preview.text
+                assert cap_rejected_preview.json()["error"]["reason"] == (
+                    "group_initial_requests_exceed_cap"
+                )
+                assert source.capture_snapshot() == before
                 group_start = await client.post(
                     f"{base}/diagnostics/choice-order",
                     headers=headers,
@@ -332,10 +342,8 @@ def test_http_review_hash_and_group_cap_reject_without_business_writes(tmp_path:
                         "request": choice_start_request,
                     },
                 )
-                assert group_start.status_code == 422
-                assert group_start.json()["error"]["reason"] == (
-                    "group_initial_requests_exceed_cap"
-                )
+                assert group_start.status_code == 409, group_start.text
+                assert group_start.json()["error"]["reason"] == "run_source_changed"
                 assert source.capture_snapshot() == before
 
     asyncio.run(exercise())
