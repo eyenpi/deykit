@@ -2,6 +2,24 @@
 
 import json
 from importlib.resources import files
+from pathlib import Path
+
+from deykit.resources.cli_workflow.workflow import Workflow
+
+
+def test_workflow_prepare_copies_and_checks_resources_without_running_cli(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    output = tmp_path / "output"
+    bundle = tmp_path / "bundle"
+    workflow = Workflow("unused-cli-executable", project, output, bundle)
+
+    workflow.prepare()
+
+    assert not project.exists()
+    assert workflow.progress_log.read_text(encoding="utf-8") == ""
+    assert (bundle / "cases.jsonl").is_file()
+    assert (bundle / "fixture-a.jsonl").is_file()
+    assert (bundle / "fixture-b.jsonl").is_file()
 
 
 def test_packaged_workflow_has_exact_authored_numerical_inputs_and_oracles() -> None:

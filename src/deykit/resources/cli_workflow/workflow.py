@@ -291,9 +291,14 @@ class Workflow:
         exact = '"amount":9007199254740993,"ratio":0.1234567890123456789'
         if exact not in case_source:
             raise RuntimeError("the authored large integer/decimal literals changed")
-        fixture_a = self.resource("fixture-a.jsonl").read_text(encoding="utf-8")
-        if exact not in fixture_a:
-            raise RuntimeError("fixture A does not preserve the authored exact request bytes")
+        for fixture_name in ("fixture-a.jsonl", "fixture-b.jsonl"):
+            fixture_line = self.resource(fixture_name).read_text(encoding="utf-8").splitlines()[0]
+            binding = json.loads(fixture_line)
+            request_body = binding["request"]["body"]
+            if exact not in request_body:
+                raise RuntimeError(
+                    f"{fixture_name} does not preserve the authored exact request bytes"
+                )
 
     def step1_create_project_and_decision(self) -> None:
         self.data("init", str(self.project), "--name", "Tutorial Project")
