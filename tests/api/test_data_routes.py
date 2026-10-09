@@ -1,18 +1,30 @@
 """Focused transport boundaries for DATA routes."""
 
+import asyncio
+from contextlib import contextmanager
 from pathlib import Path
+from threading import local
+from types import SimpleNamespace
 
+import httpx
 import pytest
+from fastapi import APIRouter, FastAPI
 from pydantic import ValidationError
 
+from deykit.api.dependencies import ApiDependencies
 from deykit.api.dto.data import (
     CaseInputRequest,
     DatasetPatchRequest,
     SplitPreviewRequest,
 )
-from deykit.api.routes.data import _dataset_patch_values, _seed, _split_preview
-from deykit.application.errors import ServiceFailure
+from deykit.api.routes.data import (
+    _dataset_patch_values,
+    _seed,
+    _split_preview,
+    register as register_data_routes,
+)
 from deykit.application.datasets import CaseInput, DatasetService
+from deykit.application.errors import ServiceFailure
 from deykit.application.imports import ImportService
 from deykit.application.preview_documents import (
     decode_import_preview,
@@ -28,6 +40,8 @@ from deykit.contracts.records import ProjectRecord
 from deykit.domain.import_mapping import ImportMapping
 from deykit.domain.splits import DEFAULT_RATIOS
 from deykit.storage import FileProjectSource
+from deykit.storage.demo_destination import FileDemoDestinationFactory
+from deykit.storage.demo_staging import DemoStagingSource
 
 STAMP = "2026-10-09T12:00:00Z"
 
@@ -38,6 +52,51 @@ class _Clock:
 
     def monotonic(self) -> float:
         return 0.0
+
+
+class _EpochSource:
+    def __init__(self, source: FileProjectSource) -> None:
+        self.source = source
+        self.local = local()
+        self.next_epoch = 0
+        self.reads: list[tuple[str, str, int, str | None]] = []
+
+    @contextmanager
+    def consistent_read(self):
+        depth = getattr(self.local, "depth", 0)
+        with self.source.consistent_read():
+            if depth == 0:
+                self.next_epoch += 1
+                self.local.epoch = self.next_epoch
+            self.local.depth = depth + 1
+            try:
+                yield self
+            finally:
+                self.local.depth = depth
+
+    def read(self, key):
+        result = self.source.read(key)
+        self.reads.append(
+            (
+                key.collection,
+                key.resource_id,
+                getattr(self.local, "epoch", 0),
+                result.etag if result else None,
+            )
+        )
+        return result
+
+    def __getattr__(self, name):
+        return getattr(self.source, name)
+
+
+class _CountingWorkers:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def run_sync(self, function, *args, **kwargs):
+        self.calls += 1
+        return function(*args, **kwargs)
 
 
 def _project_source(tmp_path: Path):
@@ -53,6 +112,7 @@ def _project_source(tmp_path: Path):
         ),
     )
     clock = _Clock()
+
     def id_factory() -> str:
         return "generated-1"
 
@@ -223,5 +283,76 @@ def test_split_preview_source_round_trip_keeps_seed_exact_and_api_uses_text(
         assert decoded == preview
         assert _split_preview(preview).preview.seed == "9007199254740993"
         assert _split_preview(preview).preview_document_source == document_source
+    finally:
+        source.close()
+
+
+@pytest.mark.parametrize(
+    "path",
+    (
+        "/projects/registration-1/datasets/dataset-1/cases/case-existing",
+        "/projects/registration-1/datasets/dataset-1/cases?limit=50",
+    ),
+)
+def test_case_read_and_page_capture_etags_in_one_worker_epoch(
+    tmp_path: Path, path: str
+) -> None:
+    source, clock, id_factory, _, _ = _project_source(tmp_path)
+    epoch_source = _EpochSource(source)
+    workers = _CountingWorkers()
+
+    class Registry:
+        def require(self, registration_id: str):
+            assert registration_id == "registration-1"
+            return SimpleNamespace(source=epoch_source)
+
+    class Recent:
+        last_warning = None
+
+        def list(self):
+            return ()
+
+        def remember(self, path: str, project_id: str, name: str):
+            return None
+
+    dependencies = ApiDependencies(
+        clock=clock,
+        id_factory=id_factory,
+        source_factory=lambda path, create: source,
+        recent_store=Recent(),
+        demo_staging_factory=DemoStagingSource,
+        demo_destination_factory=FileDemoDestinationFactory(),
+    )
+    router = APIRouter()
+    register_data_routes(router, dependencies, Registry(), workers)  # type: ignore[arg-type]
+    app = FastAPI()
+    app.include_router(router)
+
+    async def request() -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            return await client.get(path)
+
+    try:
+        response = asyncio.run(request())
+        assert response.status_code == 200, response.text
+        assert workers.calls == 1
+        observed_epochs = {epoch for _, _, epoch, _ in epoch_source.reads}
+        assert len(observed_epochs) == 1
+        observed_etags = {
+            (collection, resource_id): etag
+            for collection, resource_id, _, etag in epoch_source.reads
+            if etag is not None
+        }
+        data = response.json()["data"]
+        assert data["dataset_etag"] == observed_etags[("datasets", "dataset-1")]
+        if "case" in data:
+            case_id = data["case"]["record"]["id"]
+            assert data["case"]["etag"] == observed_etags[("cases", case_id)]
+        else:
+            for case in data["items"]:
+                case_id = case["record"]["id"]
+                assert case["etag"] == observed_etags[("cases", case_id)]
     finally:
         source.close()

@@ -9,7 +9,6 @@ from deykit.api.dependencies import ApiDependencies, ApiProjectSource
 from deykit.api.dto.common import Success
 from deykit.api.dto.data import (
     CaseChangeRequest,
-    CaseChangeRequest,
     CaseDTO,
     CaseEditRequest,
     CaseInputRequest,
@@ -37,7 +36,7 @@ from deykit.api.query import boolean, decimal
 from deykit.api.registry import ProjectRegistry
 from deykit.api.runtime import TrackedWorkers
 from deykit.application.dataset_support import CaseView, DatasetView
-from deykit.application.datasets import CaseInput, DatasetService
+from deykit.application.datasets import CaseInput, CasePage, DatasetService
 from deykit.application.errors import ServiceFailure
 from deykit.application.imports import ImportPreview, ImportRow, ImportService
 from deykit.application.preview_documents import (
@@ -63,6 +62,47 @@ def _dataset(value: DatasetView) -> DatasetDTO:
 
 def _case(value: CaseView) -> CaseDTO:
     return CaseDTO(record=value.record, etag=value.etag)
+
+
+def _page_limit(value: str | None) -> int:
+    return 50 if value is None else decimal(
+        value, reason="invalid_integer_query", minimum=1, maximum=500
+    )
+
+
+def _case_page_snapshot(
+    source: ApiProjectSource,
+    service: DatasetService,
+    dataset_id: str,
+    *,
+    cursor: str | None,
+    limit: int,
+    tag: str | None,
+    group_id: str | None,
+    split: Literal["development", "calibration", "test"] | None,
+) -> tuple[CasePage, DatasetView]:
+    with source.consistent_read():
+        return (
+            service.list_cases(
+                dataset_id,
+                cursor=cursor,
+                limit=limit,
+                tag=tag,
+                group_id=group_id,
+                split=split,
+            ),
+            service.read(dataset_id),
+        )
+
+
+def _case_snapshot(
+    source: ApiProjectSource,
+    service: DatasetService,
+    dataset_id: str,
+    case_id: str,
+) -> tuple[CaseView, DatasetView]:
+    with source.consistent_read():
+        return service.case(dataset_id, case_id), service.read(dataset_id)
 
 
 def _case_input(body: CaseInputRequest) -> CaseInput:
@@ -189,11 +229,7 @@ def register(
                 else False
             ),
             cursor=cursor,
-            limit=(
-                decimal(limit, reason="invalid_integer_query", minimum=1, maximum=500)
-                if limit is not None
-                else 50
-            ),
+            limit=_page_limit(limit),
         )
         return Success(
             data=DatasetPageDTO(
@@ -308,21 +344,19 @@ def register(
         group_id: str | None = None,
         split: Literal["development", "calibration", "test"] | None = None,
     ) -> Success[CasePageDTO]:
-        service = datasets(source_for(registration_id))
-        page = await workers.run_sync(
-            service.list_cases,
+        source = source_for(registration_id)
+        service = datasets(source)
+        page, dataset = await workers.run_sync(
+            _case_page_snapshot,
+            source,
+            service,
             dataset_id,
             cursor=cursor,
-                        limit=(
-                            decimal(limit, reason="invalid_integer_query", minimum=1, maximum=500)
-                            if limit is not None
-                            else 50
-                        ),
+            limit=_page_limit(limit),
             tag=tag,
             group_id=group_id,
             split=split,
         )
-        dataset = await workers.run_sync(service.read, dataset_id)
         return Success(
             data=CasePageDTO(
                 items=tuple(_case(item) for item in page.items),
@@ -363,9 +397,11 @@ def register(
     async def read_case(
         registration_id: str, dataset_id: str, case_id: str
     ) -> Success[CaseReadDTO]:
-        service = datasets(source_for(registration_id))
-        case = await workers.run_sync(service.case, dataset_id, case_id)
-        dataset = await workers.run_sync(service.read, dataset_id)
+        source = source_for(registration_id)
+        service = datasets(source)
+        case, dataset = await workers.run_sync(
+            _case_snapshot, source, service, dataset_id, case_id
+        )
         return Success(data=CaseReadDTO(case=_case(case), dataset_etag=dataset.etag))
 
     @router.put(
