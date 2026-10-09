@@ -6,8 +6,8 @@ import pytest
 
 from deykit.application.execution import ExecutionService
 from deykit.contracts.codec import dump_record
-from deykit.contracts.json_value import dump_json
-from deykit.contracts.ports import ResourceKey, SourceChange
+from deykit.contracts.json_value import JsonDocument, dump_json
+from deykit.contracts.ports import ResourceKey, SourceChange, StoredRecord
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
@@ -17,11 +17,15 @@ from deykit.contracts.records import (
     DecisionDraft,
     DecisionRecord,
     DispatchOutcome,
+    FixtureBinding,
+    FixtureSet,
     NormalizedAnswer,
     ProjectRecord,
     ProviderProfile,
 )
+from deykit.domain.definitions import select_input
 from deykit.providers.choice import JevChoiceCompiler
+from deykit.providers.fixtures import fixture_set_hash
 from deykit.storage import FileProjectSource
 
 
@@ -69,9 +73,15 @@ class Factory:
     def profile(self, provider_id, fixture_set_id):
         return self.profile_value
 
+    def profile_captured(self, provider_id, fixture_set_id, records: tuple[StoredRecord, ...]):
+        return self.profile(provider_id, fixture_set_id)
+
     def resolve(self, profile, fixture_set_id):
         self.resolved_profile = profile
         return self
+
+    def resolve_captured(self, profile, fixture_set_id, records: tuple[StoredRecord, ...]):
+        return self.resolve(profile, fixture_set_id)
 
     def preflight(self, decision_id, dataset_id, definition=None):
         return self.error
@@ -131,6 +141,55 @@ def seed(source, count=3, invalid=()):
                 ),
             )
         )
+    fixture_profile = ProviderProfile(
+        id="authored",
+        adapter="fixture",
+        requested_model="authored-v1",
+        destination="fixture:jev-choice",
+    )
+    compiler = JevChoiceCompiler()
+    bindings = []
+    for key, record in records:
+        if key.collection != "cases" or record.input_source == "{}":
+            continue
+        selected = select_input(definition, JsonDocument(record.input_source)).value
+        request = compiler.compile(definition, selected, fixture_profile)
+        bindings.append(
+            FixtureBinding(
+                id=f"binding-{record.id}",
+                case_id=record.id,
+                request=request,
+                answer=NormalizedAnswer(
+                    question_id="q", option_id="yes", reported_model="authored-v1"
+                ),
+            )
+        )
+    if not bindings:
+        request = compiler.compile(definition, {"text": "placeholder"}, fixture_profile)
+        bindings.append(
+            FixtureBinding(
+                id="binding-placeholder",
+                case_id="case-placeholder",
+                request=request,
+                answer=NormalizedAnswer(
+                    question_id="q", option_id="yes", reported_model="authored-v1"
+                ),
+            )
+        )
+    incomplete_fixture = FixtureSet(
+        id="set",
+        decision_id="decision",
+        dataset_id="data",
+        name="Authored test fixtures",
+        model_identity="authored-v1",
+        bindings=tuple(bindings),
+        content_hash="0" * 64,
+        created_at=stamp,
+    )
+    fixture = incomplete_fixture.model_copy(
+        update={"content_hash": fixture_set_hash(incomplete_fixture)}
+    )
+    records.append((ResourceKey("fixtures", "set"), fixture))
     source.commit(
         "seed", tuple(SourceChange(key, dump_record(record), None) for key, record in records)
     )

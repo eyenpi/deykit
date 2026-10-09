@@ -38,6 +38,7 @@ const fixedSchemaError =
   "Contracts use an unsupported standalone schema feature.";
 const fileNames = Object.freeze([
   "openapi.d.ts",
+  "operations.ts",
   "validators.cjs",
   "validators.d.cts",
   "manifest.json",
@@ -187,6 +188,7 @@ function assertSchemaSubset(schemas) {
     "deprecated",
     "readOnly",
     "writeOnly",
+    "discriminator",
     "type",
     "enum",
     "const",
@@ -226,25 +228,6 @@ function assertSchemaSubset(schemas) {
     "unevaluatedProperties",
     "unevaluatedItems",
   ]);
-  const schemaMaps = new Set([
-    "$defs",
-    "properties",
-    "patternProperties",
-    "dependentSchemas",
-  ]);
-  const schemaSingles = new Set([
-    "additionalProperties",
-    "propertyNames",
-    "items",
-    "contains",
-    "not",
-    "if",
-    "then",
-    "else",
-    "unevaluatedProperties",
-    "unevaluatedItems",
-  ]);
-  const schemaArrays = new Set(["prefixItems", "allOf", "anyOf", "oneOf"]);
   const inspectSchema = (schema) => {
     if (schema === true || schema === false) return;
     if (
@@ -257,7 +240,25 @@ function assertSchemaSubset(schemas) {
     for (const [keyword, value] of Object.entries(schema)) {
       if (!vocabulary.has(keyword)) throw new Error(fixedSchemaError);
       if (keyword === "format") throw new Error(fixedSchemaError);
-      if (schemaMaps.has(keyword)) {
+      if (keyword === "discriminator") {
+        if (
+          value === null ||
+          typeof value !== "object" ||
+          Array.isArray(value) ||
+          typeof value.propertyName !== "string" ||
+          !value.propertyName ||
+          Object.keys(value).some((key) => !["propertyName", "mapping"].includes(key)) ||
+          (value.mapping !== undefined &&
+            (value.mapping === null ||
+              typeof value.mapping !== "object" ||
+              Array.isArray(value.mapping) ||
+              Object.values(value.mapping).some((target) => typeof target !== "string")))
+        ) {
+          throw new Error(fixedSchemaError);
+        }
+        continue;
+      }
+      if (schemaMapKeywords.has(keyword)) {
         if (
           value === null ||
           typeof value !== "object" ||
@@ -267,12 +268,12 @@ function assertSchemaSubset(schemas) {
         }
         for (const child of Object.values(value)) inspectSchema(child);
       } else if (
-        schemaSingles.has(keyword) &&
+        schemaSingleKeywords.has(keyword) &&
         value !== true &&
         value !== false
       ) {
         inspectSchema(value);
-      } else if (schemaArrays.has(keyword)) {
+      } else if (schemaArrayKeywords.has(keyword)) {
         if (!Array.isArray(value)) throw new Error(fixedSchemaError);
         for (const child of value) inspectSchema(child);
       }
@@ -281,10 +282,190 @@ function assertSchemaSubset(schemas) {
   for (const schema of Object.values(schemas)) inspectSchema(schema);
 }
 
+const schemaMapKeywords = new Set([
+  "$defs",
+  "properties",
+  "patternProperties",
+  "dependentSchemas",
+]);
+const schemaSingleKeywords = new Set([
+  "additionalProperties",
+  "propertyNames",
+  "items",
+  "contains",
+  "not",
+  "if",
+  "then",
+  "else",
+  "unevaluatedProperties",
+  "unevaluatedItems",
+]);
+const schemaArrayKeywords = new Set(["prefixItems", "allOf", "anyOf", "oneOf"]);
+
+function withoutDiscriminator(schema) {
+  if (
+    schema === null ||
+    typeof schema !== "object" ||
+    Array.isArray(schema)
+  ) {
+    return schema;
+  }
+  return Object.fromEntries(
+    Object.entries(schema).flatMap(([keyword, value]) => {
+      if (keyword === "discriminator") return [];
+      if (schemaMapKeywords.has(keyword)) {
+        return [
+          [
+            keyword,
+            Object.fromEntries(
+              Object.entries(value).map(([name, child]) => [
+                name,
+                withoutDiscriminator(child),
+              ]),
+            ),
+          ],
+        ];
+      }
+      if (schemaSingleKeywords.has(keyword)) {
+        return [
+          [
+            keyword,
+            value === true || value === false
+              ? value
+              : withoutDiscriminator(value),
+          ],
+        ];
+      }
+      if (schemaArrayKeywords.has(keyword)) {
+        return [[keyword, value.map(withoutDiscriminator)]];
+      }
+      return [[keyword, value]];
+    }),
+  );
+}
+
 function validatorAlias(name) {
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name))
     throw new Error(fixedSchemaError);
   return `validate${name}`;
+}
+
+const httpMethods = new Set([
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "head",
+]);
+
+function componentSchemaName(schema) {
+  const reference = schema?.$ref;
+  const prefix = "#/components/schemas/";
+  if (typeof reference !== "string" || !reference.startsWith(prefix))
+    throw new Error("Every API operation must reference a generated JSON schema.");
+  const name = decodeURIComponent(reference.slice(prefix.length));
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name))
+    throw new Error("API operation schema references are invalid.");
+  return name;
+}
+
+function apiOperations(openapi) {
+  const found = [];
+  const paths = openapi.paths;
+  if (paths === null || typeof paths !== "object" || Array.isArray(paths))
+    throw new Error("OpenAPI paths are invalid.");
+  for (const [path, item] of Object.entries(paths).sort(([a], [b]) =>
+    compare(a, b),
+  )) {
+    if (item === null || typeof item !== "object" || Array.isArray(item))
+      throw new Error("OpenAPI path items are invalid.");
+    for (const [method, operation] of Object.entries(item).sort(([a], [b]) =>
+      compare(a, b),
+    )) {
+      if (!httpMethods.has(method)) continue;
+      if (operation === null || typeof operation !== "object")
+        throw new Error("OpenAPI operations are invalid.");
+      if (
+        typeof operation.operationId !== "string" ||
+        !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(operation.operationId)
+      ) {
+        throw new Error("Every API operation must have a stable operationId.");
+      }
+      const parameters = [
+        ...(Array.isArray(item.parameters) ? item.parameters : []),
+        ...(Array.isArray(operation.parameters) ? operation.parameters : []),
+      ];
+      const pathParams = [...path.matchAll(/\{([^}]+)\}/g)].map(
+        (match) => match[1],
+      );
+      const queryParams = parameters
+        .filter((parameter) => parameter?.in === "query")
+        .map((parameter) => parameter.name)
+        .filter((name) => typeof name === "string");
+      const bodySchema =
+        operation.requestBody?.content?.["application/json"]?.schema;
+      const success = Object.entries(operation.responses ?? {})
+        .filter(([status]) => /^2[0-9][0-9]$/.test(status))
+        .sort(([a], [b]) => Number(a) - Number(b))[0]?.[1];
+      const responseSchema =
+        success?.content?.["application/json"]?.schema;
+      if (!responseSchema)
+        throw new Error("Every API operation must declare a JSON success response.");
+      found.push({
+        id: operation.operationId,
+        internal: operation["x-deykit-client-internal"] === true,
+        method: method.toUpperCase(),
+        path,
+        pathParams,
+        queryParams: [...new Set(queryParams)].sort(compare),
+        bodyValidator: bodySchema
+          ? validatorAlias(componentSchemaName(bodySchema))
+          : null,
+        bodyRequired: Boolean(operation.requestBody?.required),
+        successValidator: validatorAlias(componentSchemaName(responseSchema)),
+      });
+    }
+  }
+  found.sort((a, b) => compare(a.id, b.id));
+  if (new Set(found.map((operation) => operation.id)).size !== found.length)
+    throw new Error("API operationIds must be unique.");
+  return found;
+}
+
+function operationDeclarations(openapi) {
+  const entries = apiOperations(openapi).filter((operation) => !operation.internal);
+  const object = Object.fromEntries(
+    entries.map((operation) => [
+      operation.id,
+      {
+        method: operation.method,
+        path: operation.path,
+        pathParams: operation.pathParams,
+        queryParams: operation.queryParams,
+        bodyValidator: operation.bodyValidator,
+        bodyRequired: operation.bodyRequired,
+        successValidator: operation.successValidator,
+      },
+    ]),
+  );
+  return [
+    "export type ApiOperationId = keyof typeof operationMetadata;",
+    "",
+    "export interface ApiOperationMetadata {",
+    '  readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";',
+    "  readonly path: string;",
+    "  readonly pathParams: readonly string[];",
+    "  readonly queryParams: readonly string[];",
+    "  readonly bodyValidator: string | null;",
+    "  readonly bodyRequired: boolean;",
+    "  readonly successValidator: string;",
+    "}",
+    "",
+    "export const operationMetadata = ",
+    `${JSON.stringify(object, null, 2)} as const satisfies Record<string, ApiOperationMetadata>;`,
+    "",
+  ].join("\n");
 }
 
 async function formatted(contents, parser) {
@@ -341,7 +522,8 @@ export async function generateArtifacts(openapi, schemas, inputHashes) {
     allErrors: false,
     code: { source: true, esm: false },
   });
-  for (const [name, schema] of sortedSchemas) ajv.addSchema(schema, name);
+  for (const [name, schema] of sortedSchemas)
+    ajv.addSchema(withoutDiscriminator(schema), name);
   const validatorSource = standaloneCode(ajv, validators);
   const declarationSource = [
     "declare const validators: {",
@@ -355,6 +537,10 @@ export async function generateArtifacts(openapi, schemas, inputHashes) {
 
   const contents = new Map([
     ["openapi.d.ts", await formatted(types, "typescript")],
+    [
+      "operations.ts",
+      await formatted(operationDeclarations(openapi), "typescript"),
+    ],
     ["validators.cjs", await formatted(validatorSource, "babel")],
     ["validators.d.cts", await formatted(declarationSource, "typescript")],
   ]);

@@ -79,7 +79,130 @@ test("schema ordering does not affect deterministic declarations, validators or 
     schemas: hash("new"),
   });
   assert.notEqual(forward.get("manifest.json"), changed.get("manifest.json"));
-  assert.equal(forward.size, 4);
+  assert.equal(forward.size, 5);
+});
+
+test("operation metadata is derived only from registered OpenAPI operations", async () => {
+  const sample = inputs();
+  sample.openapi.components.schemas.Source = structuredClone(localSchema);
+  sample.openapi.paths["/api/v1/projects/{registration_id}"] = {
+    get: {
+      operationId: "showProject",
+      parameters: [
+        {
+          name: "registration_id",
+          in: "path",
+          required: true,
+          schema: { type: "string" },
+        },
+        { name: "cursor", in: "query", schema: { type: "string" } },
+      ],
+      responses: {
+        "200": {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Source" },
+            },
+          },
+        },
+      },
+    },
+  };
+  sample.openapi.paths["/api/v1/session/bootstrap"] = {
+    post: {
+      operationId: "bootstrapSession",
+      "x-deykit-client-internal": true,
+      responses: {
+        "200": {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Source" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const artifacts = await generateArtifacts(
+    sample.openapi,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  const declarations = artifacts.get("operations.ts");
+  assert.match(declarations, /showProject/);
+  assert.doesNotMatch(declarations, /bootstrapSession/);
+  assert.match(declarations, /method:\s*"GET"/);
+  assert.match(declarations, /pathParams:\s*\[\s*"registration_id"\s*\]/);
+  assert.match(declarations, /queryParams:\s*\[\s*"cursor"\s*\]/);
+  assert.match(declarations, /successValidator:\s*"validateSource"/);
+  assert.match(artifacts.get("openapi.d.ts"), /bootstrapSession/);
+});
+
+test("OpenAPI discriminators retain oneOf validation in generated validators", async () => {
+  const sample = inputs();
+  sample.schemas.Tagged = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "urn:deykit:test:Tagged",
+    type: "object",
+    additionalProperties: false,
+    required: ["edit", "discriminator"],
+    properties: {
+      discriminator: {
+        type: "object",
+        const: { label: "literal", discriminator: "preserved" },
+        default: { discriminator: "default-value" },
+      },
+      edit: {
+        discriminator: {
+          propertyName: "kind",
+          mapping: { set: "#/components/schemas/SetEdit" },
+        },
+        oneOf: [
+          {
+            type: "object",
+            additionalProperties: false,
+            required: ["kind", "value"],
+            properties: {
+              kind: { const: "set" },
+              value: { type: "string" },
+            },
+          },
+        ],
+      },
+    },
+  };
+  const generated = await generateArtifacts(
+    sample.openapi,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  const validators = await validatorsFor(generated);
+
+  assert.equal(
+    validators.validateTagged({
+      discriminator: { label: "literal", discriminator: "preserved" },
+      edit: { kind: "set", value: "x" },
+    }),
+    true,
+  );
+  assert.deepEqual(
+    sample.schemas.Tagged.properties.discriminator.default,
+    { discriminator: "default-value" },
+  );
+  assert.equal(
+    validators.validateTagged({
+      discriminator: { label: "literal", discriminator: "preserved" },
+      edit: { kind: "other", value: "x" },
+    }),
+    false,
+  );
+
+  const malformed = structuredClone(sample.schemas);
+  malformed.Tagged.properties.edit.discriminator.propertyName = 1;
+  await assert.rejects(
+    generateArtifacts(sample.openapi, malformed, sample.inputHashes),
+    /unsupported standalone schema feature/,
+  );
 });
 
 test("standalone validator enforces explicit version, strict fields and Unicode code points", async () => {

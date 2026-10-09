@@ -11,10 +11,11 @@ from deykit.application.diagnostics import (
     FrozenDiagnosticSnapshot,
     diagnostic_snapshot_from_records,
 )
+from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import FrozenEvaluation
 from deykit.contracts.codec import dump_record
 from deykit.contracts.evidence import evidence_hash
-from deykit.contracts.json_value import JsonError, JsonValue, dump_json, parse_json
+from deykit.contracts.json_value import JsonValue, dump_json
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.redaction import Sanitizer
 from deykit.diagnostics.orders import ORDER_ALGORITHM, choice_orders
@@ -31,6 +32,7 @@ from deykit.reports.models import (
     RawMaterial,
 )
 from deykit.reports.projection import _prepared, _safe_identity, project_frozen_raw_material
+from deykit.runner.group_selection import decode_group_start_selection
 
 
 def _member_context(
@@ -144,7 +146,9 @@ def _group_context(
 
 def _selection(frozen: FrozenDiagnosticSnapshot) -> tuple[int, str, tuple[tuple[str, ...], ...]]:
     try:
-        source = parse_json(frozen.group.selection_source)
+        source = decode_group_start_selection(
+            frozen.group.selection_source, expected_kind="choice_order"
+        ).original_selection
         if (
             not isinstance(source, dict)
             or set(source) != {"kind", "request"}
@@ -161,7 +165,7 @@ def _selection(frozen: FrozenDiagnosticSnapshot) -> tuple[int, str, tuple[tuple[
         raw_seed = request_source.get("seed", 0)
         orders = _exact_bounded_integer(raw_orders, minimum=1, maximum=4)
         seed = _exact_bounded_integer(raw_seed, minimum=-(2**63), maximum=(2**63) - 1)
-    except (JsonError, ValueError):
+    except (ServiceFailure, ValueError):
         fail("report_group_selection_mismatch", "incompatible_data")
     if not frozen.members:
         fail("report_group_selection_mismatch", "incompatible_data")

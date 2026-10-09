@@ -8,7 +8,7 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from deykit.application.dataset_support import decoded, fail, safe_hash, validated_model
+from deykit.application.dataset_support import decoded, fail, validated_model
 from deykit.contracts.execution_groups import (
     CheckSnapshot,
     DiagnosticSnapshot,
@@ -30,6 +30,7 @@ from deykit.contracts.records import (
     RunManifest,
 )
 from deykit.domain.definitions import definition_hash
+from deykit.runner.group_selection import decode_group_start_selection, group_start_intent
 
 PREPARED_EVIDENCE_PROFILE = "deykit-group-member-prepared-v1"
 
@@ -87,18 +88,14 @@ class GroupBudget:
 
 
 def _selection_allocation(group: ExecutionGroup) -> int:
-    try:
-        selection = JsonDocument(group.selection_source).value
-    except ValueError:
-        fail("invalid_group_selection", "incompatible_data")
-    if (
-        not isinstance(selection, dict)
-        or selection.get("kind") != group.kind
-        or not isinstance(selection.get("request"), dict)
-        or safe_hash({"command": "execution_group.start", "selection": selection})
-        != group.intent_hash
-    ):
+    decoded_selection = decode_group_start_selection(
+        group.selection_source, expected_kind=group.kind
+    )
+    selection = decoded_selection.original_selection
+    if group_start_intent(decoded_selection) != group.intent_hash:
         fail("group_selection_intent_mismatch", "incompatible_data")
+    if not isinstance(selection, dict):
+        fail("invalid_group_selection", "incompatible_data")
     request = selection.get("request")
     if not isinstance(request, dict):
         fail("invalid_group_selection", "incompatible_data")
@@ -359,7 +356,9 @@ def admit_group_snapshots(
     ):
         fail("diagnostic_source_mismatch", "incompatible_data")
     _selection_allocation(budget.group)
-    selection = JsonDocument(budget.group.selection_source).value
+    selection = decode_group_start_selection(
+        budget.group.selection_source, expected_kind=budget.group.kind
+    ).original_selection
     assert isinstance(selection, dict) and isinstance(selection.get("request"), dict)
     if budget.group.kind == "choice_order":
         from deykit.application.diagnostics import ChoiceOrderRequest

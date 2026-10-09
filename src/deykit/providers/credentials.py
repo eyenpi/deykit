@@ -1,54 +1,25 @@
 """Credential references and explicit local credential operations, without network."""
 
 import os
-import re
 from collections.abc import Mapping
-from dataclasses import dataclass
 from importlib import import_module
 from typing import TYPE_CHECKING, Protocol, cast
-from urllib.parse import quote, unquote
+
+from deykit.contracts.provider_configuration import (
+    CredentialReference as CredentialReference,
+)
+from deykit.contracts.provider_configuration import (
+    CredentialUnavailable as CredentialUnavailable,
+)
 
 if TYPE_CHECKING:
     from deykit.contracts.records import ProviderProfile
-
-
-class CredentialUnavailable(Exception):
-    def __init__(self) -> None:
-        super().__init__(
-            "Configured credential is unavailable; set its environment or OS-store value."
-        )
 
 
 class SecretStore(Protocol):
     def get_password(self, service: str, username: str) -> str | None: ...
     def set_password(self, service: str, username: str, password: str) -> None: ...
     def delete_password(self, service: str, username: str) -> None: ...
-
-
-@dataclass(frozen=True)
-class CredentialReference:
-    kind: str
-    name: str
-    account: str | None = None
-
-    @classmethod
-    def parse(cls, reference: str) -> "CredentialReference":
-        if reference.startswith("env:"):
-            name = reference[4:]
-            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
-                return cls("env", name)
-        if reference.startswith("keyring:"):
-            parts = reference[8:].split("/")
-            if len(parts) == 2:
-                service, account = (unquote(part) for part in parts)
-                if service and account and all(c.isprintable() for c in service + account):
-                    return cls("keyring", service, account)
-        raise ValueError("Credential reference must be env:NAME or keyring:SERVICE/ACCOUNT.")
-
-    def encode(self) -> str:
-        if self.kind == "env":
-            return f"env:{self.name}"
-        return f"keyring:{quote(self.name, safe='')}/{quote(self.account or '', safe='')}"
 
 
 class Credentials:

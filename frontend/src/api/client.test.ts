@@ -1,119 +1,321 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiClient, jsonSource } from "./client";
-const reply = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), {
+import {
+  ApiClient,
+  object,
+  type ApiOperationArguments,
+} from "./client";
+
+const reply = (
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+) =>
+  new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
-describe("local API boundary", () => {
-  it("sends exact user JSON as a string without convenience precondition headers", async () => {
+
+const success = (data: unknown, warnings: unknown[] = []) => ({
+  schema_version: 1,
+  data,
+  warnings,
+});
+
+const recentProjects = () => success({ schema_version: 1, items: [] });
+const decisionPage = () =>
+  success({ schema_version: 1, items: [], total: "0", next_cursor: null });
+
+const registerProjectRequest = {
+  schema_version: 1 as const,
+  operation_id: "register-project",
+  action: "create" as const,
+  path: "/tmp/project",
+  name: "Project",
+};
+
+describe("generated local API operations", () => {
+  it("preserves exact source strings inside a validated registered request", async () => {
     const source =
       '{"integer":9007199254740993,"decimal":0.1234567890123456789,"unfinished":';
     const transport = vi.fn<typeof fetch>().mockResolvedValue(
-      reply({
-        schema_version: 1,
-        data: { source_text: source },
-        warnings: [],
-      }),
+      reply(
+        success({
+          schema_version: 1,
+          input_source: source,
+          source_hash: "a".repeat(64),
+        }),
+      ),
     );
     const client = new ApiClient(transport);
     client.setCapability("local-session");
-    const result = await client.request("/api/v1/drafts", jsonSource, {
-      method: "PUT",
-      body: { source_text: source },
+
+    const result = await client.operation(
+      "encodeTextInput",
+      {
+        path: { registration_id: "registration-1" },
+        body: { schema_version: 1, text_value: source },
+      },
+      (value) => object(value),
+    );
+
+    expect(result.data.input_source).toBe(source);
+    const [url, init] = transport.mock.calls[0];
+    expect(url).toBe("/api/v1/projects/registration-1/authoring/text-input");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      schema_version: 1,
+      text_value: source,
     });
-    expect(result.data.source_text).toBe(source);
-    const init = transport.mock.calls[0][1]!;
-    expect(JSON.parse(init.body as string)).toEqual({ source_text: source });
-    expect(new Headers(init.headers).get("If-Match")).toBeNull();
-    expect(new Headers(init.headers).get("Idempotency-Key")).toBeNull();
-    expect(init.credentials).toBe("omit");
-    expect(init.mode).toBe("cors");
-    expect(init.redirect).toBe("error");
+    expect(new Headers(init?.headers).get("If-Match")).toBeNull();
+    expect(new Headers(init?.headers).get("Idempotency-Key")).toBeNull();
+    expect(init?.credentials).toBe("omit");
+    expect(init?.mode).toBe("cors");
+    expect(init?.redirect).toBe("error");
   });
-  it("requires a session and blocks external, query, and traversal destinations before fetch", async () => {
-    const transport = vi
-      .fn<typeof fetch>()
-      .mockRejectedValue(new Error("offline"));
+
+  it("sends the required version body for the provider model operation", async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(
+      reply(
+        success({
+          schema_version: 1,
+          profile_id: "profile-1",
+          network_check: true,
+          inference_calls: 0,
+          models: [],
+        }),
+      ),
+    );
     const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
+    await client.operation("listProviderModels", {
+      path: { registration_id: "registration-1", profile_id: "profile-1" },
+      query: { timeout_seconds: "12" },
+      body: { schema_version: 1 },
+    });
+
+    const [url, init] = transport.mock.calls[0];
+    expect(url).toBe(
+      "/api/v1/projects/registration-1/providers/profile-1/models?timeout_seconds=12",
+    );
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({ schema_version: 1 });
+  });
+
+  it("preserves choice-order seeds as decimal text in the generated request", async () => {
+    const transport = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
     await expect(
-      client.request("/api/v1/projects", jsonSource),
-    ).rejects.toMatchObject({ code: "service_unavailable" });
-    client.setCapability("session");
-    for (const path of [
-      "https://example.com/api/v1/projects",
-      "/api/v1/../secret",
-      "/api/v1/%2e%2e",
-      "/api/v1/projects?token=secret",
-      "/api/v1//projects",
-    ])
-      await expect(client.request(path, jsonSource)).rejects.toMatchObject({
-        code: "invalid_path",
-      });
-    expect(transport).toHaveBeenCalledTimes(1);
-    expect(transport.mock.calls[0][0]).toBe("/api/v1/session/bootstrap");
+      client.operation("previewChoiceOrder", {
+        path: { registration_id: "registration-1" },
+        body: {
+          schema_version: 1,
+          request: {
+            run: {
+              decision_id: "decision-1",
+              dataset_id: "dataset-1",
+              mode: "fixture",
+              fixture_set_id: "fixture-1",
+            },
+            orders: 2,
+            seed: "9007199254740993",
+          },
+        },
+      }),
+    ).rejects.toBeDefined();
+
+    expect(transport).toHaveBeenCalledOnce();
+    expect(JSON.parse(transport.mock.calls[0][1]?.body as string)).toEqual({
+      schema_version: 1,
+      request: {
+        run: {
+          decision_id: "decision-1",
+          dataset_id: "dataset-1",
+          mode: "fixture",
+          fixture_set_id: "fixture-1",
+        },
+        orders: 2,
+        seed: "9007199254740993",
+      },
+    });
   });
-  it("rejects malformed envelopes and never displays raw HTML or transport exceptions", async () => {
+
+  it("encodes only declared query values and retains the response ETag", async () => {
+    const transport = vi.fn<typeof fetch>().mockResolvedValue(
+      reply(decisionPage(), 200, { ETag: '"page-2"' }),
+    );
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
+    const result = await client.operation("listDecisions", {
+      path: { registration_id: "registration-1" },
+      query: {
+        cursor: "a&b/next",
+        include_archived: "false",
+        limit: "25",
+      },
+    });
+
+    expect(transport.mock.calls[0][0]).toBe(
+      "/api/v1/projects/registration-1/decisions?cursor=a%26b%2Fnext&include_archived=false&limit=25",
+    );
+    expect(result.revision).toBe('"page-2"');
+  });
+
+  it("rejects unsafe path values and undeclared runtime fields before bootstrap", async () => {
+    const transport = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+    const client = new ApiClient(transport);
+
+    await expect(
+      client.operation("showRegisteredProject", {
+        path: { registration_id: "../private" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_path" });
+    await expect(
+      client.operation("listDecisions", {
+        path: { registration_id: "registration-1" },
+        query: { cursor: "x", token: "secret" } as unknown as ApiOperationArguments<"listDecisions">["query"],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_query" });
+    await expect(
+      client.operation("encodeTextInput", {
+        path: { registration_id: "registration-1" },
+        body: { schema_version: 1, text_value: 9 } as unknown as ApiOperationArguments<"encodeTextInput">["body"],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_body" });
+    expect(transport).not.toHaveBeenCalled();
+
+    if (false) {
+      // @ts-expect-error only operation IDs present in generated OpenAPI are public
+      client.operation("arbitraryPath", {});
+      client.operation("listDecisions", {
+        path: { registration_id: "registration-1" },
+        query: {
+          // @ts-expect-error this query key is not in the registered operation
+          token: "secret",
+        },
+      });
+      client.operation("listDecisions", {
+        // @ts-expect-error path parameters must match the generated string schema
+        path: { registration_id: 9 },
+      });
+      // @ts-expect-error bootstrap is an internal operation, not public dispatch
+      client.operation("bootstrapSession", {});
+      // @ts-expect-error raw path dispatch is not a public client capability
+      client.request("/api/v1/arbitrary", object, {});
+      // @ts-expect-error text input operation requires its generated request body
+      client.operation("encodeTextInput", { path: { registration_id: "registration-1" } });
+    }
+  });
+
+  it("does not resolve inherited object properties as operations", async () => {
+    const transport = vi.fn<typeof fetch>();
+    const client = new ApiClient(transport);
+
+    await expect(
+      client.operation("toString" as never, {} as never),
+    ).rejects.toMatchObject({ code: "invalid_operation" });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("validates the operation-specific success envelope and hides raw transport failures", async () => {
     const transport = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response("SECRET", { status: 500 }))
-      .mockRejectedValueOnce(new Error("SECRET"))
-      .mockResolvedValueOnce(
-        reply({ schema_version: 9, data: {}, warnings: [] }),
-      );
+      .mockResolvedValueOnce(new Response("PRIVATE", { status: 500 }))
+      .mockRejectedValueOnce(new Error("PRIVATE"))
+      .mockResolvedValueOnce(reply(success({ schema_version: 1, items: ["bad"] })));
     const client = new ApiClient(transport);
-    client.setCapability("session");
-    for (let n = 0; n < 3; n++) {
+    client.setCapability("local-session");
+
+    for (let index = 0; index < 3; index += 1) {
       try {
-        await client.request("/api/v1/projects", jsonSource);
-        expect.fail("should reject");
+        await client.operation("listRecentProjects", {});
+        expect.fail("the malformed response must be rejected");
       } catch (error) {
-        expect(String(error)).not.toContain("SECRET");
+        expect(String(error)).not.toContain("PRIVATE");
       }
     }
   });
-  it("preserves typed conflicts and rejects source objects that would round values", async () => {
-    const transport = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        reply(
-          {
-            schema_version: 1,
-            error: {
-              code: "conflict",
-              message: "The draft changed. Reload before saving.",
-              schema_version: 1,
-            },
-          },
-          409,
-        ),
-      )
-      .mockResolvedValueOnce(
-        reply({
+
+  it("retains safe conflict metadata without retrying a mutation", async () => {
+    const conflict = reply(
+      {
+        schema_version: 1,
+        error: {
           schema_version: 1,
-          data: { source_text: { value: 1 } },
-          warnings: [],
-        }),
-      );
+          code: "conflict",
+          message: "The project changed.",
+          reason: "etag_mismatch",
+          resource_id: "project-1",
+        },
+      },
+      409,
+    );
+    const transport = vi.fn<typeof fetch>().mockResolvedValueOnce(conflict);
     const client = new ApiClient(transport);
-    client.setCapability("session");
+    client.setCapability("local-session");
+
     await expect(
-      client.request("/api/v1/drafts", jsonSource),
-    ).rejects.toMatchObject({ code: "conflict", status: 409 });
-    await expect(
-      client.request("/api/v1/drafts", jsonSource),
-    ).rejects.toMatchObject({ code: "response_invalid" });
+      client.operation("registerProject", { body: registerProjectRequest }),
+    ).rejects.toMatchObject({
+      code: "conflict",
+      status: 409,
+      reason: "etag_mismatch",
+      resource_id: "project-1",
+    });
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves transient resource choices from the top-level failure envelope", async () => {
-    const selection = {
-      choices: [
-        {
-          kind: "decision",
-          resource_id: "decision-1",
-          scope: ["project-1"],
+  it("requires explicit reconnect after a stale capability and never resends the mutation", async () => {
+    const origin = "http://127.0.0.1:8765";
+    const bootstrap = (capability: string) =>
+      reply(success({ capability, origin, api_version: 1 }));
+    const stale = reply(
+      {
+        schema_version: 1,
+        error: {
+          schema_version: 1,
+          code: "local_access_denied",
+          message: "The local service rejected this request.",
         },
-      ],
+      },
+      403,
+    );
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(bootstrap("a".repeat(43)))
+      .mockResolvedValueOnce(stale)
+      .mockResolvedValueOnce(bootstrap("b".repeat(43)))
+      .mockResolvedValueOnce(reply(recentProjects()));
+    const sessionSet = vi.spyOn(window.sessionStorage, "setItem");
+    const localSet = vi.spyOn(window.localStorage, "setItem");
+    const client = new ApiClient(transport, () => origin);
+
+    await expect(
+      client.operation("registerProject", { body: registerProjectRequest }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(transport).toHaveBeenCalledTimes(2);
+    await client.reconnect();
+    await client.operation("listRecentProjects", {});
+
+    expect(transport.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/session/bootstrap",
+      "/api/v1/projects/register",
+      "/api/v1/session/bootstrap",
+      "/api/v1/projects/recent",
+    ]);
+    expect(new Headers(transport.mock.calls[3][1]?.headers).get("X-Deykit-Capability")).toBe(
+      "b".repeat(43),
+    );
+    expect(sessionSet).not.toHaveBeenCalled();
+    expect(localSet).not.toHaveBeenCalled();
+  });
+
+  it("preserves transient selection metadata from failure envelopes", async () => {
+    const selection = {
+      choices: [{ kind: "decision", resource_id: "decision-1", scope: ["project-1"] }],
     };
     const transport = vi.fn<typeof fetch>().mockResolvedValue(
       reply(
@@ -134,9 +336,11 @@ describe("local API boundary", () => {
       ),
     );
     const client = new ApiClient(transport);
-    client.setCapability("session");
+    client.setCapability("local-session");
 
-    await expect(client.request("/api/v1/projects", jsonSource)).rejects.toMatchObject({
+    await expect(
+      client.operation("registerProject", { body: registerProjectRequest }),
+    ).rejects.toMatchObject({
       code: "not_found",
       status: 404,
       resource_id: "missing",
@@ -146,195 +350,76 @@ describe("local API boundary", () => {
       selection,
     });
   });
-});
 
-it("encodes pagination separately and captures the response revision", async () => {
-  const transport = vi.fn<typeof fetch>().mockResolvedValue(
-    new Response(
-      JSON.stringify({
-        schema_version: 1,
-        data: { source_text: "{}" },
-        warnings: [],
-      }),
-      { headers: { "Content-Type": "application/json", ETag: '"rev-2"' } },
-    ),
-  );
-  const client = new ApiClient(transport);
-  client.setCapability("session");
-  const result = await client.request("/api/v1/projects", jsonSource, {
-    query: { cursor: "a&b/next", limit: 25 },
-  });
-  expect(transport.mock.calls[0][0]).toBe(
-    "/api/v1/projects?cursor=a%26b%2Fnext&limit=25",
-  );
-  expect(result.revision).toBe('"rev-2"');
-  await expect(
-    client.request("/api/v1/projects", jsonSource, {
-      query: { limit: Infinity },
-    }),
-  ).rejects.toMatchObject({ code: "invalid_query" });
-});
+  it("bootstraps once, pins the origin, and keeps the capability in memory", async () => {
+    const origin = "http://127.0.0.1:8765";
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        reply(
+          success({ capability: "a".repeat(43), origin, api_version: 1 }),
+        ),
+      )
+      .mockResolvedValueOnce(reply(recentProjects()));
+    const client = new ApiClient(transport, () => origin);
 
-it("bootstraps once with the public exemption and pins the returned origin", async () => {
-  const origin = "http://127.0.0.1:8765";
-  const transport = vi
-    .fn<typeof fetch>()
-    .mockResolvedValueOnce(
-      reply({
-        schema_version: 1,
-        data: {
-          capability: "a".repeat(43),
-          origin,
-          api_version: 1,
-        },
-        warnings: [],
-      }),
-    )
-    .mockResolvedValueOnce(
-      reply({ schema_version: 1, data: { source_text: "{}" }, warnings: [] }),
+    await client.connect();
+    await client.operation("listRecentProjects", {});
+
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(transport.mock.calls[0][0]).toBe("/api/v1/session/bootstrap");
+    expect(new Headers(transport.mock.calls[0][1]?.headers).get("X-Deykit-Bootstrap")).toBe("1");
+    expect(new Headers(transport.mock.calls[0][1]?.headers).get("X-Deykit-Capability")).toBeNull();
+    expect(JSON.parse(transport.mock.calls[0][1]?.body as string)).toEqual({ schema_version: 1 });
+    expect(new Headers(transport.mock.calls[1][1]?.headers).get("X-Deykit-Capability")).toBe(
+      "a".repeat(43),
     );
-  const client = new ApiClient(transport, () => origin);
-  await client.connect();
-  await client.request("/api/v1/projects", jsonSource);
-  expect(transport).toHaveBeenCalledTimes(2);
-  const bootstrap = transport.mock.calls[0][1]!;
-  expect(new Headers(bootstrap.headers).get("X-Deykit-Bootstrap")).toBe("1");
-  expect(new Headers(bootstrap.headers).get("X-Deykit-Capability")).toBeNull();
-  expect(JSON.parse(bootstrap.body as string)).toEqual({ schema_version: 1 });
-  expect(
-    new Headers(transport.mock.calls[1][1]!.headers).get("X-Deykit-Capability"),
-  ).toBe("a".repeat(43));
-});
-
-it("preserves generated structured warnings and rejects malformed warning records", async () => {
-  const warning = {
-    schema_version: 1,
-    code: "preflight_failed",
-    message: "Recent projects could not be read.",
-    reason: "recent_projects_unavailable",
-  };
-  const transport = vi
-    .fn<typeof fetch>()
-    .mockResolvedValueOnce(reply({ schema_version: 1, data: {}, warnings: [warning] }))
-    .mockResolvedValueOnce(reply({ schema_version: 1, data: {}, warnings: ["unsafe"] }));
-  const client = new ApiClient(transport);
-  client.setCapability("session");
-  expect((await client.request("/api/v1/projects", (value) => value)).warnings).toEqual([
-    warning,
-  ]);
-  await expect(
-    client.request("/api/v1/projects", (value) => value),
-  ).rejects.toMatchObject({ code: "response_invalid" });
-});
-
-it("requires explicit reconnect after a stale capability and never resends a mutation", async () => {
-  const origin = "http://127.0.0.1:8765";
-  const bootstrap = (capability: string) =>
-    reply({
-      schema_version: 1,
-      data: { capability, origin, api_version: 1 },
-      warnings: [],
-    });
-  const stale = reply(
-    {
-      schema_version: 1,
-      error: {
-        schema_version: 1,
-        code: "local_access_denied",
-        message: "The local service rejected this request.",
-      },
-    },
-    403,
-  );
-  const transport = vi
-    .fn<typeof fetch>()
-    .mockResolvedValueOnce(bootstrap("a".repeat(43)))
-    .mockResolvedValueOnce(stale)
-    .mockResolvedValueOnce(bootstrap("b".repeat(43)))
-    .mockResolvedValueOnce(reply({ schema_version: 1, data: {}, warnings: [] }));
-  const sessionSet = vi.spyOn(window.sessionStorage, "setItem");
-  const localSet = vi.spyOn(window.localStorage, "setItem");
-  const client = new ApiClient(transport, () => origin);
-  await expect(
-    client.request("/api/v1/projects/register", (value) => value, {
-      method: "POST",
-      body: { operation_id: "original-operation" },
-    }),
-  ).rejects.toMatchObject({ status: 403 });
-  expect(transport).toHaveBeenCalledTimes(2);
-  await client.reconnect();
-  await client.request("/api/v1/projects/recent", (value) => value);
-  expect(transport).toHaveBeenCalledTimes(4);
-  expect(transport.mock.calls.map(([url]) => url)).toEqual([
-    "/api/v1/session/bootstrap",
-    "/api/v1/projects/register",
-    "/api/v1/session/bootstrap",
-    "/api/v1/projects/recent",
-  ]);
-  expect(
-    new Headers(transport.mock.calls[3][1]!.headers).get("X-Deykit-Capability"),
-  ).toBe("b".repeat(43));
-  expect(sessionSet).not.toHaveBeenCalled();
-  expect(localSet).not.toHaveBeenCalled();
-});
-
-it("does not let an older bootstrap overwrite an explicit reconnect", async () => {
-  const origin = "http://127.0.0.1:8765";
-  const bootstrap = (capability: string) =>
-    reply({
-      schema_version: 1,
-      data: { capability, origin, api_version: 1 },
-      warnings: [],
-    });
-  let finishOldBootstrap!: (response: Response) => void;
-  const oldBootstrap = new Promise<Response>((resolve) => {
-    finishOldBootstrap = resolve;
   });
-  const transport = vi
-    .fn<typeof fetch>()
-    .mockReturnValueOnce(oldBootstrap)
-    .mockResolvedValueOnce(bootstrap("b".repeat(43)))
-    .mockResolvedValueOnce(reply({ schema_version: 1, data: {}, warnings: [] }));
-  const client = new ApiClient(transport, () => origin);
-  const initialConnect = client.connect();
-  await client.reconnect();
-  finishOldBootstrap(bootstrap("a".repeat(43)));
-  await initialConnect;
-  await client.request("/api/v1/projects/recent", (value) => value);
-  expect(
-    new Headers(transport.mock.calls[2][1]!.headers).get("X-Deykit-Capability"),
-  ).toBe("b".repeat(43));
-});
 
-
-describe("structured API failures", () => {
-  it("retains safe error metadata from the failure envelope", async () => {
-    const transport = vi.fn<typeof fetch>().mockResolvedValue(
-      reply(
-        {
-          schema_version: 1,
-          error: {
-            schema_version: 1,
-            code: "conflict",
-            message: "The project changed.",
-            reason: "etag_mismatch",
-            resource_id: "decision-1",
-            row: 7,
-            correlation_id: "correlation-1",
-          },
-        },
-        409,
-      ),
-    );
+  it("preserves generated warnings and rejects malformed warning records", async () => {
+    const warning = {
+      schema_version: 1,
+      code: "preflight_failed",
+      message: "Recent projects could not be read.",
+      reason: "recent_projects_unavailable",
+    };
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(reply(recentProjects(), 200, {}))
+      .mockResolvedValueOnce(reply(success({ schema_version: 1, items: [] }, [warning])))
+      .mockResolvedValueOnce(reply(success({ schema_version: 1, items: [] }, ["unsafe"])));
     const client = new ApiClient(transport);
-    client.setCapability("session");
-    await expect(client.request("/api/v1/projects", jsonSource)).rejects.toMatchObject({
-      code: "conflict",
-      status: 409,
-      reason: "etag_mismatch",
-      resource_id: "decision-1",
-      row: 7,
-      correlation_id: "correlation-1",
+    client.setCapability("local-session");
+
+    await client.operation("listRecentProjects", {});
+    expect((await client.operation("listRecentProjects", {})).warnings).toEqual([warning]);
+    await expect(client.operation("listRecentProjects", {})).rejects.toMatchObject({
+      code: "response_invalid",
     });
+  });
+
+  it("does not let an older bootstrap overwrite a concurrent reconnect", async () => {
+    const origin = "http://127.0.0.1:8765";
+    const bootstrap = (capability: string) =>
+      reply(success({ capability, origin, api_version: 1 }));
+    let finishOldBootstrap!: (response: Response) => void;
+    const oldBootstrap = new Promise<Response>((resolve) => {
+      finishOldBootstrap = resolve;
+    });
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockReturnValueOnce(oldBootstrap)
+      .mockResolvedValueOnce(bootstrap("b".repeat(43)))
+      .mockResolvedValueOnce(reply(recentProjects()));
+    const client = new ApiClient(transport, () => origin);
+    const initialConnect = client.connect();
+    await client.reconnect();
+    finishOldBootstrap(bootstrap("a".repeat(43)));
+    await initialConnect;
+    await client.operation("listRecentProjects", {});
+
+    expect(new Headers(transport.mock.calls[2][1]?.headers).get("X-Deykit-Capability")).toBe(
+      "b".repeat(43),
+    );
   });
 });

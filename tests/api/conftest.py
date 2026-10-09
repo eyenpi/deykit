@@ -16,6 +16,8 @@ from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProject
 from deykit.api.runtime import SystemClock, new_id
 from deykit.contracts.ports import Clock
+from deykit.providers.configuration import create_provider_operations
+from deykit.runner.backends import ProviderBackends
 from deykit.storage.demo_destination import FileDemoDestinationFactory
 from deykit.storage.demo_staging import DemoStagingSource
 
@@ -47,6 +49,8 @@ def api_dependencies() -> ApiDependencies:
         recent_store=EmptyRecentProjects(),
         demo_staging_factory=DemoStagingSource,
         demo_destination_factory=FileDemoDestinationFactory(),
+        provider_operations_factory=create_provider_operations,
+        backends_factory=ProviderBackends,
     )
 
 

@@ -5,10 +5,12 @@ import copy
 import json
 import re
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from deykit.api.recent import RecentProject
 from deykit.application.projects import ProjectBackend
+from deykit.providers.configuration import create_provider_operations
+from deykit.runner.backends import ProviderBackends
 
 from .app import create_inner_app
 from .assets import AssetCatalog
@@ -50,7 +52,7 @@ class _SchemaRecentProjects:
 
 
 def _schema_dependencies() -> ApiDependencies:
-    def no_source(path: Path, create: bool) -> ProjectBackend:
+    def no_source(path: Path, create: bool) -> NoReturn:
         raise AssertionError("schema export must not open a project")
 
     return ApiDependencies(
@@ -60,6 +62,8 @@ def _schema_dependencies() -> ApiDependencies:
         recent_store=_SchemaRecentProjects(),
         demo_staging_factory=lambda: cast(ProjectBackend, None),
         demo_destination_factory=_SchemaDemoDestinationFactory(),
+        provider_operations_factory=create_provider_operations,
+        backends_factory=ProviderBackends,
     )
 
 
@@ -68,6 +72,10 @@ def contract_documents() -> dict[str, bytes]:
     config = LocalServerConfig("127.0.0.1:8765", "http://127.0.0.1:8765", AssetCatalog({}))
     app = create_inner_app(config, SessionCapability.create(), _schema_dependencies())
     openapi = app.openapi()
+    for path_item in openapi["paths"].values():
+        for operation in path_item.values():
+            if operation.get("operationId") == "bootstrapSession":
+                operation["x-deykit-client-internal"] = True
     failure = Failure.model_json_schema(ref_template="#/components/schemas/{model}")
     definitions = failure.pop("$defs", {})
     openapi["components"]["schemas"].update(definitions)

@@ -1,13 +1,14 @@
 {
   "schema_version": 1,
   "inputs": {
-    "openapi": "d8ee7eb20c56f25d954c5661b8b96f953789034596ef3f0877c0eecfd83d841d",
-    "schemas": "fd859fa272cf3e6c3a1ba27872767fbabb350609cc3bb4c42fd230d8585e55f4"
+    "openapi": "efd73a5d6254470ccae9a0627426ebc60c1c4d4cd6f30244ec26ae79d1286cf8",
+    "schemas": "7ecd6a623d9219a27eabf7f38bb5f5cca1d8ede102f6e52f8be6a876fb9fc4b6"
   },
   "outputs": {
-    "openapi.d.ts": "ad97d63334d2659c76665bcfd157b9a4bbf277811835dba96d8a0b9dfdfcdc3e",
-    "validators.cjs": "2d6c661a0d45a3f168dbbd831ba47b3ccc5dcbfc69bff671e6ec011127a33b25",
-    "validators.d.cts": "8ecfc3d850930e2728ef7abe3f3538a60f2f8b41c6645ee6a43b594dabb61278"
+    "openapi.d.ts": "3ace30b88bdd3c8ef0c3ed18c300945337e06346a4ddb84cac67250d1667c7fd",
+    "operations.ts": "69295dc9aa85321ce0d1ff46aac27eba49089a02d7c5bf1ba9c09a56e2d8308f",
+    "validators.cjs": "12641a49da4b5e6e0bddacaf9d3ce52f3e1935025ce1a6c6dd2183bd490e90ed",
+    "validators.d.cts": "5e8f9ff6e2370af1120ab15d6f8f5ae1d7b6cc705726351f6d7285721e500a05"
   },
   "generators": {
     "typescript": "5.9.3",

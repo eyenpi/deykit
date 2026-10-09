@@ -153,8 +153,27 @@ class UnknownOnceBackends(BackendFactory):
     def profile(self, provider_id: str | None, fixture_set_id: str | None) -> ProviderProfile:
         return self.inner.profile(provider_id, fixture_set_id)
 
+    def profile_captured(
+        self,
+        provider_id: str | None,
+        fixture_set_id: str | None,
+        records: tuple[StoredRecord, ...],
+    ) -> ProviderProfile:
+        return self.inner.profile_captured(provider_id, fixture_set_id, records)
+
     def resolve(self, profile: ProviderProfile, fixture_set_id: str | None) -> Backend:
         backend = self.inner.resolve(profile, fixture_set_id)
+        return self._controlled(backend)
+
+    def resolve_captured(
+        self,
+        profile: ProviderProfile,
+        fixture_set_id: str | None,
+        records: tuple[StoredRecord, ...],
+    ) -> Backend:
+        return self._controlled(self.inner.resolve_captured(profile, fixture_set_id, records))
+
+    def _controlled(self, backend: Backend) -> Backend:
         parent = self
 
         class ControlledBackend:

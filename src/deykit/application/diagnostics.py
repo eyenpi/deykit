@@ -52,6 +52,16 @@ class DiagnosticService:
             ),
             request.run.settings.max_attempts,
             request.run.settings.deadline_seconds,
+            review_membership_records=(),
+        )
+
+    @staticmethod
+    def _selection_source(request: ChoiceOrderRequest) -> str:
+        return dump_json(
+            {
+                "kind": "choice_order",
+                "request": cast(JsonValue, request.model_dump(mode="json")),
+            }
         )
 
     def preview(self, request: ChoiceOrderRequest) -> GroupPreview:
@@ -59,28 +69,25 @@ class DiagnosticService:
         return replace(
             self.groups.preview(
                 lambda: self._plan(request),
-                selection_source=dump_json(
-                    {
-                        "kind": "choice_order",
-                        "request": cast(JsonValue, request.model_dump(mode="json")),
-                    }
-                ),
+                selection_source=self._selection_source(request),
             ),
             algorithm="deykit-choice-order-v1",
             seed=request.seed,
         )
 
-    async def start(self, request: ChoiceOrderRequest, *, operation_id: str) -> DiagnosticView:
+    async def start(
+        self,
+        request: ChoiceOrderRequest,
+        *,
+        operation_id: str,
+        expected_review_context_hash: str | None = None,
+    ) -> DiagnosticView:
         request = validated_model(ChoiceOrderRequest, request, "invalid_diagnostic_request")
         result = await self.groups.start(
-            selection_source=dump_json(
-                {
-                    "kind": "choice_order",
-                    "request": cast(JsonValue, request.model_dump(mode="json")),
-                }
-            ),
+            selection_source=self._selection_source(request),
             prepare=lambda: self._plan(request),
             operation_id=operation_id,
+            expected_review_context_hash=expected_review_context_hash,
         )
         return self._view(result)
 

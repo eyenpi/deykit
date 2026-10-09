@@ -8,6 +8,11 @@ from typing import Generic, TypeVar, cast
 
 from pydantic import ValidationError
 
+from deykit.application.authoring_views import (
+    EditorEditV1,
+    EditorTransformV1,
+    transform_editor,
+)
 from deykit.application.errors import ServiceFailure
 from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record, load_record
@@ -99,6 +104,14 @@ class DefinitionDiff:
     removed_option_ids: tuple[str, ...]
     changed_option_ids: tuple[str, ...]
     incompatible_references: tuple[IncompatibleReference, ...]
+
+
+@dataclass(frozen=True)
+class DraftTransformReviewV1:
+    """A proposed exact-source edit and its captured, read-only reference impact."""
+
+    transform: EditorTransformV1
+    incompatible_references: tuple[IncompatibleReference, ...] | None
 
 
 def _failure(
@@ -569,51 +582,55 @@ class DecisionService:
     def _incompatible_references(
         self, decision_id: str, definition: ChoiceDefinition
     ) -> tuple[IncompatibleReference, ...]:
-        found: list[IncompatibleReference] = []
         with self.source.consistent_read() as source:
-            for dataset_id in source.list_ids("datasets"):
-                for label_id in source.list_ids("labels", (decision_id, dataset_id)):
-                    label, _ = _required(
-                        source, LabelRecord, _key("labels", label_id, (decision_id, dataset_id))
-                    )
-                    missing = missing_options(
-                        definition, label.question_id, label.acceptable_option_ids
-                    )
-                    if missing:
-                        found.append(
-                            IncompatibleReference(
-                                kind="label",
-                                resource_id=label.id,
-                                decision_id=decision_id,
-                                dataset_id=label.dataset_id,
-                                case_id=label.case_id,
-                                question_id=label.question_id,
-                                missing_option_ids=missing,
-                            )
-                        )
-            for regression_id in source.list_ids("regressions"):
-                regression, _ = _required(
-                    source, RegressionRecord, _key("regressions", regression_id)
+            return self._incompatible_references_from(source, decision_id, definition)
+
+    @staticmethod
+    def _incompatible_references_from(
+        source: ProjectSource, decision_id: str, definition: ChoiceDefinition
+    ) -> tuple[IncompatibleReference, ...]:
+        found: list[IncompatibleReference] = []
+        for dataset_id in source.list_ids("datasets"):
+            for label_id in source.list_ids("labels", (decision_id, dataset_id)):
+                label, _ = _required(
+                    source, LabelRecord, _key("labels", label_id, (decision_id, dataset_id))
                 )
-                revision_key = _key("revisions", regression.decision_revision_id, (decision_id,))
-                if source.read(revision_key) is None:
-                    continue
-                _required(source, DecisionRevision, revision_key)
                 missing = missing_options(
-                    definition, regression.question_id, regression.acceptable_option_ids
+                    definition, label.question_id, label.acceptable_option_ids
                 )
                 if missing:
                     found.append(
                         IncompatibleReference(
-                            kind="regression",
-                            resource_id=regression.id,
+                            kind="label",
+                            resource_id=label.id,
                             decision_id=decision_id,
-                            dataset_id=regression.dataset_id,
-                            case_id=regression.case_id,
-                            question_id=regression.question_id,
+                            dataset_id=label.dataset_id,
+                            case_id=label.case_id,
+                            question_id=label.question_id,
                             missing_option_ids=missing,
                         )
                     )
+        for regression_id in source.list_ids("regressions"):
+            regression, _ = _required(source, RegressionRecord, _key("regressions", regression_id))
+            revision_key = _key("revisions", regression.decision_revision_id, (decision_id,))
+            if source.read(revision_key) is None:
+                continue
+            _required(source, DecisionRevision, revision_key)
+            missing = missing_options(
+                definition, regression.question_id, regression.acceptable_option_ids
+            )
+            if missing:
+                found.append(
+                    IncompatibleReference(
+                        kind="regression",
+                        resource_id=regression.id,
+                        decision_id=decision_id,
+                        dataset_id=regression.dataset_id,
+                        case_id=regression.case_id,
+                        question_id=regression.question_id,
+                        missing_option_ids=missing,
+                    )
+                )
         return tuple(
             sorted(
                 found,
@@ -626,3 +643,33 @@ class DecisionService:
                 ),
             )
         )
+
+    def review_references(
+        self, decision_id: str, definition: ChoiceDefinition
+    ) -> tuple[IncompatibleReference, ...]:
+        """Public read-only reference impact seam for one candidate definition."""
+        _valid_id(decision_id)
+        with self.source.consistent_read() as source:
+            return self._incompatible_references_from(source, decision_id, definition)
+
+    def review_draft_transform(
+        self,
+        decision_id: str,
+        editor_source: str,
+        edit: EditorEditV1,
+        *,
+        expected_draft_etag: str,
+    ) -> DraftTransformReviewV1:
+        """Review a proposed editor change against its current draft and references."""
+        decision_id = _valid_id(decision_id)
+        with self.source.consistent_read() as source:
+            view = self._read_view(source, decision_id)
+            if view.draft.etag != expected_draft_etag:
+                raise _failure("conflict", decision_id, "draft_changed")
+            transformed = transform_editor(editor_source, edit)
+            if transformed.projection.form is None or transformed.projection.validation_advice:
+                references = None
+            else:
+                definition = self._definition(transformed.editor_source, decision_id)
+                references = self._incompatible_references_from(source, decision_id, definition)
+            return DraftTransformReviewV1(transformed, references)

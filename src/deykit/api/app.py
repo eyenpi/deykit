@@ -1,4 +1,4 @@
-"""Construct the strict Phase A session/assets app; service routes remain gated."""
+"""Construct the strict local API, session, and assets app."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -58,9 +58,14 @@ def create_inner_app(
 
     router = APIRouter(prefix="/api/v1")
     register_session(router, session, config.origin)
-    from .routes import projects
+    from .routes import authoring, data, labels, previews, projects, providers
 
     projects.register(router, dependencies, registry, workers)
+    authoring.register(router, dependencies, registry, workers)
+    data.register(router, dependencies, registry, workers)
+    labels.register(router, dependencies, registry, workers)
+    previews.register(router, dependencies, registry, workers)
+    providers.register(router, dependencies, registry, workers)
     app.include_router(router)
     app.state.project_registry = registry
     app.state.dependencies = dependencies

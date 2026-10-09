@@ -7,9 +7,15 @@ from typing import Protocol
 
 from deykit.application.demo import DemoDestinationFactory
 from deykit.application.projects import ProjectBackend
+from deykit.application.provider_operations import ProviderOperations
 from deykit.contracts.ports import Clock
+from deykit.runner.ports import BackendFactory, ExecutionProject
 
 from .recent import RecentProject
+
+
+class ApiProjectSource(ProjectBackend, ExecutionProject, Protocol):
+    """Opened project capability required by the API's source services."""
 
 
 class RecentProjects(Protocol):
@@ -23,10 +29,9 @@ class RecentProjects(Protocol):
 class ApiDependencies:
     clock: Clock
     id_factory: Callable[[], str]
-    source_factory: Callable[[Path, bool], ProjectBackend]
+    source_factory: Callable[[Path, bool], ApiProjectSource]
     recent_store: RecentProjects
     demo_staging_factory: Callable[[], ProjectBackend]
     demo_destination_factory: DemoDestinationFactory
-
-
-ApiProjectSource = ProjectBackend
+    provider_operations_factory: Callable[[ApiProjectSource], ProviderOperations]
+    backends_factory: Callable[[ApiProjectSource, Clock], BackendFactory]

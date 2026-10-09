@@ -21,6 +21,7 @@ from deykit.regressions.evidence import admit_regression_origin, frozen_case
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.group_models import GroupPlan, GroupPreview, GroupProgress
 from deykit.runner.planner import RunRequest
+from deykit.runner.review import regression_membership_records
 
 
 class CheckRequest(FrozenModel):
@@ -120,31 +121,42 @@ class CheckService:
             request.settings.max_attempts,
             request.settings.deadline_seconds,
             tuple(by_id) if not request.regression_ids else None,
+            review_membership_records=regression_membership_records(
+                captured,
+                request.decision_id,
+                request.regression_ids if request.regression_ids else None,
+            ),
+        )
+
+    @staticmethod
+    def _selection_source(request: CheckRequest) -> str:
+        return dump_json(
+            {
+                "kind": "regression_check",
+                "request": cast(JsonValue, request.model_dump(mode="json")),
+            }
         )
 
     def preview(self, request: CheckRequest) -> GroupPreview:
         request = validated_model(CheckRequest, request, "invalid_check_request")
         return self.groups.preview(
             lambda: self._plan(request),
-            selection_source=dump_json(
-                {
-                    "kind": "regression_check",
-                    "request": cast(JsonValue, request.model_dump(mode="json")),
-                }
-            ),
+            selection_source=self._selection_source(request),
         )
 
-    async def start(self, request: CheckRequest, *, operation_id: str) -> CheckView:
+    async def start(
+        self,
+        request: CheckRequest,
+        *,
+        operation_id: str,
+        expected_review_context_hash: str | None = None,
+    ) -> CheckView:
         request = validated_model(CheckRequest, request, "invalid_check_request")
         progress = await self.groups.start(
-            selection_source=dump_json(
-                {
-                    "kind": "regression_check",
-                    "request": cast(JsonValue, request.model_dump(mode="json")),
-                }
-            ),
+            selection_source=self._selection_source(request),
             prepare=lambda: self._plan(request),
             operation_id=operation_id,
+            expected_review_context_hash=expected_review_context_hash,
         )
         return self._view(progress)
 

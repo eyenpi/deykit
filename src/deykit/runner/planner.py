@@ -18,8 +18,8 @@ from deykit.contracts.errors import ServiceError
 from deykit.contracts.evidence import evidence_hash as evidence_hash
 from deykit.contracts.execution_groups import RegressionRemoval
 from deykit.contracts.identities import ResourceId
-from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
-from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
+from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue, bytes_hash
+from deykit.contracts.ports import CompilerIdentity, ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
@@ -36,7 +36,7 @@ from deykit.contracts.records import (
 from deykit.domain.definitions import definition_hash, select_input
 from deykit.domain.label_identity import label_id
 from deykit.regressions.evidence import frozen_case
-from deykit.runner.ports import BackendFactory
+from deykit.runner.ports import Backend, BackendFactory
 
 MAX_CASES = 10_000
 MAX_PLAN_BYTES = 32 * 1024 * 1024
@@ -76,9 +76,38 @@ def validate_request(value: RunRequest) -> RunRequest:
     return validated_model(RunRequest, value, "invalid_run_request")
 
 
-def start_intent(request: RunRequest) -> str:
+def start_intent(request: RunRequest, expected_review_context_hash: str | None = None) -> str:
+    if expected_review_context_hash is not None:
+        from deykit.runner.review import validate_review_hash
+
+        validate_review_hash(expected_review_context_hash)
+        return safe_hash(
+            {
+                "command": "run.start.reviewed-v1",
+                "request": cast(JsonValue, request.model_dump(mode="json")),
+                "expected_review_context_hash": expected_review_context_hash,
+            }
+        )
     return safe_hash(
         {"command": "run.start", "request": cast(JsonValue, request.model_dump(mode="json"))}
+    )
+
+
+def _exact_records(
+    records: tuple[StoredRecord, ...],
+) -> tuple[tuple[str, tuple[str, ...], str, str, str], ...]:
+    return tuple(
+        (
+            item.key.collection,
+            item.key.scope,
+            item.key.resource_id,
+            item.etag,
+            bytes_hash(item.body),
+        )
+        for item in sorted(
+            records,
+            key=lambda item: (item.key.collection, item.key.scope, item.key.resource_id),
+        )
     )
 
 
@@ -102,6 +131,8 @@ class RunPlan:
     provider: ProviderProfile
     prepared: tuple[PlannedCase, ...]
     context_hash: str
+    review_records: tuple[StoredRecord, ...]
+    review_compiler: CompilerIdentity
 
     @property
     def initial_requests(self) -> int:
@@ -149,6 +180,8 @@ class Planner:
         ]
         if request.provider_id:
             keys.append(ResourceKey("providers", request.provider_id))
+        if request.fixture_set_id:
+            keys.append(ResourceKey("fixtures", request.fixture_set_id))
         if any(key not in index for key in keys):
             fail("run_source_missing", "preflight_failed")
         records = [index[key] for key in keys[:3]]
@@ -188,15 +221,28 @@ class Planner:
         return tuple(records)
 
     def check_context(self, plan: RunPlan) -> None:
-        if fingerprint(self._capture(plan.selection)) != plan.context_hash:
+        from deykit.application.errors import ServiceFailure
+
+        try:
+            current = self._capture(plan.selection)
+        except ServiceFailure:
+            fail("run_source_changed", "conflict")
+        if (
+            fingerprint(current) != plan.context_hash
+            or _exact_records(current) != _exact_records(plan.review_records)
+        ):
             fail("run_source_changed", "conflict")
 
     def prepare(self, request: RunRequest) -> RunPlan:
         request = validate_request(request)
         with self.source.consistent_read():
-            records = self._capture(request)
-            profile = self.backends.profile(request.provider_id, request.fixture_set_id)
-        return self._prepare(request, records, profile)
+            captured = self.source.capture_snapshot()
+            records = self._capture(request, captured)
+            profile = self.backends.profile_captured(
+                request.provider_id, request.fixture_set_id, captured
+            )
+        backend = self.backends.resolve_captured(profile, request.fixture_set_id, captured)
+        return self._prepare(request, records, profile, backend)
 
     def prepare_many(
         self, requests: tuple[RunRequest, ...], *, captured: tuple[StoredRecord, ...] | None = None
@@ -210,11 +256,20 @@ class Planner:
                 (
                     request,
                     self._capture(request, captured),
-                    self.backends.profile(request.provider_id, request.fixture_set_id),
+                    self.backends.profile_captured(
+                        request.provider_id, request.fixture_set_id, captured
+                    ),
                 )
                 for request in requests
             )
-        return tuple(self._prepare(*values) for values in inputs)
+        prepared_inputs = tuple(
+            (
+                *values,
+                self.backends.resolve_captured(values[2], values[0].fixture_set_id, captured),
+            )
+            for values in inputs
+        )
+        return tuple(self._prepare(*values) for values in prepared_inputs)
 
     def prepare_orders(self, request: RunRequest, *, orders: int, seed: int) -> tuple[RunPlan, ...]:
         from deykit.diagnostics.orders import DiagnosticInvalid, choice_orders
@@ -223,9 +278,13 @@ class Planner:
         if request.option_order is not None or request.regression_ids:
             fail("diagnostic_selection_override", "preflight_failed")
         with self.source.consistent_read():
-            records = self._capture(request)
-            profile = self.backends.profile(request.provider_id, request.fixture_set_id)
-        original = self._prepare(request, records, profile)
+            captured = self.source.capture_snapshot()
+            records = self._capture(request, captured)
+            profile = self.backends.profile_captured(
+                request.provider_id, request.fixture_set_id, captured
+            )
+        backend = self.backends.resolve_captured(profile, request.fixture_set_id, captured)
+        original = self._prepare(request, records, profile, backend)
         try:
             expanded = choice_orders(
                 tuple(option.id for option in original.definition.questions[0].options),
@@ -239,6 +298,7 @@ class Planner:
                 validate_request(request.model_copy(update={"option_order": order})),
                 records,
                 profile,
+                backend,
             )
             for order in expanded
         )
@@ -250,15 +310,20 @@ class Planner:
         for plan in plans:
             try:
                 context = self._capture(plan.selection, captured)
-            except ServiceFailure as error:
-                if error.error.reason in {"regression_not_visible", "selected_regression_missing"}:
-                    fail("run_source_changed", "conflict")
-                raise
-            if fingerprint(context) != plan.context_hash:
+            except ServiceFailure:
+                fail("run_source_changed", "conflict")
+            if (
+                fingerprint(context) != plan.context_hash
+                or _exact_records(context) != _exact_records(plan.review_records)
+            ):
                 fail("run_source_changed", "conflict")
 
     def _prepare(
-        self, request: RunRequest, records: tuple[StoredRecord, ...], profile: ProviderProfile
+        self,
+        request: RunRequest,
+        records: tuple[StoredRecord, ...],
+        profile: ProviderProfile,
+        backend: Backend,
     ) -> RunPlan:
         profile = validated_model(ProviderProfile, profile, "invalid_provider_profile")
         decision = decoded(DecisionRecord, records[0])
@@ -354,7 +419,16 @@ class Planner:
         development_ids = {case.id for case in development}
         if profile.adapter != ("fixture" if request.mode == "fixture" else "jev"):
             fail("provider_mode_mismatch", "preflight_failed")
-        backend = self.backends.resolve(profile, request.fixture_set_id)
+        compiler = backend.compiler
+        compiler_identity = compiler.review_identity
+        if (
+            type(compiler_identity) is not CompilerIdentity
+            or type(compiler_identity.compiler) is not str
+            or not compiler_identity.compiler
+            or type(compiler_identity.compiler_version) is not str
+            or not compiler_identity.compiler_version
+        ):
+            fail("invalid_compiler_identity", "preflight_failed")
         preflight_error = backend.preflight(request.decision_id, request.dataset_id, definition)
         if preflight_error is not None:
             fail(preflight_error.reason or "provider_preflight_failed", "preflight_failed")
@@ -376,10 +450,15 @@ class Planner:
                 )
                 continue
             try:
-                compiled = backend.compiler.compile(compile_definition, selected.value, profile)
+                compiled = compiler.compile(compile_definition, selected.value, profile)
             except ValueError:
                 fail("unsupported_request_configuration", "preflight_failed")
             compiled = trusted_request(compiled, profile)
+            if (compiled.compiler, compiled.compiler_version) != (
+                compiler_identity.compiler,
+                compiler_identity.compiler_version,
+            ):
+                fail("compiled_compiler_mismatch", "preflight_failed")
             prepared.append(PlannedCase(case.id, document.content_hash, compiled, None))
         if sum(item.request is not None for item in prepared) > request.settings.max_attempts:
             fail("initial_requests_exceed_cap", "preflight_failed")
@@ -389,15 +468,18 @@ class Planner:
         if total > MAX_PLAN_BYTES:
             fail("run_resource_limit", "preflight_failed")
         return RunPlan(
-            request,
-            definition,
-            definition_hash(definition),
-            cases,
-            tuple(label for label in all_labels if label.case_id in selected_ids),
-            development,
-            tuple(label for label in all_labels if label.case_id in development_ids),
-            profile,
-            tuple(prepared),
-            fingerprint(records),
+            selection=request,
+            definition=definition,
+            definition_hash=definition_hash(definition),
+            cases=cases,
+            labels=tuple(label for label in all_labels if label.case_id in selected_ids),
+            development_cases=development,
+            development_labels=tuple(
+                label for label in all_labels if label.case_id in development_ids
+            ),
+            provider=profile,
+            prepared=tuple(prepared),
+            context_hash=fingerprint(records),
+            review_records=records,
+            review_compiler=compiler_identity,
         )
-
