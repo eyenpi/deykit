@@ -2,8 +2,8 @@
   "assets": [
     {
       "content_type": "text/javascript; charset=utf-8",
-      "name": "assets/index-CuAUQYEn.js",
-      "sha256": "1a14a156e83232e36a73cd71583617cf2eceb50d3b204178bf8d7c2b9657abd2"
+      "name": "assets/index-8Go0bldZ.js",
+      "sha256": "f6f5d0c4fb7efdf98bed6626dc7d0da4c08454456861467f1d0cbad84327b42a"
     },
     {
       "content_type": "text/css; charset=utf-8",
@@ -13,7 +13,7 @@
     {
       "content_type": "text/html; charset=utf-8",
       "name": "index.html",
-      "sha256": "8257a505af09a5c1f7b93e1c0d84c01cac513fb6366b28057c5fcb1a6c6ec225"
+      "sha256": "2787d29788c5cfab4d237f285688bab9503bc67ec3b7f1238fc148e75977b9a1"
     }
   ],
   "schema_version": 1
