@@ -621,7 +621,7 @@
         "additionalProperties": false,
         "properties": {
           "request": {
-            "$ref": "#/components/schemas/CheckRequest"
+            "$ref": "#/components/schemas/CheckRequestDTO"
           },
           "schema_version": {
             "const": 1,
@@ -636,7 +636,7 @@
         "title": "CheckPreviewRequest",
         "type": "object"
       },
-      "CheckRequest": {
+      "CheckRequestDTO": {
         "additionalProperties": false,
         "properties": {
           "decision_id": {
@@ -707,7 +707,7 @@
           "decision_id",
           "mode"
         ],
-        "title": "CheckRequest",
+        "title": "CheckRequestDTO",
         "type": "object"
       },
       "ChoiceDefinition": {
@@ -800,7 +800,7 @@
         "additionalProperties": false,
         "properties": {
           "request": {
-            "$ref": "#/components/schemas/ChoiceOrderRequest"
+            "$ref": "#/components/schemas/ChoiceOrderRequestDTO"
           },
           "schema_version": {
             "const": 1,
@@ -815,7 +815,7 @@
         "title": "ChoiceOrderPreviewRequest",
         "type": "object"
       },
-      "ChoiceOrderRequest": {
+      "ChoiceOrderRequestDTO": {
         "additionalProperties": false,
         "properties": {
           "orders": {
@@ -826,20 +826,19 @@
             "type": "integer"
           },
           "run": {
-            "$ref": "#/components/schemas/RunRequest"
+            "$ref": "#/components/schemas/RunRequestDTO"
           },
           "seed": {
-            "default": 0,
-            "exclusiveMaximum": 9.223372036854776e+18,
-            "minimum": -9.223372036854776e+18,
+            "default": "0",
+            "pattern": "^(?:0|-?[1-9][0-9]*)$",
             "title": "Seed",
-            "type": "integer"
+            "type": "string"
           }
         },
         "required": [
           "run"
         ],
-        "title": "ChoiceOrderRequest",
+        "title": "ChoiceOrderRequestDTO",
         "type": "object"
       },
       "ChoiceQuestion": {
@@ -5372,7 +5371,7 @@
         "additionalProperties": false,
         "properties": {
           "request": {
-            "$ref": "#/components/schemas/RunRequest"
+            "$ref": "#/components/schemas/RunRequestDTO"
           },
           "schema_version": {
             "const": 1,
@@ -5387,7 +5386,7 @@
         "title": "RunPreviewRequest",
         "type": "object"
       },
-      "RunRequest": {
+      "RunRequestDTO": {
         "additionalProperties": false,
         "properties": {
           "case_ids": {
@@ -5496,7 +5495,7 @@
           "dataset_id",
           "mode"
         ],
-        "title": "RunRequest",
+        "title": "RunRequestDTO",
         "type": "object"
       },
       "SaveRevisionRequest": {
@@ -16326,6 +16325,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {

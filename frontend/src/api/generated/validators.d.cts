@@ -13,11 +13,11 @@ declare const validators: {
   readonly validateCaseReadDTO: (value: unknown) => boolean;
   readonly validateCaseRecord: (value: unknown) => boolean;
   readonly validateCheckPreviewRequest: (value: unknown) => boolean;
-  readonly validateCheckRequest: (value: unknown) => boolean;
+  readonly validateCheckRequestDTO: (value: unknown) => boolean;
   readonly validateChoiceDefinition: (value: unknown) => boolean;
   readonly validateChoiceOption: (value: unknown) => boolean;
   readonly validateChoiceOrderPreviewRequest: (value: unknown) => boolean;
-  readonly validateChoiceOrderRequest: (value: unknown) => boolean;
+  readonly validateChoiceOrderRequestDTO: (value: unknown) => boolean;
   readonly validateChoiceQuestion: (value: unknown) => boolean;
   readonly validateCredentialStatusDTO: (value: unknown) => boolean;
   readonly validateDatasetChangeRequest: (value: unknown) => boolean;
@@ -119,7 +119,7 @@ declare const validators: {
   readonly validateRevisionPageDTO: (value: unknown) => boolean;
   readonly validateRunPreviewDTO: (value: unknown) => boolean;
   readonly validateRunPreviewRequest: (value: unknown) => boolean;
-  readonly validateRunRequest: (value: unknown) => boolean;
+  readonly validateRunRequestDTO: (value: unknown) => boolean;
   readonly validateSaveRevisionRequest: (value: unknown) => boolean;
   readonly validateSchemaField: (value: unknown) => boolean;
   readonly validateSchemaFieldV1: (value: unknown) => boolean;

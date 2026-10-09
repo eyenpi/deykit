@@ -647,7 +647,7 @@
     "additionalProperties": false,
     "properties": {
       "request": {
-        "$ref": "urn:deykit:transport:CheckRequest#"
+        "$ref": "urn:deykit:transport:CheckRequestDTO#"
       },
       "schema_version": {
         "const": 1,
@@ -662,8 +662,8 @@
     "title": "CheckPreviewRequest",
     "type": "object"
   },
-  "CheckRequest": {
-    "$id": "urn:deykit:transport:CheckRequest",
+  "CheckRequestDTO": {
+    "$id": "urn:deykit:transport:CheckRequestDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": false,
     "properties": {
@@ -735,7 +735,7 @@
       "decision_id",
       "mode"
     ],
-    "title": "CheckRequest",
+    "title": "CheckRequestDTO",
     "type": "object"
   },
   "ChoiceDefinition": {
@@ -834,7 +834,7 @@
     "additionalProperties": false,
     "properties": {
       "request": {
-        "$ref": "urn:deykit:transport:ChoiceOrderRequest#"
+        "$ref": "urn:deykit:transport:ChoiceOrderRequestDTO#"
       },
       "schema_version": {
         "const": 1,
@@ -849,8 +849,8 @@
     "title": "ChoiceOrderPreviewRequest",
     "type": "object"
   },
-  "ChoiceOrderRequest": {
-    "$id": "urn:deykit:transport:ChoiceOrderRequest",
+  "ChoiceOrderRequestDTO": {
+    "$id": "urn:deykit:transport:ChoiceOrderRequestDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": false,
     "properties": {
@@ -862,20 +862,19 @@
         "type": "integer"
       },
       "run": {
-        "$ref": "urn:deykit:transport:RunRequest#"
+        "$ref": "urn:deykit:transport:RunRequestDTO#"
       },
       "seed": {
-        "default": 0,
-        "exclusiveMaximum": 9.223372036854776e+18,
-        "minimum": -9.223372036854776e+18,
+        "default": "0",
+        "pattern": "^(?:0|-?[1-9][0-9]*)$",
         "title": "Seed",
-        "type": "integer"
+        "type": "string"
       }
     },
     "required": [
       "run"
     ],
-    "title": "ChoiceOrderRequest",
+    "title": "ChoiceOrderRequestDTO",
     "type": "object"
   },
   "ChoiceQuestion": {
@@ -5610,7 +5609,7 @@
     "additionalProperties": false,
     "properties": {
       "request": {
-        "$ref": "urn:deykit:transport:RunRequest#"
+        "$ref": "urn:deykit:transport:RunRequestDTO#"
       },
       "schema_version": {
         "const": 1,
@@ -5625,8 +5624,8 @@
     "title": "RunPreviewRequest",
     "type": "object"
   },
-  "RunRequest": {
-    "$id": "urn:deykit:transport:RunRequest",
+  "RunRequestDTO": {
+    "$id": "urn:deykit:transport:RunRequestDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": false,
     "properties": {
@@ -5736,7 +5735,7 @@
       "dataset_id",
       "mode"
     ],
-    "title": "RunRequest",
+    "title": "RunRequestDTO",
     "type": "object"
   },
   "SaveRevisionRequest": {

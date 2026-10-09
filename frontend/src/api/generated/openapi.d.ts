@@ -1210,15 +1210,15 @@ export interface components {
     };
     /** CheckPreviewRequest */
     readonly CheckPreviewRequest: {
-      readonly request: components["schemas"]["CheckRequest"];
+      readonly request: components["schemas"]["CheckRequestDTO"];
       /**
        * Schema Version
        * @constant
        */
       readonly schema_version: 1;
     };
-    /** CheckRequest */
-    readonly CheckRequest: {
+    /** CheckRequestDTO */
+    readonly CheckRequestDTO: {
       /** Decision Id */
       readonly decision_id: string;
       /** Fixture Set Id */
@@ -1282,26 +1282,26 @@ export interface components {
     };
     /** ChoiceOrderPreviewRequest */
     readonly ChoiceOrderPreviewRequest: {
-      readonly request: components["schemas"]["ChoiceOrderRequest"];
+      readonly request: components["schemas"]["ChoiceOrderRequestDTO"];
       /**
        * Schema Version
        * @constant
        */
       readonly schema_version: 1;
     };
-    /** ChoiceOrderRequest */
-    readonly ChoiceOrderRequest: {
+    /** ChoiceOrderRequestDTO */
+    readonly ChoiceOrderRequestDTO: {
       /**
        * Orders
        * @default 4
        */
       readonly orders?: number;
-      readonly run: components["schemas"]["RunRequest"];
+      readonly run: components["schemas"]["RunRequestDTO"];
       /**
        * Seed
        * @default 0
        */
-      readonly seed?: number;
+      readonly seed?: string;
     };
     /** ChoiceQuestion */
     readonly ChoiceQuestion: {
@@ -3131,15 +3131,15 @@ export interface components {
     };
     /** RunPreviewRequest */
     readonly RunPreviewRequest: {
-      readonly request: components["schemas"]["RunRequest"];
+      readonly request: components["schemas"]["RunRequestDTO"];
       /**
        * Schema Version
        * @constant
        */
       readonly schema_version: 1;
     };
-    /** RunRequest */
-    readonly RunRequest: {
+    /** RunRequestDTO */
+    readonly RunRequestDTO: {
       /**
        * Case Ids
        * @default []
@@ -10639,7 +10639,11 @@ export interface operations {
       };
       readonly cookie?: never;
     };
-    readonly requestBody?: never;
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["VersionRequest"];
+      };
+    };
     readonly responses: {
       /** @description Successful Response */
       readonly 200: {

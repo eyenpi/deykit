@@ -5213,7 +5213,7 @@ const schema47 = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
   properties: {
-    request: { $ref: "urn:deykit:transport:CheckRequest#" },
+    request: { $ref: "urn:deykit:transport:CheckRequestDTO#" },
     schema_version: { const: 1, title: "Schema Version", type: "integer" },
   },
   required: ["request", "schema_version"],
@@ -5221,7 +5221,7 @@ const schema47 = {
   type: "object",
 };
 const schema48 = {
-  $id: "urn:deykit:transport:CheckRequest",
+  $id: "urn:deykit:transport:CheckRequestDTO",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
   properties: {
@@ -5257,7 +5257,7 @@ const schema48 = {
     },
   },
   required: ["decision_id", "mode"],
-  title: "CheckRequest",
+  title: "CheckRequestDTO",
   type: "object",
 };
 const schema49 = {
@@ -5311,7 +5311,7 @@ function validate39(
     dynamicAnchors = {},
   } = {},
 ) {
-  /*# sourceURL="urn:deykit:transport:CheckRequest" */ let vErrors = null;
+  /*# sourceURL="urn:deykit:transport:CheckRequestDTO" */ let vErrors = null;
   let errors = 0;
   const evaluated0 = validate39.evaluated;
   if (evaluated0.dynamicProps) {
@@ -6200,7 +6200,7 @@ validate38.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateCheckRequest = validate39;
+exports.validateCheckRequestDTO = validate39;
 exports.validateChoiceDefinition = validate41;
 const schema50 = {
   $id: "urn:deykit:transport:ChoiceDefinition",
@@ -7325,7 +7325,7 @@ const schema54 = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
   properties: {
-    request: { $ref: "urn:deykit:transport:ChoiceOrderRequest#" },
+    request: { $ref: "urn:deykit:transport:ChoiceOrderRequestDTO#" },
     schema_version: { const: 1, title: "Schema Version", type: "integer" },
   },
   required: ["request", "schema_version"],
@@ -7333,7 +7333,7 @@ const schema54 = {
   type: "object",
 };
 const schema55 = {
-  $id: "urn:deykit:transport:ChoiceOrderRequest",
+  $id: "urn:deykit:transport:ChoiceOrderRequestDTO",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
   properties: {
@@ -7344,21 +7344,20 @@ const schema55 = {
       title: "Orders",
       type: "integer",
     },
-    run: { $ref: "urn:deykit:transport:RunRequest#" },
+    run: { $ref: "urn:deykit:transport:RunRequestDTO#" },
     seed: {
-      default: 0,
-      exclusiveMaximum: 9223372036854776000,
-      minimum: -9223372036854776000,
+      default: "0",
+      pattern: "^(?:0|-?[1-9][0-9]*)$",
       title: "Seed",
-      type: "integer",
+      type: "string",
     },
   },
   required: ["run"],
-  title: "ChoiceOrderRequest",
+  title: "ChoiceOrderRequestDTO",
   type: "object",
 };
 const schema56 = {
-  $id: "urn:deykit:transport:RunRequest",
+  $id: "urn:deykit:transport:RunRequestDTO",
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
   properties: {
@@ -7411,7 +7410,7 @@ const schema56 = {
     },
   },
   required: ["decision_id", "dataset_id", "mode"],
-  title: "RunRequest",
+  title: "RunRequestDTO",
   type: "object",
 };
 function validate47(
@@ -7424,7 +7423,7 @@ function validate47(
     dynamicAnchors = {},
   } = {},
 ) {
-  /*# sourceURL="urn:deykit:transport:RunRequest" */ let vErrors = null;
+  /*# sourceURL="urn:deykit:transport:RunRequestDTO" */ let vErrors = null;
   let errors = 0;
   const evaluated0 = validate47.evaluated;
   if (evaluated0.dynamicProps) {
@@ -8414,6 +8413,7 @@ validate47.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
+const pattern15 = new RegExp("^(?:0|-?[1-9][0-9]*)$", "u");
 function validate46(
   data,
   {
@@ -8424,7 +8424,8 @@ function validate46(
     dynamicAnchors = {},
   } = {},
 ) {
-  /*# sourceURL="urn:deykit:transport:ChoiceOrderRequest" */ let vErrors = null;
+  /*# sourceURL="urn:deykit:transport:ChoiceOrderRequestDTO" */ let vErrors =
+    null;
   let errors = 0;
   const evaluated0 = validate46.evaluated;
   if (evaluated0.dynamicProps) {
@@ -8544,56 +8545,34 @@ function validate46(
               if (data.seed !== undefined) {
                 let data2 = data.seed;
                 const _errs5 = errors;
-                if (!(
-                  typeof data2 == "number" &&
-                  !(data2 % 1) &&
-                  !isNaN(data2) &&
-                  isFinite(data2)
-                )) {
-                  validate46.errors = [
-                    {
-                      instancePath: instancePath + "/seed",
-                      schemaPath: "#/properties/seed/type",
-                      keyword: "type",
-                      params: { type: "integer" },
-                      message: "must be integer",
-                    },
-                  ];
-                  return false;
-                }
                 if (errors === _errs5) {
-                  if (typeof data2 == "number" && isFinite(data2)) {
-                    if (data2 < -9223372036854776000 || isNaN(data2)) {
+                  if (typeof data2 === "string") {
+                    if (!pattern15.test(data2)) {
                       validate46.errors = [
                         {
                           instancePath: instancePath + "/seed",
-                          schemaPath: "#/properties/seed/minimum",
-                          keyword: "minimum",
-                          params: {
-                            comparison: ">=",
-                            limit: -9223372036854776000,
-                          },
-                          message: "must be >= -9223372036854776000",
+                          schemaPath: "#/properties/seed/pattern",
+                          keyword: "pattern",
+                          params: { pattern: "^(?:0|-?[1-9][0-9]*)$" },
+                          message:
+                            'must match pattern "' +
+                            "^(?:0|-?[1-9][0-9]*)$" +
+                            '"',
                         },
                       ];
                       return false;
-                    } else {
-                      if (data2 >= 9223372036854776000 || isNaN(data2)) {
-                        validate46.errors = [
-                          {
-                            instancePath: instancePath + "/seed",
-                            schemaPath: "#/properties/seed/exclusiveMaximum",
-                            keyword: "exclusiveMaximum",
-                            params: {
-                              comparison: "<",
-                              limit: 9223372036854776000,
-                            },
-                            message: "must be < 9223372036854776000",
-                          },
-                        ];
-                        return false;
-                      }
                     }
+                  } else {
+                    validate46.errors = [
+                      {
+                        instancePath: instancePath + "/seed",
+                        schemaPath: "#/properties/seed/type",
+                        keyword: "type",
+                        params: { type: "string" },
+                        message: "must be string",
+                      },
+                    ];
+                    return false;
                   }
                 }
                 var valid0 = _errs5 === errors;
@@ -8762,7 +8741,7 @@ validate45.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateChoiceOrderRequest = validate46;
+exports.validateChoiceOrderRequestDTO = validate46;
 exports.validateChoiceQuestion = validate42;
 exports.validateCredentialStatusDTO = validate50;
 const schema58 = {
@@ -22385,7 +22364,7 @@ const schema110 = {
   title: "EnvironmentCredentialRequest",
   type: "object",
 };
-const pattern34 = new RegExp("^[A-Za-z_][A-Za-z0-9_]*$", "u");
+const pattern35 = new RegExp("^[A-Za-z_][A-Za-z0-9_]*$", "u");
 function validate90(
   data,
   {
@@ -22478,7 +22457,7 @@ function validate90(
                     ];
                     return false;
                   } else {
-                    if (!pattern34.test(data0)) {
+                    if (!pattern35.test(data0)) {
                       validate90.errors = [
                         {
                           instancePath: instancePath + "/environment_name",
@@ -30211,7 +30190,6 @@ const schema129 = {
   title: "GroupPreviewDTO",
   type: "object",
 };
-const pattern52 = new RegExp("^(?:0|-?[1-9][0-9]*)$", "u");
 function validate108(
   data,
   {
@@ -30703,7 +30681,7 @@ function validate108(
                                 const _errs29 = errors;
                                 if (errors === _errs29) {
                                   if (typeof data11 === "string") {
-                                    if (!pattern52.test(data11)) {
+                                    if (!pattern15.test(data11)) {
                                       const err3 = {
                                         instancePath: instancePath + "/seed",
                                         schemaPath:
@@ -54472,7 +54450,7 @@ const schema209 = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   additionalProperties: false,
   properties: {
-    request: { $ref: "urn:deykit:transport:RunRequest#" },
+    request: { $ref: "urn:deykit:transport:RunRequestDTO#" },
     schema_version: { const: 1, title: "Schema Version", type: "integer" },
   },
   required: ["request", "schema_version"],
@@ -54615,7 +54593,7 @@ validate186.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-exports.validateRunRequest = validate47;
+exports.validateRunRequestDTO = validate47;
 exports.validateSaveRevisionRequest = validate188;
 const schema210 = {
   $id: "urn:deykit:transport:SaveRevisionRequest",
@@ -59620,7 +59598,7 @@ function validate205(
                                         const _errs46 = errors;
                                         if (errors === _errs46) {
                                           if (typeof data18 === "string") {
-                                            if (!pattern52.test(data18)) {
+                                            if (!pattern15.test(data18)) {
                                               const err3 = {
                                                 instancePath:
                                                   instancePath +
@@ -60522,7 +60500,7 @@ function validate206(
                               const _errs42 = errors;
                               if (errors === _errs42) {
                                 if (typeof data17 === "string") {
-                                  if (!pattern52.test(data17)) {
+                                  if (!pattern15.test(data17)) {
                                     const err3 = {
                                       instancePath: instancePath + "/seed",
                                       schemaPath:
@@ -61011,7 +60989,7 @@ function validate207(
                   const _errs18 = errors;
                   if (errors === _errs18) {
                     if (typeof data6 === "string") {
-                      if (!pattern52.test(data6)) {
+                      if (!pattern15.test(data6)) {
                         validate207.errors = [
                           {
                             instancePath: instancePath + "/seed",

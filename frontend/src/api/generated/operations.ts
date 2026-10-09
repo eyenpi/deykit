@@ -221,8 +221,8 @@ export const operationMetadata = {
     path: "/api/v1/projects/{registration_id}/providers/{profile_id}/models",
     pathParams: ["registration_id", "profile_id"],
     queryParams: ["timeout_seconds"],
-    bodyValidator: null,
-    bodyRequired: false,
+    bodyValidator: "validateVersionRequest",
+    bodyRequired: true,
     successValidator: "validateSuccess_ModelListDTO_",
   },
   listProviderProfiles: {
