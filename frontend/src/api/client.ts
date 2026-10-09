@@ -39,27 +39,30 @@ export interface ApiResult<T> {
   revision?: string;
 }
 type ApiOperation<K extends ApiOperationId> = operations[K];
-type PathParameters<K extends ApiOperationId> = ApiOperation<K> extends {
-  parameters: { path?: infer P };
-}
-  ? [NonNullable<P>] extends [never]
-    ? Record<never, never>
-    : NonNullable<P>
-  : Record<never, never>;
-type QueryParameters<K extends ApiOperationId> = ApiOperation<K> extends {
-  parameters: { query?: infer Q };
-}
-  ? [NonNullable<Q>] extends [never]
-    ? Record<never, never>
-    : NonNullable<Q>
-  : Record<never, never>;
-export type ApiOperationBody<K extends ApiOperationId> = ApiOperation<K> extends {
-  requestBody?: infer R;
-}
-  ? NonNullable<R> extends { content: { "application/json": infer B } }
-    ? B
-    : never
-  : never;
+type PathParameters<K extends ApiOperationId> =
+  ApiOperation<K> extends {
+    parameters: { path?: infer P };
+  }
+    ? [NonNullable<P>] extends [never]
+      ? Record<never, never>
+      : NonNullable<P>
+    : Record<never, never>;
+type QueryParameters<K extends ApiOperationId> =
+  ApiOperation<K> extends {
+    parameters: { query?: infer Q };
+  }
+    ? [NonNullable<Q>] extends [never]
+      ? Record<never, never>
+      : NonNullable<Q>
+    : Record<never, never>;
+export type ApiOperationBody<K extends ApiOperationId> =
+  ApiOperation<K> extends {
+    requestBody?: infer R;
+  }
+    ? NonNullable<R> extends { content: { "application/json": infer B } }
+      ? B
+      : never
+    : never;
 type JsonResponse<R> = R extends {
   content: { "application/json": infer E };
 }
@@ -79,30 +82,36 @@ type ResponseForStatus<R, S extends string> = S extends keyof R
       ? R[NumericStatus]
       : never
     : never;
-type SuccessEnvelope<K extends ApiJsonOperationId> = JsonSuccessStatuses<K> extends infer S
-  ? S extends string
-    ? JsonResponse<ResponseForStatus<ApiOperation<K>["responses"], S>>
-    : never
-  : never;
+type SuccessEnvelope<K extends ApiJsonOperationId> =
+  JsonSuccessStatuses<K> extends infer S
+    ? S extends string
+      ? JsonResponse<ResponseForStatus<ApiOperation<K>["responses"], S>>
+      : never
+    : never;
 export type ApiOperationData<K extends ApiJsonOperationId> =
   SuccessEnvelope<K> extends { data: infer D } ? D : never;
-type PathArgument<K extends ApiOperationId> = keyof PathParameters<K> extends never
-  ? { path?: never }
-  : { path: PathParameters<K> };
-type QueryArgument<K extends ApiOperationId> = keyof QueryParameters<K> extends never
-  ? { query?: never }
-  : { query?: Partial<QueryParameters<K>> };
-type BodyArgument<K extends ApiOperationId> =
-  [ApiOperationBody<K>] extends [never]
-    ? { body?: never }
-    : ApiOperation<K> extends { requestBody: unknown }
-      ? { body: ApiOperationBody<K> }
-      : { body?: ApiOperationBody<K> };
+type PathArgument<K extends ApiOperationId> =
+  keyof PathParameters<K> extends never
+    ? { path?: never }
+    : { path: PathParameters<K> };
+type QueryArgument<K extends ApiOperationId> =
+  keyof QueryParameters<K> extends never
+    ? { query?: never }
+    : { query?: Partial<QueryParameters<K>> };
+type BodyArgument<K extends ApiOperationId> = [ApiOperationBody<K>] extends [
+  never,
+]
+  ? { body?: never }
+  : ApiOperation<K> extends { requestBody: unknown }
+    ? { body: ApiOperationBody<K> }
+    : { body?: ApiOperationBody<K> };
 export type ApiOperationArguments<K extends ApiJsonOperationId> =
   PathArgument<K> & QueryArgument<K> & BodyArgument<K> & RequestOptions;
 
 export type ApiDownloadArguments<K extends ApiDownloadOperationId> =
-  PathArgument<K> & { query: QueryParameters<K> } & { body?: never } & RequestOptions;
+  PathArgument<K> & { query: QueryParameters<K> } & {
+    body?: never;
+  } & RequestOptions;
 export interface ApiDownload {
   readonly blob: Blob;
   readonly filename: string;
@@ -112,12 +121,16 @@ const validatorsByName = validators as unknown as Readonly<
   Record<string, (value: unknown) => boolean>
 >;
 
-function exactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+function exactRecord(
+  value: unknown,
+  keys: readonly string[],
+): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return false;
   const actual = Reflect.ownKeys(value);
-  return actual.length === keys.length && actual.every(
-    (key) => typeof key === "string" && keys.includes(key),
+  return (
+    actual.length === keys.length &&
+    actual.every((key) => typeof key === "string" && keys.includes(key))
   );
 }
 
@@ -128,14 +141,20 @@ function apiOperationPath(
   if (metadata.pathParams.length === 0 && value === undefined)
     return metadata.path;
   if (!exactRecord(value, metadata.pathParams))
-    throw new ApiError("invalid_path", "The local API path parameters are invalid.");
+    throw new ApiError(
+      "invalid_path",
+      "The local API path parameters are invalid.",
+    );
   return metadata.path.replace(/\{([^}]+)\}/g, (_match, name: string) => {
     const resourceId = value[name];
     if (
       typeof resourceId !== "string" ||
       !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(resourceId)
     )
-      throw new ApiError("invalid_path", "The local API path parameters are invalid.");
+      throw new ApiError(
+        "invalid_path",
+        "The local API path parameters are invalid.",
+      );
     return resourceId;
   });
 }
@@ -146,12 +165,20 @@ function apiOperationQuery(
 ): string {
   if (value === undefined) return "";
   if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new ApiError("invalid_query", "The local API query parameters are invalid.");
+    throw new ApiError(
+      "invalid_query",
+      "The local API query parameters are invalid.",
+    );
   const record = value as Record<string, unknown>;
-  if (Reflect.ownKeys(record).some(
-    (key) => typeof key !== "string" || !metadata.queryParams.includes(key),
-  ))
-    throw new ApiError("invalid_query", "The local API query parameters are invalid.");
+  if (
+    Reflect.ownKeys(record).some(
+      (key) => typeof key !== "string" || !metadata.queryParams.includes(key),
+    )
+  )
+    throw new ApiError(
+      "invalid_query",
+      "The local API query parameters are invalid.",
+    );
   const query = new URLSearchParams();
   for (const key of metadata.queryParams) {
     if (!Object.hasOwn(record, key)) continue;
@@ -162,7 +189,10 @@ function apiOperationQuery(
       typeof item !== "boolean" &&
       !(typeof item === "number" && Number.isSafeInteger(item))
     )
-      throw new ApiError("invalid_query", "The local API query parameters are invalid.");
+      throw new ApiError(
+        "invalid_query",
+        "The local API query parameters are invalid.",
+      );
     query.set(key, String(item));
   }
   return query.size ? `?${query.toString()}` : "";
@@ -172,12 +202,23 @@ function apiDownloadQuery(
   metadata: ApiOperationMetadata,
   policy: Extract<ApiOperationMetadata["success"], { kind: "report-download" }>,
   value: unknown,
-): { readonly query: string; readonly format: "json" | "markdown"; readonly contentType: string; readonly extension: string } {
+): {
+  readonly query: string;
+  readonly format: "json" | "markdown";
+  readonly contentType: string;
+  readonly extension: string;
+} {
   if (!exactRecord(value, metadata.queryParams))
-    throw new ApiError("invalid_query", "The local API query parameters are invalid.");
+    throw new ApiError(
+      "invalid_query",
+      "The local API query parameters are invalid.",
+    );
   const format = value[policy.formatParameter];
   if (format !== "json" && format !== "markdown")
-    throw new ApiError("invalid_query", "The local API query parameters are invalid.");
+    throw new ApiError(
+      "invalid_query",
+      "The local API query parameters are invalid.",
+    );
   const selected = policy.formats[format];
   return {
     query: apiOperationQuery(metadata, value),
@@ -187,16 +228,25 @@ function apiDownloadQuery(
   };
 }
 
-function apiOperationBody(metadata: ApiOperationMetadata, value: unknown): void {
+function apiOperationBody(
+  metadata: ApiOperationMetadata,
+  value: unknown,
+): void {
   if (metadata.bodyValidator === null) {
     if (value !== undefined)
-      throw new ApiError("invalid_body", "This local API operation does not accept a body.");
+      throw new ApiError(
+        "invalid_body",
+        "This local API operation does not accept a body.",
+      );
     return;
   }
   if (value === undefined && !metadata.bodyRequired) return;
   const validate = validatorsByName[metadata.bodyValidator];
   if (!validate || !validate(value))
-    throw new ApiError("invalid_body", "The local API request body is invalid.");
+    throw new ApiError(
+      "invalid_body",
+      "The local API request body is invalid.",
+    );
 }
 export function object(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -325,20 +375,31 @@ export class ApiClient {
     decode?: Decoder<T>,
   ): Promise<ApiResult<ApiOperationData<K> | T>> {
     if (!Object.hasOwn(operationMetadata, operation))
-      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
+      throw new ApiError(
+        "invalid_operation",
+        "The local API operation is unavailable.",
+      );
     const metadata = operationMetadata[operation];
     if (!metadata || metadata.success.kind !== "json")
-      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
+      throw new ApiError(
+        "invalid_operation",
+        "The local API operation is unavailable.",
+      );
     const request = args as unknown as Record<string, unknown>;
     if (
       request === null ||
       typeof request !== "object" ||
       Array.isArray(request) ||
       Reflect.ownKeys(request).some(
-        (key) => typeof key !== "string" || !["path", "query", "body", "signal"].includes(key),
+        (key) =>
+          typeof key !== "string" ||
+          !["path", "query", "body", "signal"].includes(key),
       )
     )
-      throw new ApiError("invalid_request", "The local API request is invalid.");
+      throw new ApiError(
+        "invalid_request",
+        "The local API request is invalid.",
+      );
     const path = apiOperationPath(metadata, request.path);
     const query = apiOperationQuery(metadata, request.query);
     apiOperationBody(metadata, request.body);
@@ -356,23 +417,37 @@ export class ApiClient {
     args: ApiDownloadArguments<K>,
   ): Promise<ApiDownload> {
     if (!Object.hasOwn(operationMetadata, operation))
-      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
+      throw new ApiError(
+        "invalid_operation",
+        "The local API operation is unavailable.",
+      );
     const metadata = operationMetadata[operation];
     if (!metadata || metadata.success.kind !== "report-download")
-      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
+      throw new ApiError(
+        "invalid_operation",
+        "The local API operation is unavailable.",
+      );
     const request = args as unknown as Record<string, unknown>;
     if (
       request === null ||
       typeof request !== "object" ||
       Array.isArray(request) ||
       Reflect.ownKeys(request).some(
-        (key) => typeof key !== "string" || !["path", "query", "signal"].includes(key),
+        (key) =>
+          typeof key !== "string" || !["path", "query", "signal"].includes(key),
       ) ||
       Object.hasOwn(request, "body")
     )
-      throw new ApiError("invalid_request", "The local API request is invalid.");
+      throw new ApiError(
+        "invalid_request",
+        "The local API request is invalid.",
+      );
     const path = apiOperationPath(metadata, request.path);
-    const selected = apiDownloadQuery(metadata, metadata.success, request.query);
+    const selected = apiDownloadQuery(
+      metadata,
+      metadata.success,
+      request.query,
+    );
     const signal = request.signal as AbortSignal | undefined;
     const response = await this.#dispatch(
       metadata,
@@ -389,16 +464,25 @@ export class ApiClient {
       await this.#cancelBody(response);
       throw this.#responseInvalid(response.status);
     }
-    const reportId = (request.path as Record<string, unknown>)[metadata.success.reportIdParameter];
+    const reportId = (request.path as Record<string, unknown>)[
+      metadata.success.reportIdParameter
+    ];
     const filename = `report-${String(reportId)}.${selected.extension}`;
     if (
       !this.#downloadHeaders(response, selected.contentType, filename) ||
-      !response.body || typeof response.body.getReader !== "function"
+      !response.body ||
+      typeof response.body.getReader !== "function"
     ) {
       await this.#cancelBody(response);
       throw this.#responseInvalid(response.status);
     }
-    return this.#readDownload(response, signal, filename, selected.contentType, metadata.success.maxBytes);
+    return this.#readDownload(
+      response,
+      signal,
+      filename,
+      selected.contentType,
+      metadata.success.maxBytes,
+    );
   }
 
   async #request<T>(
@@ -408,14 +492,24 @@ export class ApiClient {
     signal: AbortSignal | undefined,
     decode?: Decoder<T>,
   ): Promise<ApiResult<T>> {
-    const response = await this.#dispatch(metadata, destination, body, signal, "application/json");
+    const response = await this.#dispatch(
+      metadata,
+      destination,
+      body,
+      signal,
+      "application/json",
+    );
     if (!response.ok) {
       const envelope = await this.#jsonEnvelope(response);
       throw this.#failure(envelope, response.status);
     }
     if (metadata.success.kind !== "json")
-      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
-    const validatorName = metadata.success.validators[String(response.status) as "200" | "202"];
+      throw new ApiError(
+        "invalid_operation",
+        "The local API operation is unavailable.",
+      );
+    const validatorName =
+      metadata.success.validators[String(response.status) as "200" | "202"];
     if (!validatorName) {
       await this.#cancelBody(response);
       throw this.#responseInvalid(response.status);
@@ -449,9 +543,7 @@ export class ApiClient {
         response.status,
       );
     return {
-      data: decode
-        ? decode(envelope.data)
-        : (envelope.data as T),
+      data: decode ? decode(envelope.data) : (envelope.data as T),
       warnings: warnings as ApiWarning[],
       revision: response.headers.get("ETag") ?? undefined,
     };
@@ -466,7 +558,10 @@ export class ApiClient {
   ): Promise<Response> {
     await this.connect();
     if (!this.#capability)
-      throw new ApiError("session_required", "Connect to the local workspace service.");
+      throw new ApiError(
+        "session_required",
+        "Connect to the local workspace service.",
+      );
     const headers = new Headers({
       Accept: accept,
       "X-Deykit-Capability": this.#capability,
@@ -484,7 +579,8 @@ export class ApiClient {
         cache: "no-store",
       });
     } catch {
-      if (signal?.aborted) throw new ApiError("cancelled", "The request was cancelled.");
+      if (signal?.aborted)
+        throw new ApiError("cancelled", "The request was cancelled.");
       throw new ApiError(
         "service_unavailable",
         "Cannot reach the local workspace service. Check that it is running and try again.",
@@ -494,7 +590,9 @@ export class ApiClient {
 
   async #jsonEnvelope(response: Response): Promise<Record<string, unknown>> {
     const contentType = response.headers.get("content-type") ?? "";
-    if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(contentType.trim()))
+    if (
+      !/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(contentType.trim())
+    )
       throw new ApiError(
         "response_invalid",
         "The local service returned an unsupported response.",
@@ -527,9 +625,16 @@ export class ApiClient {
     );
   }
 
-  #downloadHeaders(response: Response, contentType: string, filename: string): boolean {
+  #downloadHeaders(
+    response: Response,
+    contentType: string,
+    filename: string,
+  ): boolean {
     const actualType = response.headers.get("content-type")?.split(";") ?? [];
-    if (actualType[0]?.trim().toLowerCase() !== contentType.split(";")[0].toLowerCase())
+    if (
+      actualType[0]?.trim().toLowerCase() !==
+      contentType.split(";")[0].toLowerCase()
+    )
       return false;
     if (contentType.includes(";")) {
       if (
@@ -540,15 +645,27 @@ export class ApiClient {
     } else if (actualType.length !== 1) {
       return false;
     }
-    if (response.headers.get("content-disposition") !== `attachment; filename="${filename}"`)
+    if (
+      response.headers.get("content-disposition") !==
+      `attachment; filename="${filename}"`
+    )
       return false;
-    if (response.headers.get("x-content-type-options")?.trim().toLowerCase() !== "nosniff")
+    if (
+      response.headers.get("x-content-type-options")?.trim().toLowerCase() !==
+      "nosniff"
+    )
       return false;
     const cache = response.headers.get("cache-control") ?? "";
-    if (!cache.split(",").some((part) => part.trim().toLowerCase() === "no-store"))
+    if (
+      !cache.split(",").some((part) => part.trim().toLowerCase() === "no-store")
+    )
       return false;
     const length = response.headers.get("content-length");
-    if (length !== null && (!/^(?:0|[1-9][0-9]*)$/.test(length) || !Number.isSafeInteger(Number(length))))
+    if (
+      length !== null &&
+      (!/^(?:0|[1-9][0-9]*)$/.test(length) ||
+        !Number.isSafeInteger(Number(length)))
+    )
       return false;
     return length === null || Number(length) <= 8388608;
   }
@@ -575,18 +692,22 @@ export class ApiClient {
     let received = 0;
     let failed = false;
     const contentLength = response.headers.get("content-length");
-    const expectedLength = contentLength === null ? undefined : Number(contentLength);
+    const expectedLength =
+      contentLength === null ? undefined : Number(contentLength);
     const cancel = () => {
       void reader.cancel().catch(() => undefined);
     };
     signal?.addEventListener("abort", cancel, { once: true });
     try {
-      if (signal?.aborted) throw new ApiError("cancelled", "The request was cancelled.");
+      if (signal?.aborted)
+        throw new ApiError("cancelled", "The request was cancelled.");
       while (true) {
         const part = await reader.read();
-        if (signal?.aborted) throw new ApiError("cancelled", "The request was cancelled.");
+        if (signal?.aborted)
+          throw new ApiError("cancelled", "The request was cancelled.");
         if (part.done) break;
-        if (!(part.value instanceof Uint8Array)) throw this.#responseInvalid(response.status);
+        if (!(part.value instanceof Uint8Array))
+          throw this.#responseInvalid(response.status);
         received += part.value.byteLength;
         if (received > maxBytes) throw this.#responseInvalid(response.status);
         chunks.push(part.value);
@@ -597,14 +718,22 @@ export class ApiClient {
     } catch (error) {
       failed = true;
       await reader.cancel().catch(() => undefined);
-      if (signal?.aborted || (error instanceof ApiError && error.code === "cancelled"))
+      if (
+        signal?.aborted ||
+        (error instanceof ApiError && error.code === "cancelled")
+      )
         throw new ApiError("cancelled", "The request was cancelled.");
-      if (error instanceof ApiError && error.code === "response_invalid") throw error;
+      if (error instanceof ApiError && error.code === "response_invalid")
+        throw error;
       throw this.#responseInvalid(response.status);
     } finally {
       signal?.removeEventListener("abort", cancel);
       if (failed) {
-        try { reader.releaseLock(); } catch { /* already released by a failed reader */ }
+        try {
+          reader.releaseLock();
+        } catch {
+          /* already released by a failed reader */
+        }
       } else {
         reader.releaseLock();
       }
@@ -625,16 +754,26 @@ export class ApiClient {
         ? error.message
         : "The local service could not complete the request.",
       status,
-      typeof error.reason === "string" ? error.reason : error.reason === null ? null : undefined,
+      typeof error.reason === "string"
+        ? error.reason
+        : error.reason === null
+          ? null
+          : undefined,
       typeof error.resource_id === "string"
         ? error.resource_id
-        : error.resource_id === null ? null : undefined,
+        : error.resource_id === null
+          ? null
+          : undefined,
       typeof error.row === "number" && Number.isSafeInteger(error.row)
         ? error.row
-        : error.row === null ? null : undefined,
+        : error.row === null
+          ? null
+          : undefined,
       typeof error.correlation_id === "string"
         ? error.correlation_id
-        : error.correlation_id === null ? null : undefined,
+        : error.correlation_id === null
+          ? null
+          : undefined,
       envelope.selection === null
         ? null
         : validators.validateSelectionDetails(envelope.selection)
