@@ -16,7 +16,7 @@ def test_m09_route_inventory_and_binary_report_policy():
         LocalServerConfig("127.0.0.1:8741", "http://127.0.0.1:8741", AssetCatalog.from_package()),
         api_dependencies(),
     ).app
-    openapi = app.app.openapi()
+    openapi = app.openapi()
     expected = {
         ("/api/v1/projects/{registration_id}/runs", "POST"),
         ("/api/v1/projects/{registration_id}/runs", "GET"),
