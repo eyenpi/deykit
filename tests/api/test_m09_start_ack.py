@@ -245,7 +245,7 @@ def test_http_group_incomplete_receipt_replay_is_409_for_both_group_kinds(
                     }
                     first = await client.post(f"{base}{path}", headers=headers, json=payload)
                     assert first.status_code == 500, first.text
-                    assert first.json()["error"]["reason"] == "execution_failed"
+                    assert first.json()["error"]["reason"] == "storage_io"
                     failed_source = source.capture_snapshot()
                     groups_before = source.list_ids("execution_groups")
                     active_probe = _CountedProbe(source.execution_active)
