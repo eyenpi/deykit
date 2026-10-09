@@ -5,6 +5,8 @@ import pytest
 
 from deykit.application.errors import ServiceFailure
 from deykit.application.provider_operations import ProviderOperations
+from deykit.contracts.codec import dump_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import CommitReceipt
 from deykit.contracts.provider_configuration import (
     CompilerInfo,
@@ -21,6 +23,7 @@ from deykit.providers.credentials import CredentialReference as LegacyCredential
 from deykit.providers.credentials import CredentialUnavailable as LegacyCredentialUnavailable
 from deykit.providers.profiles import ProfilePage as LegacyProfilePage
 from deykit.providers.profiles import ProfileView as LegacyProfileView
+from deykit.providers.profiles import validate_provider_profile
 
 
 class References:
@@ -68,10 +71,31 @@ class Writer:
     ):
         if self.replay is not None:
             return self.replay
+        current = self.reader.view(profile_id)
+        if current.etag != expected_etag:
+            raise ServiceFailure(
+                ServiceError(
+                    code="conflict",
+                    reason="provider_profile_changed",
+                    resource_id=profile_id,
+                )
+            )
+        if current.profile.adapter != "jev":
+            raise ServiceFailure(
+                ServiceError(
+                    code="validation_error",
+                    reason="fixture_has_no_credential",
+                    resource_id=profile_id,
+                )
+            )
+        candidate = validate_provider_profile(
+            current.profile.model_copy(update={"credential_ref": reference})
+        )
+        dump_record(candidate)
         if before_commit is not None:
             before_commit()
         self.set_calls.append((profile_id, reference, expected_etag, operation_id))
-        self.reader.profile = self.reader.profile.model_copy(update={"credential_ref": reference})
+        self.reader.profile = candidate
         self.reader.etag = "new"
         return CommitReceipt(operation_id, ())
 
