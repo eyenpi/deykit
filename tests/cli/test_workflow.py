@@ -11,8 +11,12 @@ def test_packaged_workflow_has_exact_authored_numerical_inputs_and_oracles() -> 
     fixture_b = resources.joinpath("fixture-b.jsonl").read_text(encoding="utf-8")
     assert '"amount":9007199254740993' in cases
     assert '"ratio":0.1234567890123456789' in cases
-    assert '"amount":9007199254740993' in fixture_a
-    assert '"ratio":0.1234567890123456789' in fixture_b
+    fixture_a_binding = json.loads(fixture_a.splitlines()[0])
+    fixture_b_binding = json.loads(fixture_b.splitlines()[0])
+    fixture_a_request = fixture_a_binding["request"]["body"]
+    fixture_b_request = fixture_b_binding["request"]["body"]
+    assert '"amount":9007199254740993' in fixture_a_request
+    assert '"ratio":0.1234567890123456789' in fixture_b_request
 
     oracle = json.loads(resources.joinpath("oracle.json").read_text(encoding="utf-8"))
     assert oracle["case_count"] == 6

@@ -24,6 +24,7 @@ from deykit.contracts.records import (
 )
 from deykit.contracts.redaction import Sanitizer
 from deykit.providers.choice import compile_choice
+from deykit.providers.fixtures import fixture_set_hash, validate_fixture_set
 from deykit.storage import FileProjectSource
 
 STAMP = "2026-10-05T12:00:00Z"
@@ -234,14 +235,15 @@ def test_fixture_page_and_identity_summary_keep_requests_private_by_default(tmp_
 
 
 def test_fixture_request_projection_redacts_without_rewriting_authored_hashes():
-    original_source = (
-        '{"text":"Bearer fixture-secret","api_key":"fixture-secret","exact":9007199254740993}'
-    )
-    original_body = original_source.encode("utf-8")
+    selected_state = {
+        "text": "Bearer fixture-secret",
+        "api_key": "fixture-secret",
+        "exact": 9007199254740993,
+    }
     compiled = compile_choice(
         ChoiceDefinition(
             input_kind="json",
-            selected_fields=("text",),
+            selected_fields=("text", "api_key", "exact"),
             questions=(
                 ChoiceQuestion(
                     id="q",
@@ -253,24 +255,24 @@ def test_fixture_request_projection_redacts_without_rewriting_authored_hashes():
                 ),
             ),
         ),
-        {"text": "hello"},
+        selected_state,
         MODEL,
         adapter="fixture",
     )
-    request = compiled.model_copy(
-        update={"body": original_body, "body_hash": bytes_hash(original_body)}
-    )
+    original_body = compiled.body
     authored = binding()
     record = FixtureSet(
         id="fixture-set",
         decision_id="decision",
         dataset_id="dataset",
         name="Bearer fixture-secret",
-        model_identity="authored fixture-secret",
-        bindings=(authored.model_copy(update={"request": request}),),
+        model_identity=MODEL,
+        bindings=(authored.model_copy(update={"request": compiled}),),
         created_at=STAMP,
         content_hash="0" * 64,
     )
+    record = record.model_copy(update={"content_hash": fixture_set_hash(record)})
+    assert validate_fixture_set(record) == record
     summary = FixtureService.identity_summary(
         StoredFixtureSet(record, "fixture-etag"),
         include_requests=True,
@@ -278,7 +280,8 @@ def test_fixture_request_projection_redacts_without_rewriting_authored_hashes():
     )
 
     assert summary.name == "Bearer [REDACTED]"
-    assert summary.model_identity == "authored [REDACTED]"
+    assert summary.model_identity == MODEL
+    assert summary.bindings[0].model_identity == MODEL
     assert summary.bindings[0].request_hash == bytes_hash(original_body)
     assert "fixture-secret" not in summary.requests[0]
     assert '"api_key":"[REDACTED]"' in summary.requests[0]
