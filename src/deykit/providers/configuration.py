@@ -10,13 +10,11 @@ from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import validate_resource_id
 from deykit.contracts.provider_configuration import (
     CompilerInfo,
-    CredentialAccess,
     CredentialReference,
     CredentialUnavailable,
     ModelDescription,
     ModelLister,
     ProviderCapabilities,
-    ProfileCredentialFactory,
 )
 from deykit.contracts.ports import ProjectSource
 from deykit.contracts.records import ProviderProfile
@@ -63,7 +61,7 @@ class _ProviderDescriptor:
 
 
 class _JevModelLister:
-    def __init__(self, credentials_factory: ProfileCredentialFactory) -> None:
+    def __init__(self, credentials_factory: Callable[[ProviderProfile], Credentials]) -> None:
         self._credentials_factory = credentials_factory
 
     async def models(
@@ -113,7 +111,7 @@ def create_provider_operations(
     """Compose local adapters without opening a credential store or sending HTTP."""
     profiles = ProviderProfiles(source)
 
-    def credentials_for_profile(profile: ProviderProfile) -> CredentialAccess:
+    def credentials_for_profile(profile: ProviderProfile) -> Credentials:
         reference = profile.credential_ref
         if reference is None:
             return Credentials(environment=environment)
@@ -126,7 +124,7 @@ def create_provider_operations(
             return Credentials(environment=environment)
         return Credentials(environment=environment, store=store)
 
-    def os_credentials() -> CredentialAccess:
+    def os_credentials() -> Credentials:
         store = os_store_factory()
         return Credentials(environment=environment, store=store)
 

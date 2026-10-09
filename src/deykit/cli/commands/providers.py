@@ -26,6 +26,7 @@ from deykit.contracts.provider_configuration import (
     ProviderPresentation,
 )
 from deykit.contracts.records import ExecutionSettings, ProviderProfile
+from deykit.providers.choice import JEV_DESTINATION
 from deykit.providers.configuration import create_provider_operations
 from deykit.providers.credentials import CredentialReference
 from deykit.providers.fixtures import FIXTURE_DESTINATION
