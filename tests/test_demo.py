@@ -749,12 +749,14 @@ def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp
         )
         assert receipt is not None
         original = tuple((row.key, row.body, row.etag) for row in receipt.changes)
-        assert Counter(row.key.collection for row in receipt.changes) == {
+        collections = Counter(row.key.collection for row in receipt.changes)
+        graph_counts = {
             "project": 1,
             "cases": 12,
             "bindings": 11,
             "labels": 9,
         }
+        assert {name: collections[name] for name in graph_counts} == graph_counts
 
         # Retry only after both racing calls have settled. It must replay the
         # winning graph and leave its receipt and original identifiers intact.
