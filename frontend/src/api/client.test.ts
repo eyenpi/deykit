@@ -45,7 +45,26 @@ describe("generated local API operations", () => {
           source_hash: "a".repeat(64),
         }),
       ),
-    );
+);
+
+const downloadReply = (
+  value: Uint8Array,
+  contentType: string,
+  filename: string,
+  status = 200,
+  extra: Record<string, string> = {},
+) =>
+  new Response(value, {
+    status,
+    headers: {
+      "Content-Type": contentType,
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Length": String(value.byteLength),
+      ...extra,
+    },
+  });
     const client = new ApiClient(transport);
     client.setCapability("local-session");
 
@@ -207,6 +226,18 @@ describe("generated local API operations", () => {
       client.request("/api/v1/arbitrary", object, {});
       // @ts-expect-error text input operation requires its generated request body
       client.operation("encodeTextInput", { path: { registration_id: "registration-1" } });
+      // @ts-expect-error downloads cannot use the JSON operation transport
+      client.operation("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" } });
+      // @ts-expect-error the download format is required
+      client.download("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" } });
+      // @ts-expect-error only the generated format enum is admitted
+      client.download("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" }, query: { format: "html" } });
+      // @ts-expect-error download arguments do not accept a destination
+      client.download("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" }, query: { format: "json" }, destination: "/tmp/report.json" });
+      // @ts-expect-error download arguments do not accept caller headers
+      client.download("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" }, query: { format: "json" }, headers: { Authorization: "secret" } });
+      // @ts-expect-error download arguments do not accept bodies
+      client.download("downloadReport", { path: { registration_id: "registration-1", report_id: "report-1" }, query: { format: "json" }, body: {} });
     }
   });
 
@@ -218,6 +249,153 @@ describe("generated local API operations", () => {
       client.operation("toString" as never, {} as never),
     ).rejects.toMatchObject({ code: "invalid_operation" });
     expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("downloads admitted report bytes using the generated format and filename", async () => {
+    const bytes = new TextEncoder().encode('{"n":9007199254740993,"decimal":0.1234567890123456789}');
+    const markdownBytes = new TextEncoder().encode("# Report\nRésumé\n");
+    const transport = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(downloadReply(bytes, "application/octet-stream", "report-report_1.json"))
+      .mockResolvedValueOnce(downloadReply(markdownBytes, "text/plain; charset=utf-8", "report-report_1.md"));
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
+    const result = await client.download("downloadReport", {
+      path: { registration_id: "registration-1", report_id: "report_1" },
+      query: { format: "json" },
+    });
+
+    expect(result.filename).toBe("report-report_1.json");
+    expect([...new Uint8Array(await result.blob.arrayBuffer())]).toEqual([...bytes]);
+    expect(result.blob.type).toBe("application/octet-stream");
+    expect(transport.mock.calls[0][0]).toBe(
+      "/api/v1/projects/registration-1/reports/report_1/download?format=json",
+    );
+    expect(new Headers(transport.mock.calls[0][1]?.headers).get("Accept")).toBe(
+      "application/octet-stream, application/json",
+    );
+    expect(transport.mock.calls[0][1]?.cache).toBe("no-store");
+    expect(transport.mock.calls[0][1]?.credentials).toBe("omit");
+
+    const markdown = await client.download("downloadReport", {
+      path: { registration_id: "registration-1", report_id: "report_1" },
+      query: { format: "markdown" },
+    });
+    expect(markdown.filename).toBe("report-report_1.md");
+    expect([...new Uint8Array(await markdown.blob.arrayBuffer())]).toEqual([...markdownBytes]);
+    expect(markdown.blob.type).toBe("text/plain; charset=utf-8");
+    expect(transport.mock.calls[1][0]).toBe(
+      "/api/v1/projects/registration-1/reports/report_1/download?format=markdown",
+    );
+  });
+
+  it("rejects invalid download formats and extra arguments before transport", async () => {
+    const transport = vi.fn<typeof fetch>();
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
+    await expect(
+      client.download("downloadReport", {
+        path: { registration_id: "registration-1", report_id: "report-1" },
+        query: { format: "html" } as never,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_query" });
+    await expect(
+      client.download("downloadReport", {
+        path: { registration_id: "registration-1", report_id: "report-1" },
+        query: { format: "json", token: "secret" } as never,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_query" });
+    await expect(
+      client.download("downloadReport", {
+        path: { registration_id: "registration-1", report_id: "report-1" },
+        query: { format: "json" },
+        destination: "/tmp/private",
+      } as never),
+    ).rejects.toMatchObject({ code: "invalid_request" });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it("parses safe download failures as JSON and rejects unexpected success statuses", async () => {
+    const notFound = reply(
+      {
+        schema_version: 1,
+        error: {
+          schema_version: 1,
+          code: "not_found",
+          message: "The requested resource was not found.",
+          resource_id: "report-missing",
+        },
+      },
+      404,
+    );
+    const unexpected = new Response("", { status: 202 });
+    const transport = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(notFound)
+      .mockResolvedValueOnce(unexpected);
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+    const args = {
+      path: { registration_id: "registration-1", report_id: "report-missing" },
+      query: { format: "json" as const },
+    };
+
+    await expect(client.download("downloadReport", args)).rejects.toMatchObject({
+      code: "not_found",
+      status: 404,
+      resource_id: "report-missing",
+    });
+    await expect(client.download("downloadReport", args)).rejects.toMatchObject({
+      code: "response_invalid",
+      status: 202,
+    });
+  });
+
+  it("accepts the exact byte cap and cancels single-chunk and cumulative overflow", async () => {
+    const cancelled: boolean[] = [];
+    const streamed = (chunks: readonly Uint8Array[]) => {
+      let index = 0;
+      const cancelIndex = cancelled.length;
+      cancelled.push(false);
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (index < chunks.length) controller.enqueue(chunks[index++]);
+          else controller.close();
+        },
+        cancel() {
+          cancelled[cancelIndex] = true;
+        },
+      });
+      return new Response(stream, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": 'attachment; filename="report-report-1.json"',
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    };
+    const transport = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(streamed([new Uint8Array(8388608)]))
+      .mockResolvedValueOnce(streamed([new Uint8Array(8388609)]))
+      .mockResolvedValueOnce(streamed([new Uint8Array(8388608), new Uint8Array(1)]));
+    const client = new ApiClient(transport);
+    client.setCapability("local-session");
+
+    const args = {
+      path: { registration_id: "registration-1", report_id: "report-1" },
+      query: { format: "json" as const },
+    };
+    const exactCap = await client.download("downloadReport", args);
+    expect(exactCap.blob.size).toBe(8388608);
+    await expect(
+      client.download("downloadReport", args),
+    ).rejects.toMatchObject({ code: "response_invalid" });
+    await expect(
+      client.download("downloadReport", args),
+    ).rejects.toMatchObject({ code: "response_invalid" });
+    expect(cancelled).toEqual([false, true, true]);
   });
 
   it("validates the operation-specific success envelope and hides raw transport failures", async () => {

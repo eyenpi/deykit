@@ -7,6 +7,8 @@ import validators from "./generated/validators.cjs";
 import type { components } from "./generated/openapi";
 import {
   operationMetadata,
+  type ApiDownloadOperationId,
+  type ApiJsonOperationId,
   type ApiOperationId,
   type ApiOperationMetadata,
 } from "./generated/operations";
@@ -63,12 +65,26 @@ type JsonResponse<R> = R extends {
 }
   ? E
   : never;
-type SuccessEnvelope<K extends ApiOperationId> = ApiOperation<K> extends {
-  responses: { "200": infer R };
-}
-  ? JsonResponse<R>
+type JsonSuccessStatuses<K extends ApiJsonOperationId> =
+  (typeof operationMetadata)[K]["success"] extends {
+    readonly kind: "json";
+    readonly validators: infer V;
+  }
+    ? keyof V
+    : never;
+type ResponseForStatus<R, S extends string> = S extends keyof R
+  ? R[S]
+  : S extends `${infer NumericStatus extends number}`
+    ? NumericStatus extends keyof R
+      ? R[NumericStatus]
+      : never
+    : never;
+type SuccessEnvelope<K extends ApiJsonOperationId> = JsonSuccessStatuses<K> extends infer S
+  ? S extends string
+    ? JsonResponse<ResponseForStatus<ApiOperation<K>["responses"], S>>
+    : never
   : never;
-export type ApiOperationData<K extends ApiOperationId> =
+export type ApiOperationData<K extends ApiJsonOperationId> =
   SuccessEnvelope<K> extends { data: infer D } ? D : never;
 type PathArgument<K extends ApiOperationId> = keyof PathParameters<K> extends never
   ? { path?: never }
@@ -82,8 +98,15 @@ type BodyArgument<K extends ApiOperationId> =
     : ApiOperation<K> extends { requestBody: unknown }
       ? { body: ApiOperationBody<K> }
       : { body?: ApiOperationBody<K> };
-export type ApiOperationArguments<K extends ApiOperationId> =
+export type ApiOperationArguments<K extends ApiJsonOperationId> =
   PathArgument<K> & QueryArgument<K> & BodyArgument<K> & RequestOptions;
+
+export type ApiDownloadArguments<K extends ApiDownloadOperationId> =
+  PathArgument<K> & { query: QueryParameters<K> } & { body?: never } & RequestOptions;
+export interface ApiDownload {
+  readonly blob: Blob;
+  readonly filename: string;
+}
 
 const validatorsByName = validators as unknown as Readonly<
   Record<string, (value: unknown) => boolean>
@@ -92,8 +115,10 @@ const validatorsByName = validators as unknown as Readonly<
 function exactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return false;
-  const actual = Object.keys(value);
-  return actual.length === keys.length && actual.every((key) => keys.includes(key));
+  const actual = Reflect.ownKeys(value);
+  return actual.length === keys.length && actual.every(
+    (key) => typeof key === "string" && keys.includes(key),
+  );
 }
 
 function apiOperationPath(
@@ -123,7 +148,9 @@ function apiOperationQuery(
   if (value === null || typeof value !== "object" || Array.isArray(value))
     throw new ApiError("invalid_query", "The local API query parameters are invalid.");
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).some((key) => !metadata.queryParams.includes(key)))
+  if (Reflect.ownKeys(record).some(
+    (key) => typeof key !== "string" || !metadata.queryParams.includes(key),
+  ))
     throw new ApiError("invalid_query", "The local API query parameters are invalid.");
   const query = new URLSearchParams();
   for (const key of metadata.queryParams) {
@@ -139,6 +166,25 @@ function apiOperationQuery(
     query.set(key, String(item));
   }
   return query.size ? `?${query.toString()}` : "";
+}
+
+function apiDownloadQuery(
+  metadata: ApiOperationMetadata,
+  policy: Extract<ApiOperationMetadata["success"], { kind: "report-download" }>,
+  value: unknown,
+): { readonly query: string; readonly format: "json" | "markdown"; readonly contentType: string; readonly extension: string } {
+  if (!exactRecord(value, metadata.queryParams))
+    throw new ApiError("invalid_query", "The local API query parameters are invalid.");
+  const format = value[policy.formatParameter];
+  if (format !== "json" && format !== "markdown")
+    throw new ApiError("invalid_query", "The local API query parameters are invalid.");
+  const selected = policy.formats[format];
+  return {
+    query: apiOperationQuery(metadata, value),
+    format,
+    contentType: selected.contentType,
+    extension: selected.extension,
+  };
 }
 
 function apiOperationBody(metadata: ApiOperationMetadata, value: unknown): void {
@@ -233,7 +279,15 @@ export class ApiClient {
         "Cannot connect to the local workspace service. Check that it is running and try again.",
       );
     }
-    const envelope = await this.#envelope(response);
+    if (response.status !== 200) {
+      await this.#cancelBody(response);
+      throw new ApiError(
+        "response_invalid",
+        "The local service returned an invalid session response.",
+        response.status,
+      );
+    }
+    const envelope = await this.#jsonEnvelope(response);
     if (!response.ok || "error" in envelope)
       throw this.#failure(envelope, response.status);
     if (!validators.validateSuccess_BootstrapReply_(envelope))
@@ -256,16 +310,16 @@ export class ApiClient {
     if (generation === this.#sessionGeneration)
       this.#capability = reply.capability;
   }
-  async operation<K extends ApiOperationId>(
+  async operation<K extends ApiJsonOperationId>(
     operation: K,
     args: ApiOperationArguments<K>,
   ): Promise<ApiResult<ApiOperationData<K>>>;
-  async operation<K extends ApiOperationId, T>(
+  async operation<K extends ApiJsonOperationId, T>(
     operation: K,
     args: ApiOperationArguments<K>,
     decode: Decoder<T>,
   ): Promise<ApiResult<T>>;
-  async operation<K extends ApiOperationId, T>(
+  async operation<K extends ApiJsonOperationId, T>(
     operation: K,
     args: ApiOperationArguments<K>,
     decode?: Decoder<T>,
@@ -273,12 +327,15 @@ export class ApiClient {
     if (!Object.hasOwn(operationMetadata, operation))
       throw new ApiError("invalid_operation", "The local API operation is unavailable.");
     const metadata = operationMetadata[operation];
-    if (!metadata)
+    if (!metadata || metadata.success.kind !== "json")
       throw new ApiError("invalid_operation", "The local API operation is unavailable.");
     const request = args as unknown as Record<string, unknown>;
     if (
-      Object.keys(request).some(
-        (key) => !["path", "query", "body", "signal"].includes(key),
+      request === null ||
+      typeof request !== "object" ||
+      Array.isArray(request) ||
+      Reflect.ownKeys(request).some(
+        (key) => typeof key !== "string" || !["path", "query", "body", "signal"].includes(key),
       )
     )
       throw new ApiError("invalid_request", "The local API request is invalid.");
@@ -294,6 +351,56 @@ export class ApiClient {
     );
   }
 
+  async download<K extends ApiDownloadOperationId>(
+    operation: K,
+    args: ApiDownloadArguments<K>,
+  ): Promise<ApiDownload> {
+    if (!Object.hasOwn(operationMetadata, operation))
+      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
+    const metadata = operationMetadata[operation];
+    if (!metadata || metadata.success.kind !== "report-download")
+      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
+    const request = args as unknown as Record<string, unknown>;
+    if (
+      request === null ||
+      typeof request !== "object" ||
+      Array.isArray(request) ||
+      Reflect.ownKeys(request).some(
+        (key) => typeof key !== "string" || !["path", "query", "signal"].includes(key),
+      ) ||
+      Object.hasOwn(request, "body")
+    )
+      throw new ApiError("invalid_request", "The local API request is invalid.");
+    const path = apiOperationPath(metadata, request.path);
+    const selected = apiDownloadQuery(metadata, metadata.success, request.query);
+    const signal = request.signal as AbortSignal | undefined;
+    const response = await this.#dispatch(
+      metadata,
+      `${path}${selected.query}`,
+      undefined,
+      signal,
+      `${selected.contentType}, application/json`,
+    );
+    if (!response.ok) {
+      const envelope = await this.#jsonEnvelope(response);
+      throw this.#failure(envelope, response.status);
+    }
+    if (response.status !== metadata.success.status) {
+      await this.#cancelBody(response);
+      throw this.#responseInvalid(response.status);
+    }
+    const reportId = (request.path as Record<string, unknown>)[metadata.success.reportIdParameter];
+    const filename = `report-${String(reportId)}.${selected.extension}`;
+    if (
+      !this.#downloadHeaders(response, selected.contentType, filename) ||
+      !response.body || typeof response.body.getReader !== "function"
+    ) {
+      await this.#cancelBody(response);
+      throw this.#responseInvalid(response.status);
+    }
+    return this.#readDownload(response, signal, filename, selected.contentType, metadata.success.maxBytes);
+  }
+
   async #request<T>(
     metadata: ApiOperationMetadata,
     destination: string,
@@ -301,43 +408,20 @@ export class ApiClient {
     signal: AbortSignal | undefined,
     decode?: Decoder<T>,
   ): Promise<ApiResult<T>> {
-    await this.connect();
-    if (!this.#capability)
-      throw new ApiError(
-        "session_required",
-        "Connect to the local workspace service.",
-      );
-    const headers = new Headers({
-      Accept: "application/json",
-      "X-Deykit-Capability": this.#capability,
-    });
-    if (body !== undefined)
-      headers.set("Content-Type", "application/json");
-    let response: Response;
-    try {
-      response = await this.#transport(destination, {
-        method: metadata.method,
-        headers,
-        body:
-          body === undefined ? undefined : JSON.stringify(body),
-        signal,
-        mode: "cors",
-        credentials: "omit",
-        redirect: "error",
-        cache: "no-store",
-      });
-    } catch {
-      if (signal?.aborted)
-        throw new ApiError("cancelled", "The request was cancelled.");
-      throw new ApiError(
-        "service_unavailable",
-        "Cannot reach the local workspace service. Check that it is running and try again.",
-      );
-    }
-    const envelope = await this.#envelope(response);
-    if (!response.ok || "error" in envelope)
+    const response = await this.#dispatch(metadata, destination, body, signal, "application/json");
+    if (!response.ok) {
+      const envelope = await this.#jsonEnvelope(response);
       throw this.#failure(envelope, response.status);
-    const validateSuccess = validatorsByName[metadata.successValidator];
+    }
+    if (metadata.success.kind !== "json")
+      throw new ApiError("invalid_operation", "The local API operation is unavailable.");
+    const validatorName = metadata.success.validators[String(response.status) as "200" | "202"];
+    if (!validatorName) {
+      await this.#cancelBody(response);
+      throw this.#responseInvalid(response.status);
+    }
+    const envelope = await this.#jsonEnvelope(response);
+    const validateSuccess = validatorsByName[validatorName];
     if (!validateSuccess || !validateSuccess(envelope))
       throw new ApiError(
         "response_invalid",
@@ -373,8 +457,44 @@ export class ApiClient {
     };
   }
 
-  async #envelope(response: Response): Promise<Record<string, unknown>> {
-    if (!response.headers.get("content-type")?.includes("application/json"))
+  async #dispatch(
+    metadata: ApiOperationMetadata,
+    destination: string,
+    body: unknown,
+    signal: AbortSignal | undefined,
+    accept: string,
+  ): Promise<Response> {
+    await this.connect();
+    if (!this.#capability)
+      throw new ApiError("session_required", "Connect to the local workspace service.");
+    const headers = new Headers({
+      Accept: accept,
+      "X-Deykit-Capability": this.#capability,
+    });
+    if (body !== undefined) headers.set("Content-Type", "application/json");
+    try {
+      return await this.#transport(destination, {
+        method: metadata.method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
+        mode: "cors",
+        credentials: "omit",
+        redirect: "error",
+        cache: "no-store",
+      });
+    } catch {
+      if (signal?.aborted) throw new ApiError("cancelled", "The request was cancelled.");
+      throw new ApiError(
+        "service_unavailable",
+        "Cannot reach the local workspace service. Check that it is running and try again.",
+      );
+    }
+  }
+
+  async #jsonEnvelope(response: Response): Promise<Record<string, unknown>> {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(contentType.trim()))
       throw new ApiError(
         "response_invalid",
         "The local service returned an unsupported response.",
@@ -397,6 +517,98 @@ export class ApiClient {
         response.status,
       );
     return envelope;
+  }
+
+  #responseInvalid(status: number): ApiError {
+    return new ApiError(
+      "response_invalid",
+      "The local service returned an invalid operation response.",
+      status,
+    );
+  }
+
+  #downloadHeaders(response: Response, contentType: string, filename: string): boolean {
+    const actualType = response.headers.get("content-type")?.split(";") ?? [];
+    if (actualType[0]?.trim().toLowerCase() !== contentType.split(";")[0].toLowerCase())
+      return false;
+    if (contentType.includes(";")) {
+      if (
+        actualType.length !== 2 ||
+        !/^\s*charset\s*=\s*utf-8\s*$/i.test(actualType[1])
+      )
+        return false;
+    } else if (actualType.length !== 1) {
+      return false;
+    }
+    if (response.headers.get("content-disposition") !== `attachment; filename="${filename}"`)
+      return false;
+    if (response.headers.get("x-content-type-options")?.trim().toLowerCase() !== "nosniff")
+      return false;
+    const cache = response.headers.get("cache-control") ?? "";
+    if (!cache.split(",").some((part) => part.trim().toLowerCase() === "no-store"))
+      return false;
+    const length = response.headers.get("content-length");
+    if (length !== null && (!/^(?:0|[1-9][0-9]*)$/.test(length) || !Number.isSafeInteger(Number(length))))
+      return false;
+    return length === null || Number(length) <= 8388608;
+  }
+
+  async #cancelBody(response: Response): Promise<void> {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Cancellation is best effort; callers receive only the safe transport error.
+    }
+  }
+
+  async #readDownload(
+    response: Response,
+    signal: AbortSignal | undefined,
+    filename: string,
+    contentType: string,
+    maxBytes: number,
+  ): Promise<ApiDownload> {
+    const body = response.body;
+    if (!body) throw this.#responseInvalid(response.status);
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    let failed = false;
+    const contentLength = response.headers.get("content-length");
+    const expectedLength = contentLength === null ? undefined : Number(contentLength);
+    const cancel = () => {
+      void reader.cancel().catch(() => undefined);
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      if (signal?.aborted) throw new ApiError("cancelled", "The request was cancelled.");
+      while (true) {
+        const part = await reader.read();
+        if (signal?.aborted) throw new ApiError("cancelled", "The request was cancelled.");
+        if (part.done) break;
+        if (!(part.value instanceof Uint8Array)) throw this.#responseInvalid(response.status);
+        received += part.value.byteLength;
+        if (received > maxBytes) throw this.#responseInvalid(response.status);
+        chunks.push(part.value);
+      }
+      if (expectedLength !== undefined && received !== expectedLength)
+        throw this.#responseInvalid(response.status);
+      return { blob: new Blob(chunks, { type: contentType }), filename };
+    } catch (error) {
+      failed = true;
+      await reader.cancel().catch(() => undefined);
+      if (signal?.aborted || (error instanceof ApiError && error.code === "cancelled"))
+        throw new ApiError("cancelled", "The request was cancelled.");
+      if (error instanceof ApiError && error.code === "response_invalid") throw error;
+      throw this.#responseInvalid(response.status);
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      if (failed) {
+        try { reader.releaseLock(); } catch { /* already released by a failed reader */ }
+      } else {
+        reader.releaseLock();
+      }
+    }
   }
 
   #failure(envelope: Record<string, unknown>, status: number): ApiError {
