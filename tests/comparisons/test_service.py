@@ -214,6 +214,40 @@ def test_a36_exact_sandbox_counts_and_idempotent_immutable_comparison(sandbox, m
     assert changed.value.error.code == "conflict"
 
 
+def test_comparison_list_uses_one_capture_and_stable_cursor_pages(sandbox, monkeypatch):
+    source, _, clock, left, right, _ = sandbox
+    service = ComparisonService(source, clock)
+    first = service.create(left.record.id, right.record.id, operation_id="list-first")
+    second = service.create(right.record.id, left.record.id, operation_id="list-second")
+    original_capture = source.capture_snapshot
+    captured = []
+
+    def capture():
+        captured.append(True)
+        return original_capture()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(source, "capture_snapshot", capture)
+        first_page = service.list(limit=1)
+    assert len(captured) == 1
+    assert first_page.total == 2
+    assert len(first_page.items) == 1
+    assert first_page.next_cursor == first_page.items[0].record.id
+    assert first_page.items[0].record.id == min(first.record.id, second.record.id)
+
+    captured.clear()
+    with monkeypatch.context() as patch:
+        patch.setattr(source, "capture_snapshot", capture)
+        second_page = service.list(cursor=first_page.next_cursor, limit=1)
+    assert len(captured) == 1
+    assert second_page.total == 2
+    assert len(second_page.items) == 1
+    assert second_page.next_cursor is None
+    assert second_page.items[0].record.id == max(first.record.id, second.record.id)
+    with pytest.raises(ServiceFailure):
+        service.list(limit=0)
+
+
 def test_saved_request_and_compiler_links_reject_rehashed_wrong_context(sandbox, monkeypatch):
     source, _, clock, left, right, _ = sandbox
     service = ComparisonService(source, clock)
