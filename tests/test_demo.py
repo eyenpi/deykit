@@ -2,8 +2,12 @@
 
 import asyncio
 import shutil
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from fractions import Fraction
+from threading import Barrier
 
 import pytest
 
@@ -11,14 +15,15 @@ from deykit.application.demo import DemoService, read_sandbox_corpus
 from deykit.application.errors import ServiceFailure
 from deykit.application.fixtures import FixtureService
 from deykit.application.projects import ProjectService
-from deykit.contracts.codec import load_record
+from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.json_value import JsonDocument, JsonError, parse_json
-from deykit.contracts.ports import ResourceKey
+from deykit.contracts.ports import ResourceKey, SourceChange
 from deykit.contracts.records import (
     ChoiceDefinition,
     ChoiceQuestion,
     DecisionRevision,
     LabelRecord,
+    ProjectRecord,
 )
 from deykit.domain.definitions import select_input
 from deykit.providers.choice import compile_choice
@@ -290,6 +295,15 @@ def test_demo_receipt_rejects_wrong_operation_or_row_hash(tmp_path, mutation):
 
 def test_demo_replay_uses_receipt_before_corpus_clock_or_ids(tmp_path, monkeypatch):
     root, created = demo(tmp_path)
+    with FileProjectSource(root) as source:
+        stored = source.read(ResourceKey("project", created.project_id))
+        assert stored is not None
+        project = load_record(ProjectRecord, stored.body)
+        edited = replace(project, name="Edited after the original demo")
+        source.commit(
+            "edit-after-demo",
+            (SourceChange(stored.key, dump_record(edited), stored.etag),),
+        )
 
     class ForbiddenClock:
         def utc_now(self):
@@ -347,3 +361,116 @@ def test_demo_rejects_operation_id_already_used_for_another_intent(tmp_path):
             )
         assert error.value.error.code == "conflict"
         assert staged == []
+
+
+DEMO_CRASH_CHILD = r"""
+import os, sys
+from pathlib import Path
+from deykit.application.demo import DemoService
+from deykit.storage import FileProjectSource
+from deykit.storage.demo_staging import DemoStagingSource
+
+root = Path(sys.argv[1])
+checkpoint = sys.argv[2]
+def source_factory(path, create):
+    def fault(point):
+        if point == checkpoint:
+            os._exit(73)
+    return FileProjectSource(path, create=create, fault_hook=fault)
+
+DemoService(source_factory, type('Clock', (), {
+    'utc_now': lambda self: '2026-10-05T12:00:00Z',
+    'monotonic': lambda self: 0.0,
+})(), staging_factory=DemoStagingSource).create(root, operation_id='crashed-demo')
+"""
+
+
+@pytest.mark.parametrize("checkpoint,committed", [("prepared", False), ("decided", True)])
+def test_demo_process_crash_recovers_only_the_real_atomic_decision(
+    tmp_path, checkpoint, committed
+):
+    root = tmp_path / f"Sandbox {checkpoint}"
+    result = subprocess.run(
+        [sys.executable, "-c", DEMO_CRASH_CHILD, str(root), checkpoint],
+        capture_output=True,
+        timeout=30,
+    )
+    assert result.returncode == 73, result.stderr.decode()
+
+    with FileProjectSource(root) as source:
+        records = source.capture_snapshot()
+        receipt = source.operation_receipt(
+            "crashed-demo", intent_hash=DemoService._intent()
+        )
+        if not committed:
+            assert records == ()
+            assert receipt is None
+            return
+
+        assert receipt is not None
+        assert receipt.replayed is True
+        assert len(records) == len(receipt.changes)
+        assert {row.key: (row.body, row.etag) for row in records} == {
+            row.key: (row.body, row.etag) for row in receipt.changes
+        }
+        original = tuple((row.key, row.body, row.etag) for row in receipt.changes)
+
+    replay = DemoService(
+        source_factory, Clock(), staging_factory=DemoStagingSource
+    ).create(root, operation_id="crashed-demo")
+    assert replay.replayed is True
+    assert (replay.case_count, replay.binding_count, replay.label_count) == (12, 11, 9)
+    with FileProjectSource(root) as source:
+        receipt = source.operation_receipt(
+            "crashed-demo", intent_hash=DemoService._intent()
+        )
+        assert receipt is not None
+        assert tuple((row.key, row.body, row.etag) for row in receipt.changes) == original
+
+
+def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp_path):
+    root = tmp_path / "Concurrent Sandbox"
+    root.mkdir()
+    barrier = Barrier(2)
+
+    class SynchronizedStagingSource(DemoStagingSource):
+        def capture_snapshot(self, keys=None):
+            records = super().capture_snapshot(keys)
+            barrier.wait(timeout=30)
+            return records
+
+    with FileProjectSource(root) as source:
+        def create():
+            service = DemoService(
+                source_factory,
+                Clock(),
+                staging_factory=SynchronizedStagingSource,
+            )
+            return service.create_in(source, root, operation_id="parallel-demo")
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(create) for _ in range(2)]
+            outcomes = []
+            failures = []
+            for future in futures:
+                try:
+                    outcomes.append(future.result(timeout=60))
+                except ServiceFailure as error:
+                    failures.append(error.error.reason)
+
+        assert outcomes
+        assert set(failures) <= {"source_busy"}
+        assert len({info.project_id for info in outcomes}) == 1
+        assert len({info.decision_id for info in outcomes}) == 1
+        receipt = source.operation_receipt(
+            "parallel-demo", intent_hash=DemoService._intent()
+        )
+        assert receipt is not None
+        assert len([row for row in receipt.changes if row.key.collection == "project"]) == 1
+
+        replay = DemoService(
+            source_factory, Clock(), staging_factory=DemoStagingSource
+        ).create_in(source, root, operation_id="parallel-demo")
+        assert replay.replayed is True
+        assert replay.project_id == outcomes[0].project_id
+        assert (replay.case_count, replay.binding_count, replay.label_count) == (12, 11, 9)

@@ -13,6 +13,7 @@
     "build": "npm run generate:api:check && npm run typecheck && vite build",
     "test": "vitest run",
     "test:browser": "playwright test",
+    "test:browser:installed": "playwright test --config playwright.installed.config.ts",
     "preview": "vite preview --host 127.0.0.1",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
