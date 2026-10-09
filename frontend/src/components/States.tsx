@@ -43,8 +43,16 @@ export function ErrorSummary({
   return (
     <div ref={ref} className="error-summary" role="alert" tabIndex={-1}>
       <p>{message}</p>
-      {retry && <button onClick={retry}>Try again</button>}
-      {reconnect && <button onClick={reconnect}>Reconnect</button>}
+      {retry && (
+        <button type="button" onClick={retry}>
+          Try again
+        </button>
+      )}
+      {reconnect && (
+        <button type="button" onClick={reconnect}>
+          Reconnect
+        </button>
+      )}
     </div>
   );
 }
