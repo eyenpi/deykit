@@ -256,6 +256,17 @@ class Workflow:
         if value.get("numerator") != numerator or value.get("denominator") != denominator:
             raise RuntimeError(f"expected rate {numerator}/{denominator}, got {value!r}")
 
+    @staticmethod
+    def assert_initial_attempts(progress: dict[str, Any]) -> None:
+        attempts = progress["attempts"]
+        expected = ORACLE["initial_requests"]
+        if (
+            progress["attempts_used"] != expected
+            or len(attempts) != expected
+            or any(attempt["kind"] != "initial" for attempt in attempts)
+        ):
+            raise RuntimeError("fixture run attempts differ from the authored request count")
+
     def expect_choice(self, envelope: dict[str, Any], kind: str, resource_id: str) -> None:
         selection = envelope.get("selection")
         choices = selection.get("choices", []) if isinstance(selection, dict) else []
@@ -666,6 +677,7 @@ class Workflow:
             raise RuntimeError("latest result snapshot is absent from the public run history")
         self.evaluation_a = run["evaluation_id"]
         statuses = {status: 0 for status in ("valid", "input_invalid", "response_error")}
+        self.assert_initial_attempts(progress)
         for case in progress["cases"]:
             statuses[case["status"]] = statuses.get(case["status"], 0) + 1
         if statuses != ORACLE["statuses"]:
@@ -930,12 +942,10 @@ class Workflow:
         self.result_b = progress["latest_result_snapshot_id"]
         self.evaluation_b = run["evaluation_id"]
         statuses = {status: 0 for status in ("valid", "input_invalid", "response_error")}
+        self.assert_initial_attempts(progress)
         for case in progress["cases"]:
             statuses[case["status"]] = statuses.get(case["status"], 0) + 1
-        if (
-            progress["initial_requests"] != ORACLE["initial_requests"]
-            or statuses != ORACLE["statuses"]
-        ):
+        if statuses != ORACLE["statuses"]:
             raise RuntimeError("fixture B request or status counts differ from oracle")
         results = self.data("results", "list", self.run_b, "--evaluation", self.evaluation_b)
         if (
