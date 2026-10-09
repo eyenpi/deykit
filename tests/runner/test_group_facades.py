@@ -25,7 +25,10 @@ def test_group_acknowledgement_uses_original_ready_segment_and_callback_precedes
 
     def acknowledge(event):
         assert source._local.source_depth == 0
-        assert not factory.calls
+        if event.replayed:
+            assert len(factory.calls) == 2
+        else:
+            assert not factory.calls
         acknowledgements.append(event)
 
     result = asyncio.run(
