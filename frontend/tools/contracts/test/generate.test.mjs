@@ -132,8 +132,8 @@ test("operation metadata is derived only from registered OpenAPI operations", as
   assert.match(declarations, /showProject/);
   assert.doesNotMatch(declarations, /bootstrapSession/);
   assert.match(declarations, /method: "GET"/);
-  assert.match(declarations, /pathParams: \[\s+"registration_id"/);
-  assert.match(declarations, /queryParams: \[\s+"cursor"/);
+  assert.match(declarations, /pathParams: \["registration_id"\]/);
+  assert.match(declarations, /queryParams: \["cursor"\]/);
   assert.match(declarations, /successValidator: "validateSource"/);
   assert.match(artifacts.get("openapi.d.ts"), /bootstrapSession/);
 });
