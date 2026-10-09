@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Annotated, Literal, Self, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
@@ -335,6 +336,16 @@ _SCHEMA_TYPES = {"array", "boolean", "integer", "null", "number", "object", "str
 _SCHEMA_COMMON = {"$schema", "description", "properties", "required", "title", "type"}
 
 
+def _version_one(value: JsonValue) -> bool:
+    if type(value) is int:
+        return value == 1
+    return (
+        type(value) is Decimal
+        and value == 1
+        and value.as_tuple().exponent >= 0
+    )
+
+
 def _source_hash(source: str) -> str | None:
     try:
         return bytes_hash(source.encode("utf-8", "strict"))
@@ -360,9 +371,7 @@ def _editor_value(editor_source: str) -> dict[str, JsonValue] | None:
         return None
     if type(value) is not dict or set(value).difference(_EDITOR_KEYS):
         return None
-    if "schema_version" in value and (
-        type(value["schema_version"]) is not int or value["schema_version"] != 1
-    ):
+    if "schema_version" in value and not _version_one(value["schema_version"]):
         return None
     kind = value.get("input_kind")
     selected = value.get("selected_fields", [])
@@ -439,7 +448,7 @@ def project_editor(editor_source: str) -> EditorProjectionV1:
         ),
     )
     try:
-        ChoiceDefinition.model_validate(value)
+        ChoiceDefinition.model_validate_json(editor_source)
     except ValidationError as error:
         validation_advice = _notices(error)
     else:
@@ -696,7 +705,7 @@ def _mapping_form(value: dict[str, JsonValue]) -> MappingFormV1 | None:
     if set(value).difference(_MAPPING_KEYS):
         return None
     version = value.get("schema_version", 1)
-    if type(version) is not int or version != 1:
+    if not _version_one(version):
         return None
     input_kind = value.get("input_kind")
     if type(input_kind) is not str or input_kind not in ("text", "json"):
@@ -772,7 +781,7 @@ def project_import_mapping(mapping_source: str) -> MappingProjectionV1:
     if form is None:
         return MappingProjectionV1(1, mapping_source, digest, None, "unsupported_mapping_shape", ())
     try:
-        ImportMapping.model_validate(raw)
+        ImportMapping.model_validate_json(mapping_source)
     except ValidationError as error:
         advice = _notices(error)
     else:

@@ -242,6 +242,9 @@ def test_mapping_transform_changes_one_column_and_retains_all_supported_values()
 
 
 def test_invalid_schema_and_mapping_sources_keep_raw_text_without_a_form():
+    wrong_editor_version = editor_source().replace('"schema_version":1', '"schema_version":1.0', 1)
+    assert project_editor(wrong_editor_version).form is None
+
     duplicate = '{"type":"object","type":"array"}'
     schema = project_schema(duplicate)
     assert schema.schema_source == duplicate
@@ -256,7 +259,8 @@ def test_invalid_schema_and_mapping_sources_keep_raw_text_without_a_form():
     with pytest.raises(ValueError):
         transform_import_mapping(
             mapping_source,
-        SetMappingField(kind="set", field="input_column", value="input"),
+            SetMappingField(kind="set", field="input_column", value="input"),
         )
+    assert project_import_mapping('{"schema_version":1.0,"input_kind":"json"}').form is None
     with pytest.raises(ValidationError):
         SetMappingField(kind="set", field="tags_parse_json", value="true")
