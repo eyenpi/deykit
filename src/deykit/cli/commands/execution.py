@@ -7,9 +7,9 @@ from typing import Annotated, Literal, cast
 
 import typer
 
-from deykit.application.execution_actions import settle_execution
 from deykit.application.evaluations import EvaluationService
 from deykit.application.execution import ExecutionService
+from deykit.application.execution_actions import settle_execution
 from deykit.cli.context import CliState, SystemClock, new_operation_id
 from deykit.cli.output import CommandOutcome, execute, execute_outcome
 from deykit.cli.selection import selection_context, selector_hint
