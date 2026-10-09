@@ -4,6 +4,7 @@ import asyncio
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from fractions import Fraction
@@ -718,18 +719,13 @@ def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp
     root.mkdir()
     barrier = Barrier(2)
 
-    class SynchronizedStagingSource(DemoStagingSource):
-        def capture_snapshot(self, keys=None):
-            records = super().capture_snapshot(keys)
-            barrier.wait(timeout=30)
-            return records
-
     with FileProjectSource(root) as source:
         def create():
+            barrier.wait(timeout=30)
             service = DemoService(
                 source_factory,
                 Clock(),
-                staging_factory=SynchronizedStagingSource,
+                staging_factory=DemoStagingSource,
                 destination_factory=FileDemoDestinationFactory(),
             )
             return service.create_in(source, root, operation_id="parallel-demo")
@@ -752,8 +748,16 @@ def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp
             "parallel-demo", intent_hash=DemoService._intent()
         )
         assert receipt is not None
-        assert len([row for row in receipt.changes if row.key.collection == "project"]) == 1
+        original = tuple((row.key, row.body, row.etag) for row in receipt.changes)
+        assert Counter(row.key.collection for row in receipt.changes) == {
+            "project": 1,
+            "cases": 12,
+            "bindings": 11,
+            "labels": 9,
+        }
 
+        # Retry only after both racing calls have settled. It must replay the
+        # winning graph and leave its receipt and original identifiers intact.
         replay = DemoService(
             source_factory, Clock(), staging_factory=DemoStagingSource,
             destination_factory=FileDemoDestinationFactory(),
@@ -761,4 +765,11 @@ def test_concurrent_demo_creates_publish_one_receipt_and_replay_its_identity(tmp
         assert replay.replayed is True
         assert replay.project_id == outcomes[0].project_id
         assert (replay.case_count, replay.binding_count, replay.label_count) == (12, 11, 9)
+        replayed_receipt = source.operation_receipt(
+            "parallel-demo", intent_hash=DemoService._intent()
+        )
+        assert replayed_receipt is not None
+        assert tuple(
+            (row.key, row.body, row.etag) for row in replayed_receipt.changes
+        ) == original
         assert not source.files.closed
