@@ -199,7 +199,7 @@ test("report download metadata is admitted only for the exact annotated binary c
     parameters: [
       { name: "registration_id", in: "path", required: true, schema: { type: "string" } },
       { name: "report_id", in: "path", required: true, schema: { type: "string" } },
-      { name: "format", in: "query", required: true, schema: { type: "string", enum: ["json", "markdown"] } },
+      { name: "format", in: "query", required: true, schema: { type: "string", enum: ["json", "markdown"], title: "Format" } },
     ],
     responses: {
       "200": {
@@ -233,12 +233,20 @@ test("report download metadata is admitted only for the exact annotated binary c
     sample.inputHashes,
   );
   assert.equal(revisedArtifacts.get("operations.ts"), generated.get("operations.ts"));
+  const withoutTitle = structuredClone(sample.openapi);
+  delete withoutTitle.paths[
+    "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+  ].get.parameters[2].schema.title;
+  await generateArtifacts(withoutTitle, sample.schemas, sample.inputHashes);
 
   for (const mutate of [
     (operation) => { delete operation["x-deykit-report-download-v1"]; },
     (operation) => { operation["x-deykit-report-download-v1"].maxBytes += 1; },
     (operation) => { operation["x-deykit-report-download-v1"].formats.json.extension = "txt"; },
     (operation) => { operation.parameters[2].schema.enum = ["json", "html"]; },
+    (operation) => { operation.parameters[2].schema.title = 7; },
+    (operation) => { operation.parameters[2].schema.default = "json"; },
+    (operation) => { operation.parameters[2].schema.minLength = 1; },
     (operation) => { operation.parameters.push({ name: "token", in: "query", schema: { type: "string" } }); },
     (operation) => { operation.requestBody = { required: true }; },
     (operation) => { operation.responses["200"].content["application/octet-stream"].schema = { $ref: "#/components/schemas/Source" }; },

@@ -428,6 +428,7 @@ function reportDownloadMetadata(path, method, operation, parameters) {
     throw new Error("The report download path parameters are invalid.");
 
   const queryParameters = parameters.filter((parameter) => parameter?.in === "query");
+  const formatSchema = queryParameters[0]?.schema;
   if (
     queryParameters.length !== 1 ||
     queryParameters[0].name !== "format" ||
@@ -435,10 +436,13 @@ function reportDownloadMetadata(path, method, operation, parameters) {
     Object.keys(queryParameters[0]).some(
       (key) => !["description", "in", "name", "required", "schema"].includes(key),
     ) ||
-    !sameJson(queryParameters[0].schema, {
-      type: "string",
-      enum: ["json", "markdown"],
-    })
+    formatSchema === null ||
+    typeof formatSchema !== "object" ||
+    Array.isArray(formatSchema) ||
+    formatSchema.type !== "string" ||
+    !sameJson(formatSchema.enum, ["json", "markdown"]) ||
+    (formatSchema.title !== undefined && typeof formatSchema.title !== "string") ||
+    Object.keys(formatSchema).some((key) => !["enum", "title", "type"].includes(key))
   )
     throw new Error("The report download format parameter is invalid.");
 
