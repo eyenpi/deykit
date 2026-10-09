@@ -153,8 +153,8 @@ describe("generated local API operations", () => {
       path: { registration_id: "registration-1" },
       query: {
         cursor: "a&b/next",
-        include_archived: false,
-        limit: 25,
+        include_archived: "false",
+        limit: "25",
       },
     });
 

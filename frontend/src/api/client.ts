@@ -40,17 +40,23 @@ type ApiOperation<K extends ApiOperationId> = operations[K];
 type PathParameters<K extends ApiOperationId> = ApiOperation<K> extends {
   parameters: { path?: infer P };
 }
-  ? NonNullable<P>
+  ? [NonNullable<P>] extends [never]
+    ? Record<never, never>
+    : NonNullable<P>
   : Record<never, never>;
 type QueryParameters<K extends ApiOperationId> = ApiOperation<K> extends {
   parameters: { query?: infer Q };
 }
-  ? NonNullable<Q>
+  ? [NonNullable<Q>] extends [never]
+    ? Record<never, never>
+    : NonNullable<Q>
   : Record<never, never>;
 export type ApiOperationBody<K extends ApiOperationId> = ApiOperation<K> extends {
-  requestBody: { content: { "application/json": infer B } };
+  requestBody?: infer R;
 }
-  ? B
+  ? NonNullable<R> extends { content: { "application/json": infer B } }
+    ? B
+    : never
   : never;
 type JsonResponse<R> = R extends {
   content: { "application/json": infer E };
@@ -73,7 +79,7 @@ type QueryArgument<K extends ApiOperationId> = keyof QueryParameters<K> extends 
 type BodyArgument<K extends ApiOperationId> =
   [ApiOperationBody<K>] extends [never]
     ? { body?: never }
-    : ApiOperation<K> extends { requestBody: { required: true } }
+    : ApiOperation<K> extends { requestBody: unknown }
       ? { body: ApiOperationBody<K> }
       : { body?: ApiOperationBody<K> };
 export type ApiOperationArguments<K extends ApiOperationId> =
