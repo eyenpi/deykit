@@ -3,6 +3,7 @@
 import threading
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -10,6 +11,7 @@ from deykit.api.runtime import SystemClock
 from deykit.application.errors import ServiceFailure
 from deykit.application.projects import ProjectService
 from deykit.application.provider_operations import ProviderOperations
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.provider_configuration import CredentialReference, CredentialUnavailable
 from deykit.contracts.records import ProviderProfile
 from deykit.providers.choice import JEV_DESTINATION
@@ -42,6 +44,7 @@ class MemoryCredentials:
     def __init__(self, action: Callable[..., None] | None = None) -> None:
         self.action = action
         self.calls: list[tuple[str, str, str | None]] = []
+        self.factory_calls = 0
 
     def status(self, reference: str) -> bool:
         return False
@@ -81,11 +84,16 @@ def setup(
     receipt = writer.configure(
         profile or live_profile(), expected_etag=None, operation_id="configure-profile"
     )
-    store_factory = (
-        store
-        if callable(store)
-        else (lambda: store) if store is not None else MemoryCredentials
-    )
+    if store is None:
+        store_factory = MemoryCredentials
+    elif isinstance(store, MemoryCredentials):
+
+        def store_factory() -> MemoryCredentials:
+            store.factory_calls += 1
+            return store
+
+    else:
+        store_factory = store
     service = ProviderOperations(
         reader=writer,
         writer=writer,
@@ -176,6 +184,7 @@ def test_receipt_replay_after_profile_edit_skips_value_and_store_factories(
     assert replay.replayed is True
     assert replay.profile.view.profile.credential_ref == "keyring:deykit/profile"
     assert values == ["read"]
+    assert store.factory_calls == 1
     assert store.calls == [("set", "keyring:deykit/profile", "SECRET_SENTINEL")]
     source.close()
 
@@ -201,6 +210,7 @@ def test_forget_receipt_replay_after_profile_edit_skips_store_factory(tmp_path: 
     assert first.replayed is False
     assert replay.replayed is True
     assert replay.profile.view.profile.credential_ref is None
+    assert store.factory_calls == 1
     assert store.calls == [("forget", "keyring:deykit/profile", None)]
     source.close()
 
@@ -256,6 +266,7 @@ def test_mutate_then_raise_is_unknown_and_never_retried(tmp_path: Path) -> None:
     assert "SECRET_SENTINEL" not in repr(failure.value.error.safe_dict())
     assert store.calls == [("set", "keyring:deykit/profile", "SECRET_SENTINEL")]
     assert stored == {"keyring:deykit/profile": "SECRET_SENTINEL"}
+    assert store.factory_calls == 1
     assert_secret_absent_from_project(source)
     assert writer.view("profile").profile.credential_ref is None
     assert (
@@ -270,50 +281,121 @@ def test_mutate_then_raise_is_unknown_and_never_retried(tmp_path: Path) -> None:
     source.close()
 
 
+@pytest.mark.parametrize("action", ["set", "forget"])
 @pytest.mark.parametrize("durable_before_error", [False, True])
 def test_commit_failure_is_unknown_and_exact_replay_controls_retry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, durable_before_error: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    durable_before_error: bool,
 ) -> None:
     store = MemoryCredentials()
-    source, writer, service, etag = setup(tmp_path, store=store)
+    reference = "keyring:deykit/profile" if action == "forget" else None
+    source, writer, service, etag = setup(
+        tmp_path, profile=live_profile(reference), store=store
+    )
     commit = source.commit
+    operation_id = f"{action}-commit-failure"
 
     def fail_commit(operation_id, changes, *, intent_hash=None):
         if durable_before_error:
             commit(operation_id, changes, intent_hash=intent_hash)
         raise OSError("SECRET_SENTINEL from source adapter")
 
+    def perform(*, replay: bool = False):
+        if action == "set":
+            value_factory = (
+                (lambda: pytest.fail("durable receipt replay must skip the secret"))
+                if replay
+                else (lambda: "SECRET_SENTINEL")
+            )
+            return service.set_os_credential(
+                "profile",
+                value_factory=value_factory,
+                expected_etag=etag,
+                operation_id=operation_id,
+            )
+        return service.forget_credential(
+            "profile", expected_etag=etag, operation_id=operation_id
+        )
+
     monkeypatch.setattr(source, "commit", fail_commit)
     with pytest.raises(ServiceFailure) as failure:
-        service.set_os_credential(
-            "profile",
-            value_factory=lambda: "SECRET_SENTINEL",
-            expected_etag=etag,
-            operation_id="set-commit-failure",
-        )
+        perform()
 
     assert_unknown(failure.value)
     assert "SECRET_SENTINEL" not in repr(failure.value.error.safe_dict())
     assert_secret_absent_from_project(source)
     assert len(store.calls) == 1
+    assert store.factory_calls == 1
     monkeypatch.setattr(source, "commit", commit)
     if durable_before_error:
-        replay = service.set_os_credential(
-            "profile",
-            value_factory=lambda: pytest.fail("durable receipt replay must skip the store"),
-            expected_etag=etag,
-            operation_id="set-commit-failure",
-        )
+        replay = perform(replay=True)
         assert replay.replayed is True
         assert len(store.calls) == 1
+        assert store.factory_calls == 1
     else:
-        service.set_os_credential(
-            "profile",
-            value_factory=lambda: "SECRET_SENTINEL",
-            expected_etag=etag,
-            operation_id="set-commit-failure",
-        )
+        perform()
         assert len(store.calls) == 2
+        assert store.factory_calls == 2
+    source.close()
+
+
+@pytest.mark.parametrize("action", ["set", "forget"])
+@pytest.mark.parametrize(
+    ("code", "reason"),
+    [("conflict", "casefold_collision"), ("validation_error", "invalid_source_path")],
+)
+def test_posthook_source_admission_errors_are_unknown_for_both_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    code: Literal["conflict", "validation_error"],
+    reason: Literal["casefold_collision", "invalid_source_path"],
+) -> None:
+    store = MemoryCredentials()
+    reference = "keyring:deykit/profile" if action == "forget" else None
+    source, writer, service, etag = setup(
+        tmp_path, profile=live_profile(reference), store=store
+    )
+    admitted_source = source.capture_snapshot()
+    operation_id = f"{action}-posthook-{reason}"
+
+    def reject_after_external_action(_operation_id, _changes, *, intent_hash=None):
+        del intent_hash
+        raise ServiceFailure(ServiceError(code=code, reason=reason))
+
+    monkeypatch.setattr(source, "commit", reject_after_external_action)
+    with pytest.raises(ServiceFailure) as failure:
+        if action == "set":
+            service.set_os_credential(
+                "profile",
+                value_factory=lambda: "SECRET_SENTINEL",
+                expected_etag=etag,
+                operation_id=operation_id,
+            )
+        else:
+            service.forget_credential(
+                "profile", expected_etag=etag, operation_id=operation_id
+            )
+
+    assert_unknown(failure.value)
+    assert "SECRET_SENTINEL" not in repr(failure.value.error.safe_dict())
+    assert len(store.calls) == 1
+    assert store.factory_calls == 1
+    assert source.capture_snapshot() == admitted_source
+    assert writer.view("profile").profile.credential_ref == reference
+    receipt_reference = "keyring:deykit/profile" if action == "set" else None
+    assert (
+        writer.credential_replay(
+            "profile",
+            receipt_reference,
+            expected_etag=etag,
+            operation_id=operation_id,
+        )
+        is None
+    )
+    assert_secret_absent_from_project(source)
     source.close()
 
 
@@ -394,5 +476,6 @@ def test_credential_action_and_competing_project_edit_share_one_source_epoch(
         operation_id="competing-edit-after-release",
     )
     assert len(store.calls) == 1
+    assert store.factory_calls == 1
     source.close()
     second_source.close()

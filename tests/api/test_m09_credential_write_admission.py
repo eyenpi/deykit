@@ -13,6 +13,7 @@ from deykit.api.recent import RecentProjectsStore
 from deykit.api.runtime import SystemClock, new_id
 from deykit.providers.choice import JEV_DESTINATION
 from deykit.providers.configuration import create_provider_operations
+from deykit.providers.profiles import ProviderProfiles
 from deykit.runner.backends import ProviderBackends
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
@@ -90,6 +91,8 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 )
                 assert registered.status_code == 200, registered.text
                 registration_id = registered.json()["data"]["registration_id"]
+                source = app.app.state.project_registry.require(registration_id).source
+                profiles = ProviderProfiles(source)
                 profile_path = (
                     f"/api/v1/projects/{registration_id}/providers/profile"
                 )
@@ -107,6 +110,7 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 )
                 assert configured.status_code == 200, configured.text
                 etag = configured.json()["data"]["profile"]["etag"]
+                admitted_source = source.capture_snapshot()
                 operation_id = "set-credential-unknown"
                 set_response = await client.post(
                     f"{profile_path}/credential-os-store",
@@ -127,10 +131,22 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 assert set_response.json()["error"]["resource_id"] == "profile"
                 assert "SECRET_SENTINEL" not in set_response.text
                 assert store.values[("deykit", "profile")] == "SECRET_SENTINEL"
+                after_set = await client.get(profile_path, headers=headers)
+                assert after_set.status_code == 200, after_set.text
+                assert after_set.json()["data"]["etag"] == etag
+                assert after_set.json()["data"]["credential_configured"] is False
+                assert after_set.json()["data"]["credential_kind"] is None
+                assert source.capture_snapshot() == admitted_source
+                assert (
+                    profiles.credential_replay(
+                        "profile",
+                        "keyring:deykit/profile",
+                        expected_etag=etag,
+                        operation_id=operation_id,
+                    )
+                    is None
+                )
 
-                current = await client.get(profile_path, headers=headers)
-                assert current.status_code == 200, current.text
-                etag = current.json()["data"]["profile"]["etag"]
                 attached = await client.put(
                     profile_path,
                     headers=headers,
@@ -147,6 +163,7 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 )
                 assert attached.status_code == 200, attached.text
                 etag = attached.json()["data"]["profile"]["etag"]
+                admitted_source = source.capture_snapshot()
                 forget_response = await client.post(
                     f"{profile_path}/credential-forget",
                     headers=headers,
@@ -166,6 +183,21 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
                 assert "SECRET_SENTINEL" not in forget_response.text
                 assert store.values == {}
                 assert store.calls == ["set", "forget"]
+                after_forget = await client.get(profile_path, headers=headers)
+                assert after_forget.status_code == 200, after_forget.text
+                assert after_forget.json()["data"]["etag"] == etag
+                assert after_forget.json()["data"]["credential_configured"] is True
+                assert after_forget.json()["data"]["credential_kind"] == "keyring"
+                assert source.capture_snapshot() == admitted_source
+                assert (
+                    profiles.credential_replay(
+                        "profile",
+                        None,
+                        expected_etag=etag,
+                        operation_id="forget-credential-unknown",
+                    )
+                    is None
+                )
 
     asyncio.run(exercise())
     project_path = tmp_path / "credential-project"
