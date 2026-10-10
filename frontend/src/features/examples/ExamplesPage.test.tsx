@@ -603,3 +603,68 @@ it("admits one same-turn label write and releases the lock after its refresh", a
     ).toBe(false);
   });
 });
+
+it("does not admit a captured case write while label conflict review is reading", async () => {
+  let holdReviewRead = false;
+  let injectCapturedSave = false;
+  let capturedSave: HTMLElement | undefined;
+  let reportReviewReadStarted!: () => void;
+  let releaseReviewRead!: () => void;
+  const reviewReadStarted = new Promise<void>((resolve) => {
+    reportReviewReadStarted = resolve;
+  });
+  const heldReviewRead = new Promise<{ data: DatasetRead; warnings: [] }>(
+    (resolve) => {
+      releaseReviewRead = () => resolve({ data: dataset, warnings: [] });
+    },
+  );
+  const readDataset = vi.fn<DatasetAuthoringOperations["read"]>(async () => {
+    if (holdReviewRead) {
+      if (injectCapturedSave) {
+        injectCapturedSave = false;
+        if (!capturedSave)
+          throw new Error("The original save control was not captured.");
+        expect(capturedSave.matches(":disabled")).toBe(false);
+        fireEvent.click(capturedSave);
+        reportReviewReadStarted();
+      }
+      return heldReviewRead;
+    }
+    return { data: dataset, warnings: [] };
+  });
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async () => {
+      throw new ApiError("etag_conflict", "Conflict.", 409);
+    },
+  );
+  const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(async () => {
+    throw new Error("A case write must not start during label review.");
+  });
+  const { user } = mountExamples(
+    { saveLabels, editCase },
+    { read: readDataset },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "Edit input" }));
+  await user.fill(
+    screen.getByRole("textbox", { name: "Input source" }),
+    sourceB,
+  );
+  await user.click(screen.getByRole("checkbox", { name: "Option A" }));
+  await user.click(screen.getByRole("button", { name: "Save expected answer" }));
+  expect(saveLabels).toHaveBeenCalledTimes(1);
+  await screen.findByRole("button", { name: "Review current label" });
+
+  holdReviewRead = true;
+  injectCapturedSave = true;
+  capturedSave = screen.getByRole("button", { name: "Save input" });
+  await user.click(screen.getByRole("button", { name: "Review current label" }));
+  await reviewReadStarted;
+  expect(editCase).not.toHaveBeenCalled();
+
+  releaseReviewRead();
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: "Review current label" })).toBeNull();
+  });
+});

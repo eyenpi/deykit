@@ -177,6 +177,8 @@ export function ExamplesPage({
   // The ref fences duplicate event callbacks before React publishes busy state.
   const mutationLockRef = useRef(false);
   const busyRef = useRef(false);
+  const selectionReloadActionRef = useRef<symbol | undefined>(undefined);
+  const selectionReloadOwnerRef = useRef<symbol | undefined>(undefined);
   const selectionNeedsReviewRef = useRef(false);
   const pendingLabelUncertainRef = useRef(false);
   const pendingCaseUncertainRef = useRef(false);
@@ -202,6 +204,19 @@ export function ExamplesPage({
     busyRef.current = nextBusy;
     setBusy(nextBusy);
   }
+  function canStartBusyAction(): boolean {
+    return !busyRef.current && !mutationLockRef.current;
+  }
+  function beginBusyAction(): boolean {
+    if (!canStartBusyAction()) return false;
+    updateBusy(true);
+    return true;
+  }
+  function finishSelectionReload(token: symbol | undefined) {
+    if (!token || selectionReloadOwnerRef.current !== token) return;
+    selectionReloadOwnerRef.current = undefined;
+    updateBusy(false);
+  }
   function updateSelectionNeedsReview(needsReview: boolean) {
     selectionNeedsReviewRef.current = needsReview;
     setSelectionNeedsReview(needsReview);
@@ -225,7 +240,7 @@ export function ExamplesPage({
     setPendingRemove(next);
   }
   function acquireMutationLock(): boolean {
-    if (mutationLockRef.current) return false;
+    if (!canStartBusyAction()) return false;
     mutationLockRef.current = true;
     return true;
   }
@@ -729,8 +744,7 @@ export function ExamplesPage({
   }
   async function refreshCommittedOutcome() {
     const pending = committedRefreshRef.current;
-    if (!pending || busy) return;
-    updateBusy(true);
+    if (!pending || !beginBusyAction()) return;
     setError(undefined);
     await refreshCommittedView(pending);
     updateBusy(false);
@@ -863,6 +877,11 @@ export function ExamplesPage({
   ]);
 
   useEffect(() => {
+    const selectionReloadToken = selectionReloadActionRef.current;
+    if (selectionReloadToken) {
+      selectionReloadActionRef.current = undefined;
+      selectionReloadOwnerRef.current = selectionReloadToken;
+    }
     if (!datasetId || !selectedCaseId) {
       selectionReadEpochRef.current += 1;
       previousSelectionAdmissionRef.current =
@@ -872,13 +891,17 @@ export function ExamplesPage({
       setCaseRead(undefined);
       setLabelView(undefined);
       setStagedAnswers([]);
+      finishSelectionReload(selectionReloadToken);
       return;
     }
     const requestedDatasetId = datasetId;
     const requestedCaseId = selectedCaseId;
     const requestedDecisionId = decision?.id;
     const admittedDataset = currentDatasetAdmission();
-    if (!admittedDataset) return;
+    if (!admittedDataset) {
+      finishSelectionReload(selectionReloadToken);
+      return;
+    }
     if (
       !liveRouteMatchesSelection({
         registrationId,
@@ -886,8 +909,10 @@ export function ExamplesPage({
         decisionId: requestedDecisionId,
         caseId: requestedCaseId,
       })
-    )
+    ) {
+      finishSelectionReload(selectionReloadToken);
       return;
+    }
     const controller = new AbortController();
     const readEpoch = ++selectionReadEpochRef.current;
     const requestedNavigationEpoch = navigationEpochRef.current;
@@ -1055,7 +1080,7 @@ export function ExamplesPage({
         setError(safeMessage(cause));
         setSelectionLoading(false);
       }
-    });
+    }).finally(() => finishSelectionReload(selectionReloadToken));
     return () => controller.abort();
   }, [
     dataset,
@@ -1072,9 +1097,8 @@ export function ExamplesPage({
 
   async function loadMoreCases() {
     const admission = captureDatasetAdmission();
-    if (!admission || !caseCursor || busy) return;
+    if (!admission || !caseCursor || !beginBusyAction()) return;
     const context = currentReadContext.current;
-    updateBusy(true);
     try {
       const result = await operations.listCases({
         registrationId,
@@ -1103,9 +1127,8 @@ export function ExamplesPage({
 
   async function loadMoreLabels() {
     const admission = captureDatasetAdmission();
-    if (!admission || !decision || !labelCursor || busy) return;
+    if (!admission || !decision || !labelCursor || !beginBusyAction()) return;
     const context = currentReadContext.current;
-    updateBusy(true);
     try {
       const result = await operations.listLabels({
         registrationId,
@@ -1144,7 +1167,14 @@ export function ExamplesPage({
     setSelectedCaseId(caseId);
   }
 
+  function reloadSelectedReview() {
+    if (!beginBusyAction()) return;
+    selectionReloadActionRef.current = Symbol("selected-review-reload");
+    setSelectionReloadGeneration((value) => value + 1);
+  }
+
   function reviewCurrentSelection() {
+    if (!canStartBusyAction()) return;
     const admission = captureSelectionAdmission();
     if (!admission) return;
     const owner = ownerFor(admission);
@@ -1286,6 +1316,7 @@ export function ExamplesPage({
   }
 
   async function reviewLabelConflict(): Promise<void> {
+    if (!canStartBusyAction()) return;
     const admission = captureSelectionAdmission();
     if (
       committedRefreshRef.current ||
@@ -1294,7 +1325,7 @@ export function ExamplesPage({
     )
       return;
     const context = currentReadContext.current;
-    updateBusy(true);
+    if (!beginBusyAction()) return;
     setError(undefined);
     try {
       const refreshedDataset = await datasetOperations.read({
@@ -1364,7 +1395,7 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) updateBusy(false);
+      updateBusy(false);
     }
   }
 
@@ -1497,10 +1528,11 @@ export function ExamplesPage({
   }
 
   async function reviewCaseConflict() {
+    if (!canStartBusyAction()) return;
     const admission = captureSelectionAdmission();
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
-    updateBusy(true);
+    if (!beginBusyAction()) return;
     setError(undefined);
     try {
       const currentDataset = await datasetOperations.read({
@@ -1571,7 +1603,7 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) updateBusy(false);
+      updateBusy(false);
     }
   }
 
@@ -1662,10 +1694,11 @@ export function ExamplesPage({
   }
 
   async function reviewAddConflict() {
+    if (!canStartBusyAction()) return;
     const admission = captureDatasetAdmission();
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
-    updateBusy(true);
+    if (!beginBusyAction()) return;
     setError(undefined);
     try {
       const currentDataset = await datasetOperations.read({
@@ -1706,7 +1739,7 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) updateBusy(false);
+      updateBusy(false);
     }
   }
 
@@ -1803,10 +1836,11 @@ export function ExamplesPage({
   }
 
   async function reviewRemoveConflict() {
+    if (!canStartBusyAction()) return;
     const admission = captureSelectionAdmission();
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
-    updateBusy(true);
+    if (!beginBusyAction()) return;
     setError(undefined);
     try {
       const currentDataset = await datasetOperations.read({
@@ -1861,7 +1895,7 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) updateBusy(false);
+      updateBusy(false);
     }
   }
 
@@ -1974,10 +2008,20 @@ export function ExamplesPage({
     }
   }
   function launchImport() {
-    if (!committedRefreshRef.current && captureDatasetAdmission()) onImport();
+    if (
+      canStartBusyAction() &&
+      !committedRefreshRef.current &&
+      captureDatasetAdmission()
+    )
+      onImport();
   }
   function launchSplit() {
-    if (!committedRefreshRef.current && captureDatasetAdmission()) onSplit();
+    if (
+      canStartBusyAction() &&
+      !committedRefreshRef.current &&
+      captureDatasetAdmission()
+    )
+      onSplit();
   }
   const uncertainWrite = !!(
     pendingLabel?.uncertain ||
@@ -2081,14 +2125,14 @@ export function ExamplesPage({
             <button
               type="button"
               onClick={launchImport}
-              disabled={!datasetReady || !!committedRefresh}
+              disabled={!datasetReady || busy || !!committedRefresh}
             >
               Import examples
             </button>
             <button
               type="button"
               onClick={launchSplit}
-              disabled={!datasetReady || !!committedRefresh}
+              disabled={!datasetReady || busy || !!committedRefresh}
             >
               Split dataset
             </button>
@@ -2096,10 +2140,14 @@ export function ExamplesPage({
               type="button"
               className="primary"
               onClick={() => {
-                if (!committedRefreshRef.current && captureDatasetAdmission())
+                if (
+                  canStartBusyAction() &&
+                  !committedRefreshRef.current &&
+                  captureDatasetAdmission()
+                )
                   setAddCaseOpen(true);
               }}
-              disabled={!datasetReady || !!committedRefresh}
+              disabled={!datasetReady || busy || !!committedRefresh}
             >
               Add example
             </button>
@@ -2123,8 +2171,10 @@ export function ExamplesPage({
             </p>
             <button
               type="button"
-              disabled={!datasetReady || selectionLoading || !!committedRefresh}
-              onClick={() => setSelectionReloadGeneration((value) => value + 1)}
+              disabled={
+                !datasetReady || selectionLoading || busy || !!committedRefresh
+              }
+              onClick={reloadSelectedReview}
             >
               Reload selected review
             </button>
