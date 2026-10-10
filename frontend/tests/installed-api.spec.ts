@@ -2315,7 +2315,10 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBe(restoreRaceWinnerSource);
 
   await enterPhase("Label staging, review, provenance and write races");
-  await page.getByRole("button", { name: "Examples", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Examples", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Expected answers" }),
   ).toBeVisible();
@@ -3749,7 +3752,10 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("table", { name: "Project decisions" }),
   ).toContainText(decisionName);
 
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Providers", exact: true })
+    .click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
   await page.getByRole("button", { name: "Add provider profile" }).click();
   await expect(
@@ -3866,7 +3872,10 @@ test("installed browser authors exact decision source and previews imports throu
   await enterPhase(
     "Demo fixture profile safety and authored binding verification",
   );
-  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Fixtures", exact: true })
+    .click();
   await expect(page.getByRole("heading", { name: "Fixtures" })).toBeVisible();
   await captureScreenshot("fixture-setup.png");
 
@@ -3926,7 +3935,10 @@ test("installed browser authors exact decision source and previews imports throu
     expect(binding.request_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(binding.model_identity).toBe(fixtureSummary.model_identity);
   }
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Providers", exact: true })
+    .click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
   await page
     .getByRole("button", { name: fixtureProvider.id, exact: true })
@@ -3950,7 +3962,10 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Fixture library" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Fixtures", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Fixture library" }),
   ).toBeVisible();
