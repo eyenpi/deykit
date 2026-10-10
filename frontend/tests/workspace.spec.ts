@@ -121,13 +121,30 @@ test("recent project preserves its selected path and focuses the opened overview
 test("narrow menu supports forward Tab, Escape, selection and width transitions", async ({
   page,
 }) => {
+  await page.goto("/tests/workspace-fixtures.html");
+  await page
+    .getByRole("button", {
+      name: "Open project folder: First authored project",
+    })
+    .click();
+  await page.getByRole("button", { name: "Open project", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "First authored project", exact: true }),
+  ).toBeVisible();
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto("/");
   const menu = page.getByRole("button", { name: "Menu", exact: true });
   const projects = page.getByRole("button", { name: "Projects", exact: true });
   await menu.focus();
   await page.keyboard.press("Enter");
   await expect(projects).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "First authored project", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("button", { name: "Project examples", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(
     page.getByRole("button", { name: "Providers", exact: true }),
@@ -136,6 +153,8 @@ test("narrow menu supports forward Tab, Escape, selection and width transitions"
   await expect(menu).toBeFocused();
   await expect(menu).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
   await expect(

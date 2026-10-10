@@ -154,9 +154,7 @@ class OfflineBackendFactory:
     def _reject_live(profile: ProviderProfile, fixture_set_id: str | None) -> None:
         if fixture_set_id is None or profile.adapter != "fixture":
             raise ServiceFailure(
-                ServiceError(
-                    code="preflight_failed", reason="qualification_live_backend_forbidden"
-                )
+                ServiceError(code="preflight_failed", reason="qualification_live_backend_forbidden")
             )
 
     def resolve(self, profile: ProviderProfile, fixture_set_id: str | None) -> Backend:
@@ -164,9 +162,7 @@ class OfflineBackendFactory:
         backend = self._delegate.resolve(profile, fixture_set_id)
         if not isinstance(backend, FixtureBackend):
             raise ServiceFailure(
-                ServiceError(
-                    code="preflight_failed", reason="qualification_live_backend_forbidden"
-                )
+                ServiceError(code="preflight_failed", reason="qualification_live_backend_forbidden")
             )
         return NoDispatchBackend(backend, self._dispatch)
 
@@ -180,9 +176,7 @@ class OfflineBackendFactory:
         backend = self._delegate.resolve_captured(profile, fixture_set_id, records)
         if not isinstance(backend, FixtureBackend):
             raise ServiceFailure(
-                ServiceError(
-                    code="preflight_failed", reason="qualification_live_backend_forbidden"
-                )
+                ServiceError(code="preflight_failed", reason="qualification_live_backend_forbidden")
             )
         return NoDispatchBackend(backend, self._dispatch)
 
