@@ -288,6 +288,11 @@ test("installed browser authors exact decision source and previews imports throu
   page.setDefaultTimeout(10_000);
   const completedPhases: string[] = [];
   const screenshots: string[] = [];
+  const actionTimings: Array<{
+    action: "reapply_add";
+    stage: "receipt" | "readiness";
+    elapsed_ms: number;
+  }> = [];
   let activePhase = "Workspace bootstrap and project creation";
   let progressSequence = 0;
   const progressPath = testInfo.outputPath("authoring-progress.json");
@@ -325,6 +330,7 @@ test("installed browser authors exact decision source and previews imports throu
       active_phase: activePhase,
       completed_phases: completedPhases,
       screenshots,
+      action_timings: actionTimings,
       browser_version: browserVersion,
       initial_viewport: initialViewport,
       api_failures: apiFailures,
@@ -3692,7 +3698,7 @@ test("installed browser authors exact decision source and previews imports throu
         !pathname.slice(selectedCaseReadPath.length).includes("/")
       );
     },
-    { timeout: 10_000 },
+    { timeout: 0 },
   );
   const selectedLabelReadResponse = page.waitForResponse(
     (response) => {
@@ -3704,33 +3710,54 @@ test("installed browser authors exact decision source and previews imports throu
         !pathname.slice(selectedLabelReadPath.length).includes("/")
       );
     },
-    { timeout: 10_000 },
+    { timeout: 0 },
   );
   const labelListReadResponse = page.waitForResponse(
     (response) =>
       response.request().method() === "GET" &&
       new URL(response.url()).pathname ===
         `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels`,
-    { timeout: 10_000 },
+    { timeout: 0 },
   );
   const reapplyAddResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/cases") &&
       response.request().method() === "POST",
   );
+  const reapplyAddStartedAt = Date.now();
   await page.getByRole("button", { name: "Reapply reviewed example" }).click();
   const reapplyAddReceipt = await reapplyAddResponse;
   expect(reapplyAddReceipt.status()).toBe(200);
-  const refreshedReadResponses = await Promise.all([
-    selectedCaseReadResponse,
-    selectedLabelReadResponse,
-    labelListReadResponse,
-  ]);
+  const reapplyAddReceiptData = (await reapplyAddReceipt.json()).data;
+  actionTimings.push({
+    action: "reapply_add",
+    stage: "receipt",
+    elapsed_ms: Math.max(0, Date.now() - reapplyAddStartedAt),
+  });
+  await recordProgress();
+  const refreshReadinessStartedAt = Date.now();
+  let refreshReadinessTimer: ReturnType<typeof setTimeout> | undefined;
+  const refreshedReadResponses = await Promise.race([
+    Promise.all([
+      selectedCaseReadResponse,
+      selectedLabelReadResponse,
+      labelListReadResponse,
+    ]),
+    new Promise<never>((_resolve, reject) => {
+      refreshReadinessTimer = setTimeout(
+        () => reject(new Error("Example refresh did not settle after reapply.")),
+        10_000,
+      );
+    }),
+  ]).finally(() => {
+    if (refreshReadinessTimer !== undefined)
+      clearTimeout(refreshReadinessTimer);
+  });
   for (const response of refreshedReadResponses) {
     expect(response.status()).toBe(200);
     await response.body();
   }
-  const reapplyAddData = (await reapplyAddReceipt.json()).data;
+  const reapplyAddData = reapplyAddReceiptData;
   expect(addBodies).toHaveLength(2);
   expect(addBodies[1].input_source).toBe(proposedAddSource);
   expect(addBodies[1].input_kind).toBe("json");
@@ -3756,6 +3783,12 @@ test("installed browser authors exact decision source and previews imports throu
       timeout: 10_000,
     }),
   ]);
+  actionTimings.push({
+    action: "reapply_add",
+    stage: "readiness",
+    elapsed_ms: Math.max(0, Date.now() - refreshReadinessStartedAt),
+  });
+  await recordProgress();
 
   await enterPhase("Case source preservation and stale-label applicability");
   await page.reload();
