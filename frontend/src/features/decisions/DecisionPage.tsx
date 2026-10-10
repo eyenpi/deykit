@@ -17,6 +17,18 @@ type EditorForm = NonNullable<
 >;
 type EditorEdit = ApiOperationBody<"transformDecisionEditor">["edit"];
 type TransformReview = ApiOperationData<"transformDecisionEditor">;
+type TransformResult = "ready" | "paused" | "failed";
+type QueuedTransform = {
+  edit: EditorEdit;
+  sequence: number;
+  sourceSequence: number;
+  generation: number;
+};
+type DeferredTransform = {
+  queued: QueuedTransform;
+  response: TransformReview;
+};
+type SourceEditor = "schema" | "raw";
 
 const operationId = () => crypto.randomUUID();
 
@@ -41,6 +53,7 @@ export function DecisionPage({
 }) {
   const [record, setRecord] = useState<DecisionDTO>();
   const [form, setForm] = useState<EditorForm | null>(null);
+  const formRef = useRef<EditorForm | null>(null);
   const [source, setSource] = useState("");
   const [name, setName] = useState("");
   const [loadError, setLoadError] = useState<string>();
@@ -50,6 +63,7 @@ export function DecisionPage({
   });
   const [draftDirty, setDraftDirty] = useState(false);
   const [working, setWorking] = useState(false);
+  const [sourceControlsLocked, setSourceControlsLocked] = useState(false);
   const [renameWorking, setRenameWorking] = useState(false);
   const [versionOutcomeUnknown, setVersionOutcomeUnknown] = useState(false);
   const [renameOutcomeUnknown, setRenameOutcomeUnknown] = useState(false);
@@ -61,13 +75,20 @@ export function DecisionPage({
     optionId: string;
     optionName: string;
     review: TransformReview;
+    sourceSequence: number;
+    generation: number;
+    source: string;
   }>();
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const sourceRef = useRef(source);
+  const draftDirtyRef = useRef(false);
   const recordRef = useRef<DecisionDTO | undefined>(undefined);
   const draftEtagRef = useRef("");
   const sourceSequence = useRef(0);
   const formSequence = useRef(0);
+  const editGeneration = useRef(0);
+  const representedGeneration = useRef(0);
+  const emptyCompositionGeneration = useRef<number | undefined>(undefined);
   const selectedFieldOriginals = useRef(new Map<number, string>());
   const instructionOriginal = useRef<string | undefined>(undefined);
   const optionOriginals = useRef(
@@ -75,16 +96,21 @@ export function DecisionPage({
   );
   const schemaOriginal = useRef<string | undefined>(undefined);
   const composingSource = useRef(false);
-  const schemaBlurredWhileComposing = useRef(false);
-  const transformQueue = useRef<
-    Array<{ edit: EditorEdit; sequence: number; sourceSequence: number }>
-  >([]);
+  const compositionEditor = useRef<SourceEditor | undefined>(undefined);
+  const compositionBaseline = useRef<string | undefined>(undefined);
+  const compositionDirtyBefore = useRef(false);
+  const compositionCommitPending = useRef(false);
+  const sourceControlsLockedRef = useRef(false);
+  const transformQueue = useRef<QueuedTransform[]>([]);
+  const deferredTransform = useRef<DeferredTransform | undefined>(undefined);
   const transformTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
   const transforming = useRef(false);
-  const transformTask = useRef<Promise<boolean> | undefined>(undefined);
+  const transformTask = useRef<Promise<TransformResult> | undefined>(undefined);
+  const transformState = useRef<TransformResult>("ready");
   const autosave = useRef<DraftAutosaveController | undefined>(undefined);
+  const lastAcknowledgedSource = useRef<string | undefined>(undefined);
   const versionRequest = useRef<
     ApiOperationBody<"saveDecisionRevision"> | undefined
   >(undefined);
@@ -98,18 +124,74 @@ export function DecisionPage({
   >(undefined);
   const archiveAction = useRef<"archive" | "restore" | undefined>(undefined);
   const actionLock = useRef(false);
+  const removalIdentity = useRef<
+    { sourceSequence: number; generation: number; source: string } | undefined
+  >(undefined);
 
   const setBackingSource = useCallback((next: string) => {
     sourceRef.current = next;
     setSource(next);
   }, []);
 
+  function setDraftDirtyNow(dirty: boolean) {
+    draftDirtyRef.current = dirty;
+    setDraftDirty(dirty);
+  }
+
+  function setEditorForm(next: EditorForm | null) {
+    formRef.current = next;
+    setForm(next);
+  }
+
+  function setSourceControlsLockedNow(locked: boolean) {
+    sourceControlsLockedRef.current = locked;
+    setSourceControlsLocked(locked);
+  }
+
+  function hasPendingEditorWork() {
+    return (
+      composingSource.current ||
+      compositionCommitPending.current ||
+      deferredTransform.current !== undefined ||
+      transformQueue.current.length > 0 ||
+      transformTask.current !== undefined ||
+      editGeneration.current !== representedGeneration.current ||
+      transformState.current !== "ready"
+    );
+  }
+
+  function markSourceEdited() {
+    editGeneration.current += 1;
+    draftDirtyRef.current = true;
+    setDraftDirty(true);
+    return editGeneration.current;
+  }
+
+  function snapshotIsCurrent(
+    generation: number,
+    sequence: number,
+    editorSource: string,
+  ) {
+    return (
+      !composingSource.current &&
+      !compositionCommitPending.current &&
+      editGeneration.current === generation &&
+      representedGeneration.current === generation &&
+      sourceSequence.current === sequence &&
+      sourceRef.current === editorSource &&
+      transformQueue.current.length === 0 &&
+      deferredTransform.current === undefined &&
+      transformTask.current === undefined &&
+      transformState.current === "ready"
+    );
+  }
+
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
     setLoadError(undefined);
     setRecord(undefined);
-    setForm(null);
+    setEditorForm(null);
     void operations
       .read({ registrationId, decisionId, signal: controller.signal })
       .then(async (result) => {
@@ -128,9 +210,18 @@ export function DecisionPage({
         setName(result.data.decision.record.name);
         draftEtagRef.current = result.data.draft.etag;
         sourceSequence.current += 1;
+        editGeneration.current += 1;
+        representedGeneration.current = editGeneration.current;
+        transformQueue.current = [];
+        deferredTransform.current = undefined;
+        transformState.current = "ready";
+        composingSource.current = false;
+        compositionEditor.current = undefined;
+        compositionCommitPending.current = false;
+        lastAcknowledgedSource.current = result.data.draft.record.editor_source;
         setBackingSource(result.data.draft.record.editor_source);
-        setDraftDirty(false);
-        setForm(projection.data.form);
+        setDraftDirtyNow(false);
+        setEditorForm(projection.data.form);
         autosave.current?.dispose();
         autosave.current = new DraftAutosaveController(
           result.data.draft.etag,
@@ -146,11 +237,19 @@ export function DecisionPage({
               },
             });
             draftEtagRef.current = saved.data.etag;
-            if (request.editorSource === sourceRef.current)
-              setDraftDirty(false);
+            lastAcknowledgedSource.current = request.editorSource;
+            if (
+              request.editorSource === sourceRef.current &&
+              representedGeneration.current === editGeneration.current &&
+              !hasPendingEditorWork()
+            )
+              setDraftDirtyNow(false);
+            else draftDirtyRef.current = true;
             return { etag: saved.data.etag };
           },
-          setDraftStatus,
+          (status) => {
+            setDraftStatus(status);
+          },
         );
       })
       .catch((cause: unknown) => {
@@ -163,57 +262,130 @@ export function DecisionPage({
       if (transformTimer.current !== undefined)
         clearTimeout(transformTimer.current);
       autosave.current?.dispose();
+      actionLock.current = false;
+      sourceControlsLockedRef.current = false;
     };
   }, [decisionId, operations, registrationId, setBackingSource]);
 
-  const drainTransforms = useCallback(() => {
-    if (composingSource.current) return Promise.resolve(false);
+  const drainTransforms = useCallback((): Promise<TransformResult> => {
+    if (composingSource.current || compositionCommitPending.current) {
+      transformState.current = "paused";
+      return Promise.resolve("paused");
+    }
     if (transformTask.current) return transformTask.current;
-    const task = (async (): Promise<boolean> => {
-      let completed = true;
+    if (transformState.current === "failed") return Promise.resolve("failed");
+    const task = (async (): Promise<TransformResult> => {
       transforming.current = true;
-      while (transformQueue.current.length && !composingSource.current) {
-        const queued = transformQueue.current.shift();
-        if (!queued) continue;
-        if (queued.sourceSequence !== sourceSequence.current) continue;
-        setEditError(undefined);
-        setNotice(undefined);
-        try {
-          const result = await operations.transformEditor({
-            registrationId,
-            decisionId,
-            body: {
-              schema_version: 1,
-              editor_source: sourceRef.current,
-              expected_draft_etag: draftEtagRef.current,
-              edit: queued.edit,
-            },
-          });
-          if (queued.sourceSequence !== sourceSequence.current) continue;
-          const transformed = result.data.transform;
-          sourceRef.current = transformed.editor_source;
-          setSource(transformed.editor_source);
-          setDraftDirty(true);
-          autosave.current?.edit(transformed.editor_source);
-          if (
-            queued.sequence === formSequence.current &&
-            !composingSource.current
-          )
-            setForm(transformed.projection.form);
-        } catch (cause) {
-          setEditError(safeMessage(cause));
-          transformQueue.current = [];
-          completed = false;
-          break;
+      let result: TransformResult = "ready";
+      const apply = (queued: QueuedTransform, response: TransformReview) => {
+        if (queued.sourceSequence !== sourceSequence.current) return;
+        const transformed = response.transform;
+        sourceRef.current = transformed.editor_source;
+        setSource(transformed.editor_source);
+        representedGeneration.current = queued.generation;
+        draftDirtyRef.current = true;
+        setDraftDirty(true);
+        autosave.current?.edit(transformed.editor_source);
+        if (
+          queued.sequence === formSequence.current &&
+          !composingSource.current
+        )
+          setEditorForm(transformed.projection.form);
+      };
+      try {
+        const deferred = deferredTransform.current;
+        if (deferred) {
+          if (deferred.queued.sourceSequence === sourceSequence.current) {
+            if (composingSource.current) result = "paused";
+            else apply(deferred.queued, deferred.response);
+          }
+          if (result === "ready") deferredTransform.current = undefined;
         }
+        while (
+          result === "ready" &&
+          (deferredTransform.current !== undefined ||
+            transformQueue.current.length > 0)
+        ) {
+          if (composingSource.current || compositionCommitPending.current) {
+            result = "paused";
+            break;
+          }
+          const queued = deferredTransform.current
+            ? undefined
+            : transformQueue.current.shift();
+          if (!queued) {
+            const pending = deferredTransform.current;
+            if (!pending) break;
+            apply(pending.queued, pending.response);
+            deferredTransform.current = undefined;
+            continue;
+          }
+          if (queued.sourceSequence !== sourceSequence.current) continue;
+          setEditError(undefined);
+          setNotice(undefined);
+          const requestSource = sourceRef.current;
+          let response: TransformReview;
+          try {
+            const transformed = await operations.transformEditor({
+              registrationId,
+              decisionId,
+              body: {
+                schema_version: 1,
+                editor_source: requestSource,
+                expected_draft_etag: draftEtagRef.current,
+                edit: queued.edit,
+              },
+            });
+            response = transformed.data;
+          } catch (cause) {
+            setEditError(safeMessage(cause));
+            transformQueue.current = [];
+            deferredTransform.current = undefined;
+            result = "failed";
+            break;
+          }
+          if (queued.sourceSequence !== sourceSequence.current) continue;
+          if (composingSource.current || compositionCommitPending.current) {
+            deferredTransform.current = { queued, response };
+            result = "paused";
+            break;
+          }
+          apply(queued, response);
+        }
+        if (
+          result === "ready" &&
+          (composingSource.current || compositionCommitPending.current)
+        )
+          result = "paused";
+        if (
+          result === "ready" &&
+          transformQueue.current.length === 0 &&
+          deferredTransform.current === undefined
+        ) {
+          if (emptyCompositionGeneration.current !== undefined) {
+            representedGeneration.current = Math.max(
+              representedGeneration.current,
+              emptyCompositionGeneration.current,
+            );
+            emptyCompositionGeneration.current = undefined;
+          }
+        }
+        if (
+          result === "ready" &&
+          editGeneration.current !== representedGeneration.current
+        )
+          result = "paused";
+      } finally {
+        transforming.current = false;
+        transformState.current = result;
       }
-      transforming.current = false;
-      return completed;
+      return result;
     })();
-    transformTask.current = task.finally(() => {
-      transformTask.current = undefined;
+    const tracked = task.finally(() => {
+      if (transformTask.current === tracked) transformTask.current = undefined;
     });
-    return transformTask.current;
+    transformTask.current = tracked;
+    return tracked;
   }, [decisionId, operations, registrationId]);
 
   const unresolvedWrite =
@@ -226,42 +398,79 @@ export function DecisionPage({
     : working || renameWorking
       ? "A write is still in progress. Keep this decision open until it finishes."
       : undefined;
+  const decisionIsDirtyNow = () =>
+    draftDirtyRef.current ||
+    hasPendingEditorWork() ||
+    unresolvedWrite ||
+    working ||
+    renameWorking ||
+    actionLock.current;
   const dirtyGuard = useDirtyNavigationGuard({
-    dirty:
-      draftDirty ||
-      unresolvedWrite ||
-      working ||
-      renameWorking ||
-      composingSource.current,
-    isDirtyNow: () =>
-      draftDirty ||
-      unresolvedWrite ||
-      working ||
-      renameWorking ||
-      composingSource.current,
+    dirty: decisionIsDirtyNow(),
+    isDirtyNow: decisionIsDirtyNow,
     blockedMessage: navigationBlockedMessage,
     save: async () => {
       if (navigationBlockedMessage) throw new Error(navigationBlockedMessage);
-      if (composingSource.current)
+      if (actionLock.current)
+        throw new Error("Another decision action is still in progress.");
+      if (composingSource.current || compositionCommitPending.current)
         throw new Error(
-          "Finish composing the schema source before saving or leaving.",
+          "Finish composing the editor source before saving or leaving.",
         );
       if (transformTimer.current !== undefined) {
         clearTimeout(transformTimer.current);
         transformTimer.current = undefined;
       }
-      if (!(await drainTransforms()))
-        throw new Error(
-          "A pending editor transform failed. Review the error before leaving.",
-        );
-      await autosave.current?.flush();
+      actionLock.current = true;
+      try {
+        const drainResult = await drainTransforms();
+        if (drainResult === "paused")
+          throw new Error(
+            "Finish composing or committing the editor source before leaving.",
+          );
+        if (drainResult === "failed")
+          throw new Error(
+            "A pending editor transform failed. Review the error before leaving.",
+          );
+        if (composingSource.current || compositionCommitPending.current)
+          throw new Error("Finish composing the editor source before leaving.");
+        if (editGeneration.current !== representedGeneration.current)
+          throw new Error("Commit the current editor change before leaving.");
+        const generation = editGeneration.current;
+        const sequence = sourceSequence.current;
+        const editorSource = sourceRef.current;
+        setSourceControlsLockedNow(true);
+        try {
+          await autosave.current?.flush();
+          if (!snapshotIsCurrent(generation, sequence, editorSource))
+            throw new Error(
+              "The editor changed while saving. Review it before leaving.",
+            );
+          if (draftDirtyRef.current)
+            throw new Error(
+              "The draft save is still pending. Review its status before leaving.",
+            );
+        } finally {
+          setSourceControlsLockedNow(false);
+        }
+      } finally {
+        actionLock.current = false;
+      }
     },
     discard: () => {
-      setDraftDirty(false);
+      setDraftDirtyNow(false);
       transformQueue.current = [];
+      deferredTransform.current = undefined;
+      transformState.current = "ready";
       if (transformTimer.current !== undefined)
         clearTimeout(transformTimer.current);
       sourceSequence.current += 1;
+      editGeneration.current += 1;
+      representedGeneration.current = editGeneration.current;
+      composingSource.current = false;
+      compositionEditor.current = undefined;
+      compositionCommitPending.current = false;
+      emptyCompositionGeneration.current = undefined;
     },
   });
   useEffect(
@@ -274,41 +483,65 @@ export function DecisionPage({
   );
 
   function queueTransform(edit: EditorEdit, sequence = formSequence.current) {
+    if (sourceControlsLockedRef.current) return;
     transformQueue.current.push({
       edit,
       sequence,
       sourceSequence: sourceSequence.current,
+      generation: editGeneration.current,
     });
+    if (transformState.current === "failed") transformState.current = "ready";
     scheduleTransformDrain();
   }
 
   function scheduleTransformDrain() {
-    if (composingSource.current || transformQueue.current.length === 0) return;
+    if (
+      composingSource.current ||
+      compositionCommitPending.current ||
+      (transformQueue.current.length === 0 && !deferredTransform.current)
+    )
+      return;
     if (transformTimer.current !== undefined)
       clearTimeout(transformTimer.current);
     transformTimer.current = setTimeout(() => {
       transformTimer.current = undefined;
-      if (composingSource.current) return;
+      if (composingSource.current || compositionCommitPending.current) return;
       void drainTransforms();
     }, 500);
   }
 
   function updateForm(next: EditorForm) {
+    if (sourceControlsLockedRef.current) return formSequence.current;
     formSequence.current += 1;
-    setForm(next);
-    setDraftDirty(true);
+    setEditorForm(next);
+    markSourceEdited();
     return formSequence.current;
   }
 
   function changeRawSource(next: string) {
+    if (sourceControlsLockedRef.current) return;
+    if (composingSource.current && compositionEditor.current === "raw") {
+      setSource(next);
+      markSourceEdited();
+      return;
+    }
+    commitRawSource(next);
+  }
+
+  function commitRawSource(next: string) {
     sourceSequence.current += 1;
     transformQueue.current = [];
-    if (transformTimer.current !== undefined)
+    deferredTransform.current = undefined;
+    transformState.current = "ready";
+    if (transformTimer.current !== undefined) {
       clearTimeout(transformTimer.current);
+      transformTimer.current = undefined;
+    }
     setBackingSource(next);
-    setDraftDirty(true);
+    representedGeneration.current = markSourceEdited();
     autosave.current?.edit(next);
     const expectedSequence = sourceSequence.current;
+    const expectedGeneration = editGeneration.current;
     void operations
       .projectEditor({
         registrationId,
@@ -316,13 +549,107 @@ export function DecisionPage({
         body: { schema_version: 1, editor_source: next },
       })
       .then((result) => {
-        if (expectedSequence === sourceSequence.current)
-          setForm(result.data.form);
+        if (
+          expectedSequence === sourceSequence.current &&
+          expectedGeneration === editGeneration.current
+        ) {
+          formSequence.current += 1;
+          setEditorForm(result.data.form);
+        }
       })
       .catch((cause: unknown) => {
-        if (expectedSequence === sourceSequence.current)
+        if (
+          expectedSequence === sourceSequence.current &&
+          expectedGeneration === editGeneration.current
+        )
           setEditError(safeMessage(cause));
       });
+  }
+
+  function startSourceComposition(
+    editor: SourceEditor,
+    element: HTMLTextAreaElement,
+  ) {
+    if (sourceControlsLockedRef.current || composingSource.current) return;
+    compositionEditor.current = editor;
+    compositionBaseline.current = element.value;
+    compositionDirtyBefore.current = draftDirtyRef.current;
+    composingSource.current = true;
+    editGeneration.current += 1;
+    draftDirtyRef.current = true;
+    setDraftDirty(true);
+    transformState.current = "paused";
+  }
+
+  function endSourceComposition(
+    editor: SourceEditor,
+    element: HTMLTextAreaElement,
+  ) {
+    if (compositionEditor.current !== editor) return;
+    composingSource.current = false;
+    compositionEditor.current = undefined;
+    compositionCommitPending.current = true;
+    const baseline = compositionBaseline.current ?? element.value;
+    setTimeout(() => {
+      if (sourceControlsLockedRef.current) {
+        compositionCommitPending.current = false;
+        return;
+      }
+      const committed = element.value;
+      if (editor === "schema") {
+        const previous = schemaOriginal.current ?? baseline;
+        schemaOriginal.current = committed;
+        const currentForm = formRef.current;
+        if (
+          currentForm &&
+          (currentForm.input_schema_source ?? "") !== committed
+        ) {
+          formSequence.current += 1;
+          setEditorForm({
+            ...currentForm,
+            input_schema_source: committed || null,
+          });
+          markSourceEdited();
+        }
+        if (committed !== previous) {
+          queueTransform({
+            kind: "replace_schema",
+            input_schema_source: committed || null,
+          });
+        }
+      } else if (committed !== baseline) {
+        commitRawSource(committed);
+      } else {
+        setSource(baseline);
+      }
+      if (committed === baseline)
+        emptyCompositionGeneration.current = editGeneration.current;
+      compositionBaseline.current = undefined;
+      compositionCommitPending.current = false;
+      scheduleTransformDrain();
+      if (
+        committed === baseline &&
+        transformQueue.current.length === 0 &&
+        deferredTransform.current === undefined &&
+        transformTask.current === undefined
+      ) {
+        representedGeneration.current = Math.max(
+          representedGeneration.current,
+          editGeneration.current,
+        );
+        emptyCompositionGeneration.current = undefined;
+        transformState.current = "ready";
+        if (
+          lastAcknowledgedSource.current === sourceRef.current &&
+          !hasPendingEditorWork()
+        ) {
+          setDraftDirtyNow(false);
+        } else if (!compositionDirtyBefore.current) {
+          setDraftDirtyNow(compositionDirtyBefore.current);
+        }
+      }
+      compositionDirtyBefore.current = false;
+    }, 0);
   }
 
   async function rename() {
@@ -378,34 +705,87 @@ export function DecisionPage({
     actionLock.current = true;
     setWorking(true);
     setEditError(undefined);
+    const noteSnapshot = note;
+    let controlsLocked = false;
     try {
-      if (composingSource.current)
+      if (composingSource.current || compositionCommitPending.current)
         throw new Error(
-          "Finish composing the schema source before saving a version.",
+          "Finish composing the editor source before saving a version.",
         );
-      let request = versionRequest.current;
+      let request: ApiOperationBody<"saveDecisionRevision">;
       let refreshedRecord = current;
-      if (!versionOutcomeUnknown || !request) {
+      if (versionOutcomeUnknown && versionRequest.current) {
+        request = versionRequest.current;
+        setSourceControlsLockedNow(true);
+        controlsLocked = true;
+        if (composingSource.current || compositionCommitPending.current)
+          throw new Error(
+            "Finish composing before retrying the original version save.",
+          );
+      } else {
         if (transformTimer.current !== undefined) {
           clearTimeout(transformTimer.current);
           transformTimer.current = undefined;
         }
-        if (!(await drainTransforms()))
+        const drainResult = await drainTransforms();
+        if (drainResult === "paused")
+          throw new Error(
+            "Finish composing or committing the editor source. No version was saved.",
+          );
+        if (drainResult === "failed")
           throw new Error(
             "The latest editor change could not be applied. No version was saved.",
           );
+        if (composingSource.current || compositionCommitPending.current)
+          throw new Error(
+            "Finish composing the editor source. No version was saved.",
+          );
+        if (editGeneration.current !== representedGeneration.current)
+          throw new Error(
+            "Commit the latest editor change. No version was saved.",
+          );
+        const generation = editGeneration.current;
+        const sequence = sourceSequence.current;
+        const editorSource = sourceRef.current;
+        setSourceControlsLockedNow(true);
+        controlsLocked = true;
+        if (!snapshotIsCurrent(generation, sequence, editorSource))
+          throw new Error("The editor changed. No version was saved.");
         await controller.flush();
+        if (!snapshotIsCurrent(generation, sequence, editorSource))
+          throw new Error(
+            "The editor changed while saving its draft. No version was saved.",
+          );
+        if (draftDirtyRef.current)
+          throw new Error(
+            "The latest draft is not saved. No version was saved.",
+          );
         const refreshed = await operations.read({ registrationId, decisionId });
+        if (!snapshotIsCurrent(generation, sequence, editorSource))
+          throw new Error(
+            "The editor changed while checking the saved draft. No version was saved.",
+          );
+        if (
+          refreshed.data.draft.record.editor_source !== editorSource ||
+          refreshed.data.draft.etag !== draftEtagRef.current
+        )
+          throw new Error(
+            "The saved draft differs from the editor. Review it before saving a version.",
+          );
         refreshedRecord = refreshed.data;
         request = {
           schema_version: 1,
           expected_decision_etag: refreshed.data.decision.etag,
           expected_draft_etag: refreshed.data.draft.etag,
           operation_id: operationId(),
-          ...(note ? { note } : {}),
+          ...(noteSnapshot ? { note: noteSnapshot } : {}),
         };
         versionRequest.current = request;
       }
+      if (composingSource.current || compositionCommitPending.current)
+        throw new Error(
+          "Finish composing before saving this version. The original request was not changed.",
+        );
       const result = await operations.saveRevision({
         registrationId,
         decisionId,
@@ -422,6 +802,7 @@ export function DecisionPage({
       else versionRequest.current = undefined;
       setEditError(safeMessage(cause));
     } finally {
+      if (controlsLocked) setSourceControlsLockedNow(false);
       actionLock.current = false;
       setWorking(false);
     }
@@ -469,22 +850,51 @@ export function DecisionPage({
   }
 
   async function previewOptionRemoval(optionId: string, optionName: string) {
-    if (composingSource.current) {
+    if (actionLock.current) return;
+    if (composingSource.current || compositionCommitPending.current) {
       setEditError(
-        "Finish composing the schema source before reviewing option removal.",
+        "Finish composing the editor source before reviewing option removal.",
       );
       return;
     }
+    actionLock.current = true;
+    setEditError(undefined);
+    let reviewOpened = false;
     if (transformTimer.current !== undefined) {
       clearTimeout(transformTimer.current);
       transformTimer.current = undefined;
     }
     try {
-      if (!(await drainTransforms()))
+      const drainResult = await drainTransforms();
+      if (drainResult === "paused")
+        throw new Error(
+          "Finish composing or committing the editor source before removing an option.",
+        );
+      if (drainResult === "failed")
         throw new Error(
           "A pending editor transform failed. Review the error before removing this option.",
         );
+      if (composingSource.current || compositionCommitPending.current)
+        throw new Error(
+          "Finish composing the editor source before removal review.",
+        );
+      if (editGeneration.current !== representedGeneration.current)
+        throw new Error(
+          "Commit the current editor change before removal review.",
+        );
+      const generation = editGeneration.current;
+      const sequence = sourceSequence.current;
+      const editorSource = sourceRef.current;
+      setSourceControlsLockedNow(true);
       await autosave.current?.flush();
+      if (!snapshotIsCurrent(generation, sequence, editorSource))
+        throw new Error(
+          "The editor changed. Start a new option removal review.",
+        );
+      if (draftDirtyRef.current)
+        throw new Error(
+          "The draft is not saved. Review its status before removal.",
+        );
       const result = await operations.transformEditor({
         registrationId,
         decisionId,
@@ -495,21 +905,73 @@ export function DecisionPage({
           edit: { kind: "remove_option", id: optionId },
         },
       });
-      setRemovalReview({ optionId, optionName, review: result.data });
+      if (!snapshotIsCurrent(generation, sequence, editorSource))
+        throw new Error(
+          "The editor changed. Start a new option removal review.",
+        );
+      removalIdentity.current = {
+        generation,
+        sourceSequence: sequence,
+        source: editorSource,
+      };
+      setRemovalReview({
+        optionId,
+        optionName,
+        review: result.data,
+        generation,
+        sourceSequence: sequence,
+        source: editorSource,
+      });
+      reviewOpened = true;
     } catch (cause) {
       setEditError(safeMessage(cause));
+    } finally {
+      if (!reviewOpened) {
+        setSourceControlsLockedNow(false);
+        actionLock.current = false;
+      }
     }
   }
 
+  function cancelOptionRemoval() {
+    removalIdentity.current = undefined;
+    setRemovalReview(undefined);
+    setSourceControlsLockedNow(false);
+    actionLock.current = false;
+  }
+
   async function confirmOptionRemoval() {
-    if (!removalReview) return;
+    const identity = removalIdentity.current;
+    if (!removalReview || !identity || !actionLock.current) return;
+    if (
+      composingSource.current ||
+      compositionCommitPending.current ||
+      !snapshotIsCurrent(
+        identity.generation,
+        identity.sourceSequence,
+        identity.source,
+      )
+    ) {
+      setEditError(
+        "The editor changed. Review the current source before removing an option.",
+      );
+      cancelOptionRemoval();
+      return;
+    }
     const transformed = removalReview.review.transform;
     sourceSequence.current += 1;
+    transformQueue.current = [];
+    deferredTransform.current = undefined;
     setBackingSource(transformed.editor_source);
-    setDraftDirty(true);
-    setForm(transformed.projection.form);
+    representedGeneration.current = markSourceEdited();
+    formSequence.current += 1;
+    setEditorForm(transformed.projection.form);
     setRemovalReview(undefined);
+    removalIdentity.current = undefined;
     autosave.current?.edit(transformed.editor_source);
+    transformState.current = "ready";
+    setSourceControlsLockedNow(false);
+    actionLock.current = false;
   }
 
   if (loadError)
@@ -547,13 +1009,15 @@ export function DecisionPage({
           <span className="muted" role="status">
             {draftStatus.kind === "saving"
               ? "Saving draft…"
-              : draftStatus.kind === "saved"
-                ? "Draft saved"
-                : draftStatus.kind === "outcome-unknown"
-                  ? "Save outcome unknown"
-                  : draftStatus.kind === "conflict"
-                    ? "Draft conflict"
-                    : "Choice decision"}
+              : draftStatus.kind === "outcome-unknown"
+                ? "Save outcome unknown"
+                : draftStatus.kind === "conflict"
+                  ? "Draft conflict"
+                  : draftDirty || hasPendingEditorWork()
+                    ? "Changes not saved"
+                    : draftStatus.kind === "saved"
+                      ? "Draft saved"
+                      : "Choice decision"}
           </span>
         </div>
         <div className="decision-toolbar actions">
@@ -639,404 +1103,415 @@ export function DecisionPage({
             </button>
           </section>
         )}
-        {formAvailable ? (
-          <>
-            <section className="section question-editor">
-              <label htmlFor="decision-instructions">Question</label>
-              <textarea
-                id="decision-instructions"
-                className="document-question"
-                value={form.instructions}
-                onFocus={(event) => {
-                  instructionOriginal.current = event.currentTarget.value;
-                }}
-                onChange={(event) => {
-                  const next = { ...form, instructions: event.target.value };
-                  updateForm(next);
-                }}
-                onBlur={(event) => {
-                  if (event.currentTarget.value !== instructionOriginal.current)
-                    queueTransform({
-                      kind: "set_instructions",
-                      value: event.currentTarget.value,
-                    });
-                  instructionOriginal.current = undefined;
-                }}
-                rows={2}
-              />
-            </section>
-            <section
-              className="section option-editor"
-              aria-labelledby="options-heading"
-            >
-              <div className="section-heading-row">
-                <h2 id="options-heading">Options</h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const id = `option-${crypto.randomUUID()}`;
-                    const nextOption = {
-                      id,
-                      name: "New option",
-                      description: null,
-                    };
-                    const sequence = updateForm({
-                      ...form,
-                      options: [...form.options, nextOption],
-                    });
-                    queueTransform(
-                      { kind: "add_option", ...nextOption },
-                      sequence,
-                    );
-                    setTimeout(
-                      () =>
-                        document.getElementById(`option-name-${id}`)?.focus(),
-                      0,
-                    );
+        <fieldset
+          className="authoring-source-controls"
+          disabled={sourceControlsLocked}
+        >
+          <legend className="visually-hidden">Decision source controls</legend>
+          {formAvailable ? (
+            <>
+              <section className="section question-editor">
+                <label htmlFor="decision-instructions">Question</label>
+                <textarea
+                  id="decision-instructions"
+                  className="document-question"
+                  value={form.instructions}
+                  onFocus={(event) => {
+                    instructionOriginal.current = event.currentTarget.value;
                   }}
-                >
-                  + Add option
-                </button>
-              </div>
-              <ol className="option-list">
-                {form.options.map((option, index) => (
-                  <li className="option-row" key={option.id}>
-                    <div
-                      className="option-move-actions"
-                      aria-label={`Reorder ${option.name}`}
-                    >
-                      <button
-                        type="button"
-                        aria-label={`Move ${option.name} up`}
-                        disabled={index === 0}
-                        onClick={() => {
-                          const options = [...form.options];
-                          [options[index - 1], options[index]] = [
-                            options[index],
-                            options[index - 1],
-                          ];
-                          const sequence = updateForm({ ...form, options });
-                          queueTransform(
-                            {
-                              kind: "reorder_options",
-                              option_ids: options.map((item) => item.id),
-                            },
-                            sequence,
-                          );
-                        }}
+                  onChange={(event) => {
+                    const next = { ...form, instructions: event.target.value };
+                    updateForm(next);
+                  }}
+                  onBlur={(event) => {
+                    if (
+                      event.currentTarget.value !== instructionOriginal.current
+                    )
+                      queueTransform({
+                        kind: "set_instructions",
+                        value: event.currentTarget.value,
+                      });
+                    instructionOriginal.current = undefined;
+                  }}
+                  rows={2}
+                />
+              </section>
+              <section
+                className="section option-editor"
+                aria-labelledby="options-heading"
+              >
+                <div className="section-heading-row">
+                  <h2 id="options-heading">Options</h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = `option-${crypto.randomUUID()}`;
+                      const nextOption = {
+                        id,
+                        name: "New option",
+                        description: null,
+                      };
+                      const sequence = updateForm({
+                        ...form,
+                        options: [...form.options, nextOption],
+                      });
+                      queueTransform(
+                        { kind: "add_option", ...nextOption },
+                        sequence,
+                      );
+                      setTimeout(
+                        () =>
+                          document.getElementById(`option-name-${id}`)?.focus(),
+                        0,
+                      );
+                    }}
+                  >
+                    + Add option
+                  </button>
+                </div>
+                <ol className="option-list">
+                  {form.options.map((option, index) => (
+                    <li className="option-row" key={option.id}>
+                      <div
+                        className="option-move-actions"
+                        aria-label={`Reorder ${option.name}`}
                       >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Move ${option.name} down`}
-                        disabled={index === form.options.length - 1}
-                        onClick={() => {
-                          const options = [...form.options];
-                          [options[index], options[index + 1]] = [
-                            options[index + 1],
-                            options[index],
-                          ];
-                          const sequence = updateForm({ ...form, options });
-                          queueTransform(
-                            {
-                              kind: "reorder_options",
-                              option_ids: options.map((item) => item.id),
-                            },
-                            sequence,
-                          );
-                        }}
-                      >
-                        ↓
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Remove option ${option.name}`}
-                        onClick={() =>
-                          void previewOptionRemoval(option.id, option.name)
-                        }
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <div className="option-fields">
-                      <label
-                        className="visually-hidden"
-                        htmlFor={`option-name-${option.id}`}
-                      >
-                        Option name
-                      </label>
-                      <input
-                        id={`option-name-${option.id}`}
-                        value={option.name}
-                        onFocus={(event) => {
-                          const previous = optionOriginals.current.get(
-                            option.id,
-                          ) ?? {
-                            name: event.currentTarget.value,
-                            description: option.description ?? "",
-                          };
-                          optionOriginals.current.set(option.id, {
-                            ...previous,
-                            name: event.currentTarget.value,
-                          });
-                        }}
-                        onChange={(event) => {
-                          const options = form.options.map((item) =>
-                            item.id === option.id
-                              ? { ...item, name: event.target.value }
-                              : item,
-                          );
-                          updateForm({ ...form, options });
-                        }}
-                        onBlur={(event) => {
-                          if (
-                            event.currentTarget.value !==
-                            optionOriginals.current.get(option.id)?.name
-                          )
-                            queueTransform({
-                              kind: "rename_option",
-                              id: option.id,
-                              name: event.currentTarget.value,
-                            });
-                        }}
-                      />
-                      <label
-                        className="visually-hidden"
-                        htmlFor={`option-description-${option.id}`}
-                      >
-                        Option description
-                      </label>
-                      <input
-                        id={`option-description-${option.id}`}
-                        value={option.description ?? ""}
-                        placeholder="Description (optional)"
-                        onFocus={(event) => {
-                          const previous = optionOriginals.current.get(
-                            option.id,
-                          ) ?? {
-                            name: option.name,
-                            description: option.description ?? "",
-                          };
-                          optionOriginals.current.set(option.id, {
-                            ...previous,
-                            description: event.currentTarget.value,
-                          });
-                        }}
-                        onChange={(event) => {
-                          const options = form.options.map((item) =>
-                            item.id === option.id
-                              ? { ...item, description: event.target.value }
-                              : item,
-                          );
-                          updateForm({ ...form, options });
-                        }}
-                        onBlur={(event) => {
-                          if (
-                            event.currentTarget.value !==
-                            optionOriginals.current.get(option.id)?.description
-                          )
-                            queueTransform({
-                              kind: "describe_option",
-                              id: option.id,
-                              description: event.currentTarget.value,
-                            });
-                        }}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </section>
-            <section
-              className="section input-configuration"
-              aria-labelledby="input-heading"
-            >
-              <h2 id="input-heading">Input</h2>
-              <fieldset className="input-kind-control">
-                <legend>Format sent to the model</legend>
-                {(["text", "json"] as const).map((kind) => (
-                  <label key={kind}>
-                    <input
-                      type="radio"
-                      name="input-kind"
-                      checked={form.input_kind === kind}
-                      onChange={() => {
-                        const sequence = updateForm({
-                          ...form,
-                          input_kind: kind,
-                        });
-                        queueTransform(
-                          { kind: "set_input_kind", input_kind: kind },
-                          sequence,
-                        );
-                      }}
-                    />
-                    {kind === "text" ? "Text" : "JSON"}
-                  </label>
-                ))}
-              </fieldset>
-              {form.input_kind === "json" && (
-                <div className="field">
-                  <fieldset>
-                    <legend>Selected top-level fields</legend>
-                    {form.selected_fields.map((field, index) => (
-                      <div className="selected-field-row" key={index}>
-                        <label
-                          className="visually-hidden"
-                          htmlFor={`selected-field-${index}`}
-                        >
-                          Selected field name
-                        </label>
-                        <input
-                          id={`selected-field-${index}`}
-                          value={field}
-                          onFocus={(event) =>
-                            selectedFieldOriginals.current.set(
-                              index,
-                              event.currentTarget.value,
-                            )
-                          }
-                          onChange={(event) => {
-                            const fields = [...form.selected_fields];
-                            fields[index] = event.target.value;
-                            updateForm({ ...form, selected_fields: fields });
-                          }}
-                          onBlur={(event) => {
-                            const fields = [...form.selected_fields];
-                            fields[index] = event.currentTarget.value;
-                            if (
-                              event.currentTarget.value !==
-                              selectedFieldOriginals.current.get(index)
-                            )
-                              queueTransform({
-                                kind: "set_selected_fields",
-                                selected_fields: fields,
-                              });
-                          }}
-                        />
                         <button
                           type="button"
-                          aria-label={`Remove selected field ${field || index + 1}`}
+                          aria-label={`Move ${option.name} up`}
+                          disabled={index === 0}
                           onClick={() => {
-                            const fields = form.selected_fields.filter(
-                              (_item, fieldIndex) => fieldIndex !== index,
-                            );
-                            const sequence = updateForm({
-                              ...form,
-                              selected_fields: fields,
-                            });
+                            const options = [...form.options];
+                            [options[index - 1], options[index]] = [
+                              options[index],
+                              options[index - 1],
+                            ];
+                            const sequence = updateForm({ ...form, options });
                             queueTransform(
                               {
-                                kind: "set_selected_fields",
-                                selected_fields: fields,
+                                kind: "reorder_options",
+                                option_ids: options.map((item) => item.id),
                               },
                               sequence,
                             );
                           }}
                         >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${option.name} down`}
+                          disabled={index === form.options.length - 1}
+                          onClick={() => {
+                            const options = [...form.options];
+                            [options[index], options[index + 1]] = [
+                              options[index + 1],
+                              options[index],
+                            ];
+                            const sequence = updateForm({ ...form, options });
+                            queueTransform(
+                              {
+                                kind: "reorder_options",
+                                option_ids: options.map((item) => item.id),
+                              },
+                              sequence,
+                            );
+                          }}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove option ${option.name}`}
+                          onClick={() =>
+                            void previewOptionRemoval(option.id, option.name)
+                          }
+                        >
                           Remove
                         </button>
                       </div>
-                    ))}
-                    <label htmlFor="new-selected-field">
-                      Add a top-level field name
+                      <div className="option-fields">
+                        <label
+                          className="visually-hidden"
+                          htmlFor={`option-name-${option.id}`}
+                        >
+                          Option name
+                        </label>
+                        <input
+                          id={`option-name-${option.id}`}
+                          value={option.name}
+                          onFocus={(event) => {
+                            const previous = optionOriginals.current.get(
+                              option.id,
+                            ) ?? {
+                              name: event.currentTarget.value,
+                              description: option.description ?? "",
+                            };
+                            optionOriginals.current.set(option.id, {
+                              ...previous,
+                              name: event.currentTarget.value,
+                            });
+                          }}
+                          onChange={(event) => {
+                            const options = form.options.map((item) =>
+                              item.id === option.id
+                                ? { ...item, name: event.target.value }
+                                : item,
+                            );
+                            updateForm({ ...form, options });
+                          }}
+                          onBlur={(event) => {
+                            if (
+                              event.currentTarget.value !==
+                              optionOriginals.current.get(option.id)?.name
+                            )
+                              queueTransform({
+                                kind: "rename_option",
+                                id: option.id,
+                                name: event.currentTarget.value,
+                              });
+                          }}
+                        />
+                        <label
+                          className="visually-hidden"
+                          htmlFor={`option-description-${option.id}`}
+                        >
+                          Option description
+                        </label>
+                        <input
+                          id={`option-description-${option.id}`}
+                          value={option.description ?? ""}
+                          placeholder="Description (optional)"
+                          onFocus={(event) => {
+                            const previous = optionOriginals.current.get(
+                              option.id,
+                            ) ?? {
+                              name: option.name,
+                              description: option.description ?? "",
+                            };
+                            optionOriginals.current.set(option.id, {
+                              ...previous,
+                              description: event.currentTarget.value,
+                            });
+                          }}
+                          onChange={(event) => {
+                            const options = form.options.map((item) =>
+                              item.id === option.id
+                                ? { ...item, description: event.target.value }
+                                : item,
+                            );
+                            updateForm({ ...form, options });
+                          }}
+                          onBlur={(event) => {
+                            if (
+                              event.currentTarget.value !==
+                              optionOriginals.current.get(option.id)
+                                ?.description
+                            )
+                              queueTransform({
+                                kind: "describe_option",
+                                id: option.id,
+                                description: event.currentTarget.value,
+                              });
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+              <section
+                className="section input-configuration"
+                aria-labelledby="input-heading"
+              >
+                <h2 id="input-heading">Input</h2>
+                <fieldset className="input-kind-control">
+                  <legend>Format sent to the model</legend>
+                  {(["text", "json"] as const).map((kind) => (
+                    <label key={kind}>
+                      <input
+                        type="radio"
+                        name="input-kind"
+                        checked={form.input_kind === kind}
+                        onChange={() => {
+                          const sequence = updateForm({
+                            ...form,
+                            input_kind: kind,
+                          });
+                          queueTransform(
+                            { kind: "set_input_kind", input_kind: kind },
+                            sequence,
+                          );
+                        }}
+                      />
+                      {kind === "text" ? "Text" : "JSON"}
                     </label>
-                    <input
-                      id="new-selected-field"
-                      value={newFieldName}
-                      onChange={(event) => setNewFieldName(event.target.value)}
-                      onBlur={() => {
-                        if (!newFieldName) return;
-                        const fields = [...form.selected_fields, newFieldName];
-                        const sequence = updateForm({
-                          ...form,
-                          selected_fields: fields,
-                        });
-                        queueTransform(
-                          {
-                            kind: "set_selected_fields",
+                  ))}
+                </fieldset>
+                {form.input_kind === "json" && (
+                  <div className="field">
+                    <fieldset>
+                      <legend>Selected top-level fields</legend>
+                      {form.selected_fields.map((field, index) => (
+                        <div className="selected-field-row" key={index}>
+                          <label
+                            className="visually-hidden"
+                            htmlFor={`selected-field-${index}`}
+                          >
+                            Selected field name
+                          </label>
+                          <input
+                            id={`selected-field-${index}`}
+                            value={field}
+                            onFocus={(event) =>
+                              selectedFieldOriginals.current.set(
+                                index,
+                                event.currentTarget.value,
+                              )
+                            }
+                            onChange={(event) => {
+                              const fields = [...form.selected_fields];
+                              fields[index] = event.target.value;
+                              updateForm({ ...form, selected_fields: fields });
+                            }}
+                            onBlur={(event) => {
+                              const fields = [...form.selected_fields];
+                              fields[index] = event.currentTarget.value;
+                              if (
+                                event.currentTarget.value !==
+                                selectedFieldOriginals.current.get(index)
+                              )
+                                queueTransform({
+                                  kind: "set_selected_fields",
+                                  selected_fields: fields,
+                                });
+                            }}
+                          />
+                          <button
+                            type="button"
+                            aria-label={`Remove selected field ${field || index + 1}`}
+                            onClick={() => {
+                              const fields = form.selected_fields.filter(
+                                (_item, fieldIndex) => fieldIndex !== index,
+                              );
+                              const sequence = updateForm({
+                                ...form,
+                                selected_fields: fields,
+                              });
+                              queueTransform(
+                                {
+                                  kind: "set_selected_fields",
+                                  selected_fields: fields,
+                                },
+                                sequence,
+                              );
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      <label htmlFor="new-selected-field">
+                        Add a top-level field name
+                      </label>
+                      <input
+                        id="new-selected-field"
+                        value={newFieldName}
+                        onChange={(event) =>
+                          setNewFieldName(event.target.value)
+                        }
+                        onBlur={() => {
+                          if (!newFieldName) return;
+                          const fields = [
+                            ...form.selected_fields,
+                            newFieldName,
+                          ];
+                          const sequence = updateForm({
+                            ...form,
                             selected_fields: fields,
-                          },
-                          sequence,
-                        );
-                        setNewFieldName("");
-                      }}
-                    />
-                  </fieldset>
-                  <p className="muted">
-                    The full input is validated before these fields are
-                    selected.
-                  </p>
-                </div>
-              )}
-              <JsonSourceEditor
-                label="Advanced JSON Schema source"
-                value={form.input_schema_source ?? ""}
-                onCompositionStart={() => {
-                  composingSource.current = true;
-                }}
-                onCompositionEnd={(event) => {
-                  composingSource.current = false;
-                  if (schemaBlurredWhileComposing.current) {
-                    schemaBlurredWhileComposing.current = false;
-                    const original = schemaOriginal.current;
-                    schemaOriginal.current = undefined;
-                    if (event.currentTarget.value !== original)
+                          });
+                          queueTransform(
+                            {
+                              kind: "set_selected_fields",
+                              selected_fields: fields,
+                            },
+                            sequence,
+                          );
+                          setNewFieldName("");
+                        }}
+                      />
+                    </fieldset>
+                    <p className="muted">
+                      The full input is validated before these fields are
+                      selected.
+                    </p>
+                  </div>
+                )}
+                <JsonSourceEditor
+                  label="Advanced JSON Schema source"
+                  value={form.input_schema_source ?? ""}
+                  readOnly={sourceControlsLocked}
+                  onCompositionStart={(event) => {
+                    startSourceComposition("schema", event.currentTarget);
+                  }}
+                  onCompositionEnd={(event) => {
+                    endSourceComposition("schema", event.currentTarget);
+                  }}
+                  onFocus={(event) => {
+                    schemaOriginal.current = event.currentTarget.value;
+                  }}
+                  onBlur={(event) => {
+                    if (composingSource.current) {
+                      return;
+                    }
+                    if (event.currentTarget.value !== schemaOriginal.current)
                       queueTransform({
                         kind: "replace_schema",
                         input_schema_source: event.currentTarget.value || null,
                       });
-                  }
-                  scheduleTransformDrain();
-                }}
-                onFocus={(event) => {
-                  schemaOriginal.current = event.currentTarget.value;
-                }}
-                onBlur={(event) => {
-                  if (composingSource.current) {
-                    schemaBlurredWhileComposing.current = true;
-                    return;
-                  }
-                  if (event.currentTarget.value !== schemaOriginal.current)
-                    queueTransform({
-                      kind: "replace_schema",
-                      input_schema_source: event.currentTarget.value || null,
-                    });
-                  schemaOriginal.current = undefined;
-                }}
-                onChange={(schemaSource) => {
-                  const next = {
-                    ...form,
-                    input_schema_source: schemaSource || null,
-                  };
-                  updateForm(next);
-                }}
-              />
+                    schemaOriginal.current = event.currentTarget.value;
+                  }}
+                  onChange={(schemaSource) => {
+                    const next = {
+                      ...form,
+                      input_schema_source: schemaSource || null,
+                    };
+                    updateForm(next);
+                  }}
+                />
+              </section>
+            </>
+          ) : (
+            <section className="section">
+              <p className="warning-summary">
+                The service could not safely project this draft into fields.
+                Edit its source directly; the original content remains
+                available.
+              </p>
             </section>
-          </>
-        ) : (
-          <section className="section">
-            <p className="warning-summary">
-              The service could not safely project this draft into fields. Edit
-              its source directly; the original content remains available.
-            </p>
-          </section>
-        )}
-        <details className="section advanced-source">
-          <summary>Advanced editor source</summary>
-          <JsonSourceEditor
-            label="Decision source"
-            value={source}
-            onChange={changeRawSource}
-          />
-        </details>
+          )}
+          <details className="section advanced-source">
+            <summary>Advanced editor source</summary>
+            <JsonSourceEditor
+              label="Decision source"
+              value={source}
+              readOnly={sourceControlsLocked}
+              onCompositionStart={(event) => {
+                startSourceComposition("raw", event.currentTarget);
+              }}
+              onCompositionEnd={(event) => {
+                endSourceComposition("raw", event.currentTarget);
+              }}
+              onChange={changeRawSource}
+            />
+          </details>
+        </fieldset>
         <section className="section revision-note">
           <label htmlFor="revision-note">Version note (optional)</label>
           <input
             id="revision-note"
             value={note}
-            disabled={versionOutcomeUnknown}
+            disabled={versionOutcomeUnknown || sourceControlsLocked}
             onChange={(event) => setNote(event.target.value)}
           />
           <p className="muted">
@@ -1047,7 +1522,7 @@ export function DecisionPage({
         {removalReview && (
           <Modal
             title={`Remove ${removalReview.optionName}?`}
-            onDismiss={() => setRemovalReview(undefined)}
+            onDismiss={cancelOptionRemoval}
           >
             <div className="modal-body">
               <p>
@@ -1099,10 +1574,7 @@ export function DecisionPage({
                 >
                   Remove option from draft
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setRemovalReview(undefined)}
-                >
+                <button type="button" onClick={cancelOptionRemoval}>
                   Cancel
                 </button>
               </div>

@@ -255,11 +255,15 @@ test("installed browser authors exact decision source and previews imports throu
   let activePhase = "Workspace bootstrap and project creation";
   let progressSequence = 0;
   const progressPath = testInfo.outputPath("authoring-progress.json");
+  const initialViewport = page.viewportSize();
+  const browserVersion = page.context().browser()?.version() ?? null;
   async function recordProgress() {
     const body = JSON.stringify({
       active_phase: activePhase,
       completed_phases: completedPhases,
       screenshots,
+      browser_version: browserVersion,
+      initial_viewport: initialViewport,
     });
     await writeFile(progressPath, `${body}\n`, "utf8");
     progressSequence += 1;
@@ -483,9 +487,7 @@ test("installed browser authors exact decision source and previews imports throu
     kind: "replace_schema",
     input_schema_source: committedCompositionSource,
   });
-  expect(compositionTransforms[0].editor_source).not.toContain(
-    intermediateCompositionSource,
-  );
+  expect(compositionTransforms[0].editor_source).not.toContain("intermediate");
   await page.unroute("**/editor-transform");
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
     "Draft saved",
@@ -563,7 +565,7 @@ test("installed browser authors exact decision source and previews imports throu
     input_schema_source: committedAfterBlurSource,
   });
   expect(pausedCompositionTransforms[1].editor_source).not.toContain(
-    interruptedCompositionSource,
+    "intermediate-after-blur",
   );
   expect(pausedCompositionResponses.every((status) => status === 200)).toBe(
     true,
@@ -598,16 +600,270 @@ test("installed browser authors exact decision source and previews imports throu
   const decision = (await stored.json()).data;
   expect(decision.draft.record.editor_source).toContain(schemaSource);
 
-  const cliSource = decision.draft.record.editor_source.replace(
-    '"instructions": ""',
+  await enterPhase("In-flight transform held across committed IME source");
+  const inFlightCompositionSource =
+    '{"type":"object","properties":{"ime":{"const":"in-flight-committed"},"large":{"const":9007199254740993},"fraction":{"multipleOf":0.1234567890123456789}}}';
+  const inFlightIntermediateSource =
+    '{"type":"object","properties":{"ime":{"const":"in-flight-intermediate"}}}';
+  const inFlightTransforms: Array<Record<string, unknown>> = [];
+  const pausedVersionRequests: Array<Record<string, unknown>> = [];
+  let releaseInFlightTransform!: () => void;
+  let reportInFlightTransform!: () => void;
+  const inFlightTransformGate = new Promise<void>((resolve) => {
+    releaseInFlightTransform = resolve;
+  });
+  const inFlightTransformStarted = new Promise<void>((resolve) => {
+    reportInFlightTransform = resolve;
+  });
+  await page.route("**/editor-transform", async (route) => {
+    if (route.request().method() === "POST") {
+      inFlightTransforms.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      if (inFlightTransforms.length === 1) {
+        reportInFlightTransform();
+        await inFlightTransformGate;
+      }
+    }
+    await route.continue();
+  });
+  await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
+    if (route.request().method() === "POST")
+      pausedVersionRequests.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+    await route.continue();
+  });
+  await page.getByLabel("Question").fill("Question before IME composition");
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await inFlightTransformStarted;
+  const inFlightSchemaEditor = page.getByLabel("Advanced JSON Schema source");
+  await inFlightSchemaEditor.focus();
+  await inFlightSchemaEditor.dispatchEvent("compositionstart", { data: "" });
+  await inFlightSchemaEditor.fill(inFlightIntermediateSource);
+  releaseInFlightTransform();
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Finish composing or committing the editor source" }),
+  ).toBeVisible();
+  expect(pausedVersionRequests).toHaveLength(0);
+  await expect(inFlightSchemaEditor).toHaveValue(inFlightIntermediateSource);
+  const inFlightDraftSaved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
+  );
+  await inFlightSchemaEditor.evaluate((editor, committedSource) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(editor, committedSource);
+    editor.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertCompositionText",
+        data: "",
+      }),
+    );
+    editor.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "" }),
+    );
+  }, inFlightCompositionSource);
+  await expect
+    .poll(() => inFlightTransforms.length, { timeout: 10000 })
+    .toBe(2);
+  expect(inFlightTransforms[0].edit).toEqual({
+    kind: "set_instructions",
+    value: "Question before IME composition",
+  });
+  expect(inFlightTransforms[1].edit).toEqual({
+    kind: "replace_schema",
+    input_schema_source: inFlightCompositionSource,
+  });
+  expect(inFlightTransforms[1].editor_source).not.toContain(
+    "in-flight-intermediate",
+  );
+  expect(pausedVersionRequests).toHaveLength(0);
+  expect((await inFlightDraftSaved).status()).toBe(200);
+  await page.unroute("**/editor-transform");
+  await page.unroute(`**/decisions/${decisionId}/revisions`);
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
+  const committedDuringInFlight = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    { headers: authorizedHeaders },
+  );
+  expect(committedDuringInFlight.status()).toBe(200);
+  const committedDuringInFlightSource = (await committedDuringInFlight.json())
+    .data.draft.record.editor_source as string;
+  expect(committedDuringInFlightSource).toContain("in-flight-committed");
+  expect(committedDuringInFlightSource).toContain("9007199254740993");
+  expect(committedDuringInFlightSource).toContain("0.1234567890123456789");
+  expect(committedDuringInFlightSource).toContain(
+    "Question before IME composition",
+  );
+  expect(committedDuringInFlightSource).not.toContain("in-flight-intermediate");
+  await captureScreenshot("decision-ime-inflight-committed.png");
+
+  await enterPhase("Delayed draft acknowledgement preserves composing edits");
+  const acknowledgedCompositionSource =
+    '{"type":"object","properties":{"ack":{"const":"committed-after-ack"},"large":{"const":9007199254740993},"fraction":{"multipleOf":0.1234567890123456789}}}';
+  const acknowledgedIntermediateSource =
+    '{"type":"object","properties":{"ack":{"const":"intermediate-after-ack"}}}';
+  let releaseDraftAcknowledgement!: () => void;
+  let reportDraftCommit!: () => void;
+  const draftAcknowledgementGate = new Promise<void>((resolve) => {
+    releaseDraftAcknowledgement = resolve;
+  });
+  const draftCommitted = new Promise<void>((resolve) => {
+    reportDraftCommit = resolve;
+  });
+  let heldDraftAcknowledgement = false;
+  await page.route("**/draft", async (route) => {
+    if (route.request().method() === "PUT" && !heldDraftAcknowledgement) {
+      heldDraftAcknowledgement = true;
+      const committed = await route.fetch();
+      reportDraftCommit();
+      await draftAcknowledgementGate;
+      await route.fulfill({ response: committed });
+      return;
+    }
+    await route.continue();
+  });
+  await page
+    .getByLabel("Question")
+    .fill("Question before delayed acknowledgement");
+  await page.getByLabel("Question").press("Tab");
+  await draftCommitted;
+  const ackCompositionEditor = page.getByLabel("Advanced JSON Schema source");
+  await ackCompositionEditor.focus();
+  await ackCompositionEditor.dispatchEvent("compositionstart", { data: "" });
+  await ackCompositionEditor.fill(acknowledgedIntermediateSource);
+  releaseDraftAcknowledgement();
+  const titleHashDuringAck = new URL(page.url()).hash;
+  await page.getByRole("button", { name: projectName, exact: true }).click();
+  const ackCompositionGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(ackCompositionGuard).toBeVisible();
+  expect(new URL(page.url()).hash).toBe(titleHashDuringAck);
+  await ackCompositionGuard
+    .getByRole("button", { name: "Keep editing" })
+    .click();
+  const committedAckDraft = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
+  );
+  await ackCompositionEditor.evaluate((editor, committedSource) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(editor, committedSource);
+    editor.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertCompositionText",
+        data: "",
+      }),
+    );
+    editor.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "" }),
+    );
+  }, acknowledgedCompositionSource);
+  expect((await committedAckDraft).status()).toBe(200);
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
+  await page.unroute("**/draft");
+  const postAcknowledgementResponse = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    { headers: authorizedHeaders },
+  );
+  const postAcknowledgementSource = (await postAcknowledgementResponse.json())
+    .data.draft.record.editor_source as string;
+  expect(postAcknowledgementSource).toContain("committed-after-ack");
+  expect(postAcknowledgementSource).toContain("9007199254740993");
+  expect(postAcknowledgementSource).toContain("0.1234567890123456789");
+  expect(postAcknowledgementSource).toContain(
+    "Question before delayed acknowledgement",
+  );
+  expect(postAcknowledgementSource).not.toContain("intermediate-after-ack");
+  await captureScreenshot("decision-ime-delayed-ack.png");
+
+  await enterPhase("Delayed save-and-leave flush locks the editor");
+  await page.getByText("Advanced editor source", { exact: true }).click();
+  const saveAndLeaveEditor = page.getByLabel("Decision source");
+  const saveAndLeaveSource = postAcknowledgementSource.replace(
+    '"Question before delayed acknowledgement"',
+    '"Question saved before leave"',
+  );
+  expect(saveAndLeaveSource).not.toBe(postAcknowledgementSource);
+  await saveAndLeaveEditor.fill(saveAndLeaveSource);
+  const saveAndLeaveHash = new URL(page.url()).hash;
+  await page.getByRole("button", { name: projectName, exact: true }).click();
+  const saveAndLeaveGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(saveAndLeaveGuard).toBeVisible();
+  let releaseSaveAndLeave!: () => void;
+  let reportSaveAndLeaveStarted!: () => void;
+  const saveAndLeaveGate = new Promise<void>((resolve) => {
+    releaseSaveAndLeave = resolve;
+  });
+  const saveAndLeaveStarted = new Promise<void>((resolve) => {
+    reportSaveAndLeaveStarted = resolve;
+  });
+  let heldSaveAndLeave = false;
+  await page.route("**/draft", async (route) => {
+    if (route.request().method() === "PUT" && !heldSaveAndLeave) {
+      heldSaveAndLeave = true;
+      const committed = await route.fetch();
+      reportSaveAndLeaveStarted();
+      await saveAndLeaveGate;
+      await route.fulfill({ response: committed });
+      return;
+    }
+    await route.continue();
+  });
+  await saveAndLeaveGuard
+    .getByRole("button", { name: "Save and leave" })
+    .click();
+  await saveAndLeaveStarted;
+  await expect(saveAndLeaveEditor).toHaveJSProperty("readOnly", true);
+  expect(new URL(page.url()).hash).toBe(saveAndLeaveHash);
+  releaseSaveAndLeave();
+  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+  await page.unroute("**/draft");
+  await page.getByRole("button", { name: decisionName, exact: true }).click();
+  await expect(page.getByLabel("Question")).toHaveValue(
+    "Question saved before leave",
+  );
+  await page.getByText("Advanced editor source", { exact: true }).click();
+  await expect(page.getByLabel("Decision source")).toHaveValue(
+    saveAndLeaveSource,
+  );
+  await captureScreenshot("decision-save-and-leave-locked.png");
+
+  const latestBeforeCliResponse = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    { headers: authorizedHeaders },
+  );
+  const latestBeforeCli = (await latestBeforeCliResponse.json()).data;
+  const cliSource = latestBeforeCli.draft.record.editor_source.replace(
+    '"instructions": "Question saved before leave"',
     '"instructions": "CLI winner"',
   );
-  const browserSource = decision.draft.record.editor_source.replace(
-    '"instructions": ""',
+  const browserSource = latestBeforeCli.draft.record.editor_source.replace(
+    '"instructions": "Question saved before leave"',
     '"instructions": "Browser losing edit"',
   );
-  expect(cliSource).not.toBe(decision.draft.record.editor_source);
-  expect(browserSource).not.toBe(decision.draft.record.editor_source);
+  expect(cliSource).not.toBe(latestBeforeCli.draft.record.editor_source);
+  expect(browserSource).not.toBe(latestBeforeCli.draft.record.editor_source);
   const cliSourcePath = testInfo.outputPath("cli-winner-source.json");
   await writeFile(cliSourcePath, cliSource, "utf8");
   let releaseBrowserSave!: () => void;
@@ -643,11 +899,11 @@ test("installed browser authors exact decision source and previews imports throu
       "--file",
       cliSourcePath,
       "--if-hash",
-      decision.draft.etag,
+      latestBeforeCli.draft.etag,
       "--operation-id",
       "m10-browser-cli-etag-winner",
     ],
-    { encoding: "utf8" },
+    { cwd: projectPath, encoding: "utf8" },
   );
   expect(cliResult).toContain("m10-browser-cli-etag-winner");
   releaseBrowserSave();
@@ -769,6 +1025,8 @@ test("installed browser authors exact decision source and previews imports throu
   );
   const firstRevisionEditorSource = (await firstRevision.json()).data
     .editor_source as string;
+  expect(firstRevisionEditorSource).toContain("committed-after-ack");
+  expect(firstRevisionEditorSource).toContain("Question saved before leave");
 
   await page.getByRole("button", { name: "+ Add option" }).click();
   const optionNames = page.getByLabel("Option name");
@@ -2194,12 +2452,13 @@ test("installed browser authors exact decision source and previews imports throu
   const bindingSources = execFileSync(
     "python",
     [
+      "-I",
       "-c",
       "import sys; from pathlib import Path; from deykit.contracts.codec import dump_record, load_record; from deykit.contracts.records import FixtureSet; record = load_record(FixtureSet, (Path(sys.argv[1]) / 'source' / 'fixtures' / (sys.argv[2] + '.json')).read_bytes()); print('\\n'.join(dump_record(binding).decode('utf-8') for binding in record.bindings))",
       fixtureDemoPath,
       fixtureSummary.id,
     ],
-    { encoding: "utf8" },
+    { cwd: fixtureDemoPath, encoding: "utf8" },
   )
     .trimEnd()
     .split("\n");

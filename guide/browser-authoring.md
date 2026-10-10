@@ -14,10 +14,10 @@ reports; existing labels are never silently rewritten.
 
 Datasets and cases can be authored before a decision exists. Import accepts CSV or
 JSONL source text and asks the local service to parse and preview every row. Rows
-with errors are excluded by default; selecting the valid-row option is an explicit
-choice. Splits use a server preview, including its grouping and actual assignments,
-before a new dataset revision is saved. Labels are staged against the full case,
-decision, and draft review returned by the service.
+with errors make the default import write nothing. Choosing “Import valid rows only
+(N)” explicitly commits only the valid rows. Splits use a server preview, including
+its grouping and actual assignments, before a new dataset revision is saved. Labels
+are staged against the full case, decision, and draft review returned by the service.
 
 Provider profiles store configuration and credential references. Secret entry is
 sent only to the local credential operation and is cleared when that request

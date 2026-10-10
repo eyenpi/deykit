@@ -32,6 +32,7 @@ it("keeps exact source and the insertion caret through controlled edits", async 
 
 it("forwards composition boundaries while retaining the exact composing string", () => {
   const boundaries: string[] = [];
+  const committedSource = `${exactSource}字`;
   function Harness() {
     const [source, setSource] = useState(exactSource);
     return (
@@ -49,8 +50,12 @@ it("forwards composition boundaries while retaining the exact composing string",
     "Composed source",
   ) as HTMLTextAreaElement;
   fireEvent.compositionStart(editor);
-  fireEvent.change(editor, { target: { value: `${exactSource}字` } });
-  expect(editor.value).toBe(`${exactSource}字`);
+  fireEvent.change(editor, { target: { value: committedSource } });
+  expect(editor.value).toBe(committedSource);
   fireEvent.compositionEnd(editor);
+  fireEvent.change(editor, {
+    target: { value: `${committedSource}終` },
+  });
+  expect(editor.value).toBe(`${committedSource}終`);
   expect(boundaries).toEqual(["start", "end"]);
 });

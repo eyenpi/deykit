@@ -72,6 +72,10 @@ export function useDirtyNavigationGuard({
     setError(undefined);
     try {
       await save();
+      if (currentDirty())
+        throw new Error(
+          "Changes are still pending. Finish composing or saving them before leaving.",
+        );
       settle(true);
     } catch (cause) {
       setError(safeMessage(cause));
