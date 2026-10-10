@@ -4162,9 +4162,7 @@ test("installed browser authors exact decision source and previews imports throu
       const pathname = new URL(response.url()).pathname;
       return (
         response.request().method() === "PUT" &&
-        pathname.startsWith(
-          `/api/v1/projects/${registrationId}/providers/`,
-        ) &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
         /^\/api\/v1\/projects\/[^/]+\/providers\/[^/]+$/.test(pathname)
       );
     },
@@ -4187,9 +4185,7 @@ test("installed browser authors exact decision source and previews imports throu
       const pathname = new URL(response.url()).pathname;
       return (
         response.request().method() === "POST" &&
-        pathname.startsWith(
-          `/api/v1/projects/${registrationId}/providers/`,
-        ) &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
         pathname.endsWith("/credential-environment")
       );
     },
@@ -4210,9 +4206,7 @@ test("installed browser authors exact decision source and previews imports throu
       const pathname = new URL(response.url()).pathname;
       return (
         response.request().method() === "POST" &&
-        pathname.startsWith(
-          `/api/v1/projects/${registrationId}/providers/`,
-        ) &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
         pathname.endsWith("/models")
       );
     },
