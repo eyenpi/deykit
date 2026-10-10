@@ -9,11 +9,13 @@ import type { WorkspaceRoute } from "./routes";
 /** Supplies the agreed Save / Discard / Keep editing decision to route changes. */
 export function useDirtyNavigationGuard({
   dirty,
+  isDirtyNow,
   save,
   discard,
   blockedMessage,
 }: {
   dirty: boolean;
+  isDirtyNow?: () => boolean;
   save: () => Promise<void>;
   discard: () => void;
   blockedMessage?: string;
@@ -27,18 +29,24 @@ export function useDirtyNavigationGuard({
   const resolve = useRef<((allow: boolean) => void) | undefined>(undefined);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  const isDirtyNowRef = useRef(isDirtyNow);
+  isDirtyNowRef.current = isDirtyNow;
+  const currentDirty = useCallback(
+    () => isDirtyNowRef.current?.() ?? dirtyRef.current,
+    [],
+  );
 
   const guardFunction = useCallback((next: WorkspaceRoute) => {
-    if (!dirtyRef.current) return Promise.resolve(true);
+    if (!currentDirty()) return Promise.resolve(true);
     setError(undefined);
     setTarget(next);
     return new Promise<boolean>((done) => {
       resolve.current = done;
     });
-  }, []);
+  }, [currentDirty]);
   const guard = useMemo<DirtyNavigationGuard>(
-    () => Object.assign(guardFunction, { isDirty: () => dirtyRef.current }),
-    [guardFunction],
+    () => Object.assign(guardFunction, { isDirty: currentDirty }),
+    [currentDirty, guardFunction],
   );
 
   useEffect(

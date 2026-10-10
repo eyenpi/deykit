@@ -490,6 +490,88 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
     "Draft saved",
   );
+
+  const pendingBlurSource =
+    '{"type":"object","properties":{"queued":{"const":"blurred"}}}';
+  const interruptedCompositionSource =
+    '{"type":"object","properties":{"ime":{"const":"intermediate-after-blur"}}}';
+  const committedAfterBlurSource =
+    '{"type":"object","properties":{"ime":{"const":"committed-after-blur"}}}';
+  const pausedCompositionTransforms: Array<Record<string, unknown>> = [];
+  const pausedCompositionResponses: number[] = [];
+  page.on("response", (response) => {
+    if (
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST"
+    )
+      pausedCompositionResponses.push(response.status());
+  });
+  await page.route("**/editor-transform", async (route) => {
+    if (route.request().method() === "POST")
+      pausedCompositionTransforms.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+    await route.continue();
+  });
+  await schemaCompositionEditor.fill(pendingBlurSource);
+  await schemaCompositionEditor.evaluate((editor) => editor.blur());
+  await schemaCompositionEditor.focus();
+  await schemaCompositionEditor.dispatchEvent("compositionstart", {
+    data: "",
+  });
+  await schemaCompositionEditor.fill(interruptedCompositionSource);
+  await page.waitForTimeout(600);
+  expect(pausedCompositionTransforms).toHaveLength(0);
+  const composingDecisionHash = new URL(page.url()).hash;
+  await page.getByRole("button", { name: projectName, exact: true }).click();
+  const compositionNavigationGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(compositionNavigationGuard).toBeVisible();
+  expect(new URL(page.url()).hash).toBe(composingDecisionHash);
+  expect(pausedCompositionTransforms).toHaveLength(0);
+  await compositionNavigationGuard
+    .getByRole("button", { name: "Keep editing" })
+    .click();
+  await schemaCompositionEditor.evaluate((editor, committedSource) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(editor, committedSource);
+    editor.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertCompositionText",
+        data: "",
+      }),
+    );
+    editor.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "" }),
+    );
+  }, committedAfterBlurSource);
+  await expect
+    .poll(() => pausedCompositionResponses.length, { timeout: 10000 })
+    .toBe(2);
+  expect(pausedCompositionTransforms).toHaveLength(2);
+  expect(pausedCompositionTransforms[0].edit).toEqual({
+    kind: "replace_schema",
+    input_schema_source: pendingBlurSource,
+  });
+  expect(pausedCompositionTransforms[1].edit).toEqual({
+    kind: "replace_schema",
+    input_schema_source: committedAfterBlurSource,
+  });
+  expect(pausedCompositionTransforms[1].editor_source).not.toContain(
+    interruptedCompositionSource,
+  );
+  expect(
+    pausedCompositionResponses.every((status) => status === 200),
+  ).toBe(true);
+  await page.unroute("**/editor-transform");
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
   await captureScreenshot("decision-json-schema.png");
 
   const registrationMatch = new URL(page.url()).hash.match(

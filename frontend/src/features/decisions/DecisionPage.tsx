@@ -167,11 +167,12 @@ export function DecisionPage({
   }, [decisionId, operations, registrationId, setBackingSource]);
 
   const drainTransforms = useCallback(() => {
+    if (composingSource.current) return Promise.resolve(false);
     if (transformTask.current) return transformTask.current;
     const task = (async (): Promise<boolean> => {
       let completed = true;
       transforming.current = true;
-      while (transformQueue.current.length) {
+      while (transformQueue.current.length && !composingSource.current) {
         const queued = transformQueue.current.shift();
         if (!queued) continue;
         if (queued.sourceSequence !== sourceSequence.current) continue;
@@ -194,7 +195,10 @@ export function DecisionPage({
           setSource(transformed.editor_source);
           setDraftDirty(true);
           autosave.current?.edit(transformed.editor_source);
-          if (queued.sequence === formSequence.current)
+          if (
+            queued.sequence === formSequence.current &&
+            !composingSource.current
+          )
             setForm(transformed.projection.form);
         } catch (cause) {
           setEditError(safeMessage(cause));
@@ -223,7 +227,18 @@ export function DecisionPage({
       ? "A write is still in progress. Keep this decision open until it finishes."
       : undefined;
   const dirtyGuard = useDirtyNavigationGuard({
-    dirty: draftDirty || unresolvedWrite || working || renameWorking,
+    dirty:
+      draftDirty ||
+      unresolvedWrite ||
+      working ||
+      renameWorking ||
+      composingSource.current,
+    isDirtyNow: () =>
+      draftDirty ||
+      unresolvedWrite ||
+      working ||
+      renameWorking ||
+      composingSource.current,
     blockedMessage: navigationBlockedMessage,
     save: async () => {
       if (navigationBlockedMessage) throw new Error(navigationBlockedMessage);
@@ -264,10 +279,16 @@ export function DecisionPage({
       sequence,
       sourceSequence: sourceSequence.current,
     });
+    scheduleTransformDrain();
+  }
+
+  function scheduleTransformDrain() {
+    if (composingSource.current || transformQueue.current.length === 0) return;
     if (transformTimer.current !== undefined)
       clearTimeout(transformTimer.current);
     transformTimer.current = setTimeout(() => {
       transformTimer.current = undefined;
+      if (composingSource.current) return;
       void drainTransforms();
     }, 500);
   }
@@ -957,15 +978,17 @@ export function DecisionPage({
                 }}
                 onCompositionEnd={(event) => {
                   composingSource.current = false;
-                  if (!schemaBlurredWhileComposing.current) return;
-                  schemaBlurredWhileComposing.current = false;
-                  const original = schemaOriginal.current;
-                  schemaOriginal.current = undefined;
-                  if (event.currentTarget.value !== original)
-                    queueTransform({
-                      kind: "replace_schema",
-                      input_schema_source: event.currentTarget.value || null,
-                    });
+                  if (schemaBlurredWhileComposing.current) {
+                    schemaBlurredWhileComposing.current = false;
+                    const original = schemaOriginal.current;
+                    schemaOriginal.current = undefined;
+                    if (event.currentTarget.value !== original)
+                      queueTransform({
+                        kind: "replace_schema",
+                        input_schema_source: event.currentTarget.value || null,
+                      });
+                  }
+                  scheduleTransformDrain();
                 }}
                 onFocus={(event) => {
                   schemaOriginal.current = event.currentTarget.value;
