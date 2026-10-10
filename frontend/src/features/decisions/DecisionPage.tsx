@@ -58,6 +58,8 @@ export function DecisionPage({
   const [name, setName] = useState("");
   const [loadError, setLoadError] = useState<string>();
   const [editError, setEditError] = useState<string>();
+  const [transformError, setTransformError] = useState<string>();
+  const [transformFailed, setTransformFailed] = useState(false);
   const [draftStatus, setDraftStatus] = useState<DraftSaveStatus>({
     kind: "idle",
   });
@@ -98,6 +100,7 @@ export function DecisionPage({
   const composingSource = useRef(false);
   const compositionEditor = useRef<SourceEditor | undefined>(undefined);
   const compositionBaseline = useRef<string | undefined>(undefined);
+  const compositionGenerationBefore = useRef(0);
   const compositionDirtyBefore = useRef(false);
   const compositionCommitPending = useRef(false);
   const sourceControlsLockedRef = useRef(false);
@@ -160,6 +163,20 @@ export function DecisionPage({
     );
   }
 
+  function reconcileAcknowledgedDraft() {
+    if (
+      transformState.current === "ready" &&
+      !composingSource.current &&
+      !compositionCommitPending.current &&
+      transformQueue.current.length === 0 &&
+      deferredTransform.current === undefined &&
+      transformTask.current === undefined &&
+      editGeneration.current === representedGeneration.current &&
+      sourceRef.current === lastAcknowledgedSource.current
+    )
+      setDraftDirtyNow(false);
+  }
+
   function markSourceEdited() {
     editGeneration.current += 1;
     draftDirtyRef.current = true;
@@ -214,7 +231,10 @@ export function DecisionPage({
         representedGeneration.current = editGeneration.current;
         transformQueue.current = [];
         deferredTransform.current = undefined;
+        emptyCompositionGeneration.current = undefined;
         transformState.current = "ready";
+        setTransformFailed(false);
+        setTransformError(undefined);
         composingSource.current = false;
         compositionEditor.current = undefined;
         compositionCommitPending.current = false;
@@ -269,8 +289,11 @@ export function DecisionPage({
 
   const drainTransforms = useCallback((): Promise<TransformResult> => {
     if (composingSource.current || compositionCommitPending.current) {
-      transformState.current = "paused";
-      return Promise.resolve("paused");
+      if (transformState.current !== "failed")
+        transformState.current = "paused";
+      return Promise.resolve(
+        transformState.current === "failed" ? "failed" : "paused",
+      );
     }
     if (transformTask.current) return transformTask.current;
     if (transformState.current === "failed") return Promise.resolve("failed");
@@ -338,9 +361,10 @@ export function DecisionPage({
             });
             response = transformed.data;
           } catch (cause) {
-            setEditError(safeMessage(cause));
-            transformQueue.current = [];
-            deferredTransform.current = undefined;
+            if (queued.sourceSequence !== sourceSequence.current) continue;
+            transformQueue.current.unshift(queued);
+            setTransformError(safeMessage(cause));
+            setTransformFailed(true);
             result = "failed";
             break;
           }
@@ -382,7 +406,10 @@ export function DecisionPage({
       return result;
     })();
     const tracked = task.finally(() => {
-      if (transformTask.current === tracked) transformTask.current = undefined;
+      if (transformTask.current === tracked) {
+        transformTask.current = undefined;
+        reconcileAcknowledgedDraft();
+      }
     });
     transformTask.current = tracked;
     return tracked;
@@ -462,6 +489,8 @@ export function DecisionPage({
       transformQueue.current = [];
       deferredTransform.current = undefined;
       transformState.current = "ready";
+      setTransformFailed(false);
+      setTransformError(undefined);
       if (transformTimer.current !== undefined)
         clearTimeout(transformTimer.current);
       sourceSequence.current += 1;
@@ -490,8 +519,22 @@ export function DecisionPage({
       sourceSequence: sourceSequence.current,
       generation: editGeneration.current,
     });
-    if (transformState.current === "failed") transformState.current = "ready";
     scheduleTransformDrain();
+  }
+
+  function retryPendingTransforms() {
+    if (
+      transformState.current !== "failed" ||
+      actionLock.current ||
+      sourceControlsLockedRef.current ||
+      composingSource.current ||
+      compositionCommitPending.current
+    )
+      return;
+    transformState.current = "ready";
+    setTransformFailed(false);
+    setTransformError(undefined);
+    void drainTransforms();
   }
 
   function scheduleTransformDrain() {
@@ -532,7 +575,10 @@ export function DecisionPage({
     sourceSequence.current += 1;
     transformQueue.current = [];
     deferredTransform.current = undefined;
+    emptyCompositionGeneration.current = undefined;
     transformState.current = "ready";
+    setTransformFailed(false);
+    setTransformError(undefined);
     if (transformTimer.current !== undefined) {
       clearTimeout(transformTimer.current);
       transformTimer.current = undefined;
@@ -573,12 +619,13 @@ export function DecisionPage({
     if (sourceControlsLockedRef.current || composingSource.current) return;
     compositionEditor.current = editor;
     compositionBaseline.current = element.value;
+    compositionGenerationBefore.current = editGeneration.current;
     compositionDirtyBefore.current = draftDirtyRef.current;
     composingSource.current = true;
     editGeneration.current += 1;
     draftDirtyRef.current = true;
     setDraftDirty(true);
-    transformState.current = "paused";
+    if (transformState.current !== "failed") transformState.current = "paused";
   }
 
   function endSourceComposition(
@@ -622,7 +669,10 @@ export function DecisionPage({
       } else {
         setSource(baseline);
       }
-      if (committed === baseline)
+      if (
+        committed === baseline &&
+        editGeneration.current === compositionGenerationBefore.current + 1
+      )
         emptyCompositionGeneration.current = editGeneration.current;
       compositionBaseline.current = undefined;
       compositionCommitPending.current = false;
@@ -633,20 +683,18 @@ export function DecisionPage({
         deferredTransform.current === undefined &&
         transformTask.current === undefined
       ) {
-        representedGeneration.current = Math.max(
-          representedGeneration.current,
-          editGeneration.current,
-        );
-        emptyCompositionGeneration.current = undefined;
-        transformState.current = "ready";
         if (
-          lastAcknowledgedSource.current === sourceRef.current &&
-          !hasPendingEditorWork()
+          transformState.current !== "failed" &&
+          emptyCompositionGeneration.current === editGeneration.current
         ) {
-          setDraftDirtyNow(false);
-        } else if (!compositionDirtyBefore.current) {
-          setDraftDirtyNow(compositionDirtyBefore.current);
+          representedGeneration.current = Math.max(
+            representedGeneration.current,
+            emptyCompositionGeneration.current,
+          );
+          emptyCompositionGeneration.current = undefined;
+          transformState.current = "ready";
         }
+        reconcileAcknowledgedDraft();
       }
       compositionDirtyBefore.current = false;
     }, 0);
@@ -1059,6 +1107,20 @@ export function DecisionPage({
           </button>
         </div>
         {editError && <ErrorSummary message={editError} />}
+        {transformError && <ErrorSummary message={transformError} />}
+        {transformFailed && (
+          <button
+            type="button"
+            disabled={
+              sourceControlsLocked ||
+              composingSource.current ||
+              compositionCommitPending.current
+            }
+            onClick={retryPendingTransforms}
+          >
+            Retry pending edits
+          </button>
+        )}
         {notice && (
           <p className="save-status" role="status">
             {notice}

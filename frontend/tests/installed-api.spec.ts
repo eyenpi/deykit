@@ -600,6 +600,242 @@ test("installed browser authors exact decision source and previews imports throu
   const decision = (await stored.json()).data;
   expect(decision.draft.record.editor_source).toContain(schemaSource);
 
+  await enterPhase("Failed transforms remain pending until explicit retry");
+  const failedTransformRequests: Array<Record<string, unknown>> = [];
+  const blockedVersionRequests: Array<Record<string, unknown>> = [];
+  let failFirstTransform = true;
+  await page.route("**/editor-transform", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    failedTransformRequests.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    if (failFirstTransform) {
+      failFirstTransform = false;
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+  await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
+    if (route.request().method() === "POST")
+      blockedVersionRequests.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+    await route.continue();
+  });
+  await page.getByLabel("Question").fill("Retained before transform failure");
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  const retryPendingEdits = page.getByRole("button", {
+    name: "Retry pending edits",
+  });
+  await expect(retryPendingEdits).toBeVisible();
+  expect(failedTransformRequests).toHaveLength(1);
+  const emptyCompositionEditor = page.getByLabel("Advanced JSON Schema source");
+  const emptyCompositionValue = await emptyCompositionEditor.inputValue();
+  await emptyCompositionEditor.focus();
+  await emptyCompositionEditor.dispatchEvent("compositionstart", { data: "" });
+  await emptyCompositionEditor.dispatchEvent("compositionend", { data: "" });
+  await expect(retryPendingEdits).toBeEnabled();
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Changes not saved",
+  );
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(retryPendingEdits).toBeVisible();
+  expect(blockedVersionRequests).toHaveLength(0);
+  expect(failedTransformRequests).toHaveLength(1);
+  expect(await emptyCompositionEditor.inputValue()).toBe(emptyCompositionValue);
+  const firstRetryDraft = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
+  );
+  await retryPendingEdits.click();
+  await expect.poll(() => failedTransformRequests.length).toBe(2);
+  expect(failedTransformRequests[1]).toEqual(failedTransformRequests[0]);
+  expect((await firstRetryDraft).status()).toBe(200);
+  await expect(page.getByLabel("Question")).toHaveValue(
+    "Retained before transform failure",
+  );
+  await expect(retryPendingEdits).toHaveCount(0);
+
+  await enterPhase("Transform failure during IME retains ordered edits");
+  const composingFailureRequests: Array<Record<string, unknown>> = [];
+  let releaseComposingFailure!: () => void;
+  let reportComposingFailureStarted!: () => void;
+  const composingFailureGate = new Promise<void>((resolve) => {
+    releaseComposingFailure = resolve;
+  });
+  const composingFailureStarted = new Promise<void>((resolve) => {
+    reportComposingFailureStarted = resolve;
+  });
+  await page.route("**/editor-transform", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    composingFailureRequests.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    if (composingFailureRequests.length === 1) {
+      reportComposingFailureStarted();
+      await composingFailureGate;
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+  await page.getByLabel("Question").fill("Retained during composition failure");
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await composingFailureStarted;
+  const failedDuringCompositionEditor = page.getByLabel(
+    "Advanced JSON Schema source",
+  );
+  const failedDuringCompositionSource =
+    '{"type":"object","properties":{"recovery":{"const":"committed-after-failure"}}}';
+  const intermediateFailureSource =
+    '{"type":"object","properties":{"recovery":{"const":"intermediate-after-failure"}}}';
+  await failedDuringCompositionEditor.focus();
+  await failedDuringCompositionEditor.dispatchEvent("compositionstart", {
+    data: "",
+  });
+  await failedDuringCompositionEditor.fill(intermediateFailureSource);
+  releaseComposingFailure();
+  await expect(retryPendingEdits).toBeVisible();
+  await expect(retryPendingEdits).toBeDisabled();
+  expect(blockedVersionRequests).toHaveLength(0);
+  await failedDuringCompositionEditor.evaluate((editor, committedSource) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(editor, committedSource);
+    editor.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertCompositionText",
+        data: "",
+      }),
+    );
+    editor.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "" }),
+    );
+  }, failedDuringCompositionSource);
+  await expect(retryPendingEdits).toBeEnabled();
+  expect(composingFailureRequests).toHaveLength(1);
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(retryPendingEdits).toBeVisible();
+  expect(blockedVersionRequests).toHaveLength(0);
+  expect(composingFailureRequests).toHaveLength(1);
+  const recoveredFailureDraft = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
+  );
+  await retryPendingEdits.click();
+  await expect.poll(() => composingFailureRequests.length).toBe(3);
+  expect(composingFailureRequests[0].edit).toEqual({
+    kind: "set_instructions",
+    value: "Retained during composition failure",
+  });
+  expect(composingFailureRequests[1]).toEqual(composingFailureRequests[0]);
+  expect(composingFailureRequests[2].edit).toEqual({
+    kind: "replace_schema",
+    input_schema_source: failedDuringCompositionSource,
+  });
+  expect(composingFailureRequests[2].editor_source).toContain(
+    "Retained during composition failure",
+  );
+  expect(composingFailureRequests[2].editor_source).not.toContain(
+    "intermediate-after-failure",
+  );
+  expect((await recoveredFailureDraft).status()).toBe(200);
+  expect(blockedVersionRequests).toHaveLength(0);
+  await page.unroute("**/editor-transform");
+  await page.unroute(`**/decisions/${decisionId}/revisions`);
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
+
+  await enterPhase("Obsolete transform settles after raw IME acknowledgement");
+  let releaseObsoleteTransform!: () => void;
+  let reportObsoleteTransformStarted!: () => void;
+  const obsoleteTransformGate = new Promise<void>((resolve) => {
+    releaseObsoleteTransform = resolve;
+  });
+  const obsoleteTransformStarted = new Promise<void>((resolve) => {
+    reportObsoleteTransformStarted = resolve;
+  });
+  await page.route("**/editor-transform", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const transformed = await route.fetch();
+    reportObsoleteTransformStarted();
+    await obsoleteTransformGate;
+    await route.fulfill({ response: transformed });
+  });
+  await page.getByLabel("Question").fill("Question from obsolete transform");
+  await page.getByLabel("Question").press("Tab");
+  await obsoleteTransformStarted;
+  await page.getByText("Advanced editor source", { exact: true }).click();
+  const obsoleteRawEditor = page.getByLabel("Decision source");
+  const sourceBeforeReplacement = await obsoleteRawEditor.inputValue();
+  const rawReplacementSource = sourceBeforeReplacement.replace(
+    '"instructions": "Retained during composition failure"',
+    '"instructions": "Raw replacement after stale transform"',
+  );
+  expect(rawReplacementSource).not.toBe(sourceBeforeReplacement);
+  const rawIntermediateSource = rawReplacementSource.replace(
+    '"Raw replacement after stale transform"',
+    '"Raw intermediate composition"',
+  );
+  await obsoleteRawEditor.focus();
+  await obsoleteRawEditor.dispatchEvent("compositionstart", { data: "" });
+  await obsoleteRawEditor.fill(rawIntermediateSource);
+  const rawReplacementAcknowledged = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
+  );
+  await obsoleteRawEditor.evaluate((editor, committedSource) => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(editor, committedSource);
+    editor.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertCompositionText",
+        data: "",
+      }),
+    );
+    editor.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "" }),
+    );
+  }, rawReplacementSource);
+  expect((await rawReplacementAcknowledged).status()).toBe(200);
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Changes not saved",
+  );
+  releaseObsoleteTransform();
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
+  const rawReplacementRead = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    { headers: authorizedHeaders },
+  );
+  expect(
+    (await rawReplacementRead.json()).data.draft.record.editor_source,
+  ).toBe(rawReplacementSource);
+  await page.unroute("**/editor-transform");
+  await page.getByRole("button", { name: projectName, exact: true }).click();
+  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Unsaved changes" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: decisionName, exact: true }).click();
+  await page.getByText("Advanced editor source", { exact: true }).click();
+  await expect(page.getByLabel("Decision source")).toHaveValue(
+    rawReplacementSource,
+  );
+
   await enterPhase("In-flight transform held across committed IME source");
   const inFlightCompositionSource =
     '{"type":"object","properties":{"ime":{"const":"in-flight-committed"},"large":{"const":9007199254740993},"fraction":{"multipleOf":0.1234567890123456789}}}';
