@@ -130,8 +130,11 @@ function createAuthoringGateway(
     registrationId: string,
     signal: AbortSignal | undefined,
     operation: K,
-    args: Omit<ApiOperationArguments<K>, "signal">,
-  ) => read(registrationId, signal, () => client.operation(operation, args));
+    args: ApiOperationArguments<K>,
+  ) =>
+    read(registrationId, signal, () =>
+      client.operation(operation, { ...args, signal: undefined }),
+    );
   return {
     decisions: {
       list: ({ registrationId, query, signal }) =>

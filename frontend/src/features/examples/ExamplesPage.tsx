@@ -224,22 +224,25 @@ export function ExamplesPage({
       setStagedAnswers([]);
       return;
     }
+    const requestedDatasetId = datasetId;
+    const requestedCaseId = selectedCaseId;
+    const requestedDecision = decision;
     const controller = new AbortController();
     setError(undefined);
     async function loadSelectedCase() {
       const caseResult = await operations.readCase({
         registrationId,
-        datasetId,
-        caseId: selectedCaseId,
+        datasetId: requestedDatasetId,
+        caseId: requestedCaseId,
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
-      const labelResult = decision
+      const labelResult = requestedDecision
         ? await operations.readLabel({
             registrationId,
-            decisionId: decision.id,
-            datasetId,
-            caseId: selectedCaseId,
+            decisionId: requestedDecision.id,
+            datasetId: requestedDatasetId,
+            caseId: requestedCaseId,
             signal: controller.signal,
           })
         : undefined;
