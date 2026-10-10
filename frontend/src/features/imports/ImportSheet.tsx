@@ -26,6 +26,23 @@ type MappingEdit = ApiOperationBody<"transformImportMapping">["edit"];
 
 const INITIAL_MAPPING = '{"schema_version":1,"input_kind":"text"}';
 
+function importRowErrorMessage(reason: string | null | undefined): string {
+  switch (reason) {
+    case "invalid_json":
+      return "Input is not valid JSON.";
+    case "unknown_expected_option":
+      return "Expected answers include an option that does not exist.";
+    case "invalid_case_input_shape":
+      return "Input does not match the selected decision format.";
+    case "input_schema_mismatch":
+      return "Input does not satisfy the decision JSON schema.";
+    case "case_id_conflict":
+      return "Case ID conflicts with an existing case.";
+    default:
+      return "This row was rejected. Review the source and mapping.";
+  }
+}
+
 export function ImportSheet({
   project,
   datasetId,
@@ -652,8 +669,8 @@ export function ImportSheet({
                           key={`${item.code}-${index}`}
                           className="field-error"
                         >
-                          Line {row.source_line}: {item.message}{" "}
-                          <code>{item.code}</code>
+                          Line {row.source_line}:{" "}
+                          {importRowErrorMessage(item.reason)}
                         </p>
                       ))}
                     </td>

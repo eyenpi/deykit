@@ -2317,6 +2317,31 @@ test("installed browser authors exact decision source and previews imports throu
     (await restoreConflictWinner.json()).data.draft.record.editor_source,
   ).toBe(restoreRaceWinnerSource);
 
+  const inputFormatTransform = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("radio", { name: "JSON", exact: true }).check();
+  const inputFormatReceipt = await inputFormatTransform;
+  expect(inputFormatReceipt.status()).toBe(200);
+  await inputFormatReceipt.body();
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
+  const jsonInputDecision = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    { headers: authorizedHeaders },
+  );
+  expect(jsonInputDecision.status()).toBe(200);
+  const jsonInputDecisionData = (await jsonInputDecision.json()).data;
+  expect(jsonInputDecisionData.draft.record.editor_source).toContain(
+    '"input_kind":"json"',
+  );
+  expect(jsonInputDecisionData.draft.record.editor_source).toContain(
+    JSON.stringify(committedAfterBlurSource),
+  );
+
   await enterPhase("Label staging, review, provenance and write races");
   await page
     .getByRole("navigation", { name: "Workspace" })
@@ -2350,17 +2375,21 @@ test("installed browser authors exact decision source and previews imports throu
   const sourceText = `id,input,expected,group\n${rows.join("\n")}\n`;
   await page.getByLabel("Import source text").fill(sourceText);
   await page.getByRole("button", { name: "Preview all rows" }).click();
+  const importRow3 = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("rowheader", { name: "3", exact: true }) });
+  const importRow7 = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("rowheader", { name: "7", exact: true }) });
   await expect(
     page
       .getByRole("status")
       .filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("row", { name: /3.*not-json.*invalid/ }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("row", { name: /7.*missing-option/ }),
-  ).toBeVisible();
+  await expect(importRow3).toContainText("Line 4: Input is not valid JSON.");
+  await expect(importRow7).toContainText(
+    "Line 8: Expected answers include an option that does not exist.",
+  );
   await expect(
     page.getByRole("button", { name: "Import valid rows" }),
   ).toBeDisabled();
@@ -2381,6 +2410,10 @@ test("installed browser authors exact decision source and previews imports throu
       .getByRole("status")
       .filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" }),
   ).toBeVisible();
+  await expect(importRow3).toContainText("Line 4: Input is not valid JSON.");
+  await expect(importRow7).toContainText(
+    "Line 8: Expected answers include an option that does not exist.",
+  );
   await page
     .getByRole("checkbox", {
       name: "Import valid rows only (8) and keep the exclusion report",
@@ -2463,6 +2496,7 @@ test("installed browser authors exact decision source and previews imports throu
 
   await caseButton("seed-1").click();
   await page.getByRole("button", { name: "Edit input" }).click();
+  await page.getByRole("radio", { name: "JSON", exact: true }).check();
   const stagedCaseSource = '{"case":"seed-1","kept":true}';
   await page.getByLabel("Input source").fill(stagedCaseSource);
   let caseRefreshFailures = 2;
