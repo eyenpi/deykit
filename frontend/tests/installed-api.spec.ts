@@ -3510,7 +3510,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Reapply reviewed example" }).click();
   const reapplyAddReceipt = await reapplyAddResponse;
   expect(reapplyAddReceipt.status()).toBe(200);
-  await reapplyAddReceipt.body();
+  const reapplyAddData = (await reapplyAddReceipt.json()).data;
   expect(addBodies).toHaveLength(2);
   expect(addBodies[1].input_source).toBe(proposedAddSource);
   expect(addBodies[1].input_kind).toBe("json");
@@ -3518,7 +3518,13 @@ test("installed browser authors exact decision source and previews imports throu
   expect(addBodies[1].expected_dataset_etag).not.toBe(
     addBodies[0].expected_dataset_etag,
   );
+  expect(reapplyAddData.case).not.toBeNull();
+  const reapplyAddedCaseId = reapplyAddData.case.record.id as string;
   await page.unroute("**/datasets/*/cases");
+  await expect(page.getByRole("dialog", { name: "Add example" })).toHaveCount(
+    0,
+  );
+  await expect(caseButton(reapplyAddedCaseId)).toBeVisible();
 
   await enterPhase("Case source preservation and stale-label applicability");
   await page.reload();
@@ -3692,6 +3698,11 @@ test("installed browser authors exact decision source and previews imports throu
     removeBodies[0].expected_case_etag,
   );
   await page.unroute("**/datasets/*/cases/case-2");
+  await expect(
+    page.getByRole("region", { name: /^Cases in / }),
+  ).toBeVisible();
+  await expect(caseButton("case-2")).toHaveCount(0);
+  await expect(caseButton("case-1")).toBeVisible();
   const datasetAfterRemoval = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
     {
@@ -3872,6 +3883,16 @@ test("installed browser authors exact decision source and previews imports throu
   expect((await casesAfterSplitReplay.json()).data.total).toBe(
     String((splitReceipt.snapshot as { cases: unknown[] }).cases.length),
   );
+  const splitSnapshot = splitReceipt.snapshot as {
+    cases: Array<{ id: string; split: string }>;
+  };
+  const expectedSplitByCase = Object.fromEntries(
+    splitPreview.preview.assignments,
+  );
+  const savedSplitByCase = Object.fromEntries(
+    splitSnapshot.cases.map(({ id, split }) => [id, split]),
+  );
+  expect(savedSplitByCase).toEqual(expectedSplitByCase);
   await page.unroute("**/splits/commit");
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
@@ -4106,7 +4127,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Store credential" }),
   ).toBeDisabled();
-  expect(await page.locator("body").innerText()).not.toContain(credentialValue);
+  expect(
+    !(await page.locator("body").innerText()).includes(credentialValue),
+  ).toBe(true);
   const credentialReplayResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/credential-os-store") &&
@@ -4126,12 +4149,26 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   expect(firstCredentialStatus).toBe(200);
   expect(credentialBodies).toHaveLength(2);
-  expect(credentialBodies[1]).toEqual(credentialBodies[0]);
-  expect(typeof credentialBodies[0].credential_value).toBe("string");
-  expect((credentialBodies[0].credential_value as string).length).toBe(
-    credentialValue.length,
+  const originalCredentialBody = credentialBodies[0];
+  const replayedCredentialBody = credentialBodies[1];
+  const originalCredential = originalCredentialBody.credential_value;
+  const replayedCredential = replayedCredentialBody.credential_value;
+  expect(
+    typeof originalCredential === "string" &&
+      typeof replayedCredential === "string" &&
+      originalCredential === replayedCredential &&
+      originalCredential === credentialValue,
+  ).toBe(true);
+  const nonSecretCredentialFields = (body: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(body).filter(([field]) => field !== "credential_value"),
+    );
+  expect(nonSecretCredentialFields(replayedCredentialBody)).toEqual(
+    nonSecretCredentialFields(originalCredentialBody),
   );
-  expect(await page.locator("body").innerText()).not.toContain(credentialValue);
+  expect(
+    !(await page.locator("body").innerText()).includes(credentialValue),
+  ).toBe(true);
   await page.unroute(
     `**/providers/${configuredProvider.id}/credential-os-store`,
   );
