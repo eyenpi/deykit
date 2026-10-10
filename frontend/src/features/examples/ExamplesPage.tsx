@@ -40,8 +40,41 @@ import type {
   ReadContext,
   SelectionAdmission,
   SelectionScope,
-  StagedOwner,
 } from "./examples-admission";
+
+type CaseStageSnapshot = {
+  owner: SelectionAdmission;
+  generation: number;
+  inputKind: "text" | "json";
+  inputSource: string;
+  metadataSource: string;
+};
+type LabelStageSnapshot = {
+  owner: SelectionAdmission;
+  generation: number;
+  answers: readonly string[];
+  note: string;
+};
+type DatasetStageSnapshot = {
+  owner: DatasetAdmission;
+  generation: number;
+  inputKind: "text" | "json";
+  inputSource: string;
+  metadataSource: string;
+};
+type CaseWriteSnapshot = {
+  admission: SelectionAdmission;
+  stage: CaseStageSnapshot;
+};
+type LabelWriteSnapshot = {
+  admission: SelectionAdmission;
+  stage: LabelStageSnapshot;
+  action: "set" | "resolve" | "dispute" | "clear";
+};
+type DatasetWriteSnapshot = {
+  admission: DatasetAdmission;
+  stage: DatasetStageSnapshot;
+};
 
 type LabelMutationBody =
   ApiOperationBody<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
@@ -167,6 +200,8 @@ export function ExamplesPage({
   const [navigationEpoch, setNavigationEpoch] = useState(0);
   const [selectionLoading, setSelectionLoading] = useState(false);
   const [editorDirty, setEditorDirty] = useState(false);
+  const editorDirtyRef = useRef(false);
+  const noteRef = useRef("");
   const [selectionNeedsReview, setSelectionNeedsReview] = useState(false);
   const [pendingLabel, setPendingLabel] = useState<PendingLabelMutation>();
   const [pendingCase, setPendingCase] = useState<PendingCaseMutation>();
@@ -186,6 +221,10 @@ export function ExamplesPage({
   const pendingCaseRef = useRef<PendingCaseMutation | undefined>(undefined);
   const pendingAddRef = useRef<PendingAddMutation | undefined>(undefined);
   const pendingRemoveRef = useRef<PendingRemoveMutation | undefined>(undefined);
+  const caseStageRef = useRef<CaseStageSnapshot | undefined>(undefined);
+  const labelStageRef = useRef<LabelStageSnapshot | undefined>(undefined);
+  const datasetStageRef = useRef<DatasetStageSnapshot | undefined>(undefined);
+  const datasetEditGeneration = useRef(0);
   const datasetAdmissionRef = useRef<DatasetAdmission | undefined>(undefined);
   const selectionAdmissionRef = useRef<SelectionAdmission | undefined>(
     undefined,
@@ -196,13 +235,19 @@ export function ExamplesPage({
   const datasetReadEpochRef = useRef(0);
   const selectionReadEpochRef = useRef(0);
   const navigationEpochRef = useRef(0);
-  const caseStageOwnerRef = useRef<StagedOwner | undefined>(undefined);
-  const labelStageOwnerRef = useRef<StagedOwner | undefined>(undefined);
   const caseEditGeneration = useRef(0);
   const labelEditGeneration = useRef(0);
   function updateBusy(nextBusy: boolean) {
     busyRef.current = nextBusy;
     setBusy(nextBusy);
+  }
+  function updateEditorDirty(nextDirty: boolean) {
+    editorDirtyRef.current = nextDirty;
+    setEditorDirty(nextDirty);
+  }
+  function updateNote(nextNote: string) {
+    noteRef.current = nextNote;
+    setNote(nextNote);
   }
   function canStartBusyAction(): boolean {
     return !busyRef.current && !mutationLockRef.current;
@@ -345,21 +390,34 @@ export function ExamplesPage({
   function captureSelectionAdmission(): SelectionAdmission | undefined {
     return currentSelectionAdmission();
   }
-  function ownsSelectionStage(owner: StagedOwner | undefined): boolean {
-    const admission = currentSelectionAdmission();
-    return (
-      !!admission &&
-      owner?.readEpoch === admission.readEpoch &&
-      owner.navigationEpoch === admission.navigationEpoch
-    );
+  function captureRenderedDataset(
+    rendered: DatasetAdmission | undefined,
+  ): DatasetAdmission | undefined {
+    return rendered && rendered === currentDatasetAdmission()
+      ? rendered
+      : undefined;
   }
-  function mayEditCaseStageNow(): boolean {
-    const admission = captureSelectionAdmission();
-    const owner = caseStageOwnerRef.current;
+  function captureRenderedSelection(
+    rendered: SelectionAdmission | undefined,
+  ): SelectionAdmission | undefined {
+    return rendered && rendered === currentSelectionAdmission()
+      ? rendered
+      : undefined;
+  }
+  function ownsSelectionStage(
+    stage: CaseStageSnapshot | LabelStageSnapshot | undefined,
+    admission: SelectionAdmission,
+  ): boolean {
+    return stage?.owner === admission;
+  }
+  function mayEditCaseStageNow(
+    rendered: SelectionAdmission | undefined,
+  ): rendered is SelectionAdmission {
+    const admission = captureRenderedSelection(rendered);
+    const stage = caseStageRef.current;
     return (
       !!admission &&
-      owner?.readEpoch === admission.readEpoch &&
-      owner.navigationEpoch === admission.navigationEpoch &&
+      ownsSelectionStage(stage, admission) &&
       !selectionNeedsReviewRef.current &&
       !pendingCaseUncertainRef.current &&
       !pendingLabelUncertainRef.current &&
@@ -370,13 +428,14 @@ export function ExamplesPage({
       !mutationLockRef.current
     );
   }
-  function mayEditLabelStageNow(): boolean {
-    const admission = captureSelectionAdmission();
-    const owner = labelStageOwnerRef.current;
+  function mayEditLabelStageNow(
+    rendered: SelectionAdmission | undefined,
+  ): rendered is SelectionAdmission {
+    const admission = captureRenderedSelection(rendered);
+    const stage = labelStageRef.current;
     return (
       !!admission?.labelView &&
-      owner?.readEpoch === admission.readEpoch &&
-      owner.navigationEpoch === admission.navigationEpoch &&
+      ownsSelectionStage(stage, admission) &&
       !selectionNeedsReviewRef.current &&
       !pendingLabelUncertainRef.current &&
       !pendingCaseUncertainRef.current &&
@@ -387,9 +446,11 @@ export function ExamplesPage({
       !mutationLockRef.current
     );
   }
-  function mayEditDatasetStageNow(): boolean {
+  function mayEditDatasetStageNow(
+    rendered: DatasetAdmission | undefined,
+  ): rendered is DatasetAdmission {
     return (
-      !!captureDatasetAdmission() &&
+      !!captureRenderedDataset(rendered) &&
       !pendingLabelUncertainRef.current &&
       !pendingCaseUncertainRef.current &&
       !pendingAddRef.current?.uncertain &&
@@ -399,11 +460,244 @@ export function ExamplesPage({
       !mutationLockRef.current
     );
   }
-  function ownerFor(admission: SelectionAdmission): StagedOwner {
+  function captureInteractiveCase(
+    rendered: SelectionAdmission | undefined,
+  ): CaseWriteSnapshot | undefined {
+    const admission = captureRenderedSelection(rendered);
+    const stage = caseStageRef.current;
+    if (
+      !admission ||
+      !stage ||
+      stage.owner !== admission ||
+      selectionNeedsReviewRef.current ||
+      pendingCaseRef.current?.conflict ||
+      (pendingCaseRef.current?.uncertain &&
+        !matchesSelectionScope(pendingCaseRef.current.scope, admission)) ||
+      (pendingCaseUncertainRef.current && !pendingCaseRef.current?.uncertain) ||
+      pendingLabelUncertainRef.current ||
+      pendingAddRef.current?.uncertain ||
+      pendingRemoveRef.current?.uncertain ||
+      committedRefreshRef.current ||
+      busyRef.current ||
+      mutationLockRef.current
+    )
+      return undefined;
+    return { admission, stage: { ...stage } };
+  }
+  function captureInteractiveLabel(
+    rendered: SelectionAdmission | undefined,
+    action: LabelWriteSnapshot["action"],
+  ): LabelWriteSnapshot | undefined {
+    const admission = captureRenderedSelection(rendered);
+    const stage = labelStageRef.current;
+    const pending = pendingLabelRef.current;
+    if (
+      !admission?.labelView ||
+      !stage ||
+      stage.owner !== admission ||
+      selectionNeedsReviewRef.current ||
+      pending?.conflict ||
+      (pending?.uncertain && !matchesSelectionScope(pending.scope, admission)) ||
+      pendingCaseUncertainRef.current ||
+      (pendingLabelUncertainRef.current && !pendingLabelRef.current?.uncertain) ||
+      pendingAddRef.current?.uncertain ||
+      pendingRemoveRef.current?.uncertain ||
+      committedRefreshRef.current ||
+      busyRef.current ||
+      mutationLockRef.current ||
+      (!pending?.uncertain &&
+        stage.answers.length === 0 &&
+        action !== "clear" &&
+        action !== "dispute")
+    )
+      return undefined;
     return {
-      readEpoch: admission.readEpoch,
-      navigationEpoch: admission.navigationEpoch,
+      admission,
+      stage: { ...stage, answers: [...stage.answers] },
+      action,
     };
+  }
+  function captureInteractiveDataset(
+    rendered: DatasetAdmission | undefined,
+  ): DatasetWriteSnapshot | undefined {
+    const admission = captureRenderedDataset(rendered);
+    const stage = datasetStageRef.current;
+    if (
+      !admission ||
+      !stage ||
+      stage.owner !== admission ||
+      pendingLabelUncertainRef.current ||
+      pendingCaseUncertainRef.current ||
+      (pendingAddRef.current?.uncertain &&
+        !matchesDatasetScope(pendingAddRef.current.scope, admission)) ||
+      pendingRemoveRef.current?.uncertain ||
+      committedRefreshRef.current ||
+      busyRef.current ||
+      mutationLockRef.current
+    )
+      return undefined;
+    return { admission, stage: { ...stage } };
+  }
+  function captureGuardDataset(
+    expected: DatasetScope,
+  ): DatasetWriteSnapshot | undefined {
+    const admission = currentDatasetAdmission();
+    const stage = datasetStageRef.current;
+    if (
+      !admission ||
+      !matchesDatasetScope(expected, admission) ||
+      !stage ||
+      stage.owner !== admission ||
+      !liveRouteMatchesDataset(admission) ||
+      committedRefreshRef.current ||
+      pendingAddRef.current?.uncertain ||
+      pendingAddRef.current?.conflict ||
+      pendingRemoveRef.current?.uncertain ||
+      mutationLockRef.current
+    )
+      return undefined;
+    return { admission, stage: { ...stage } };
+  }
+  function captureGuardCase(
+    expected: SelectionScope,
+  ): CaseWriteSnapshot | undefined {
+    const admission = currentSelectionAdmission();
+    const stage = caseStageRef.current;
+    if (
+      !admission ||
+      !matchesSelectionScope(expected, admission) ||
+      !stage ||
+      stage.owner !== admission ||
+      !liveRouteMatchesSelection(admission) ||
+      selectionNeedsReviewRef.current ||
+      committedRefreshRef.current ||
+      pendingCaseRef.current?.uncertain ||
+      pendingCaseRef.current?.conflict ||
+      pendingLabelRef.current?.uncertain ||
+      pendingLabelRef.current?.conflict ||
+      pendingAddRef.current?.uncertain ||
+      pendingRemoveRef.current?.uncertain ||
+      busyRef.current ||
+      mutationLockRef.current
+    )
+      return undefined;
+    return { admission, stage: { ...stage } };
+  }
+  function captureGuardLabel(
+    expected: SelectionScope,
+    action: LabelWriteSnapshot["action"],
+  ): LabelWriteSnapshot | undefined {
+    const admission = currentSelectionAdmission();
+    const stage = labelStageRef.current;
+    if (
+      !admission?.labelView ||
+      !matchesSelectionScope(expected, admission) ||
+      !stage ||
+      stage.owner !== admission ||
+      !liveRouteMatchesSelection(admission) ||
+      selectionNeedsReviewRef.current ||
+      committedRefreshRef.current ||
+      pendingLabelRef.current?.uncertain ||
+      pendingLabelRef.current?.conflict ||
+      pendingCaseRef.current?.uncertain ||
+      pendingCaseRef.current?.conflict ||
+      pendingAddRef.current?.uncertain ||
+      pendingRemoveRef.current?.uncertain ||
+      (stage.answers.length === 0 && action !== "clear" && action !== "dispute") ||
+      busyRef.current ||
+      mutationLockRef.current
+    )
+      return undefined;
+    return { admission, stage: { ...stage, answers: [...stage.answers] }, action };
+  }
+  function patchCaseStage(
+    rendered: SelectionAdmission | undefined,
+    patch: Partial<Pick<CaseStageSnapshot, "inputKind" | "inputSource" | "metadataSource">>,
+  ): boolean {
+    if (!mayEditCaseStageNow(rendered)) return false;
+    const current = caseStageRef.current;
+    if (!current || current.owner !== rendered) return false;
+    const next: CaseStageSnapshot = {
+      ...current,
+      ...patch,
+      generation: ++caseEditGeneration.current,
+    };
+    caseStageRef.current = next;
+    if (patch.inputKind !== undefined) setInputKind(next.inputKind);
+    if (patch.inputSource !== undefined) setInputSource(next.inputSource);
+    if (patch.metadataSource !== undefined)
+      setMetadataSource(next.metadataSource);
+    updateEditorDirty(true);
+    return true;
+  }
+  function patchLabelAnswers(
+    rendered: SelectionAdmission | undefined,
+    answers: readonly string[],
+  ): boolean {
+    if (!mayEditLabelStageNow(rendered)) return false;
+    const current = labelStageRef.current;
+    if (!current || current.owner !== rendered) return false;
+    const next: LabelStageSnapshot = {
+      ...current,
+      answers: [...answers],
+      generation: ++labelEditGeneration.current,
+    };
+    labelStageRef.current = next;
+    setStagedAnswers(next.answers);
+    updateEditorDirty(true);
+    return true;
+  }
+  function toggleLabelAnswer(
+    rendered: SelectionAdmission | undefined,
+    optionId: string,
+    checked: boolean,
+  ): boolean {
+    if (!mayEditLabelStageNow(rendered)) return false;
+    const current = labelStageRef.current;
+    if (!current || current.owner !== rendered) return false;
+    const answers = checked
+      ? current.answers.includes(optionId)
+        ? current.answers
+        : [...current.answers, optionId]
+      : current.answers.filter((id) => id !== optionId);
+    return patchLabelAnswers(rendered, answers);
+  }
+  function patchLabelNote(
+    rendered: SelectionAdmission | undefined,
+    value: string,
+  ): boolean {
+    if (!mayEditLabelStageNow(rendered)) return false;
+    const current = labelStageRef.current;
+    if (!current || current.owner !== rendered) return false;
+    const next: LabelStageSnapshot = {
+      ...current,
+      note: value,
+      generation: ++labelEditGeneration.current,
+    };
+    labelStageRef.current = next;
+    updateNote(value);
+    updateEditorDirty(true);
+    return true;
+  }
+  function patchDatasetStage(
+    rendered: DatasetAdmission | undefined,
+    patch: Partial<Pick<DatasetStageSnapshot, "inputKind" | "inputSource" | "metadataSource">>,
+  ): boolean {
+    if (!mayEditDatasetStageNow(rendered)) return false;
+    const current = datasetStageRef.current;
+    if (!current || current.owner !== rendered) return false;
+    const next: DatasetStageSnapshot = {
+      ...current,
+      ...patch,
+      generation: ++datasetEditGeneration.current,
+    };
+    datasetStageRef.current = next;
+    if (patch.inputKind !== undefined) setNewInputKind(next.inputKind);
+    if (patch.inputSource !== undefined) setNewInputSource(next.inputSource);
+    if (patch.metadataSource !== undefined)
+      setNewMetadataSource(next.metadataSource);
+    updateEditorDirty(true);
+    return true;
   }
   function publishReviewedPair(
     context: ReadContext,
@@ -457,6 +751,12 @@ export function ExamplesPage({
     });
     datasetAdmissionRef.current = datasetAdmission;
     selectionAdmissionRef.current = admission;
+    const currentDatasetStage = datasetStageRef.current;
+    if (currentDatasetStage?.owner.datasetId === context.datasetId)
+      datasetStageRef.current = {
+        ...currentDatasetStage,
+        owner: datasetAdmission,
+      };
     setDataset(datasetRead);
     setCaseRead(caseResult);
     setLabelView(labelResult);
@@ -604,11 +904,26 @@ export function ExamplesPage({
           setStagedAnswers(
             refreshedLabel.data.label?.acceptable_option_ids ?? [],
           );
-          setNote("");
-          setEditorDirty(false);
+          updateNote("");
+          updateEditorDirty(false);
           updatePendingLabel(undefined);
           setNotice(undefined);
-          labelStageOwnerRef.current = ownerFor(refreshedAdmission);
+          const refreshedStage = labelStageRef.current;
+          if (refreshedStage)
+            labelStageRef.current = {
+              ...refreshedStage,
+              owner: refreshedAdmission,
+              generation: labelEditGeneration.current,
+              answers: refreshedLabel.data.label?.acceptable_option_ids ?? [],
+              note: "",
+            };
+          else
+            labelStageRef.current = {
+              owner: refreshedAdmission,
+              generation: labelEditGeneration.current,
+              answers: refreshedLabel.data.label?.acceptable_option_ids ?? [],
+              note: "",
+            };
           updateSelectionNeedsReview(false);
         }
         clearCommittedRefresh(pending);
@@ -707,11 +1022,18 @@ export function ExamplesPage({
         setMetadataSource(
           refreshedCase.data.case.record.metadata_source ?? "{}",
         );
-        setEditorDirty(false);
+        updateEditorDirty(false);
         setEditCase(false);
         updatePendingCase(undefined);
         setNotice(undefined);
-        caseStageOwnerRef.current = ownerFor(refreshedAdmission);
+        const refreshedStage = caseStageRef.current;
+        caseStageRef.current = {
+          owner: refreshedAdmission,
+          generation: caseEditGeneration.current,
+          inputKind: refreshedCase.data.case.record.input_kind,
+          inputSource: refreshedCase.data.case.record.input_source,
+          metadataSource: refreshedCase.data.case.record.metadata_source ?? "{}",
+        };
       }
       if (
         refreshedLabel &&
@@ -732,7 +1054,9 @@ export function ExamplesPage({
           "Case saved. The current label review changed; review it before making another label change.",
         );
       } else {
-        labelStageOwnerRef.current = ownerFor(refreshedAdmission);
+        const labelStage = labelStageRef.current;
+        if (labelStage)
+          labelStageRef.current = { ...labelStage, owner: refreshedAdmission };
       }
       clearCommittedRefresh(pending);
       setError(undefined);
@@ -742,8 +1066,11 @@ export function ExamplesPage({
       return false;
     }
   }
-  async function refreshCommittedOutcome() {
-    const pending = committedRefreshRef.current;
+  async function refreshCommittedOutcome(
+    rendered: CommittedRefresh | undefined,
+  ) {
+    const pending = rendered;
+    if (!pending || committedRefreshRef.current !== pending) return;
     if (!pending || !beginBusyAction()) return;
     setError(undefined);
     await refreshCommittedView(pending);
@@ -822,6 +1149,25 @@ export function ExamplesPage({
         read: datasetResult.data,
       });
       datasetAdmissionRef.current = datasetAdmission;
+      const previousDatasetStage = datasetStageRef.current;
+      if (previousDatasetStage?.owner.datasetId === capturedDatasetId) {
+        datasetStageRef.current = {
+          ...previousDatasetStage,
+          owner: datasetAdmission,
+        };
+      } else {
+        const nextDatasetStage: DatasetStageSnapshot = {
+          owner: datasetAdmission,
+          generation: datasetEditGeneration.current,
+          inputKind: "text",
+          inputSource: "",
+          metadataSource: "{}",
+        };
+        datasetStageRef.current = nextDatasetStage;
+        setNewInputKind(nextDatasetStage.inputKind);
+        setNewInputSource(nextDatasetStage.inputSource);
+        setNewMetadataSource(nextDatasetStage.metadataSource);
+      }
       setDataset(datasetResult.data);
 
       const casePage = await operations.listCases({
@@ -993,30 +1339,26 @@ export function ExamplesPage({
         previous.datasetId === admission.datasetId &&
         previous.decisionId === admission.decisionId &&
         previous.caseId === admission.caseId;
-      const caseOwner = caseStageOwnerRef.current;
-      const labelOwner = labelStageOwnerRef.current;
+      const caseStage = caseStageRef.current;
+      const labelStage = labelStageRef.current;
       const caseOwnedByPrevious =
-        !!previous &&
-        !!caseOwner &&
-        caseOwner.readEpoch === previous.readEpoch &&
-        caseOwner.navigationEpoch === previous.navigationEpoch;
+        !!previous && caseStage?.owner === previous;
       const labelOwnedByPrevious =
-        !!previous &&
-        !!labelOwner &&
-        labelOwner.readEpoch === previous.readEpoch &&
-        labelOwner.navigationEpoch === previous.navigationEpoch;
+        !!previous && labelStage?.owner === previous;
       const caseStageChanged =
         !!previous &&
-        caseOwnedByPrevious &&
-        (inputKind !== previous.caseRead.case.record.input_kind ||
-          inputSource !== previous.caseRead.case.record.input_source ||
-          metadataSource !==
+        caseStage !== undefined &&
+        caseStage.owner === previous &&
+        (caseStage.inputKind !== previous.caseRead.case.record.input_kind ||
+          caseStage.inputSource !== previous.caseRead.case.record.input_source ||
+          caseStage.metadataSource !==
             (previous.caseRead.case.record.metadata_source ?? "{}"));
       const labelStageChanged =
         !!previous &&
-        labelOwnedByPrevious &&
-        (note.trim().length > 0 ||
-          [...stagedAnswers].sort().join("\0") !==
+        labelStage !== undefined &&
+        labelStage.owner === previous &&
+        (labelStage.note.trim().length > 0 ||
+          [...labelStage.answers].sort().join("\0") !==
             [...(previous.labelView?.label?.acceptable_option_ids ?? [])]
               .sort()
               .join("\0"));
@@ -1046,20 +1388,34 @@ export function ExamplesPage({
         labelStageChanged && sameSelection && labelOwnedByPrevious;
       selectionAdmissionRef.current = admission;
       if (!stageNeedsReview) {
-        if (preserveCaseStage) caseStageOwnerRef.current = ownerFor(admission);
-        if (preserveLabelStage)
-          labelStageOwnerRef.current = ownerFor(admission);
+        if (preserveCaseStage && caseStage)
+          caseStageRef.current = { ...caseStage, owner: admission };
+        if (preserveLabelStage && labelStage)
+          labelStageRef.current = { ...labelStage, owner: admission };
       }
       if (!preserveCaseStage) {
-        setInputKind(caseRecord.input_kind);
-        setInputSource(caseRecord.input_source);
-        setMetadataSource(caseRecord.metadata_source ?? "{}");
-        caseStageOwnerRef.current = ownerFor(admission);
+        const nextCaseStage: CaseStageSnapshot = {
+          owner: admission,
+          generation: caseEditGeneration.current,
+          inputKind: caseRecord.input_kind,
+          inputSource: caseRecord.input_source,
+          metadataSource: caseRecord.metadata_source ?? "{}",
+        };
+        caseStageRef.current = nextCaseStage;
+        setInputKind(nextCaseStage.inputKind);
+        setInputSource(nextCaseStage.inputSource);
+        setMetadataSource(nextCaseStage.metadataSource);
       }
       if (!preserveLabelStage) {
-        setStagedAnswers(labelResult?.data.label?.acceptable_option_ids ?? []);
-        setNote("");
-        labelStageOwnerRef.current = ownerFor(admission);
+        const nextLabelStage: LabelStageSnapshot = {
+          owner: admission,
+          generation: labelEditGeneration.current,
+          answers: labelResult?.data.label?.acceptable_option_ids ?? [],
+          note: "",
+        };
+        labelStageRef.current = nextLabelStage;
+        setStagedAnswers(nextLabelStage.answers);
+        updateNote(nextLabelStage.note);
       }
       if (stageNeedsReview) {
         updateSelectionNeedsReview(true);
@@ -1068,7 +1424,7 @@ export function ExamplesPage({
         );
       } else if (!editorDirty || !sameSelection) {
         updateSelectionNeedsReview(false);
-        setEditorDirty(false);
+        updateEditorDirty(false);
         setNotice(undefined);
       }
       setCaseRead(caseResult.data);
@@ -1095,8 +1451,8 @@ export function ExamplesPage({
     selectionReloadGeneration,
   ]);
 
-  async function loadMoreCases() {
-    const admission = captureDatasetAdmission();
+  async function loadMoreCases(rendered: DatasetAdmission | undefined) {
+    const admission = captureRenderedDataset(rendered);
     if (!admission || !caseCursor || !beginBusyAction()) return;
     const context = currentReadContext.current;
     try {
@@ -1125,9 +1481,19 @@ export function ExamplesPage({
     }
   }
 
-  async function loadMoreLabels() {
-    const admission = captureDatasetAdmission();
-    if (!admission || !decision || !labelCursor || !beginBusyAction()) return;
+  async function loadMoreLabels(
+    rendered: DatasetAdmission | undefined,
+    renderedDecisionId: string | undefined,
+  ) {
+    const admission = captureRenderedDataset(rendered);
+    if (
+      !admission ||
+      !decision ||
+      decision.id !== renderedDecisionId ||
+      !labelCursor ||
+      !beginBusyAction()
+    )
+      return;
     const context = currentReadContext.current;
     try {
       const result = await operations.listLabels({
@@ -1160,26 +1526,98 @@ export function ExamplesPage({
     }
   }
 
-  async function selectCase(caseId: string) {
-    if (caseId === selectedCaseId || !currentDatasetAdmission()) return;
-    const moved = await onDatasetChange(datasetId, caseId);
-    if (!moved) return;
+  async function selectCase(
+    rendered: DatasetAdmission | undefined,
+    renderedDecisionId: string | undefined,
+    caseId: string,
+  ) {
+    const admission = captureRenderedDataset(rendered);
+    if (
+      !admission ||
+      currentReadContext.current.decisionId !== renderedDecisionId ||
+      caseId === selectedCaseId
+    )
+      return;
+    const moved = await onDatasetChange(admission.datasetId, caseId);
+    if (
+      !moved ||
+      captureRenderedDataset(admission) !== admission ||
+      currentReadContext.current.decisionId !== renderedDecisionId
+    )
+      return;
     setSelectedCaseId(caseId);
   }
+  async function selectDataset(
+    rendered: {
+      context: ReadContext;
+      navigationEpoch: number;
+      datasetAdmission?: DatasetAdmission;
+    },
+    nextDatasetId: string,
+  ) {
+    if (
+      !isCurrentContext(rendered.context) ||
+      rendered.navigationEpoch !== navigationEpochRef.current ||
+      currentDatasetAdmission() !== rendered.datasetAdmission
+    )
+      return;
+    const priorRegistrationId = rendered.context.registrationId;
+    const moved = await onDatasetChange(nextDatasetId || undefined, undefined);
+    if (
+      moved &&
+      liveRouteMatchesDataset({
+        registrationId: priorRegistrationId,
+        datasetId: nextDatasetId,
+      })
+    ) {
+      setDatasetId(nextDatasetId);
+      setSelectedCaseId(undefined);
+    }
+  }
 
-  function reloadSelectedReview() {
+  function reloadSelectedReview(rendered: {
+    context: ReadContext;
+    navigationEpoch: number;
+    datasetAdmission?: DatasetAdmission;
+  }) {
+    if (
+      !isCurrentContext(rendered.context) ||
+      rendered.navigationEpoch !== navigationEpochRef.current ||
+      currentDatasetAdmission() !== rendered.datasetAdmission ||
+      !liveRouteMatchesDataset({
+        registrationId: rendered.context.registrationId,
+        datasetId: rendered.context.datasetId,
+      })
+    )
+      return;
     if (!beginBusyAction()) return;
     selectionReloadActionRef.current = Symbol("selected-review-reload");
     setSelectionReloadGeneration((value) => value + 1);
   }
+  function reloadExamples(rendered: {
+    context: ReadContext;
+    navigationEpoch: number;
+    datasetAdmission?: DatasetAdmission;
+  }) {
+    if (
+      !canStartBusyAction() ||
+      !isCurrentContext(rendered.context) ||
+      rendered.navigationEpoch !== navigationEpochRef.current ||
+      currentDatasetAdmission() !== rendered.datasetAdmission ||
+      committedRefreshRef.current
+    )
+      return;
+    setRefreshGeneration((value) => value + 1);
+  }
 
-  function reviewCurrentSelection() {
+  function reviewCurrentSelection(rendered: SelectionAdmission | undefined) {
     if (!canStartBusyAction()) return;
-    const admission = captureSelectionAdmission();
+    const admission = captureRenderedSelection(rendered);
     if (!admission) return;
-    const owner = ownerFor(admission);
-    caseStageOwnerRef.current = owner;
-    labelStageOwnerRef.current = owner;
+    if (caseStageRef.current)
+      caseStageRef.current = { ...caseStageRef.current, owner: admission };
+    if (labelStageRef.current)
+      labelStageRef.current = { ...labelStageRef.current, owner: admission };
     updateSelectionNeedsReview(false);
     setNotice(
       "Current example and label review acknowledged. Your staged changes remain available to reapply deliberately.",
@@ -1187,20 +1625,31 @@ export function ExamplesPage({
   }
 
   async function saveLabel(
+    rendered: SelectionAdmission | undefined,
     action: "set" | "resolve" | "dispute" | "clear",
   ): Promise<boolean> {
+    const snapshot = captureInteractiveLabel(rendered, action);
+    if (!snapshot) return false;
+    return executeLabelWrite(snapshot);
+  }
+
+  async function executeLabelWrite(
+    snapshot: LabelWriteSnapshot,
+  ): Promise<boolean> {
+    if (captureRenderedSelection(snapshot.admission) !== snapshot.admission)
+      return false;
     if (!acquireMutationLock()) return false;
     try {
-      return await saveLabelWithLock(action);
+      return await saveLabelWithLock(snapshot);
     } finally {
       releaseMutationLock();
     }
   }
 
   async function saveLabelWithLock(
-    action: "set" | "resolve" | "dispute" | "clear",
+    snapshot: LabelWriteSnapshot,
   ): Promise<boolean> {
-    const admission = captureSelectionAdmission();
+    const { admission, stage, action } = snapshot;
     const review = admission?.labelView;
     const pending = pendingLabelRef.current;
     if (
@@ -1209,8 +1658,8 @@ export function ExamplesPage({
       !review ||
       !admission.decisionId ||
       selectionNeedsReviewRef.current ||
-      !ownsSelectionStage(labelStageOwnerRef.current) ||
-      (stagedAnswers.length === 0 && action !== "clear" && action !== "dispute")
+      !ownsSelectionStage(labelStageRef.current, admission) ||
+      (stage.answers.length === 0 && action !== "clear" && action !== "dispute")
     )
       return false;
     if (
@@ -1226,9 +1675,9 @@ export function ExamplesPage({
     const context = { ...currentReadContext.current };
     const decisionId = admission.decisionId;
     const caseId = admission.caseId;
-    const stagedGeneration = labelEditGeneration.current;
-    const stagedAnswersAtSubmit = [...stagedAnswers];
-    const noteAtSubmit = note;
+    const stagedGeneration = stage.generation;
+    const stagedAnswersAtSubmit = [...stage.answers];
+    const noteAtSubmit = stage.note;
     const body: LabelMutationBody = pending?.uncertain
       ? pending.body
       : {
@@ -1315,9 +1764,11 @@ export function ExamplesPage({
     return true;
   }
 
-  async function reviewLabelConflict(): Promise<void> {
+  async function reviewLabelConflict(
+    rendered: SelectionAdmission | undefined,
+  ): Promise<void> {
     if (!canStartBusyAction()) return;
-    const admission = captureSelectionAdmission();
+    const admission = captureRenderedSelection(rendered);
     if (
       committedRefreshRef.current ||
       !admission?.decisionId ||
@@ -1382,9 +1833,16 @@ export function ExamplesPage({
         );
       // Keep the user's staged answer intact. A new deliberate save will use
       // this reviewed server context and a fresh operation ID.
-      labelStageOwnerRef.current = ownerFor(reviewedAdmission);
-      if (caseStillCurrent)
-        caseStageOwnerRef.current = ownerFor(reviewedAdmission);
+      if (labelStageRef.current)
+        labelStageRef.current = {
+          ...labelStageRef.current,
+          owner: reviewedAdmission,
+        };
+      if (caseStillCurrent && caseStageRef.current)
+        caseStageRef.current = {
+          ...caseStageRef.current,
+          owner: reviewedAdmission,
+        };
       updatePendingLabel(undefined);
       updateSelectionNeedsReview(!caseStillCurrent);
       setNotice(
@@ -1399,23 +1857,35 @@ export function ExamplesPage({
     }
   }
 
-  function retryUnknownLabel() {
+  function retryUnknownLabel(rendered: SelectionAdmission | undefined) {
     const pending = pendingLabelRef.current;
     const action = pending?.body.edits[0]?.action;
-    if (pending?.uncertain && action) void saveLabel(action);
+    if (pending?.uncertain && action) void saveLabel(rendered, action);
   }
 
-  async function saveCase(): Promise<boolean> {
+  async function saveCase(
+    rendered: SelectionAdmission | undefined,
+  ): Promise<boolean> {
+    const snapshot = captureInteractiveCase(rendered);
+    if (!snapshot) return false;
+    return executeCaseWrite(snapshot);
+  }
+
+  async function executeCaseWrite(
+    snapshot: CaseWriteSnapshot,
+  ): Promise<boolean> {
+    if (captureRenderedSelection(snapshot.admission) !== snapshot.admission)
+      return false;
     if (!acquireMutationLock()) return false;
     try {
-      return await saveCaseWithLock();
+      return await saveCaseWithLock(snapshot);
     } finally {
       releaseMutationLock();
     }
   }
 
-  async function saveCaseWithLock(): Promise<boolean> {
-    const admission = captureSelectionAdmission();
+  async function saveCaseWithLock(snapshot: CaseWriteSnapshot): Promise<boolean> {
+    const { admission, stage } = snapshot;
     const data = currentDatasetAdmission();
     const pending = pendingCaseRef.current;
     if (
@@ -1424,7 +1894,7 @@ export function ExamplesPage({
       !data ||
       admission.datasetAdmission !== data ||
       selectionNeedsReviewRef.current ||
-      !ownsSelectionStage(caseStageOwnerRef.current)
+      !ownsSelectionStage(caseStageRef.current, admission)
     )
       return false;
     if (
@@ -1440,10 +1910,10 @@ export function ExamplesPage({
     const context = { ...currentReadContext.current };
     const caseId = admission.caseId;
     const decisionId = admission.decisionId;
-    const stagedGeneration = caseEditGeneration.current;
-    const inputKindAtSubmit = inputKind;
-    const inputSourceAtSubmit = inputSource;
-    const metadataSourceAtSubmit = metadataSource;
+    const stagedGeneration = stage.generation;
+    const inputKindAtSubmit = stage.inputKind;
+    const inputSourceAtSubmit = stage.inputSource;
+    const metadataSourceAtSubmit = stage.metadataSource;
     const record = admission.caseRead.case.record;
     const body: CaseEditBody = pending?.uncertain
       ? pending.body
@@ -1527,9 +1997,9 @@ export function ExamplesPage({
     return true;
   }
 
-  async function reviewCaseConflict() {
+  async function reviewCaseConflict(rendered: SelectionAdmission | undefined) {
     if (!canStartBusyAction()) return;
-    const admission = captureSelectionAdmission();
+    const admission = captureRenderedSelection(rendered);
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
     if (!beginBusyAction()) return;
@@ -1590,8 +2060,13 @@ export function ExamplesPage({
               admission.labelView.label ?? null,
               currentLabel.data.label ?? null,
             );
-      caseStageOwnerRef.current = ownerFor(reviewed);
-      if (labelUnchanged) labelStageOwnerRef.current = ownerFor(reviewed);
+      if (caseStageRef.current)
+        caseStageRef.current = { ...caseStageRef.current, owner: reviewed };
+      if (labelUnchanged && labelStageRef.current)
+        labelStageRef.current = {
+          ...labelStageRef.current,
+          owner: reviewed,
+        };
       updateSelectionNeedsReview(!labelUnchanged);
       updatePendingCase(undefined);
       setCaseConflictReviewed(true);
@@ -1607,17 +2082,27 @@ export function ExamplesPage({
     }
   }
 
-  async function addCase(): Promise<boolean> {
+  async function addCase(
+    rendered: DatasetAdmission | undefined,
+  ): Promise<boolean> {
+    const snapshot = captureInteractiveDataset(rendered);
+    if (!snapshot) return false;
+    return executeAddCase(snapshot);
+  }
+
+  async function executeAddCase(snapshot: DatasetWriteSnapshot): Promise<boolean> {
+    if (captureRenderedDataset(snapshot.admission) !== snapshot.admission)
+      return false;
     if (!acquireMutationLock()) return false;
     try {
-      return await addCaseWithLock();
+      return await addCaseWithLock(snapshot);
     } finally {
       releaseMutationLock();
     }
   }
 
-  async function addCaseWithLock(): Promise<boolean> {
-    const admission = captureDatasetAdmission();
+  async function addCaseWithLock(snapshot: DatasetWriteSnapshot): Promise<boolean> {
+    const { admission, stage } = snapshot;
     const pending = pendingAddRef.current;
     if (committedRefreshRef.current || !admission) return false;
     if (
@@ -1635,9 +2120,9 @@ export function ExamplesPage({
           schema_version: 1,
           operation_id: opId(),
           expected_dataset_etag: admission.read.etag,
-          input_kind: newInputKind,
-          input_source: newInputSource,
-          metadata_source: newMetadataSource,
+          input_kind: stage.inputKind,
+          input_source: stage.inputSource,
+          metadata_source: stage.metadataSource,
           tags: [],
           split: "development",
           group_id: null,
@@ -1653,10 +2138,17 @@ export function ExamplesPage({
       setAddConflictReviewed(false);
       const createdId = result.data.case?.record.id;
       setAddCaseOpen(false);
-      setEditorDirty(false);
+      updateEditorDirty(false);
       setNewInputSource("");
       setNewInputKind("text");
       setNewMetadataSource("{}");
+      datasetStageRef.current = {
+        owner: admission,
+        generation: ++datasetEditGeneration.current,
+        inputKind: "text",
+        inputSource: "",
+        metadataSource: "{}",
+      };
       setRefreshGeneration((value) => value + 1);
       if (createdId) {
         setNotice("Example added. Select it from the cases list when ready.");
@@ -1693,9 +2185,9 @@ export function ExamplesPage({
     return true;
   }
 
-  async function reviewAddConflict() {
+  async function reviewAddConflict(rendered: DatasetAdmission | undefined) {
     if (!canStartBusyAction()) return;
-    const admission = captureDatasetAdmission();
+    const admission = captureRenderedDataset(rendered);
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
     if (!beginBusyAction()) return;
@@ -1724,6 +2216,11 @@ export function ExamplesPage({
         read: currentDataset.data,
       });
       datasetAdmissionRef.current = reviewedDataset;
+      if (datasetStageRef.current)
+        datasetStageRef.current = {
+          ...datasetStageRef.current,
+          owner: reviewedDataset,
+        };
       selectionReadEpochRef.current += 1;
       previousSelectionAdmissionRef.current =
         selectionAdmissionRef.current ?? previousSelectionAdmissionRef.current;
@@ -1743,17 +2240,35 @@ export function ExamplesPage({
     }
   }
 
-  async function removeSelectedCase() {
+  async function removeSelectedCase(
+    rendered: SelectionAdmission | undefined,
+  ) {
+    const admission = captureRenderedSelection(rendered);
+    if (
+      !admission ||
+      !ownsSelectionStage(labelStageRef.current, admission) ||
+      !ownsSelectionStage(caseStageRef.current, admission) ||
+      selectionNeedsReviewRef.current ||
+      pendingLabelUncertainRef.current ||
+      pendingCaseUncertainRef.current ||
+      pendingAddRef.current?.uncertain ||
+      (pendingRemoveRef.current?.uncertain &&
+        !matchesSelectionScope(pendingRemoveRef.current.scope, admission)) ||
+      pendingRemoveRef.current?.conflict ||
+      committedRefreshRef.current ||
+      busyRef.current ||
+      mutationLockRef.current
+    )
+      return;
     if (!acquireMutationLock()) return;
     try {
-      await removeSelectedCaseWithLock();
+      await removeSelectedCaseWithLock(admission);
     } finally {
       releaseMutationLock();
     }
   }
 
-  async function removeSelectedCaseWithLock() {
-    const admission = captureSelectionAdmission();
+  async function removeSelectedCaseWithLock(admission: SelectionAdmission) {
     const data = currentDatasetAdmission();
     const pending = pendingRemoveRef.current;
     if (
@@ -1762,7 +2277,8 @@ export function ExamplesPage({
       !data ||
       admission.datasetAdmission !== data ||
       selectionNeedsReviewRef.current ||
-      !ownsSelectionStage(labelStageOwnerRef.current)
+      !ownsSelectionStage(labelStageRef.current, admission) ||
+      !ownsSelectionStage(caseStageRef.current, admission)
     )
       return;
     if (
@@ -1835,9 +2351,11 @@ export function ExamplesPage({
     }
   }
 
-  async function reviewRemoveConflict() {
+  async function reviewRemoveConflict(
+    rendered: SelectionAdmission | undefined,
+  ) {
     if (!canStartBusyAction()) return;
-    const admission = captureSelectionAdmission();
+    const admission = captureRenderedSelection(rendered);
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
     if (!beginBusyAction()) return;
@@ -1884,8 +2402,10 @@ export function ExamplesPage({
         admission.navigationEpoch,
       );
       if (!reviewed) return;
-      caseStageOwnerRef.current = ownerFor(reviewed);
-      labelStageOwnerRef.current = ownerFor(reviewed);
+      if (caseStageRef.current)
+        caseStageRef.current = { ...caseStageRef.current, owner: reviewed };
+      if (labelStageRef.current)
+        labelStageRef.current = { ...labelStageRef.current, owner: reviewed };
       updateSelectionNeedsReview(false);
       updatePendingRemove(undefined);
       setRemoveConflictReviewed(true);
@@ -1903,6 +2423,11 @@ export function ExamplesPage({
   const currentLabel = labelView?.label;
   const writableDataset = captureDatasetAdmission();
   const writableSelection = captureSelectionAdmission();
+  const renderedReadScope = {
+    context: { ...currentReadContext.current },
+    navigationEpoch: navigationEpochRef.current,
+    datasetAdmission: writableDataset,
+  };
   const datasetReady = writableDataset !== undefined;
   const selectionReady = writableSelection !== undefined;
   const pendingLabelMatchesSelection =
@@ -1928,7 +2453,8 @@ export function ExamplesPage({
     !pendingLabel?.uncertain &&
     !pendingAdd?.uncertain &&
     !pendingRemove?.uncertain &&
-    ownsSelectionStage(caseStageOwnerRef.current);
+    !!writableSelection &&
+    ownsSelectionStage(caseStageRef.current, writableSelection);
   const labelEditable =
     selectionReady &&
     writableSelection?.labelView !== undefined &&
@@ -1937,12 +2463,20 @@ export function ExamplesPage({
     !pendingCase?.uncertain &&
     !pendingAdd?.uncertain &&
     !pendingRemove?.uncertain &&
-    ownsSelectionStage(labelStageOwnerRef.current);
-  const labelSetChanged =
-    !!decision &&
-    !!labelView &&
-    [...stagedAnswers].sort().join("\0") !==
-      [...(currentLabel?.acceptable_option_ids ?? [])].sort().join("\0");
+    !!writableSelection &&
+    ownsSelectionStage(labelStageRef.current, writableSelection);
+  function hasCurrentLabelEdits(): boolean {
+    const admission = currentSelectionAdmission();
+    const stage = labelStageRef.current;
+    return !!admission?.labelView &&
+      !!stage &&
+      stage.owner === admission &&
+      ([...stage.answers].sort().join("\0") !==
+        [...(admission.labelView.label?.acceptable_option_ids ?? [])]
+          .sort()
+          .join("\0") ||
+        stage.note.trim().length > 0);
+  }
   async function saveBeforeLeaving() {
     if (mutationLockRef.current)
       throw new Error("An examples write is still in progress. Keep this page open until it finishes.");
@@ -1972,31 +2506,76 @@ export function ExamplesPage({
       throw new Error(
         "Review the current server state before reapplying or explicitly discarding this conflicted change.",
       );
-    if (addCaseOpen && !(await addCase()))
+    const initialDataset = currentDatasetAdmission();
+    const expectedDataset: DatasetScope | undefined = initialDataset
+      ? {
+          registrationId: initialDataset.registrationId,
+          datasetId: initialDataset.datasetId,
+        }
+      : undefined;
+    const initialSelection = currentSelectionAdmission();
+    const expectedSelection: SelectionScope | undefined = initialSelection
+      ? {
+          registrationId: initialSelection.registrationId,
+          datasetId: initialSelection.datasetId,
+          decisionId: initialSelection.decisionId,
+          caseId: initialSelection.caseId,
+        }
+      : undefined;
+    if (addCaseOpen) {
+      const snapshot = expectedDataset
+        ? captureGuardDataset(expectedDataset)
+        : undefined;
+      if (!snapshot || !(await executeAddCase(snapshot)))
       throw new Error(
         "The new example did not save. Its source is still available for review.",
       );
-    const savedCase = editCase;
-    if (savedCase && !(await saveCase()))
+    }
+    const hadCaseEdit = editCase;
+    if (hadCaseEdit) {
+      const snapshot = expectedSelection
+        ? captureGuardCase(expectedSelection)
+        : undefined;
+      if (!snapshot || !(await executeCaseWrite(snapshot)))
       throw new Error(
         "The case edit did not save. Its source is still available for review.",
       );
+    }
     if (committedRefreshRef.current) {
       throw new Error(
         "The case was saved. Refresh its current review before saving another change or leaving.",
       );
     }
-    if (decision && labelView && (labelSetChanged || note.trim())) {
-      if (savedCase)
-        throw new Error(
-          "The case was saved. Review the refreshed label context before saving its answer.",
-        );
-      if (stagedAnswers.length === 0)
+    const afterCaseAdmission = currentSelectionAdmission();
+    const afterCaseStage = labelStageRef.current;
+    const labelChanged =
+      !!afterCaseAdmission?.labelView &&
+      !!afterCaseStage &&
+      afterCaseStage.owner === afterCaseAdmission &&
+      ([...afterCaseStage.answers].sort().join("\0") !==
+        [
+          ...(afterCaseAdmission.labelView.label?.acceptable_option_ids ?? []),
+        ]
+          .sort()
+          .join("\0") ||
+        afterCaseStage.note.trim().length > 0);
+    if (afterCaseAdmission?.decisionId && labelChanged) {
+      if (afterCaseStage.answers.length === 0)
         throw new Error(
           "Choose an answer or explicitly clear this label before leaving.",
         );
-      const action = currentLabel?.status === "disputed" ? "resolve" : "set";
-      if (!(await saveLabel(action)))
+      const action =
+        afterCaseAdmission.labelView?.label?.status === "disputed"
+          ? "resolve"
+          : "set";
+      const scope: SelectionScope = {
+        registrationId: afterCaseAdmission.registrationId,
+        datasetId: afterCaseAdmission.datasetId,
+        decisionId: afterCaseAdmission.decisionId,
+        caseId: afterCaseAdmission.caseId,
+      };
+      const snapshot = captureGuardLabel(scope, action);
+      if (!snapshot || !(await executeLabelWrite(snapshot)))
         throw new Error(
           "The label did not save. Its staged answer is still available for review.",
         );
@@ -2007,21 +2586,37 @@ export function ExamplesPage({
       }
     }
   }
-  function launchImport() {
+  function launchImport(rendered: DatasetAdmission | undefined) {
     if (
       canStartBusyAction() &&
       !committedRefreshRef.current &&
-      captureDatasetAdmission()
+      captureRenderedDataset(rendered)
     )
       onImport();
   }
-  function launchSplit() {
+  function launchSplit(rendered: DatasetAdmission | undefined) {
     if (
       canStartBusyAction() &&
       !committedRefreshRef.current &&
-      captureDatasetAdmission()
+      captureRenderedDataset(rendered)
     )
       onSplit();
+  }
+  function openAddCase(rendered: DatasetAdmission | undefined) {
+    const admission = captureRenderedDataset(rendered);
+    if (!admission || !canStartBusyAction() || committedRefreshRef.current)
+      return;
+    const stage = datasetStageRef.current;
+    if (!stage || stage.owner !== admission) {
+      datasetStageRef.current = {
+        owner: admission,
+        generation: ++datasetEditGeneration.current,
+        inputKind: newInputKind,
+        inputSource: newInputSource,
+        metadataSource: newMetadataSource,
+      };
+    }
+    setAddCaseOpen(true);
   }
   const uncertainWrite = !!(
     pendingLabel?.uncertain ||
@@ -2047,8 +2642,7 @@ export function ExamplesPage({
   const dirtyGuard = useDirtyNavigationGuard({
     dirty:
       editorDirty ||
-      labelSetChanged ||
-      (decision !== undefined && note.trim().length > 0) ||
+      hasCurrentLabelEdits() ||
       committedRefresh !== undefined ||
       uncertainWrite ||
       unresolvedConflict ||
@@ -2064,9 +2658,8 @@ export function ExamplesPage({
       pendingCaseRef.current?.conflict === true ||
       pendingAddRef.current?.conflict === true ||
       pendingRemoveRef.current?.conflict === true ||
-      editorDirty ||
-      labelSetChanged ||
-      (decision !== undefined && note.trim().length > 0) ||
+      editorDirtyRef.current ||
+      hasCurrentLabelEdits() ||
       uncertainWrite ||
       unresolvedConflict ||
       mutationInFlight,
@@ -2076,14 +2669,46 @@ export function ExamplesPage({
     discard: () => {
       committedRefreshRef.current = undefined;
       setCommittedRefresh(undefined);
-      setEditorDirty(false);
-      setNote("");
+      updateEditorDirty(false);
+      updateNote("");
       if (currentCase) {
         setInputKind(currentCase.input_kind);
         setInputSource(currentCase.input_source);
         setMetadataSource(currentCase.metadata_source ?? "{}");
+        const admission = currentSelectionAdmission();
+        if (admission) {
+          caseStageRef.current = {
+            owner: admission,
+            generation: ++caseEditGeneration.current,
+            inputKind: currentCase.input_kind,
+            inputSource: currentCase.input_source,
+            metadataSource: currentCase.metadata_source ?? "{}",
+          };
+        }
       }
       setStagedAnswers(currentLabel?.acceptable_option_ids ?? []);
+      updateNote("");
+      const selection = currentSelectionAdmission();
+      if (selection)
+        labelStageRef.current = {
+          owner: selection,
+          generation: ++labelEditGeneration.current,
+          answers: currentLabel?.acceptable_option_ids ?? [],
+          note: "",
+        };
+      const datasetAdmission = currentDatasetAdmission();
+      if (datasetAdmission) {
+        datasetStageRef.current = {
+          owner: datasetAdmission,
+          generation: ++datasetEditGeneration.current,
+          inputKind: "text",
+          inputSource: "",
+          metadataSource: "{}",
+        };
+      }
+      setNewInputKind("text");
+      setNewInputSource("");
+      setNewMetadataSource("{}");
       setEditCase(false);
       setAddCaseOpen(false);
       setDeleteCaseOpen(false);
@@ -2124,14 +2749,14 @@ export function ExamplesPage({
           <div className="actions">
             <button
               type="button"
-              onClick={launchImport}
+              onClick={() => launchImport(writableDataset)}
               disabled={!datasetReady || busy || !!committedRefresh}
             >
               Import examples
             </button>
             <button
               type="button"
-              onClick={launchSplit}
+              onClick={() => launchSplit(writableDataset)}
               disabled={!datasetReady || busy || !!committedRefresh}
             >
               Split dataset
@@ -2140,12 +2765,7 @@ export function ExamplesPage({
               type="button"
               className="primary"
               onClick={() => {
-                if (
-                  canStartBusyAction() &&
-                  !committedRefreshRef.current &&
-                  captureDatasetAdmission()
-                )
-                  setAddCaseOpen(true);
+                openAddCase(writableDataset);
               }}
               disabled={!datasetReady || busy || !!committedRefresh}
             >
@@ -2174,7 +2794,7 @@ export function ExamplesPage({
               disabled={
                 !datasetReady || selectionLoading || busy || !!committedRefresh
               }
-              onClick={reloadSelectedReview}
+              onClick={() => reloadSelectedReview(renderedReadScope)}
             >
               Reload selected review
             </button>
@@ -2192,7 +2812,7 @@ export function ExamplesPage({
             <button
               type="button"
               disabled={!selectionReady || busy || !!committedRefresh}
-              onClick={reviewCurrentSelection}
+              onClick={() => reviewCurrentSelection(writableSelection)}
             >
               Review current selection
             </button>
@@ -2209,7 +2829,7 @@ export function ExamplesPage({
             <button
               type="button"
               disabled={busy}
-              onClick={() => void refreshCommittedOutcome()}
+              onClick={() => void refreshCommittedOutcome(committedRefresh)}
             >
               {busy ? "Refreshing saved review…" : "Refresh saved label"}
             </button>
@@ -2222,13 +2842,7 @@ export function ExamplesPage({
             value={datasetId}
             onChange={(event) => {
               const nextDatasetId = event.target.value;
-              void onDatasetChange(nextDatasetId || undefined, undefined).then(
-                (moved) => {
-                  if (!moved) return;
-                  setDatasetId(nextDatasetId);
-                  setSelectedCaseId(undefined);
-                },
-              );
+              void selectDataset(renderedReadScope, nextDatasetId);
             }}
           >
             <option value="">Choose a dataset</option>
@@ -2249,7 +2863,7 @@ export function ExamplesPage({
             action={
               <button
                 type="button"
-                onClick={() => setRefreshGeneration((value) => value + 1)}
+                onClick={() => reloadExamples(renderedReadScope)}
               >
                 Reload examples
               </button>
@@ -2278,7 +2892,9 @@ export function ExamplesPage({
                     render: (item) => (
                       <button
                         className="text-button"
-                        onClick={() => selectCase(item.record.id)}
+                        onClick={() =>
+                          selectCase(writableDataset, decision?.id, item.record.id)
+                        }
                       >
                         {item.record.id}
                       </button>
@@ -2310,7 +2926,7 @@ export function ExamplesPage({
                 <button
                   type="button"
                   disabled={!datasetReady || busy || !!committedRefresh}
-                  onClick={() => void loadMoreCases()}
+                  onClick={() => void loadMoreCases(writableDataset)}
                 >
                   {busy ? "Loading…" : "Load more cases"}
                 </button>
@@ -2331,7 +2947,9 @@ export function ExamplesPage({
                         render: (item) => (
                           <button
                             className="text-button"
-                            onClick={() => selectCase(item.case.id)}
+                            onClick={() =>
+                              selectCase(writableDataset, decision?.id, item.case.id)
+                            }
                           >
                             {item.case.id}
                           </button>
@@ -2369,7 +2987,9 @@ export function ExamplesPage({
                   <button
                     type="button"
                     disabled={!datasetReady || busy || !!committedRefresh}
-                    onClick={() => void loadMoreLabels()}
+                    onClick={() =>
+                      void loadMoreLabels(writableDataset, decision?.id)
+                    }
                   >
                     {busy ? "Loading…" : "Load more labels"}
                   </button>
@@ -2394,10 +3014,7 @@ export function ExamplesPage({
                 type="button"
                 disabled={!caseEditable || busy || !!committedRefresh}
                 onClick={() => {
-                  if (!mayEditCaseStageNow()) return;
-                  const admission = captureSelectionAdmission();
-                  if (!admission) return;
-                  caseStageOwnerRef.current = ownerFor(admission);
+                  if (!mayEditCaseStageNow(writableSelection)) return;
                   setEditCase(true);
                 }}
               >
@@ -2407,7 +3024,7 @@ export function ExamplesPage({
                 type="button"
                 disabled={!caseEditable || busy || !!committedRefresh}
                 onClick={() => {
-                  if (mayEditCaseStageNow())
+                  if (mayEditCaseStageNow(writableSelection))
                     setDeleteCaseOpen(true);
                 }}
               >
@@ -2448,14 +3065,15 @@ export function ExamplesPage({
                 <ExpectedAnswers
                   options={optionRows}
                   selected={stagedAnswers}
-                  onChange={(answers) => {
-                    if (!mayEditLabelStageNow()) return;
-                    labelEditGeneration.current += 1;
-                    setStagedAnswers(answers);
-                    setEditorDirty(true);
-                  }}
+                  onChange={(answers) =>
+                    patchLabelAnswers(writableSelection, answers)
+                  }
+                  onToggle={(optionId, checked) =>
+                    toggleLabelAnswer(writableSelection, optionId, checked)
+                  }
                   onSave={() =>
                     void saveLabel(
+                      writableSelection,
                       currentLabel?.status === "disputed" ? "resolve" : "set",
                     )
                   }
@@ -2476,7 +3094,7 @@ export function ExamplesPage({
                         busy ||
                         !!committedRefresh
                       }
-                      onClick={retryUnknownLabel}
+                      onClick={() => retryUnknownLabel(writableSelection)}
                     >
                       Retry original label request
                     </button>
@@ -2494,7 +3112,7 @@ export function ExamplesPage({
                         busy ||
                         !!committedRefresh
                       }
-                      onClick={() => void reviewLabelConflict()}
+                      onClick={() => void reviewLabelConflict(writableSelection)}
                     >
                       Review current label
                     </button>
@@ -2508,7 +3126,7 @@ export function ExamplesPage({
                       !!committedRefresh ||
                       pendingLabel?.uncertain
                     }
-                    onClick={() => void saveLabel("resolve")}
+                    onClick={() => void saveLabel(writableSelection, "resolve")}
                   >
                     Resolve dispute with staged set
                   </button>
@@ -2521,7 +3139,7 @@ export function ExamplesPage({
                       !!committedRefresh ||
                       pendingLabel?.uncertain
                     }
-                    onClick={() => void saveLabel("dispute")}
+                    onClick={() => void saveLabel(writableSelection, "dispute")}
                   >
                     Dispute label
                   </button>
@@ -2534,7 +3152,7 @@ export function ExamplesPage({
                       !!committedRefresh ||
                       pendingLabel?.uncertain
                     }
-                    onClick={() => void saveLabel("clear")}
+                    onClick={() => void saveLabel(writableSelection, "clear")}
                   >
                     Clear label
                   </button>
@@ -2550,10 +3168,7 @@ export function ExamplesPage({
                     pendingLabel?.uncertain
                   }
                   onChange={(event) => {
-                    if (!mayEditLabelStageNow()) return;
-                    labelEditGeneration.current += 1;
-                    setNote(event.target.value);
-                    setEditorDirty(true);
+                    patchLabelNote(writableSelection, event.currentTarget.value);
                   }}
                 />
                 <p className="muted">A note is required to dispute a label.</p>
@@ -2576,6 +3191,8 @@ export function ExamplesPage({
             title={`Edit ${currentCase.id}`}
             onDismiss={() => {
               if (
+                captureRenderedSelection(writableSelection) ===
+                  writableSelection &&
                 !busyRef.current &&
                 !committedRefreshRef.current &&
                 !pendingCaseRef.current?.uncertain &&
@@ -2597,7 +3214,9 @@ export function ExamplesPage({
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => void refreshCommittedOutcome()}
+                    onClick={() =>
+                      void refreshCommittedOutcome(committedRefresh)
+                    }
                   >
                     {busy ? "Refreshing saved review…" : "Refresh saved case"}
                   </button>
@@ -2614,7 +3233,7 @@ export function ExamplesPage({
                     disabled={
                       !pendingCaseMatchesSelection || busy || !!committedRefresh
                     }
-                    onClick={() => void saveCase()}
+                    onClick={() => void saveCase(writableSelection)}
                   >
                     Retry same case edit
                   </button>
@@ -2631,7 +3250,7 @@ export function ExamplesPage({
                     disabled={
                       !pendingCaseMatchesSelection || busy || !!committedRefresh
                     }
-                    onClick={() => void reviewCaseConflict()}
+                    onClick={() => void reviewCaseConflict(writableSelection)}
                   >
                     Review current case and dataset
                   </button>
@@ -2657,10 +3276,7 @@ export function ExamplesPage({
                         pendingCase?.uncertain
                       }
                       onChange={() => {
-                        if (!mayEditCaseStageNow()) return;
-                        caseEditGeneration.current += 1;
-                        setInputKind(kind);
-                        setEditorDirty(true);
+                        patchCaseStage(writableSelection, { inputKind: kind });
                       }}
                     />
                     {kind.toUpperCase()}
@@ -2677,10 +3293,7 @@ export function ExamplesPage({
                   pendingCase?.uncertain
                 }
                 onChange={(value) => {
-                  if (!mayEditCaseStageNow()) return;
-                  caseEditGeneration.current += 1;
-                  setInputSource(value);
-                  setEditorDirty(true);
+                  patchCaseStage(writableSelection, { inputSource: value });
                 }}
               />
               <JsonSourceEditor
@@ -2693,10 +3306,9 @@ export function ExamplesPage({
                   pendingCase?.uncertain
                 }
                 onChange={(value) => {
-                  if (!mayEditCaseStageNow()) return;
-                  caseEditGeneration.current += 1;
-                  setMetadataSource(value);
-                  setEditorDirty(true);
+                  patchCaseStage(writableSelection, {
+                    metadataSource: value,
+                  });
                 }}
               />
               <div className="actions">
@@ -2709,7 +3321,7 @@ export function ExamplesPage({
                     !!committedRefresh ||
                     !!pendingCase?.conflict
                   }
-                  onClick={() => void saveCase()}
+                  onClick={() => void saveCase(writableSelection)}
                 >
                   {busy
                     ? "Saving…"
@@ -2727,6 +3339,8 @@ export function ExamplesPage({
                   }
                   onClick={() => {
                     if (
+                      captureRenderedSelection(writableSelection) ===
+                        writableSelection &&
                       !busyRef.current &&
                       !committedRefreshRef.current &&
                       !pendingCaseRef.current?.uncertain &&
@@ -2746,6 +3360,7 @@ export function ExamplesPage({
             title="Add example"
             onDismiss={() => {
               if (
+                captureRenderedDataset(writableDataset) === writableDataset &&
                 !busyRef.current &&
                 !committedRefreshRef.current &&
                 !pendingAddRef.current?.uncertain &&
@@ -2766,7 +3381,7 @@ export function ExamplesPage({
                     disabled={
                       !pendingAddMatchesDataset || busy || !!committedRefresh
                     }
-                    onClick={() => void addCase()}
+                    onClick={() => void addCase(writableDataset)}
                   >
                     Retry same add request
                   </button>
@@ -2784,7 +3399,7 @@ export function ExamplesPage({
                     disabled={
                       !pendingAddMatchesDataset || busy || !!committedRefresh
                     }
-                    onClick={() => void reviewAddConflict()}
+                    onClick={() => void reviewAddConflict(writableDataset)}
                   >
                     Review current cases and dataset
                   </button>
@@ -2810,9 +3425,7 @@ export function ExamplesPage({
                         pendingAdd?.uncertain
                       }
                       onChange={() => {
-                        if (!mayEditDatasetStageNow()) return;
-                        setNewInputKind(kind);
-                        setEditorDirty(true);
+                        patchDatasetStage(writableDataset, { inputKind: kind });
                       }}
                     />
                     {kind.toUpperCase()}
@@ -2829,9 +3442,7 @@ export function ExamplesPage({
                   pendingAdd?.uncertain
                 }
                 onChange={(value) => {
-                  if (!mayEditDatasetStageNow()) return;
-                  setNewInputSource(value);
-                  setEditorDirty(true);
+                  patchDatasetStage(writableDataset, { inputSource: value });
                 }}
               />
               <JsonSourceEditor
@@ -2844,9 +3455,9 @@ export function ExamplesPage({
                   pendingAdd?.uncertain
                 }
                 onChange={(value) => {
-                  if (!mayEditDatasetStageNow()) return;
-                  setNewMetadataSource(value);
-                  setEditorDirty(true);
+                  patchDatasetStage(writableDataset, {
+                    metadataSource: value,
+                  });
                 }}
               />
               <div className="actions">
@@ -2859,7 +3470,7 @@ export function ExamplesPage({
                     !!committedRefresh ||
                     !!pendingAdd?.conflict
                   }
-                  onClick={() => void addCase()}
+                  onClick={() => void addCase(writableDataset)}
                 >
                   {busy
                     ? "Adding…"
@@ -2872,6 +3483,8 @@ export function ExamplesPage({
                   disabled={busy || !!committedRefresh || pendingAdd?.uncertain}
                   onClick={() => {
                     if (
+                      captureRenderedDataset(writableDataset) !==
+                        writableDataset ||
                       pendingAddRef.current?.uncertain ||
                       busyRef.current ||
                       committedRefreshRef.current ||
@@ -2892,6 +3505,8 @@ export function ExamplesPage({
             title={`Remove ${currentCase.id}?`}
             onDismiss={() => {
               if (
+                captureRenderedSelection(writableSelection) ===
+                  writableSelection &&
                 !busyRef.current &&
                 !committedRefreshRef.current &&
                 !pendingRemoveRef.current?.uncertain &&
@@ -2919,7 +3534,7 @@ export function ExamplesPage({
                       busy ||
                       !!committedRefresh
                     }
-                    onClick={() => void removeSelectedCase()}
+                    onClick={() => void removeSelectedCase(writableSelection)}
                   >
                     Retry same removal
                   </button>
@@ -2938,7 +3553,7 @@ export function ExamplesPage({
                       busy ||
                       !!committedRefresh
                     }
-                    onClick={() => void reviewRemoveConflict()}
+                    onClick={() => void reviewRemoveConflict(writableSelection)}
                   >
                     Review current case and dataset
                   </button>
@@ -2960,7 +3575,7 @@ export function ExamplesPage({
                     !!committedRefresh ||
                     !!pendingRemove?.conflict
                   }
-                  onClick={() => void removeSelectedCase()}
+                  onClick={() => void removeSelectedCase(writableSelection)}
                 >
                   {busy
                     ? "Removing…"
@@ -2975,6 +3590,8 @@ export function ExamplesPage({
                   }
                   onClick={() => {
                     if (
+                      captureRenderedSelection(writableSelection) ===
+                        writableSelection &&
                       !busyRef.current &&
                       !committedRefreshRef.current &&
                       !pendingRemoveRef.current?.uncertain &&

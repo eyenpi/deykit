@@ -3,6 +3,7 @@ export function ExpectedAnswers({
   options,
   selected,
   onChange,
+  onToggle,
   onSave,
   saving = false,
   disabled = false,
@@ -10,6 +11,7 @@ export function ExpectedAnswers({
   options: readonly OptionPresentation[];
   selected: readonly string[];
   onChange: (ids: readonly string[]) => void;
+  onToggle?: (optionId: string, checked: boolean) => void;
   onSave: () => void;
   saving?: boolean;
   disabled?: boolean;
@@ -26,13 +28,17 @@ export function ExpectedAnswers({
           <input
             type="checkbox"
             checked={selected.includes(option.id)}
-            onChange={(event) =>
+            onChange={(event) => {
+              if (onToggle) {
+                onToggle(option.id, event.currentTarget.checked);
+                return;
+              }
               onChange(
-                event.target.checked
+                event.currentTarget.checked
                   ? [...selected, option.id]
                   : selected.filter((id) => id !== option.id),
-              )
-            }
+              );
+            }}
           />
           {option.name}
         </label>

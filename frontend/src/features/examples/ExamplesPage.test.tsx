@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
@@ -161,11 +168,14 @@ afterEach(() => {
 function mountExamples(
   overrides: Partial<ExampleAuthoringOperations> = {},
   datasetOverrides: Partial<DatasetAuthoringOperations> = {},
+  initialCaseId: string | null = "case-a",
 ) {
   window.history.replaceState(
     null,
     "",
-    "#/p/registration-1/d/decision-1/examples?dataset=dataset-1&case=case-a",
+    `#/p/registration-1/d/decision-1/examples?dataset=dataset-1${
+      initialCaseId ? `&case=${initialCaseId}` : ""
+    }`,
   );
   navigation = new WorkspaceNavigation(window);
   const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
@@ -202,7 +212,7 @@ function mountExamples(
       datasetOperations={datasetOperations}
       navigation={navigation}
       datasetFromRoute="dataset-1"
-      caseFromRoute="case-a"
+      caseFromRoute={initialCaseId ?? undefined}
       refreshToken={0}
       onDatasetChange={(_, caseId) =>
         navigation!.navigate({
@@ -471,7 +481,9 @@ it("saves the old admitted case before completing a dirty navigation", async () 
   await waitForSelectedSource(sourceA);
   await user.click(screen.getByRole("button", { name: "Edit input" }));
   const savedSource = '{"case":"saved-before-leaving"}';
-  await user.fill(screen.getByRole("textbox", { name: "Input source" }), savedSource);
+  fireEvent.change(screen.getByRole("textbox", { name: "Input source" }), {
+    target: { value: savedSource },
+  });
   await user.click(screen.getByRole("button", { name: "case-b" }));
   await screen.findByRole("button", { name: "Save and leave" });
   await user.click(screen.getByRole("button", { name: "Save and leave" }));
@@ -484,6 +496,114 @@ it("saves the old admitted case before completing a dirty navigation", async () 
   expect(navigation?.current.kind).toBe("examples");
   if (navigation?.current.kind === "examples")
     expect(navigation.current.caseId).toBe("case-b");
+});
+
+it("recaptures the acknowledged same-scope label after a guard saves the case", async () => {
+  let currentDataset = dataset;
+  let currentCase = caseA;
+  let currentLabel: LabelView["label"] = null;
+  const events: string[] = [];
+  const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(
+    async ({ caseId, body }) => {
+      events.push("edit-case");
+      const updated = caseRead(caseId, body.input_source);
+      currentDataset = { ...dataset, etag: "dataset-etag-after-case" };
+      currentCase = {
+        ...updated,
+        dataset_etag: currentDataset.etag,
+        case: {
+          ...updated.case,
+          etag: "etag-case-a-after-case",
+          record: {
+            ...updated.case.record,
+            metadata_source: body.metadata_source,
+          },
+        },
+      };
+      return {
+        data: {
+          schema_version: 1,
+          case: currentCase.case,
+          dataset: currentDataset,
+          cleared_label_ids: [],
+          replayed: false,
+        },
+        warnings: [],
+      };
+    },
+  );
+  const readCase = vi.fn<ExampleAuthoringOperations["readCase"]>(
+    async ({ caseId }) => {
+      events.push(`read-case:${caseId}`);
+      return {
+        data:
+          caseId === "case-a"
+            ? currentCase
+            : { ...caseB, dataset_etag: currentDataset.etag },
+        warnings: [],
+      };
+    },
+  );
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    async ({ caseId }) => {
+      events.push(`read-label:${caseId}`);
+      const read =
+        caseId === "case-a"
+          ? currentCase
+          : { ...caseB, dataset_etag: currentDataset.etag };
+      const view = labelView(read);
+      return {
+        data: {
+          ...view,
+          status: currentLabel ? "applicable" : "unlabelled",
+          label: currentLabel,
+          review: {
+            ...view.review,
+            label_etag: currentLabel ? "label-etag-after-save" : null,
+          },
+        },
+        warnings: [],
+      };
+    },
+  );
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async ({ body }) => {
+      events.push("save-label");
+      const receipt = labelReceipt(body);
+      currentLabel = receipt.changes[0]?.label ?? null;
+      return { data: receipt, warnings: [] };
+    },
+  );
+  const { user } = mountExamples(
+    { editCase, readCase, readLabel, saveLabels },
+    { read: async () => ({ data: currentDataset, warnings: [] }) },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("checkbox", { name: "Option A" }));
+  await user.click(screen.getByRole("button", { name: "Edit input" }));
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Metadata source" }),
+    { target: { value: '{"guard":"saved first"}' } },
+  );
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await screen.findByRole("button", { name: "Save and leave" });
+  await user.click(screen.getByRole("button", { name: "Save and leave" }));
+
+  await waitForSelectedSource(sourceB);
+  expect(editCase).toHaveBeenCalledTimes(1);
+  expect(saveLabels).toHaveBeenCalledTimes(1);
+  const labelRequest = saveLabels.mock.calls[0]?.[0];
+  expect(labelRequest?.caseId).toBe("case-a");
+  expect(labelRequest?.body.edits[0]?.review.case_id).toBe("case-a");
+  const caseSave = events.indexOf("edit-case");
+  const refreshedCase = events.indexOf("read-case:case-a", caseSave + 1);
+  const refreshedLabel = events.indexOf("read-label:case-a", caseSave + 1);
+  const labelSave = events.indexOf("save-label");
+  expect(caseSave).toBeGreaterThanOrEqual(0);
+  expect(refreshedCase).toBeGreaterThan(caseSave);
+  expect(refreshedLabel).toBeGreaterThan(refreshedCase);
+  expect(labelSave).toBeGreaterThan(refreshedLabel);
 });
 
 it("rejects a stale expected-answer callback after live navigation publishes before render", async () => {
@@ -528,6 +648,63 @@ it("rejects a stale source callback after live navigation publishes before rende
 
   expect(sourceEditor).toHaveValue(sourceA);
   expect(editCase).not.toHaveBeenCalled();
+});
+
+it("rejects A's retained callback after B's paired admission publishes before render", async () => {
+  let releaseTargetLabel!: () => void;
+  let reportTargetLabelStarted!: () => void;
+  const targetLabelStarted = new Promise<void>((resolve) => {
+    reportTargetLabelStarted = resolve;
+  });
+  const heldTargetLabel = new Promise<{ data: LabelView; warnings: [] }>(
+    (resolve) => {
+      releaseTargetLabel = () =>
+        resolve({ data: labelView(caseB), warnings: [] });
+    },
+  );
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    ({ caseId }) => {
+      if (caseId === "case-b") {
+        reportTargetLabelStarted();
+        return heldTargetLabel;
+      }
+      return Promise.resolve({ data: labelView(caseA), warnings: [] });
+    },
+  );
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async () => {
+      throw new ApiError("preflight_failed", "Unexpected label write.", 422);
+    },
+  );
+  const { user } = mountExamples({ readLabel, saveLabels });
+
+  await waitForSelectedSource(sourceA);
+  const oldOption = screen.getByRole("checkbox", { name: "Option A" });
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await targetLabelStarted;
+  expect(
+    screen.getByLabelText("Complete example input source").textContent,
+  ).toBe(sourceA);
+
+  await act(async () => {
+    releaseTargetLabel();
+    await heldTargetLabel;
+    fireEvent.click(oldOption);
+  });
+
+  expect(
+    screen.getByLabelText("Complete example input source").textContent,
+  ).toBe(sourceB);
+  expect(
+    screen.getByRole("checkbox", { name: "Option A" }).matches(":checked"),
+  ).toBe(false);
+  expect(saveLabels).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("checkbox", { name: "Option A" }));
+  await user.click(screen.getByRole("button", { name: "Save expected answer" }));
+  await waitFor(() => expect(saveLabels).toHaveBeenCalledTimes(1));
+  expect(saveLabels.mock.calls[0]?.[0].body.edits[0]?.review.case_id).toBe(
+    "case-b",
+  );
 });
 
 it("admits one same-turn label write and releases the lock after its refresh", async () => {
@@ -647,9 +824,9 @@ it("does not admit a captured case write while label conflict review is reading"
 
   await waitForSelectedSource(sourceA);
   await user.click(screen.getByRole("button", { name: "Edit input" }));
-  await user.fill(
+  fireEvent.change(
     screen.getByRole("textbox", { name: "Input source" }),
-    sourceB,
+    { target: { value: sourceB } },
   );
   await user.click(screen.getByRole("checkbox", { name: "Option A" }));
   await user.click(screen.getByRole("button", { name: "Save expected answer" }));
@@ -667,4 +844,137 @@ it("does not admit a captured case write while label conflict review is reading"
   await waitFor(() => {
     expect(screen.queryByRole("button", { name: "Review current label" })).toBeNull();
   });
+});
+
+it("writes the latest same-owner case fields before React mirrors the edits", async () => {
+  const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(async () => {
+    throw new ApiError("validation_failed", "Rejected for the test.", 422);
+  });
+  const { user } = mountExamples({ editCase });
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "Edit input" }));
+  const inputSource = screen.getByRole("textbox", { name: "Input source" });
+  const metadataSource = screen.getByRole("textbox", {
+    name: "Metadata source",
+  });
+  const save = screen.getByRole("button", { name: "Save input" });
+  const latestSource = '{"case":"latest","value":9007199254740993}';
+  const latestMetadata = '{"attempt":2}';
+
+  await act(async () => {
+    fireEvent.change(inputSource, { target: { value: sourceB } });
+    fireEvent.change(inputSource, { target: { value: latestSource } });
+    fireEvent.change(metadataSource, { target: { value: '{"attempt":1}' } });
+    fireEvent.change(metadataSource, { target: { value: latestMetadata } });
+    fireEvent.click(save);
+  });
+
+  await waitFor(() => expect(editCase).toHaveBeenCalledTimes(1));
+  expect(editCase.mock.calls[0]?.[0].body.input_source).toBe(latestSource);
+  expect(editCase.mock.calls[0]?.[0].body.metadata_source).toBe(latestMetadata);
+});
+
+it("accumulates same-owner answer toggles and the latest note in the write snapshot", async () => {
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(async () => {
+    throw new ApiError("validation_failed", "Rejected for the test.", 422);
+  });
+  const { user } = mountExamples({ saveLabels });
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("checkbox", { name: "Option A" }));
+  const optionB = screen.getByRole("checkbox", { name: "Option B" });
+  const note = screen.getByRole("textbox", { name: "Provenance note" });
+  const save = screen.getByRole("button", { name: "Save expected answer" });
+  await act(async () => {
+    fireEvent.click(optionB);
+    fireEvent.change(note, { target: { value: "first note" } });
+    fireEvent.change(note, { target: { value: "latest note" } });
+    fireEvent.click(save);
+  });
+
+  await waitFor(() => expect(saveLabels).toHaveBeenCalledTimes(1));
+  const edit = saveLabels.mock.calls[0]?.[0].body.edits[0];
+  expect(edit?.acceptable_option_ids).toEqual(["option-a", "option-b"]);
+  expect(edit?.note).toBe("latest note");
+});
+
+it("rejects an old dataset Add callback after its route is replaced", async () => {
+  mountExamples();
+  await waitForSelectedSource(sourceA);
+  const oldAddButton = screen.getByRole("button", { name: "Add example" });
+
+  await act(async () => {
+    const moved = await navigation!.navigate({
+      kind: "examples",
+      registrationId: project.id,
+      decisionId: decision.id,
+      datasetId: "dataset-2",
+    });
+    expect(moved).toBe(true);
+    fireEvent.click(oldAddButton);
+  });
+
+  expect(screen.queryByRole("dialog", { name: "Add example" })).toBeNull();
+});
+
+it("keeps Add available from a dataset admission without a selected case", async () => {
+  const addCase = vi.fn<ExampleAuthoringOperations["addCase"]>(async () => {
+    throw new ApiError("validation_failed", "Rejected for the test.", 422);
+  });
+  const { user } = mountExamples({ addCase }, {}, null);
+
+  await screen.findByRole("heading", { name: "Cases" });
+  await user.click(screen.getByRole("button", { name: "Add example" }));
+  await user.click(
+    within(screen.getByRole("dialog", { name: "Add example" })).getByRole(
+      "button",
+      { name: "JSON" },
+    ),
+  );
+  fireEvent.change(
+    screen.getByRole("textbox", { name: "Input source" }),
+    { target: { value: '{"dataset-only":true}' } },
+  );
+  await user.click(
+    within(screen.getByRole("dialog", { name: "Add example" })).getByRole(
+      "button",
+      { name: "Add example" },
+    ),
+  );
+
+  await waitFor(() => expect(addCase).toHaveBeenCalledTimes(1));
+  const request = addCase.mock.calls[0]?.[0];
+  expect(request?.datasetId).toBe("dataset-1");
+  expect(request?.body.input_source).toBe('{"dataset-only":true}');
+});
+
+it("rejects an A1 callback after the live route moves through B and back to A", async () => {
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(async () => {
+    throw new ApiError("validation_failed", "A stale callback must not write.", 422);
+  });
+  mountExamples({ saveLabels });
+  await waitForSelectedSource(sourceA);
+  const oldAnswer = screen.getByRole("checkbox", { name: "Option A" });
+
+  await act(async () => {
+    await navigation!.navigate({
+      kind: "examples",
+      registrationId: project.id,
+      decisionId: decision.id,
+      datasetId: "dataset-1",
+      caseId: "case-b",
+    });
+    await navigation!.navigate({
+      kind: "examples",
+      registrationId: project.id,
+      decisionId: decision.id,
+      datasetId: "dataset-1",
+      caseId: "case-a",
+    });
+    fireEvent.click(oldAnswer);
+  });
+
+  expect(saveLabels).not.toHaveBeenCalled();
+  expect(oldAnswer.matches(":checked")).toBe(false);
 });
