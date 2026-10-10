@@ -632,6 +632,8 @@ it("recaptures the acknowledged same-scope label after a guard saves the case", 
       }),
     },
     { read: async () => ({ data: currentDataset, warnings: [] }) },
+    "case-a",
+    true,
   );
 
   await waitForSelectedSource(sourceA);
