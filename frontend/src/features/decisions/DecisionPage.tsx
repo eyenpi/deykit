@@ -757,9 +757,7 @@ export function DecisionPage({
     setEditError(undefined);
     const noteSnapshot = note;
     let phase: "preflight" | "mutating" | "committed" = "preflight";
-    let attemptedRequest:
-      | ApiOperationBody<"saveDecisionRevision">
-      | undefined;
+    let attemptedRequest: ApiOperationBody<"saveDecisionRevision"> | undefined;
     let committedRevisionId: string | undefined;
     let controlsLocked = false;
     try {
@@ -1140,7 +1138,9 @@ export function DecisionPage({
           <button
             type="button"
             className="primary"
-            disabled={working || (versionOutcomeUnknown && !versionRequest.current)}
+            disabled={
+              working || (versionOutcomeUnknown && !versionRequest.current)
+            }
             onClick={() => void saveRevision()}
           >
             {working

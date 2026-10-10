@@ -803,7 +803,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.unroute("**/draft");
 
-  await enterPhase("Authoritative read failure does not create a version retry");
+  await enterPhase(
+    "Authoritative read failure does not create a version retry",
+  );
   await page.route(
     `**/api/v1/projects/${registrationId}/decisions/${decisionId}`,
     async (route) => {
