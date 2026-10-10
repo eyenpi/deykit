@@ -61,6 +61,18 @@ export function App({ gateway = disconnectedWorkspace }: { gateway?: WorkspaceGa
   const [createdName, setCreatedName] = useState<string>();
   const [createdError, setCreatedError] = useState<string>();
   const openHeading = useRef<HTMLHeadingElement>(null);
+  const pendingOpenFocus = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (
+      route.kind === "overview" &&
+      project?.id === route.registrationId &&
+      project.id === pendingOpenFocus.current
+    ) {
+      openHeading.current?.focus();
+      pendingOpenFocus.current = undefined;
+    }
+  }, [project?.id, route]);
 
   useEffect(() => {
     const unsubscribe = navigation.subscribe(setRoute);
@@ -129,8 +141,9 @@ export function App({ gateway = disconnectedWorkspace }: { gateway?: WorkspaceGa
     setProject(item);
     setProjectError(undefined);
     setFormAction(undefined);
-    await navigation.navigate({ kind: "overview", registrationId: item.id });
-    openHeading.current?.focus();
+    pendingOpenFocus.current = item.id;
+    const moved = await navigation.navigate({ kind: "overview", registrationId: item.id });
+    if (!moved) pendingOpenFocus.current = undefined;
   }
 
   async function reconnect(): Promise<void> {

@@ -57,7 +57,16 @@ it(
       warnings: [],
     };
     const gateway: WorkspaceGateway = {
-      authoring: disconnectedWorkspace.authoring,
+      authoring: {
+        ...disconnectedWorkspace.authoring,
+        decisions: {
+          ...disconnectedWorkspace.authoring.decisions,
+          list: async () => ({
+            data: { schema_version: 1, items: [], total: "0", next_cursor: null },
+            warnings: [],
+          }),
+        },
+      },
       recentProjects: async () => ({ items: [], warnings: [] }),
       projectOverview: async (registrationId) => ({ ...overview, id: registrationId }),
       openProject: async () => overview,
@@ -81,7 +90,16 @@ it(
   "uses the selected recent path and focuses only the successful overview transition",
   async () => {
     const gateway: WorkspaceGateway = {
-      authoring: disconnectedWorkspace.authoring,
+      authoring: {
+        ...disconnectedWorkspace.authoring,
+        decisions: {
+          ...disconnectedWorkspace.authoring.decisions,
+          list: async () => ({
+            data: { schema_version: 1, items: [], total: "0", next_cursor: null },
+            warnings: [],
+          }),
+        },
+      },
       recentProjects: async () => ({
         items: [
           {
