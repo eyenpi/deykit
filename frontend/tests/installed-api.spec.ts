@@ -2224,9 +2224,11 @@ test("installed browser authors exact decision source and previews imports throu
   });
   let restoreHeld = false;
   let restoreConflictStatus: number | undefined;
+  let restoreConflictRequests = 0;
   await page.route(
     `**/decisions/${decisionId}/restore-revision`,
     async (route) => {
+      if (route.request().method() === "POST") restoreConflictRequests += 1;
       if (route.request().method() === "POST" && !restoreHeld) {
         restoreHeld = true;
         reportRestoreStarted();
@@ -2258,18 +2260,31 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("alert")).toBeVisible();
   expect(restoreConflictStatus).toBe(409);
   await expect(conflictRestoreDialog).toBeVisible();
-  await expect(conflictRestoreDialog).toContainText(
-    "Review the current draft before reapplying.",
+  await expect(
+    conflictRestoreDialog
+      .getByLabel("Current draft after conflict")
+      .getByRole("status"),
+  ).toHaveText(
+    "The saved version was not restored. The current draft remains unchanged.",
   );
   await expect(
     conflictRestoreDialog.getByLabel("Editor source to restore"),
   ).toHaveValue(firstRevisionEditorSource);
+  const blockedRestore = conflictRestoreDialog.getByRole("button", {
+    name: "Restore over reviewed draft",
+    exact: true,
+  });
+  await expect(blockedRestore).toBeDisabled();
   await conflictRestoreDialog
     .getByRole("button", { name: "Review current draft", exact: true })
     .click();
   await expect(
     conflictRestoreDialog.getByLabel("Reviewed current draft source"),
   ).toHaveValue(restoreRaceWinnerSource);
+  await expect(blockedRestore).toBeEnabled();
+  await expect(
+    conflictRestoreDialog.getByLabel("Editor source to restore"),
+  ).toHaveValue(firstRevisionEditorSource);
   await conflictRestoreDialog
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
@@ -2277,18 +2292,20 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
     .click();
+  expect(restoreConflictRequests).toBe(1);
+  await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
+  const restoredSourceEditor = await openDecisionSourceEditor();
+  await expect(restoredSourceEditor).toHaveValue(restoreRaceWinnerSource);
   const restoreConflictWinner = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
+  expect(restoreConflictWinner.status()).toBe(200);
   expect(
     (await restoreConflictWinner.json()).data.draft.record.editor_source,
   ).toBe(restoreRaceWinnerSource);
-  const restoredSourceEditor = await openDecisionSourceEditor();
-  await expect(restoredSourceEditor).toHaveValue(restoreRaceWinnerSource);
-  await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
 
   await enterPhase("Label staging, review, provenance and write races");
   await page.getByRole("button", { name: "Examples", exact: true }).click();
