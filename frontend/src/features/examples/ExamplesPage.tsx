@@ -2668,10 +2668,7 @@ export function ExamplesPage({
       pendingAddRef.current?.conflict === true ||
       pendingRemoveRef.current?.conflict === true ||
       editorDirtyRef.current ||
-      hasCurrentLabelEdits() ||
-      uncertainWrite ||
-      unresolvedConflict ||
-      mutationInFlight,
+      hasCurrentLabelEdits(),
     blockedMessage: navigationBlockedMessage,
     allowDiscardWhenBlocked: committedRefresh !== undefined,
     save: saveBeforeLeaving,
