@@ -331,6 +331,11 @@ test("installed browser authors exact decision source and previews imports throu
     await expect(editor).toBeVisible();
     return editor;
   }
+  function caseButton(caseId: string) {
+    return page
+      .getByRole("region", { name: /^Cases in / })
+      .getByRole("button", { name: caseId, exact: true });
+  }
   await recordProgress();
 
   const projectName = "M10 authoring acceptance";
@@ -505,7 +510,7 @@ test("installed browser authors exact decision source and previews imports throu
   await captureScreenshot("import-before-decision.png");
   await page.getByRole("button", { name: "Import cases" }).click();
   await expect(
-    page.getByRole("button", { name: "seed-1", exact: true }),
+    caseButton("seed-1"),
   ).toBeVisible();
   const initialImportHash = new URL(page.url()).hash;
   const registrationId = initialImportHash.match(
@@ -2319,6 +2324,7 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Examples", exact: true })
     .click();
+  await caseButton("seed-1").click();
   await expect(
     page.getByRole("heading", { name: "Expected answers" }),
   ).toBeVisible();
@@ -2435,13 +2441,13 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Retry the same import request" }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "case-1", exact: true }),
+    caseButton("case-1"),
   ).toBeVisible();
   expect(importCommitBodies).toHaveLength(2);
   expect(importCommitBodies[1]).toEqual(importCommitBodies[0]);
   await page.unroute("**/imports/commit");
   await expect(
-    page.getByRole("button", { name: "case-1", exact: true }),
+    caseButton("case-1"),
   ).toBeVisible();
   expect(importCommitBody).toBeDefined();
   const commitReplay = await page.request.post(
@@ -2461,7 +2467,7 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect((await importedCases.json()).data.total).toBe("9");
 
-  await page.getByRole("button", { name: "seed-1", exact: true }).click();
+  await caseButton("seed-1").click();
   await page.getByRole("button", { name: "Edit input" }).click();
   const stagedCaseSource = '{"case":"seed-1","kept":true}';
   await page.getByLabel("Input source").fill(stagedCaseSource);
@@ -2598,7 +2604,7 @@ test("installed browser authors exact decision source and previews imports throu
     stagedCaseSource,
   );
   await page.unroute("**/cases/seed-1");
-  await page.getByRole("button", { name: "case-1", exact: true }).click();
+  await caseButton("case-1").click();
   await expect(
     page.getByRole("heading", { name: "case-1", exact: true }),
   ).toBeVisible();
@@ -2725,7 +2731,7 @@ test("installed browser authors exact decision source and previews imports throu
     new URL(caseOneExamplesHash, page.url()).toString(),
   );
   await expect(
-    page.getByRole("button", { name: "seed-1", exact: true }),
+    caseButton("seed-1"),
   ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
   const readSeedLabel = async () => {
@@ -2746,7 +2752,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
   const stagedLabelHash = page.url();
-  await page.getByRole("button", { name: "case-2", exact: true }).click();
+  await caseButton("case-2").click();
   const keepStagedSelection = page.getByRole("dialog", {
     name: "Unsaved changes",
   });
@@ -2790,7 +2796,7 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("button", { name: "Examples", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
-  await page.getByRole("button", { name: "seed-1", exact: true }).click();
+  await caseButton("seed-1").click();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
 
@@ -3257,7 +3263,7 @@ test("installed browser authors exact decision source and previews imports throu
   await enterPhase("Case source preservation and stale-label applicability");
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
-  await page.getByRole("button", { name: "case-1", exact: true }).click();
+  await caseButton("case-1").click();
   await page.getByRole("button", { name: "Edit input" }).click();
   await page.getByLabel("Input source").fill('{"case":1,"changed":true}');
   const caseEditBodies: Array<Record<string, unknown>> = [];
@@ -3343,7 +3349,7 @@ test("installed browser authors exact decision source and previews imports throu
     reasons: ["stale"],
   });
 
-  await page.getByRole("button", { name: "case-2", exact: true }).click();
+  await caseButton("case-2").click();
   await expect(
     page.getByRole("heading", { name: "case-2", exact: true }),
   ).toBeVisible();
@@ -3450,7 +3456,7 @@ test("installed browser authors exact decision source and previews imports throu
     },
   );
   expect(readdCaseTwo.status()).toBe(200);
-  await page.getByRole("button", { name: "case-1", exact: true }).click();
+  await caseButton("case-1").click();
   await expect(
     page.getByRole("heading", { name: "case-1", exact: true }),
   ).toBeVisible();
@@ -3607,7 +3613,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.unroute("**/splits/commit");
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
-  await page.getByRole("button", { name: "seed-1", exact: true }).click();
+  await caseButton("seed-1").click();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
   await page.getByRole("button", { name: "Save expected answer" }).click();
