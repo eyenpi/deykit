@@ -37,32 +37,54 @@ describe("workspace routes", () => {
     let resolveFixtures!: (accepted: boolean) => void;
     const providerGuard = new Promise<boolean>((resolve) => { resolveProviders = resolve; });
     const fixtureGuard = new Promise<boolean>((resolve) => { resolveFixtures = resolve; });
+    let reachProviderGuard!: () => void;
+    let reachFixtureGuard!: () => void;
+    const providerGuardReached = new Promise<void>((resolve) => { reachProviderGuard = resolve; });
+    const fixtureGuardReached = new Promise<void>((resolve) => { reachFixtureGuard = resolve; });
     const seen: WorkspaceRoute[] = [];
     let calls = 0;
     navigation.registerDirtyGuard("dirty-editor", Object.assign(
       (target: WorkspaceRoute) => {
         seen.push(target);
         calls += 1;
-        return calls === 1 ? providerGuard : fixtureGuard;
+        if (calls === 1) {
+          reachProviderGuard();
+          return providerGuard;
+        }
+        reachFixtureGuard();
+        return fixtureGuard;
       },
       { isDirty: () => true },
     ));
 
-    window.location.hash = routeToHash(providers);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    function dispatchExternalHashChange(target: WorkspaceRoute) {
+      const oldURL = window.location.href;
+      window.history.pushState(null, "", routeToHash(target));
+      window.dispatchEvent(new HashChangeEvent("hashchange", { oldURL, newURL: window.location.href }));
+    }
+
+    dispatchExternalHashChange(providers);
     expect(window.location.hash).toBe(routeToHash(overview));
+    await providerGuardReached;
     expect(seen).toEqual([providers]);
 
-    window.location.hash = routeToHash(fixtures);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    dispatchExternalHashChange(fixtures);
     expect(window.location.hash).toBe(routeToHash(overview));
     expect(calls).toBe(1);
 
+    const fixturesAdmitted = new Promise<void>((resolve) => {
+      const unsubscribe = navigation.subscribe((route) => {
+        if (route.kind === fixtures.kind && route.registrationId === fixtures.registrationId) {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
     resolveProviders(true);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await fixtureGuardReached;
     expect(seen).toEqual([providers, fixtures]);
     resolveFixtures(true);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await fixturesAdmitted;
     expect(navigation.current).toEqual(fixtures);
     expect(window.location.hash).toBe(routeToHash(fixtures));
     navigation.dispose();
