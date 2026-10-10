@@ -36,14 +36,17 @@ export function useDirtyNavigationGuard({
     [],
   );
 
-  const guardFunction = useCallback((next: WorkspaceRoute) => {
-    if (!currentDirty()) return Promise.resolve(true);
-    setError(undefined);
-    setTarget(next);
-    return new Promise<boolean>((done) => {
-      resolve.current = done;
-    });
-  }, [currentDirty]);
+  const guardFunction = useCallback(
+    (next: WorkspaceRoute) => {
+      if (!currentDirty()) return Promise.resolve(true);
+      setError(undefined);
+      setTarget(next);
+      return new Promise<boolean>((done) => {
+        resolve.current = done;
+      });
+    },
+    [currentDirty],
+  );
   const guard = useMemo<DirtyNavigationGuard>(
     () => Object.assign(guardFunction, { isDirty: currentDirty }),
     [currentDirty, guardFunction],

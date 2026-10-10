@@ -565,9 +565,9 @@ test("installed browser authors exact decision source and previews imports throu
   expect(pausedCompositionTransforms[1].editor_source).not.toContain(
     interruptedCompositionSource,
   );
-  expect(
-    pausedCompositionResponses.every((status) => status === 200),
-  ).toBe(true);
+  expect(pausedCompositionResponses.every((status) => status === 200)).toBe(
+    true,
+  );
   await page.unroute("**/editor-transform");
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
     "Draft saved",
