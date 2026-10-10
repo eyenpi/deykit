@@ -394,8 +394,7 @@ test("installed archive restore retains exact actions and projects receipts", as
       const response = await route.fetch();
       if (archiveBodies.length === 1) {
         firstArchiveStatus = response.status();
-        if (firstArchiveStatus !== 200)
-          return route.fulfill({ response });
+        if (firstArchiveStatus !== 200) return route.fulfill({ response });
         const envelope: {
           data: ApiOperationData<"archiveDecision">;
         } = await response.json();
@@ -507,9 +506,7 @@ test("installed archive restore retains exact actions and projects receipts", as
     ).toBeVisible({ timeout: 15_000 });
     await expect(archivedRow).toBeVisible({ timeout: 15_000 });
     await expect(archiveDialog).toHaveCount(0);
-    await expect
-      .poll(() => pendingReads.size, { timeout: 15_000 })
-      .toBe(0);
+    await expect.poll(() => pendingReads.size, { timeout: 15_000 }).toBe(0);
     archiveHeadingVisible = true;
     archiveTableVisible = true;
   })();
@@ -565,8 +562,7 @@ test("installed archive restore retains exact actions and projects receipts", as
       const response = await route.fetch();
       if (restoreBodies.length === 1) {
         firstRestoreStatus = response.status();
-        if (firstRestoreStatus !== 200)
-          return route.fulfill({ response });
+        if (firstRestoreStatus !== 200) return route.fulfill({ response });
         const envelope: {
           data: ApiOperationData<"restoreDecision">;
         } = await response.json();
@@ -598,7 +594,9 @@ test("installed archive restore retains exact actions and projects receipts", as
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Providers", exact: true })
     .click();
-  const navigationPrompt = page.getByRole("dialog", { name: "Unsaved changes" });
+  const navigationPrompt = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
   await expect(navigationPrompt).toBeVisible();
   await expect(
     navigationPrompt.getByRole("button", { name: "Save and leave" }),
@@ -645,7 +643,8 @@ test("installed archive restore retains exact actions and projects receipts", as
     restoreBodies.length === 2 &&
     JSON.stringify(restoreBodies[0]) === JSON.stringify(restoreBodies[1]);
   restoreReceiptsIdentical =
-    JSON.stringify(restoredEnvelope.data) === JSON.stringify(firstRestoreReceipt);
+    JSON.stringify(restoredEnvelope.data) ===
+    JSON.stringify(firstRestoreReceipt);
   expect(restoreRequestsIdentical).toBe(true);
   expect(restoreReceiptsIdentical).toBe(true);
   const activeRow = page
@@ -676,9 +675,7 @@ test("installed archive restore retains exact actions and projects receipts", as
     await expect(activeRow).toBeVisible({ timeout: 15_000 });
     await expect(archivedTargetRow).toHaveCount(0);
     await expect(retryRestore).toHaveCount(0);
-    await expect
-      .poll(() => pendingReads.size, { timeout: 15_000 })
-      .toBe(0);
+    await expect.poll(() => pendingReads.size, { timeout: 15_000 }).toBe(0);
     restoredActiveRowVisible = true;
     archivedRowAbsent = true;
   })();
@@ -5802,10 +5799,7 @@ test("installed browser authors exact decision source and previews imports throu
     )
       return;
     const url = new URL(request.url());
-    if (
-      url.pathname !== `/api/v1/projects/${registrationId}/decisions`
-    )
-      return;
+    if (url.pathname !== `/api/v1/projects/${registrationId}/decisions`) return;
     archiveListRequestSeen = true;
     archiveListQueryMatches =
       url.searchParams.get("include_archived") === "true" &&
@@ -5929,14 +5923,15 @@ test("installed browser authors exact decision source and previews imports throu
     await Promise.race([archiveListReadiness, archiveReadinessDeadline]);
   } catch (error) {
     try {
-      const [loading, hasError, rowPresent, heading, table, prompt] = await Promise.all([
-        page.getByText("Loading decision archive…", { exact: true }).count(),
-        page.getByRole("alert").count(),
-        archivedRow.count(),
-        page.getByRole("heading", { name: projectName }).count(),
-        page.getByRole("table", { name: "Archived decisions" }).count(),
-        page.getByRole("dialog", { name: "Unsaved changes" }).count(),
-      ]);
+      const [loading, hasError, rowPresent, heading, table, prompt] =
+        await Promise.all([
+          page.getByText("Loading decision archive…", { exact: true }).count(),
+          page.getByRole("alert").count(),
+          archivedRow.count(),
+          page.getByRole("heading", { name: projectName }).count(),
+          page.getByRole("table", { name: "Archived decisions" }).count(),
+          page.getByRole("dialog", { name: "Unsaved changes" }).count(),
+        ]);
       archiveHeadingVisible = heading > 0;
       archiveTableVisible = table > 0;
       archiveNavigationPromptVisible = prompt > 0;
