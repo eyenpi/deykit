@@ -1518,7 +1518,7 @@ test("installed browser authors exact decision source and previews imports throu
   if (!(await rawSourceEditor.isVisible()))
     await page.locator(".advanced-source > summary").click();
   await expect(rawSourceEditor).toBeVisible();
-  await page.clock.pauseAt(new Date());
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
   const sourceBeforeHeldRefresh = await rawSourceEditor.inputValue();
   const sourceDuringHeldRefresh = `${sourceBeforeHeldRefresh} `;
   const projectionAfterVersionEdit = page.waitForResponse(
