@@ -1183,24 +1183,22 @@ it("requires in-modal context acknowledgement before reapplying a conflicted cas
       return { data: receipt, warnings: [] };
     },
   );
-  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
-    async () => {
-      const view = labelView(currentCase);
-      const inputHash =
-        currentCase.case.record.input_source === sourceA
-          ? "hash-case-a-initial"
-          : currentCase.case.record.input_source === winnerSource
-            ? "hash-case-a-winner"
-            : "hash-case-a-staged";
-      return {
-        data: {
-          ...view,
-          review: { ...view.review, input_hash: inputHash },
-        },
-        warnings: [],
-      };
-    },
-  );
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(async () => {
+    const view = labelView(currentCase);
+    const inputHash =
+      currentCase.case.record.input_source === sourceA
+        ? "hash-case-a-initial"
+        : currentCase.case.record.input_source === winnerSource
+          ? "hash-case-a-winner"
+          : "hash-case-a-staged";
+    return {
+      data: {
+        ...view,
+        review: { ...view.review, input_hash: inputHash },
+      },
+      warnings: [],
+    };
+  });
   const { user } = mountExamples(
     {
       editCase,
@@ -1248,7 +1246,8 @@ it("requires in-modal context acknowledgement before reapplying a conflicted cas
     }),
   ).toBeTruthy();
   expect(
-    within(dialog).getByRole("button", { name: "Reapply reviewed case edit" })
+    within(dialog)
+      .getByRole("button", { name: "Reapply reviewed case edit" })
       .matches(":disabled"),
   ).toBe(true);
   expect(stagedInputValue()).toBe(stagedSource);
@@ -1263,7 +1262,8 @@ it("requires in-modal context acknowledgement before reapplying a conflicted cas
     within(dialog).queryByRole("region", { name: "Review selected context" }),
   ).toBeNull();
   expect(
-    within(dialog).getByRole("button", { name: "Reapply reviewed case edit" })
+    within(dialog)
+      .getByRole("button", { name: "Reapply reviewed case edit" })
       .matches(":disabled"),
   ).toBe(false);
   expect(stagedInputValue()).toBe(stagedSource);

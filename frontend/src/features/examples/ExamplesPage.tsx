@@ -1776,10 +1776,8 @@ export function ExamplesPage({
       (labelStage && !matchesSelectionScope(labelStage.owner, admission))
     )
       return;
-    if (caseStage)
-      caseStageRef.current = { ...caseStage, owner: admission };
-    if (labelStage)
-      labelStageRef.current = { ...labelStage, owner: admission };
+    if (caseStage) caseStageRef.current = { ...caseStage, owner: admission };
+    if (labelStage) labelStageRef.current = { ...labelStage, owner: admission };
     updateSelectionNeedsReview(false);
     setNotice(
       "Current example and label review acknowledged. Your staged changes remain available to reapply deliberately.",
@@ -2900,10 +2898,7 @@ export function ExamplesPage({
       name: option.name,
     })) ?? [];
   const selectionReviewNotice = selectionNeedsReview ? (
-    <section
-      className="warning-summary"
-      aria-label="Review selected context"
-    >
+    <section className="warning-summary" aria-label="Review selected context">
       <p role="status">
         The current example or label context changed. Review it before making
         another change.
