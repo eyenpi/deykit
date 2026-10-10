@@ -3,7 +3,6 @@ import {
   fireEvent,
   render,
   screen,
-  waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
@@ -226,6 +225,10 @@ async function advanceTransformDelay() {
   });
 }
 
+async function settleMicrotasks() {
+  for (let index = 0; index < 12; index += 1) await Promise.resolve();
+}
+
 afterEach(() => vi.useRealTimers());
 
 it("flushes the represented draft before transforming and saving a version", async () => {
@@ -234,6 +237,10 @@ it("flushes the represented draft before transforming and saving a version", asy
   let releasePriorDraft!: (result: ApiResult<DraftReceipt>) => void;
   const priorDraftAck = new Promise<ApiResult<DraftReceipt>>((resolve) => {
     releasePriorDraft = resolve;
+  });
+  let signalRevisionStarted!: () => void;
+  const revisionStarted = new Promise<void>((resolve) => {
+    signalRevisionStarted = resolve;
   });
   const transformBodies: Array<
     Parameters<DecisionAuthoringOperations["transformEditor"]>[0]["body"]
@@ -272,6 +279,7 @@ it("flushes the represented draft before transforming and saving a version", asy
     },
     saveRevision: async ({ body }) => {
       revisionBodies.push(body);
+      signalRevisionStarted();
       return apiResult(revisionReceipt(source2));
     },
   });
@@ -287,8 +295,11 @@ it("flushes the represented draft before transforming and saving a version", asy
   expect(updateBodies).toHaveLength(0);
 
   await editQuestion("Second queued");
-  fireEvent.click(screen.getByRole("button", { name: "Save version" }));
-  await waitFor(() => expect(updateBodies).toHaveLength(1));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+    await settleMicrotasks();
+  });
+  expect(updateBodies).toHaveLength(1);
   expect(updateBodies[0]?.editor_source).toBe(source1);
   expect(updateBodies[0]?.editor_source).toContain("9007199254740993");
   expect(updateBodies[0]?.editor_source).toContain("0.1234567890123456789");
@@ -298,8 +309,9 @@ it("flushes the represented draft before transforming and saving a version", asy
 
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-1")));
+    await revisionStarted;
   });
-  await waitFor(() => expect(revisionBodies).toHaveLength(1));
+  expect(revisionBodies).toHaveLength(1);
   expect(transformBodies).toHaveLength(2);
   expect(transformBodies[1]).toMatchObject({
     editor_source: source1,
@@ -354,7 +366,10 @@ it("pauses queued transforms while the represented draft acknowledgement overlap
   await editQuestion("First represented");
   await advanceTransformDelay();
   await editQuestion("Second queued");
-  fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+    await settleMicrotasks();
+  });
   expect(updateCount).toBe(1);
 
   const schema = screen.getByRole("textbox", {
@@ -365,8 +380,7 @@ it("pauses queued transforms while the represented draft acknowledgement overlap
   fireEvent.change(schema, { target: { value: '{"type":"string"}' } });
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-1")));
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleMicrotasks();
   });
 
   expect(transformBodies).toHaveLength(1);
@@ -407,9 +421,14 @@ it.each([
     await editQuestion("First represented");
     await advanceTransformDelay();
     await editQuestion("Second queued");
-    fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+      await settleMicrotasks();
+    });
 
-    await screen.findByRole("button", { name: "Retry pending edits" });
+    expect(
+      screen.getByRole("button", { name: "Retry pending edits" }),
+    ).toBeTruthy();
     expect(transformEditor).toHaveBeenCalledTimes(1);
     expect(updateDraft).toHaveBeenCalledTimes(1);
     expect(saveRevision).not.toHaveBeenCalled();
@@ -459,7 +478,10 @@ it("drops an obsolete queued form edit when exact raw source replaces its sequen
   await editQuestion("First represented");
   await advanceTransformDelay();
   await editQuestion("Second queued");
-  fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+    await settleMicrotasks();
+  });
   expect(updateBodies).toHaveLength(1);
 
   fireEvent.click(screen.getByText("Advanced editor source"));
@@ -468,8 +490,7 @@ it("drops an obsolete queued form edit when exact raw source replaces its sequen
   });
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-1")));
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleMicrotasks();
   });
 
   expect(transformBodies).toHaveLength(1);
@@ -486,6 +507,14 @@ it("does not continue an old drain after the same page is reused for another dec
   const priorDraftAck = new Promise<ApiResult<DraftReceipt>>((resolve) => {
     releasePriorDraft = resolve;
   });
+  let signalNewDecisionRead!: () => void;
+  const newDecisionRead = new Promise<void>((resolve) => {
+    signalNewDecisionRead = resolve;
+  });
+  let signalNewDraftSent!: () => void;
+  const newDraftSent = new Promise<void>((resolve) => {
+    signalNewDraftSent = resolve;
+  });
   const updateRequests: Array<
     Parameters<DecisionAuthoringOperations["updateDraft"]>[0]
   > = [];
@@ -494,15 +523,18 @@ it("does not continue an old drain after the same page is reused for another dec
   );
   const saveRevision = vi.fn(async () => apiResult(revisionReceipt(source2)));
   const mounted = mountDecision({
-    read: async ({ decisionId: targetDecisionId }) =>
-      apiResult(
+    read: async ({ decisionId: targetDecisionId }) => {
+      if (targetDecisionId === "decision-2") signalNewDecisionRead();
+      return apiResult(
         decisionRead(source0, `draft-${targetDecisionId}`, {
           decisionId: targetDecisionId,
         }),
-      ),
+      );
+    },
     updateDraft: async (request) => {
       updateRequests.push(request);
       if (updateRequests.length === 1) return priorDraftAck;
+      signalNewDraftSent();
       return apiResult(
         draftReceipt(
           request.body.editor_source,
@@ -520,7 +552,10 @@ it("does not continue an old drain after the same page is reused for another dec
   await editQuestion("First represented");
   await advanceTransformDelay();
   await editQuestion("Second queued");
-  fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Save version" }));
+    await settleMicrotasks();
+  });
   expect(updateRequests).toHaveLength(1);
 
   const rawSource = '{ "new-page-only": 9007199254740993 }';
@@ -530,12 +565,14 @@ it("does not continue an old drain after the same page is reused for another dec
   });
   expectTextboxValue("Decision source", rawSource);
 
-  mounted.rerenderDecision("decision-2");
-  await waitFor(() => expectTextboxValue("Question", "Start"));
+  await act(async () => {
+    mounted.rerenderDecision("decision-2");
+    await newDecisionRead;
+    await settleMicrotasks();
+  });
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-old-ack")));
-    await Promise.resolve();
-    await Promise.resolve();
+    await settleMicrotasks();
   });
 
   expect(transformEditor).toHaveBeenCalledTimes(1);
@@ -545,7 +582,11 @@ it("does not continue an old drain after the same page is reused for another dec
 
   await editQuestion("New page edit");
   await advanceTransformDelay();
-  await waitFor(() => expect(updateRequests).toHaveLength(2));
+  await act(async () => {
+    await newDraftSent;
+    await settleMicrotasks();
+  });
+  expect(updateRequests).toHaveLength(2);
   expect(updateRequests[1]?.decisionId).toBe("decision-2");
   expect(updateRequests[1]?.body).toMatchObject({
     editor_source: source1,
