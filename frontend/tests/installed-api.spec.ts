@@ -3648,7 +3648,7 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
-  ).toHaveText('{"case":1,"changed":true}');
+  ).toHaveText('{"case":1,"changed":true}', { timeout: 15_000 });
   await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
   await expect(
     page.getByRole("region", { name: "Saved changes awaiting refresh" }),
@@ -3911,6 +3911,52 @@ test("installed browser authors exact decision source and previews imports throu
     true,
   ]);
   const splitReceipt = splitCommitResults[1];
+  const splitSnapshot = splitReceipt.snapshot as {
+    cases: Array<{ id: string; split: string }>;
+  };
+  const expectedSplitByCase = Object.fromEntries(
+    splitPreview.preview.assignments,
+  );
+  const savedSplitByCase = Object.fromEntries(
+    splitSnapshot.cases.map(({ id, split }) => [id, split]),
+  );
+  expect(savedSplitByCase).toEqual(expectedSplitByCase);
+  await page.unroute("**/splits/commit");
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+
+  const casesRegion = page.getByRole("region", { name: /^Cases in / });
+  await expect(casesRegion).toBeVisible({ timeout: 15_000 });
+  const readVisibleCaseSplits = () =>
+    casesRegion.locator("tbody tr").evaluateAll((rows) =>
+      Object.fromEntries(
+        rows.map((row) => {
+          const cells = row.querySelectorAll("td");
+          return [
+            cells.item(0)?.querySelector("button")?.textContent?.trim() ?? "",
+            cells.item(2)?.textContent?.trim() ?? "",
+          ];
+        }),
+      ),
+    );
+  await expect
+    .poll(readVisibleCaseSplits, { timeout: 15_000 })
+    .toEqual(expectedSplitByCase);
+  await caseButton("case-1").click();
+  await expect(
+    page.getByRole("heading", { name: "case-1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText('{"case":1,"changed":true}');
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByRole("heading", { name: "Expected answers" }),
+  ).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
+  await expect(
+    page.getByRole("region", { name: "Saved changes awaiting refresh" }),
+  ).toHaveCount(0);
+
   const splitDatasetRead = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
     {
@@ -3927,21 +3973,10 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
+  expect(casesAfterSplitReplay.status()).toBe(200);
   expect((await casesAfterSplitReplay.json()).data.total).toBe(
     String((splitReceipt.snapshot as { cases: unknown[] }).cases.length),
   );
-  const splitSnapshot = splitReceipt.snapshot as {
-    cases: Array<{ id: string; split: string }>;
-  };
-  const expectedSplitByCase = Object.fromEntries(
-    splitPreview.preview.assignments,
-  );
-  const savedSplitByCase = Object.fromEntries(
-    splitSnapshot.cases.map(({ id, split }) => [id, split]),
-  );
-  expect(savedSplitByCase).toEqual(expectedSplitByCase);
-  await page.unroute("**/splits/commit");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
 
   await caseButton("seed-1").click();
   await page.getByRole("checkbox", { name: "Option A" }).check();
