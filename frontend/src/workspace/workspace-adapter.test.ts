@@ -189,7 +189,27 @@ describe("workspace API adapter", () => {
   });
 
   it("keeps an aborted admitted overview in the registration lane through body parsing", async () => {
-    const heldResponse = deferred<Response>();
+    const bodyReadStarted = deferred<void>();
+    const releaseBody = deferred<void>();
+    const body = JSON.stringify({
+      schema_version: 1,
+      data: { registration, decisions: [], datasets: [], schema_version: 1 },
+      warnings: [],
+    });
+    const heldResponse = new Response(
+      new ReadableStream<Uint8Array>(
+        {
+          async pull(controller) {
+            bodyReadStarted.resolve(undefined);
+            await releaseBody.promise;
+            controller.enqueue(new TextEncoder().encode(body));
+            controller.close();
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+      { headers: { "Content-Type": "application/json" } },
+    );
     const transport = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -199,7 +219,7 @@ describe("workspace API adapter", () => {
           api_version: 1,
         }),
       )
-      .mockImplementationOnce(() => heldResponse.promise)
+      .mockResolvedValueOnce(heldResponse)
       .mockResolvedValueOnce(
         json({ registration, decisions: [], datasets: [], schema_version: 1 }),
       );
@@ -211,26 +231,21 @@ describe("workspace API adapter", () => {
       "registration-1",
       controller.signal,
     );
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await bodyReadStarted.promise;
     const currentOverview = gateway.projectOverview(
       "registration-1",
       new AbortController().signal,
     );
     controller.abort();
-    await Promise.resolve();
     expect(transport).toHaveBeenCalledTimes(2);
+    expect(transport.mock.calls[1][1]?.signal).toBeUndefined();
 
-    heldResponse.resolve(
-      json({ registration, decisions: [], datasets: [], schema_version: 1 }),
-    );
+    releaseBody.resolve(undefined);
     await expect(staleOverview).rejects.toMatchObject({ code: "cancelled" });
     await expect(currentOverview).resolves.toMatchObject({
       id: "registration-1",
       decisions: [],
     });
     expect(transport).toHaveBeenCalledTimes(3);
-    expect(transport.mock.calls[1][1]?.signal).toBeUndefined();
   });
 });
