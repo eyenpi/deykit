@@ -375,13 +375,17 @@ test("installed browser authors exact decision source and previews imports throu
   page.on("request", (request) => {
     apiResponses.push(request.url());
     if (
-      activePhase === "Import row validation and explicit accepted-row commit" &&
+      activePhase ===
+        "Import row validation and explicit accepted-row commit" &&
       request.method() === "GET"
     ) {
       const routePattern = safeRoutePattern(new URL(request.url()).pathname);
       if (sourceReadTemplates.has(routePattern)) {
         const startedAt = Date.now();
-        sourceReadStarts.set(request, { route_pattern: routePattern, startedAt });
+        sourceReadStarts.set(request, {
+          route_pattern: routePattern,
+          startedAt,
+        });
         sourceReadEvents.push({
           event: "start",
           route_pattern: routePattern,
