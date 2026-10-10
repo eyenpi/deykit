@@ -132,8 +132,14 @@ def test_m09_dispatch_contention_stops_at_original_deadline_without_transport(se
     assert factory.calls == []
     assert result.state == "budget_exhausted"
     assert service.show(result.run_id).state == "budget_exhausted"
+    history = read_history(source, result.run_id)
+    assert result.attempts_used == 1 and len(history.attempts) == 1
+    final_attempt = history.final_event(history.attempts[0].id)
+    assert final_attempt is not None and final_attempt.state == "not_sent"
+    assert final_attempt.outcome is not None
+    assert final_attempt.outcome.error is not None
+    assert final_attempt.outcome.error.reason == "segment_deadline"
     assert service.preview_resume(result.run_id).planned_case_ids == (
-        "case-00",
         "case-01",
         "case-02",
     )
