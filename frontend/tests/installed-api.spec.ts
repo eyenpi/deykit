@@ -1706,6 +1706,10 @@ test("installed browser authors exact decision source and previews imports throu
 
   await enterPhase("Incompatible version context preserves local source");
   let provideIncompatibleVersionContext = false;
+  let incompatibleDraftWriteStatus: number | undefined;
+  let incompatibleDraftWriteCount = 0;
+  let incompatibleDraftWriteSource: string | undefined;
+  let incompatibleDraftWriteEtag: string | undefined;
   await page.route(`**/decisions/${decisionId}`, async (route) => {
     if (
       route.request().method() !== "GET" ||
@@ -1713,17 +1717,33 @@ test("installed browser authors exact decision source and previews imports throu
     )
       return route.continue();
     provideIncompatibleVersionContext = false;
-    const response = await route.fetch();
-    const envelope = await response.json();
-    envelope.data.draft.etag = "external-draft-etag";
-    envelope.data.draft.record.editor_source = "external draft source";
-    envelope.data.draft.record.base_revision_id = "external-revision";
-    envelope.data.decision.record.latest_revision_id = "external-revision";
-    await route.fulfill({
-      status: response.status(),
-      contentType: "application/json",
-      body: JSON.stringify(envelope),
-    });
+    const beforeExternalWrite = await route.fetch();
+    expect(beforeExternalWrite.status()).toBe(200);
+    const currentData = (await beforeExternalWrite.json()).data;
+    const currentDraftEtag = currentData.draft.etag as string;
+    const externalEditorSource = `${currentData.draft.record.editor_source} `;
+    incompatibleDraftWriteCount += 1;
+    const externalDraftWrite = await page.request.put(
+      `/api/v1/projects/${registrationId}/decisions/${decisionId}/draft`,
+      {
+        headers: authorizedHeaders,
+        data: {
+          schema_version: 1,
+          operation_id: "m10-external-version-context-change",
+          expected_etag: currentDraftEtag,
+          editor_source: externalEditorSource,
+        },
+      },
+    );
+    incompatibleDraftWriteStatus = externalDraftWrite.status();
+    if (externalDraftWrite.ok()) {
+      const externalDraftData = (await externalDraftWrite.json()).data;
+      incompatibleDraftWriteSource =
+        externalDraftData.record.editor_source as string;
+      incompatibleDraftWriteEtag = externalDraftData.etag as string;
+    }
+    const afterExternalWrite = await route.fetch();
+    await route.fulfill({ response: afterExternalWrite });
   });
   await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
@@ -1747,6 +1767,12 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Refreshing saved draft…", exact: true }),
   ).toBeDisabled();
+  expect(incompatibleDraftWriteCount).toBe(1);
+  expect(incompatibleDraftWriteStatus).toBe(200);
+  expect(incompatibleDraftWriteSource).toBe(
+    `${sourceDuringHeldRefresh} `,
+  );
+  expect(typeof incompatibleDraftWriteEtag).toBe("string");
   const deliberateReviewRead = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/decisions/${decisionId}`) &&
