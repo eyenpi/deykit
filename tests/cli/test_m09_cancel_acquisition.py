@@ -33,14 +33,14 @@ def _fake_runner(
     history = cast(RunHistory, object())
 
     def cancel(run_id: str, operation_id: str) -> RunHistory:
-        assert source._local.source_depth > 0
+        assert getattr(source._local, "source_depth", 0) > 0
         calls.append((run_id, operation_id))
         if failure is not None:
             raise failure
         return history
 
     def active() -> bool:
-        active_depths.append(source._local.source_depth)
+        active_depths.append(getattr(source._local, "source_depth", 0))
         return True
 
     runner = cast(
@@ -94,7 +94,7 @@ def test_m09_cancel_retries_observed_native_source_busy_once_and_projects_after_
     history = cast(RunHistory, object())
 
     def runner_factory(source: FileProjectSource) -> ExecutionService:
-        assert source._local.source_depth == 0
+        assert getattr(source._local, "source_depth", 0) == 0
         sources.append(source)
         original = source.consistent_read
 
@@ -121,12 +121,12 @@ def test_m09_cancel_retries_observed_native_source_busy_once_and_projects_after_
         assert lock_acquired.wait(timeout=2)
 
         def cancel(run_id: str, op_id: str) -> RunHistory:
-            assert source._local.source_depth > 0
+            assert getattr(source._local, "source_depth", 0) > 0
             body_calls.append((run_id, op_id))
             return history
 
         def active() -> bool:
-            active_depths.append(source._local.source_depth)
+            active_depths.append(getattr(source._local, "source_depth", 0))
             return True
 
         runner = cast(
@@ -152,7 +152,7 @@ def test_m09_cancel_retries_observed_native_source_busy_once_and_projects_after_
     def release_before_retry(seconds: float) -> None:
         delays.append(seconds)
         assert source_busy_reasons == ["source_busy"]
-        assert sources[0]._local.source_depth == 0
+        assert getattr(sources[0]._local, "source_depth", 0) == 0
         release_lock.set()
         holders[0].join(timeout=2)
         assert not holders[0].is_alive()
