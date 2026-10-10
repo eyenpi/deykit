@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
+from time import monotonic as _monotonic, sleep as _sleep
 from typing import Annotated, Literal, cast
 
 import typer
 
 from deykit.application.evaluations import EvaluationService
+from deykit.application.errors import ServiceFailure
 from deykit.application.execution import ExecutionService
 from deykit.application.execution_actions import settle_execution
 from deykit.cli.context import CliState, SystemClock, new_operation_id
@@ -16,10 +20,14 @@ from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
-from deykit.runner.views import RunCreated, RunProgress, RunResumed
+from deykit.runner.history import RunHistory
+from deykit.runner.views import RunCreated, RunProgress, RunResumed, progress_view
 from deykit.storage import FileProjectSource
 
 runs_app = typer.Typer(help="Inspect, cancel, and explicitly resume frozen runs.")
+
+_CANCEL_ACQUISITION_BUDGET_SECONDS = 5.0
+_CANCEL_ACQUISITION_DELAYS_SECONDS = (0.01, 0.05, 0.1, 0.2, 0.25)
 
 
 def register(root: typer.Typer) -> None:
@@ -30,6 +38,46 @@ def register(root: typer.Typer) -> None:
 def service(source: FileProjectSource) -> ExecutionService:
     clock = SystemClock()
     return ExecutionService(source, source, ProviderBackends(source, clock), clock)
+
+
+@contextmanager
+def _cancel_epoch(source: FileProjectSource) -> Iterator[None]:
+    """Retry only nonblocking source-lock acquisition for this CLI cancellation."""
+    deadline = _monotonic() + _CANCEL_ACQUISITION_BUDGET_SECONDS
+    delay_index = 0
+    first_busy: ServiceFailure | None = None
+    while True:
+        if first_busy is not None and _monotonic() >= deadline:
+            raise first_busy from None
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(source.consistent_read())
+            except ServiceFailure as error:
+                if error.error.code != "conflict" or error.error.reason != "source_busy":
+                    raise
+                if first_busy is None:
+                    first_busy = error
+                remaining = deadline - _monotonic()
+                if remaining <= 0:
+                    raise first_busy from None
+                delay = _CANCEL_ACQUISITION_DELAYS_SECONDS[
+                    min(delay_index, len(_CANCEL_ACQUISITION_DELAYS_SECONDS) - 1)
+                ]
+                _sleep(min(delay, remaining))
+                delay_index += 1
+            else:
+                yield
+                return
+
+
+def _cancel_history_once(
+    source: FileProjectSource,
+    runner: ExecutionService,
+    run_id: str,
+    operation_id: str,
+) -> RunHistory:
+    with _cancel_epoch(source):
+        return runner.repository.cancel(run_id, operation_id)
 
 
 def _created(value: RunCreated) -> None:
@@ -174,10 +222,15 @@ def cancel_run(
     def work(cli: CliState) -> object:
         actual = new_operation_id(operation_id)
         with cli.source() as source:
+            runner = service(source)
             with selection_context(source, (selector_hint("run", run_id, ()),)):
+                history = _cancel_history_once(source, runner, run_id, actual)
+                projected = progress_view(
+                    history, active=runner.execution.execution_active()
+                )
                 return {
                     "operation_id": actual,
-                    "run": service(source).cancel(run_id, operation_id=actual),
+                    "run": projected,
                 }
 
     execute(ctx, work)
