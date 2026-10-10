@@ -66,6 +66,7 @@ export function DecisionPage({
   const [draftDirty, setDraftDirty] = useState(false);
   const [working, setWorking] = useState(false);
   const [sourceControlsLocked, setSourceControlsLocked] = useState(false);
+  const [, setCompositionBoundary] = useState(0);
   const [renameWorking, setRenameWorking] = useState(false);
   const [versionOutcomeUnknown, setVersionOutcomeUnknown] = useState(false);
   const [renameOutcomeUnknown, setRenameOutcomeUnknown] = useState(false);
@@ -640,6 +641,7 @@ export function DecisionPage({
     setTimeout(() => {
       if (sourceControlsLockedRef.current) {
         compositionCommitPending.current = false;
+        setCompositionBoundary((revision) => revision + 1);
         return;
       }
       const committed = element.value;
@@ -676,6 +678,7 @@ export function DecisionPage({
         emptyCompositionGeneration.current = editGeneration.current;
       compositionBaseline.current = undefined;
       compositionCommitPending.current = false;
+      setCompositionBoundary((revision) => revision + 1);
       scheduleTransformDrain();
       if (
         committed === baseline &&
