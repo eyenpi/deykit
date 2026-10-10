@@ -2851,7 +2851,23 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page).toHaveURL(
     new URL(caseOneExamplesHash, page.url()).toString(),
   );
-  await expect(caseButton("seed-1")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "case-1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(caseOneOriginalSource);
+  await expect(
+    page.getByRole("button", { name: "Refresh saved case" }),
+  ).toHaveCount(0);
+  await caseButton("seed-1").click();
+  await expect(
+    page.getByRole("heading", { name: "seed-1", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Expected answers" })).toBeVisible();
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(/\S/);
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
   const readSeedLabel = async () => {
     const response = await page.request.get(
@@ -2863,7 +2879,20 @@ test("installed browser authors exact decision source and previews imports throu
         },
       },
     );
-    expect(response.status()).toBe(200);
+    if (response.status() !== 200) {
+      const failure = await response.json().catch(() => undefined);
+      const error = isRecord(failure) ? failure.error : undefined;
+      const details = isRecord(error) ? error : undefined;
+      const diagnostic = {
+        route_pattern: safeRoutePattern(new URL(response.url()).pathname),
+        status: response.status(),
+        code: safeErrorIdentifier(details?.code),
+        reason: safeErrorIdentifier(details?.reason),
+      };
+      apiFailures.push(diagnostic);
+      await recordProgress();
+      expect(response.status(), JSON.stringify(diagnostic)).toBe(200);
+    }
     return response;
   };
   const emptySeedLabel = await readSeedLabel();
