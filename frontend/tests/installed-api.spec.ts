@@ -994,14 +994,42 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
     "Changes not saved",
   );
+  const projectEditorPath = operationMetadata.projectDecisionEditor.path
+    .replace("{registration_id}", registrationId)
+    .replace("{decision_id}", decisionId);
+  const rawReplacementProjection = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === projectEditorPath &&
+      response.request().method() === "POST" &&
+      (response.request().postDataJSON() as { editor_source?: string })
+        .editor_source === rawReplacementSource,
+  );
   releaseObsoleteTransform();
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
     "Draft saved",
   );
+  const projectionResponse = await rawReplacementProjection;
+  expect(projectionResponse.status()).toBe(200);
+  await projectionResponse.body();
   const rawReplacementRead = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
     { headers: authorizedHeaders },
   );
+  if (!rawReplacementRead.ok()) {
+    const failure = await rawReplacementRead.json().catch(() => undefined);
+    const error = isRecord(failure) ? failure.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    apiFailures.push({
+      route_pattern: safeRoutePattern(
+        new URL(rawReplacementRead.url()).pathname,
+      ),
+      status: rawReplacementRead.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    });
+    await recordProgress();
+  }
+  expect(rawReplacementRead.status()).toBe(200);
   expect(
     (await rawReplacementRead.json()).data.draft.record.editor_source,
   ).toBe(rawReplacementSource);
