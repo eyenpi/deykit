@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal, TypeVar
 
 from pydantic import ValidationError
@@ -325,7 +326,7 @@ class Scheduler:
                     cancel_requested = await self._source_call(
                         run_id,
                         "cancel_observation",
-                        lambda current=current: repo.cancelled(current, segment),
+                        partial(repo.cancelled, current, segment),
                     )
                 except _SourceContentionExhausted as error:
                     self._record_contention(stop, error)
@@ -356,9 +357,7 @@ class Scheduler:
                             reserved = await self._source_call(
                                 run_id,
                                 "reservation",
-                                lambda work=work: repo.reserve(
-                                    run_id, segment, work, deadline=deadline
-                                ),
+                                partial(repo.reserve, run_id, segment, work, deadline=deadline),
                                 deadline=deadline,
                             )
                         except _SegmentDeadlineElapsed:
