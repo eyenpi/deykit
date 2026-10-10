@@ -1941,11 +1941,10 @@ test("installed browser authors exact decision source and previews imports throu
     .editor_source as string;
   expect(transformedSource).toContain("9007199254740993");
   expect(transformedSource).toContain("0.1234567890123456789");
-  await expect(page.locator(".option-list > li")).toContainText([
-    "Option A",
-    "Option C",
-    "Renamed Option B",
-  ]);
+  await expect(optionNames).toHaveCount(3);
+  await expect(optionNames.nth(0)).toHaveValue("Option A");
+  await expect(optionNames.nth(1)).toHaveValue("Option C");
+  await expect(optionNames.nth(2)).toHaveValue("Renamed Option B");
   const immediateVersionOptionName = "Saved before transform debounce";
   await page.getByLabel("Option name").nth(1).fill(immediateVersionOptionName);
   const immediateSaveResponse = page.waitForResponse(
