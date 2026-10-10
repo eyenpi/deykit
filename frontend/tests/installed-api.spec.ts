@@ -815,7 +815,12 @@ test("installed browser authors exact decision source and previews imports throu
         contentType: "application/json",
         body: JSON.stringify({
           schema_version: 1,
-          error: { code: "service_unavailable", message: "Read unavailable" },
+          error: {
+            schema_version: 1,
+            code: "internal_error",
+            reason: "decision_read_failed",
+            message: "Read unavailable",
+          },
         }),
       });
     },
@@ -1487,7 +1492,12 @@ test("installed browser authors exact decision source and previews imports throu
       contentType: "application/json",
       body: JSON.stringify({
         schema_version: 1,
-        error: { code: "etag_conflict", message: "Version changed" },
+        error: {
+          schema_version: 1,
+          code: "conflict",
+          reason: "draft_changed",
+          message: "Version changed",
+        },
       }),
     });
   });
