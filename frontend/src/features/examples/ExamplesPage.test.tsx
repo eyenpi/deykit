@@ -400,7 +400,9 @@ it("does not publish an old A-to-B read after a rapid return to A", async () => 
   );
   const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
     async ({ caseId }) => ({
-      data: labelView(caseId === "case-b" ? caseB : refreshedA),
+      data: labelView(
+        caseId === "case-b" ? caseB : aReads === 1 ? caseA : refreshedA,
+      ),
       warnings: [],
     }),
   );
