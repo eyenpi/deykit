@@ -6,6 +6,7 @@ import { ErrorSummary, LoadingState } from "../../components/States";
 import { JsonSourceEditor } from "../../components/JsonSourceEditor";
 import type { DecisionAuthoringOperations } from "../../workspace/gateway";
 import type { DirtyNavigationGuard, WorkspaceNavigation } from "../../workspace/navigation";
+import type { WorkspaceRoute } from "../../workspace/routes";
 import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
 
@@ -38,17 +39,19 @@ export function DefinitionHistory({
   const [restorePreview, setRestorePreview] = useState<RevisionData>();
   const [restoreState, setRestoreState] = useState<MutationState<RestoreData>>({ kind: "idle" });
   const [reviewedDraft, setReviewedDraft] = useState<{ etag: string; source: string }>();
-  const restoreMutation = useRef<RetainedMutation<RestoreBody, RestoreData>>();
-  const restoreGuard = useRef<DirtyNavigationGuard>();
-  if (!restoreGuard.current) {
+  const restoreMutation = useRef<RetainedMutation<RestoreBody, RestoreData> | undefined>(undefined);
+  const restoreGuard = useRef<DirtyNavigationGuard | undefined>(undefined);
+  const restoreGuardValue: DirtyNavigationGuard = restoreGuard.current ?? (() => {
     const unresolvedRestore = () => {
       const state = restoreMutation.current?.state.kind;
       return state === "submitting" || state === "outcome-unknown";
     };
-    const guard = (async () => !unresolvedRestore()) as DirtyNavigationGuard;
-    guard.isDirty = unresolvedRestore;
-    restoreGuard.current = guard;
-  }
+    return Object.assign(
+      async (_target: WorkspaceRoute) => !unresolvedRestore(),
+      { isDirty: unresolvedRestore },
+    );
+  })();
+  restoreGuard.current = restoreGuardValue;
 
   useEffect(() => {
     restoreMutation.current = new RetainedMutation(async (body) => {
@@ -59,8 +62,8 @@ export function DefinitionHistory({
 
   useEffect(() => navigation.registerDirtyGuard(
     `revision-restore:${registrationId}:${decisionId}`,
-    restoreGuard.current as DirtyNavigationGuard,
-  ), [decisionId, navigation, registrationId]);
+    restoreGuardValue,
+  ), [decisionId, navigation, registrationId, restoreGuardValue]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -259,12 +262,12 @@ export function DefinitionHistory({
           <p><code>{selected.revision.record.content_hash}</code></p>
           <p className="muted">Read-only definition detail from the saved version.</p>
           <dl>
-            <dt>Question</dt><dd>{selected.revision.record.definition.question.instructions}</dd>
-            <dt>Options</dt><dd>{selected.revision.record.definition.question.options.map((option) => option.name).join(", ")}</dd>
+            <dt>Question</dt><dd>{selected.revision.record.definition.questions[0].instructions}</dd>
+            <dt>Options</dt><dd>{selected.revision.record.definition.questions[0].options.map((option) => option.name).join(", ")}</dd>
           </dl>
           <details className="section saved-source">
             <summary>Exact saved editor source</summary>
-            <JsonSourceEditor label="Saved editor source" value={selected.revision.editor_source} readOnly rows={14} />
+            <JsonSourceEditor label="Saved editor source" value={selected.editor_source} readOnly rows={14} />
           </details>
           {diff && (
             <section aria-label="Difference from latest version">
@@ -294,9 +297,9 @@ export function DefinitionHistory({
             <p>The saved version will replace the current draft after the service checks its latest ETag. Existing saved versions and evidence stay unchanged.</p>
             <h3>Version to restore</h3>
             <p><code>{restorePreview.revision.record.id}</code> · {restorePreview.revision.record.created_at}</p>
-            <p>{restorePreview.revision.record.definition.question.instructions}</p>
-            <ul>{restorePreview.revision.record.definition.question.options.map((option) => <li key={option.id}>{option.name}</li>)}</ul>
-            <JsonSourceEditor label="Editor source to restore" value={restorePreview.revision.editor_source} readOnly rows={10} />
+            <p>{restorePreview.revision.record.definition.questions[0].instructions}</p>
+            <ul>{restorePreview.revision.record.definition.questions[0].options.map((option) => <li key={option.id}>{option.name}</li>)}</ul>
+            <JsonSourceEditor label="Editor source to restore" value={restorePreview.editor_source} readOnly rows={10} />
             {restoreState.kind === "conflict" && (
               <section aria-label="Current draft after conflict">
                 <p role="status">The saved version was not restored. The current draft remains unchanged.</p>

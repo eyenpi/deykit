@@ -60,24 +60,24 @@ export function DecisionPage({
   }>();
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const sourceRef = useRef(source);
-  const recordRef = useRef<DecisionDTO>();
+  const recordRef = useRef<DecisionDTO | undefined>(undefined);
   const draftEtagRef = useRef("");
   const sourceSequence = useRef(0);
   const formSequence = useRef(0);
   const selectedFieldOriginals = useRef(new Map<number, string>());
-  const instructionOriginal = useRef<string>();
+  const instructionOriginal = useRef<string | undefined>(undefined);
   const optionOriginals = useRef(new Map<string, { name: string; description: string }>());
-  const schemaOriginal = useRef<string>();
+  const schemaOriginal = useRef<string | undefined>(undefined);
   const composingSource = useRef(false);
   const transformQueue = useRef<Array<{ edit: EditorEdit; sequence: number; sourceSequence: number }>>([]);
-  const transformTimer = useRef<ReturnType<typeof setTimeout>>();
+  const transformTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const transforming = useRef(false);
-  const transformTask = useRef<Promise<void>>();
-  const autosave = useRef<DraftAutosaveController>();
-  const versionRequest = useRef<ApiOperationBody<"saveDecisionRevision">>();
-  const renameRequest = useRef<ApiOperationBody<"renameDecision">>();
-  const archiveRequest = useRef<ApiOperationBody<"archiveDecision"> | ApiOperationBody<"restoreDecision">>();
-  const archiveAction = useRef<"archive" | "restore">();
+  const transformTask = useRef<Promise<void> | undefined>(undefined);
+  const autosave = useRef<DraftAutosaveController | undefined>(undefined);
+  const versionRequest = useRef<ApiOperationBody<"saveDecisionRevision"> | undefined>(undefined);
+  const renameRequest = useRef<ApiOperationBody<"renameDecision"> | undefined>(undefined);
+  const archiveRequest = useRef<ApiOperationBody<"archiveDecision"> | ApiOperationBody<"restoreDecision"> | undefined>(undefined);
+  const archiveAction = useRef<"archive" | "restore" | undefined>(undefined);
   const actionLock = useRef(false);
 
   const setBackingSource = useCallback((next: string) => {
@@ -315,7 +315,7 @@ export function DecisionPage({
       setNote("");
       recordRef.current = refreshedRecord;
       setRecord(refreshedRecord);
-      setNotice(`Saved version ${result.data.record.id}.`);
+      setNotice(`Saved version ${result.data.revision.record.id}.`);
     } catch (cause) {
       if (uncertainOutcome(cause)) setVersionOutcomeUnknown(true);
       else versionRequest.current = undefined;

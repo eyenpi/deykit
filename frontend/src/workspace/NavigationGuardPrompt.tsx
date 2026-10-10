@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { safeMessage } from "../api/client";
 import { Modal } from "../components/Modal";
@@ -37,9 +37,10 @@ export function useDirtyNavigationGuard({
     },
     [],
   );
-  const guard = useRef(guardFunction as DirtyNavigationGuard);
-  guard.current = guardFunction as DirtyNavigationGuard;
-  guard.current.isDirty = () => dirtyRef.current;
+  const guard = useMemo<DirtyNavigationGuard>(
+    () => Object.assign(guardFunction, { isDirty: () => dirtyRef.current }),
+    [guardFunction],
+  );
 
   useEffect(
     () => () => {
@@ -75,7 +76,7 @@ export function useDirtyNavigationGuard({
   }
 
   return {
-    guard: guard.current,
+    guard,
     prompt: target ? (
       <Modal
         title="Unsaved changes"

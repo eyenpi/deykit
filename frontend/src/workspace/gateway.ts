@@ -6,7 +6,7 @@ import type {
   ApiWarning,
 } from "../api/client";
 import type { ApiResult } from "../api/client";
-import type { ApiOperationId } from "../api/generated/operations";
+import type { ApiJsonOperationId, ApiOperationId } from "../api/generated/operations";
 export interface ResourceSummary {
   id: string;
   name: string;
@@ -39,9 +39,9 @@ export interface WorkspaceGateway {
   authoring: AuthoringGateway;
 }
 
-type OperationResult<K extends ApiOperationId> =
+type OperationResult<K extends ApiJsonOperationId> =
   Promise<ApiResult<ApiOperationData<K>>>;
-type OperationQuery<K extends ApiOperationId> =
+type OperationQuery<K extends ApiJsonOperationId> =
   NonNullable<ApiOperationArguments<K>["query"]>;
 type OperationBody<K extends ApiOperationId> =
   ApiOperationBody<K>;
@@ -202,23 +202,6 @@ const pending = () =>
     "integration_pending",
     "The local workspace service is not connected in this build. Project folders are unavailable.",
   );
-/** Deliberately no mock successes, filesystem guesses, or speculative API endpoints. */
-export const disconnectedWorkspace: WorkspaceGateway = {
-  authoring: disconnectedAuthoring,
-  async recentProjects() {
-    throw pending();
-  },
-  async openProject() {
-    throw pending();
-  },
-  async projectOverview() {
-    throw pending();
-  },
-  async reconnect() {
-    throw pending();
-  },
-};
-
 function disconnectedOperation(): never {
   throw pending();
 }
@@ -254,4 +237,21 @@ const disconnectedAuthoring: AuthoringGateway = {
     "projectSchema", "projectCaseInput", "encodeTextInput", "projectMapping",
     "transformMapping",
   ]),
+};
+
+/** Deliberately no mock successes, filesystem guesses, or speculative API endpoints. */
+export const disconnectedWorkspace: WorkspaceGateway = {
+  authoring: disconnectedAuthoring,
+  async recentProjects() {
+    throw pending();
+  },
+  async openProject() {
+    throw pending();
+  },
+  async projectOverview() {
+    throw pending();
+  },
+  async reconnect() {
+    throw pending();
+  },
 };

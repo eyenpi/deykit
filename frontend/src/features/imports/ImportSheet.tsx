@@ -50,10 +50,10 @@ export function ImportSheet({
     registrationId: string;
     datasetId: string;
     body: ApiOperationBody<"commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post">;
-  }, ImportCommit>>();
+  }, ImportCommit> | undefined>(undefined);
   const mappingFieldOriginals = useRef(new Map<string, string>());
   const mappingSourceRef = useRef(INITIAL_MAPPING);
-  const mappingFormRef = useRef<MappingForm>();
+  const mappingFormRef = useRef<MappingForm | undefined>(undefined);
   const mappingQueue = useRef(new MappingTransformQueue<MappingEdit, MappingForm>(INITIAL_MAPPING));
   const mappingTransformCount = useRef(0);
   const uncommittedMappingEdits = useRef(new Map<string, MappingEdit>());
@@ -105,11 +105,49 @@ export function ImportSheet({
   }
 
   function mergeUncommittedEdits(form: MappingForm): MappingForm {
-    const next = { ...form } as unknown as Record<string, unknown>;
+    let next = form;
     for (const edit of uncommittedMappingEdits.current.values()) {
-      if (edit.kind === "set") next[edit.field] = edit.value;
+      if (edit.kind !== "set") continue;
+      switch (edit.field) {
+        case "input_kind":
+          if (edit.value === "text" || edit.value === "json") next = { ...next, input_kind: edit.value };
+          break;
+        case "input_parse_json":
+          if (typeof edit.value === "boolean") next = { ...next, input_parse_json: edit.value };
+          break;
+        case "id_column":
+          if (typeof edit.value === "string" || edit.value === null) next = { ...next, id_column: edit.value };
+          break;
+        case "expected_column":
+          if (typeof edit.value === "string" || edit.value === null) next = { ...next, expected_column: edit.value };
+          break;
+        case "expected_parse_json":
+          if (typeof edit.value === "boolean") next = { ...next, expected_parse_json: edit.value };
+          break;
+        case "group_column":
+          if (typeof edit.value === "string" || edit.value === null) next = { ...next, group_column: edit.value };
+          break;
+        case "tags_column":
+          if (typeof edit.value === "string" || edit.value === null) next = { ...next, tags_column: edit.value };
+          break;
+        case "tags_parse_json":
+          if (typeof edit.value === "boolean") next = { ...next, tags_parse_json: edit.value };
+          break;
+        case "split_column":
+          if (typeof edit.value === "string" || edit.value === null) next = { ...next, split_column: edit.value };
+          break;
+        case "metadata_column":
+          if (typeof edit.value === "string" || edit.value === null) next = { ...next, metadata_column: edit.value };
+          break;
+        case "metadata_parse_json":
+          if (typeof edit.value === "boolean") next = { ...next, metadata_parse_json: edit.value };
+          break;
+        case "input_column":
+          if (typeof edit.value === "string" || edit.value === null) next = { ...next, input_column: edit.value };
+          break;
+      }
     }
-    return next as MappingForm;
+    return next;
   }
 
   function scheduleMappingEdits(edits: readonly MappingEdit[]) {

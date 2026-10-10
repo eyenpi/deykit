@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
 import { safeMessage } from "../../api/client";
+import { JsonSourceEditor } from "../../components/JsonSourceEditor";
 import { Modal } from "../../components/Modal";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import type { ExampleAuthoringOperations, ProjectOverview } from "../../workspace/gateway";
@@ -40,7 +41,7 @@ export function SplitSheet({
     registrationId: string;
     datasetId: string;
     body: ApiOperationBody<"commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post">;
-  }, SplitCommit>>();
+  }, SplitCommit> | undefined>(undefined);
   function requestClose() {
     if (busy) return;
     const changed = mode !== "seeded" || seed !== "0" || ratiosSource !== '{"development":0.8,"test":0.2}' || !!preview || state.kind === "outcome-unknown";

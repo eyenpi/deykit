@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import type { ApiOperationBody } from "./api/client";
 import { safeMessage } from "./api/client";
 import { Modal } from "./components/Modal";
+import { JsonSourceEditor } from "./components/JsonSourceEditor";
 import { ErrorSummary, LoadingState, WarningList } from "./components/States";
 import { DecisionPage } from "./features/decisions/DecisionPage";
 import { DefinitionHistory } from "./features/decisions/DefinitionHistory";
@@ -246,7 +247,7 @@ function ResourceCreationModal({
   const [error, setError] = useState<string>();
   const [outcomeUnknown, setOutcomeUnknown] = useState(false);
   const [busy, setBusy] = useState(false);
-  const retained = useRef<{ signature: string; decision: ApiOperationBody<"createDecision">; dataset: ApiOperationBody<"createDataset"> }>();
+  const retained = useRef<{ signature: string; decision: ApiOperationBody<"createDecision">; dataset: ApiOperationBody<"createDataset"> } | undefined>(undefined);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

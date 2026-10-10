@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
+import type { ApiOperationBody } from "../../api/client";
+import { disconnectedWorkspace } from "../../workspace/gateway";
 import type { ProviderAuthoringOperations, ProjectOverview } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
 import { ProviderPage } from "./ProviderPage";
@@ -16,6 +18,7 @@ const project: ProjectOverview = {
 };
 
 const profile = {
+  schema_version: 1 as const,
   id: "profile-test",
   adapter: "jev",
   requested_model: "jev-latest",
@@ -31,6 +34,12 @@ const profile = {
   credential_kind: null,
 };
 
+function providerOperations(
+  overrides: Partial<ProviderAuthoringOperations>,
+): ProviderAuthoringOperations {
+  return { ...disconnectedWorkspace.authoring.providers, ...overrides };
+}
+
 afterEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -42,14 +51,16 @@ it("keeps an OS credential mounted only for its request and never calls model li
   const setOSCredential = vi.fn(async () => {
     throw new ApiError("preflight_failed", "Secure storage is unavailable.", 422);
   });
-  const listModels = vi.fn();
-  const operations = {
-    list: async () => ({ data: { items: [profile], total: "1", next_cursor: null }, warnings: [] }),
+  const listModels = vi.fn(async () => {
+    throw new Error("Model listing should not run in this test.");
+  });
+  const operations = providerOperations({
+    list: async () => ({ data: { schema_version: 1, items: [profile], total: "1", next_cursor: null }, warnings: [] }),
     read: async () => ({ data: profile, warnings: [] }),
-    credentialStatus: async () => ({ data: { profile_id: profile.id, configured: false, available: false, kind: null }, warnings: [] }),
+    credentialStatus: async () => ({ data: { schema_version: 1, profile_id: profile.id, configured: false, available: false, kind: null }, warnings: [] }),
     setOSCredential,
     listModels,
-  } as unknown as ProviderAuthoringOperations;
+  });
   const navigation = new WorkspaceNavigation(window);
   const user = userEvent.setup();
   const { unmount } = render(
@@ -85,21 +96,35 @@ it("keeps an OS credential mounted only for its request and never calls model li
 
 it("creates a provider profile using the displayed supported default adapter", async () => {
   vi.stubGlobal("crypto", { randomUUID: () => "new-provider-id" });
-  let configuredBody: Record<string, unknown> | undefined;
-  const operations = {
-    list: async () => ({ data: { items: [], total: "0", next_cursor: null }, warnings: [] }),
-    read: async ({ profileId }: { profileId: string }) => ({
+  let configuredBody: ApiOperationBody<"configureProviderProfile"> | undefined;
+  const operations = providerOperations({
+    list: async () => ({ data: { schema_version: 1, items: [], total: "0", next_cursor: null }, warnings: [] }),
+    read: async ({ profileId }) => ({
       data: { ...profile, id: profileId }, warnings: [],
     }),
     credentialStatus: async () => ({
-      data: { profile_id: "new-provider-id", configured: false, available: false, kind: null },
+      data: { schema_version: 1, profile_id: "new-provider-id", configured: false, available: false, kind: null },
       warnings: [],
     }),
-    configure: async ({ body }: { body: Record<string, unknown> }) => {
+    configure: async ({ body }) => {
       configuredBody = body;
-      return { data: { operation_id: body.operation_id, profile: {}, replayed: false }, warnings: [] };
+      return {
+        data: {
+          schema_version: 1,
+          operation_id: body.operation_id,
+          profile: {
+            ...profile,
+            id: body.profile_id,
+            adapter: body.adapter,
+            requested_model: body.requested_model,
+            destination: body.destination,
+          },
+          replayed: false,
+        },
+        warnings: [],
+      };
     },
-  } as unknown as ProviderAuthoringOperations;
+  });
   const navigation = new WorkspaceNavigation(window);
   const user = userEvent.setup();
   render(
@@ -126,18 +151,27 @@ it("creates a provider profile using the displayed supported default adapter", a
 
 it("retries an unknown OS credential write with the same request after clearing the password field", async () => {
   const secret = "synthetic-m10-credential-never-a-provider-key";
-  const calls: Array<{ body: Record<string, unknown> }> = [];
-  const setOSCredential = vi.fn(async (request: { body: Record<string, unknown> }) => {
+  type OSCredentialSetRequest = Parameters<ProviderAuthoringOperations["setOSCredential"]>[0];
+  const calls: OSCredentialSetRequest[] = [];
+  const setOSCredential = vi.fn(async (request: OSCredentialSetRequest) => {
     calls.push(request);
     if (calls.length === 1) throw new ApiError("response_invalid", "Malformed success.", 200);
-    return { data: {}, warnings: [] };
+    return {
+      data: {
+        schema_version: 1,
+        operation_id: request.body.operation_id,
+        replayed: false,
+        profile,
+      },
+      warnings: [],
+    };
   });
-  const operations = {
-    list: async () => ({ data: { items: [profile], total: "1", next_cursor: null }, warnings: [] }),
+  const operations = providerOperations({
+    list: async () => ({ data: { schema_version: 1, items: [profile], total: "1", next_cursor: null }, warnings: [] }),
     read: async () => ({ data: profile, warnings: [] }),
-    credentialStatus: async () => ({ data: { profile_id: profile.id, configured: false, available: false, kind: null }, warnings: [] }),
+    credentialStatus: async () => ({ data: { schema_version: 1, profile_id: profile.id, configured: false, available: false, kind: null }, warnings: [] }),
     setOSCredential,
-  } as unknown as ProviderAuthoringOperations;
+  });
   const navigation = new WorkspaceNavigation(window);
   const user = userEvent.setup();
   render(
@@ -155,8 +189,8 @@ it("retries an unknown OS credential write with the same request after clearing 
   await user.click(screen.getByRole("button", { name: "Store credential" }));
   await screen.findByRole("button", { name: "Retry the same credential request" });
   expect((password as HTMLInputElement).value).toBe("");
-  expect(password).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Store credential" })).toBeDisabled();
+  expect((password as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Store credential" }) as HTMLButtonElement).disabled).toBe(true);
   const replacement = "synthetic-m10-replacement-must-not-be-sent";
   await user.type(password, replacement);
   expect((password as HTMLInputElement).value).toBe("");
@@ -184,15 +218,14 @@ it("presents fixture profiles as authored evidence without credential or model-l
     evidence_mode: "authored_fixture",
   };
   const credentialStatus = vi.fn(async () => ({
-    data: { profile_id: fixtureProfile.id, configured: false, available: false, kind: null },
+    data: { schema_version: 1, profile_id: fixtureProfile.id, configured: false, available: false, kind: null },
     warnings: [],
   }));
-  const operations = {
-    list: async () => ({ data: { items: [fixtureProfile], total: "1", next_cursor: null }, warnings: [] }),
+  const operations = providerOperations({
+    list: async () => ({ data: { schema_version: 1, items: [fixtureProfile], total: "1", next_cursor: null }, warnings: [] }),
     read: async () => ({ data: fixtureProfile, warnings: [] }),
     credentialStatus,
-    listModels: vi.fn(),
-  } as unknown as ProviderAuthoringOperations;
+  });
   const navigation = new WorkspaceNavigation(window);
   const user = userEvent.setup();
   render(

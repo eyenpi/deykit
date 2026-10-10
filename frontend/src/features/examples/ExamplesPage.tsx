@@ -456,7 +456,7 @@ export function ExamplesPage({
     },
   });
   useEffect(() => navigation.registerDirtyGuard(`examples:${registrationId}:${datasetId}:${decision?.id ?? "none"}`, dirtyGuard.guard), [datasetId, decision?.id, dirtyGuard.guard, navigation, registrationId]);
-  const optionRows = labelView?.definition.question.options.map((option) => ({ id: option.id, name: option.name })) ?? [];
+  const optionRows = labelView?.definition.questions[0].options.map((option) => ({ id: option.id, name: option.name })) ?? [];
   return (
     <>
     <article className="document examples-page">
@@ -518,7 +518,7 @@ export function ExamplesPage({
                   rowId={(item) => item.case.id}
                   columns={[
                     { key: "case", heading: "Case", render: (item) => <button className="text-button" onClick={() => selectCase(item.case.id)}>{item.case.id}</button> },
-                    { key: "answer", heading: "Expected answer", render: (item) => item.label?.acceptable_option_ids.map((id) => item.definition.question.options.find((option) => option.id === id)?.name ?? id).join(", ") ?? "Unlabelled" },
+                    { key: "answer", heading: "Expected answer", render: (item) => item.label?.acceptable_option_ids.map((id) => item.definition.questions[0].options.find((option) => option.id === id)?.name ?? id).join(", ") ?? "Unlabelled" },
                     { key: "status", heading: "Status", render: (item) => item.reasons.length ? item.reasons.join(", ") : item.status },
                   ]}
                 />

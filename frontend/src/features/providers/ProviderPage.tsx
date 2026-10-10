@@ -55,21 +55,36 @@ export function ProviderPage({
   const [mutationState, setMutationState] = useState<MutationState<ProviderMutation>>({ kind: "idle" });
   const [secretMutationState, setSecretMutationState] = useState<MutationState<OSCredentialMutation>>({ kind: "idle" });
   const [creatingProfile, setCreatingProfile] = useState(false);
-  const mutation = useRef<RetainedMutation<SavedProviderRequest, ProviderMutation>>();
+  const mutation = useRef<RetainedMutation<SavedProviderRequest, ProviderMutation> | undefined>(undefined);
   const secretMutation = useRef<RetainedMutation<{
     registrationId: string;
     profileId: string;
     body: ApiOperationBody<"setOSStoreCredential">;
-  }, OSCredentialMutation>>();
+  }, OSCredentialMutation> | undefined>(undefined);
   const actionLock = useRef(false);
-  const activeProfileId = profile?.id ?? profileId;
 
   useEffect(() => {
     mutation.current = new RetainedMutation(async (request) => {
-      const base = { registrationId: project.id, profileId: request.profileId, body: request.body };
-      if (request.kind === "configure") return (await operations.configure(base)).data;
-      if (request.kind === "environment") return (await operations.attachEnvironment(base)).data;
-      return (await operations.forgetCredential(base)).data;
+      switch (request.kind) {
+        case "configure":
+          return (await operations.configure({
+            registrationId: project.id,
+            profileId: request.profileId,
+            body: request.body,
+          })).data;
+        case "environment":
+          return (await operations.attachEnvironment({
+            registrationId: project.id,
+            profileId: request.profileId,
+            body: request.body,
+          })).data;
+        case "forget":
+          return (await operations.forgetCredential({
+            registrationId: project.id,
+            profileId: request.profileId,
+            body: request.body,
+          })).data;
+      }
     }, setMutationState);
     secretMutation.current = new RetainedMutation(async (request) => {
       return (await operations.setOSCredential(request)).data;
@@ -425,7 +440,7 @@ export function ProviderPage({
                   <button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown" || !credential?.configured} onClick={() => void forgetCredential()}>Forget credential</button>
                 </section>
               )}
-              {profile && <section className="section model-listing"><h3>Supported model IDs</h3><p>Explicit network check · 0 inference calls.</p><label htmlFor="model-timeout">Timeout in seconds</label><input id="model-timeout" inputMode="numeric" value={timeoutSeconds} disabled={busy || secretMutationState.kind === "outcome-unknown"} onChange={(event) => setTimeoutSeconds(event.target.value)} /><button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown"} onClick={() => void listModels()}>{busy ? "Checking…" : "Refresh model list"}</button>{models && <><p role="status">{models.models.length} models returned · {models.network_check ? "network checked" : "not checked"} · {models.inference_calls} inference calls</p><ul>{models.models.map((item) => <li key={item.id}><code>{item.id}</code> {item.name}</li>)}</ul></>}</section>}
+              {profile && <section className="section model-listing"><h3>Supported model IDs</h3><p>Explicit network check · 0 inference calls.</p><label htmlFor="model-timeout">Timeout in seconds</label><input id="model-timeout" inputMode="numeric" value={timeoutSeconds} disabled={busy || secretMutationState.kind === "outcome-unknown"} onChange={(event) => setTimeoutSeconds(event.target.value)} /><button type="button" disabled={busy || secretMutationState.kind === "outcome-unknown"} onClick={() => void listModels()}>{busy ? "Checking…" : "Refresh model list"}</button>{models && <><p role="status">{models.models.length} models returned · {models.network_check ? "network checked" : "not checked"} · {models.inference_calls} inference calls</p><ul>{models.models.map((item) => <li key={item.name}><code>{item.name}</code> {item.description}</li>)}</ul></>}</section>}
                 </>
               )}
             </>

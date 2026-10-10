@@ -353,6 +353,10 @@ test("installed browser authors exact decision source and previews imports throu
   expect(decisionMatch).not.toBeNull();
   expect(capability).toMatch(/^[A-Za-z0-9_-]{43}$/);
   const origin = new URL(page.url()).origin;
+  const authorizedHeaders = {
+    Origin: origin,
+    "X-Deykit-Capability": capability as string,
+  };
   expect(registrationMatch?.[1]).toBe(registrationId);
   const decisionId = decisionMatch?.[1] as string;
   const stored = await page.request.get(
@@ -481,7 +485,7 @@ test("installed browser authors exact decision source and previews imports throu
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions/${firstRevisionId}`,
     { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
   );
-  const firstRevisionEditorSource = (await firstRevision.json()).data.revision.editor_source as string;
+  const firstRevisionEditorSource = (await firstRevision.json()).data.editor_source as string;
 
   await page.getByRole("button", { name: "+ Add option" }).click();
   const optionNames = page.getByLabel("Option name");
