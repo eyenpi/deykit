@@ -143,9 +143,7 @@ def test_m09_cancel_retries_observed_native_source_busy_once_and_projects_after_
         assert history_value is history
         return {"run_id": "run-fixed", "execution_active": active}
 
-    generated = _prepare_cli(
-        monkeypatch, tmp_path / "project", runner_factory, project
-    )
+    generated = _prepare_cli(monkeypatch, tmp_path / "project", runner_factory, project)
     actual_sleep = execution_command._sleep
     delays: list[float] = []
 

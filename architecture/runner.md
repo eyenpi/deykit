@@ -52,7 +52,12 @@ active just because another run holds the project's execution lock.
 
 Every attempt atomically reserves lifetime capacity and writes durable intent before
 its dispatch event. The sequence is `reserved → dispatched → known|unknown|not_sent`;
-a cancellation discovered before dispatch can settle directly as `not_sent`.
+a cancellation or elapsed deadline discovered before dispatch can settle directly
+as `not_sent`. These proven non-calls retain the prior case outcome (or leave a
+fresh case pending for explicit resume), while the reservation still consumes
+lifetime capacity.
+Snapshot admission also reconstructs the exact legacy deadline-error projection
+for historical evidence; it does not rewrite stored snapshots.
 Process death after durable intent, dispatch, or a received but unsaved response
 leaves an unknown outcome that consumes capacity. Recovery does not guess whether a
 remote call happened. Failed persistence stops new dispatches; surviving in-flight

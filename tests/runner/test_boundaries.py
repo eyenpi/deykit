@@ -6,10 +6,19 @@ from test_execution import request
 
 from deykit.application.demo import DemoService
 from deykit.application.errors import ServiceFailure
+from deykit.application.evaluation_evidence import snapshot_attempts
 from deykit.application.execution import ExecutionService
 from deykit.contracts.codec import load_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import ResourceKey
-from deykit.contracts.records import DatasetSnapshot, ExecutionSettings, LabelSnapshot
+from deykit.contracts.records import (
+    CaseResult,
+    DatasetSnapshot,
+    DispatchOutcome,
+    ExecutionSettings,
+    LabelSnapshot,
+    ResultSnapshot,
+)
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.history import read_history
 from deykit.runner.planner import RunRequest
@@ -110,7 +119,7 @@ def test_callback_failure_safe_settlement_and_no_blind_dispatch(setup, callback,
 
 
 def test_deadline_rechecked_after_durable_reservation(setup):
-    _, service, factory, clock = setup(1)
+    source, service, factory, clock = setup(1)
 
     def delay(stage, _attempt):
         if stage == "after_intent":
@@ -122,6 +131,83 @@ def test_deadline_rechecked_after_durable_reservation(setup):
     )
     assert result.state == "budget_exhausted" and result.attempts_used == 1
     assert result.cases[0].status == "pending" and factory.calls == []
+    history = read_history(source, result.run_id)
+    final = history.final_event(history.attempts[0].id)
+    assert final is not None and final.state == "not_sent"
+    assert final.outcome.error.reason == "segment_deadline"
+    assert service.preview_resume(result.run_id).planned_case_ids == ("case-00",)
+    records = source.capture_snapshot()
+    saved = load_record(
+        ResultSnapshot,
+        source.read(ResourceKey("result_snapshots", result.latest_result_snapshot_id)).body,
+    )
+    legacy = saved.model_copy(
+        update={
+            "results": (
+                CaseResult(
+                    case_id="case-00",
+                    input_hash=saved.results[0].input_hash,
+                    status="response_error",
+                    attempt_id=history.attempts[0].id,
+                    error=final.outcome.error,
+                ),
+            )
+        }
+    )
+    assert snapshot_attempts(records, saved) == snapshot_attempts(records, legacy) == ()
+    assert source.capture_snapshot() == records
+
+    service.scheduler.hook = lambda _stage, _attempt: None
+    resumed = asyncio.run(service.resume(result.run_id, operation_id="resume"))
+    assert resumed.state == "completed" and resumed.attempts_used == 2
+    assert resumed.cases[0].status == "valid" and len(factory.calls) == 1
+    assert snapshot_attempts(source.capture_snapshot(), legacy) == ()
+
+
+@pytest.mark.parametrize("prior_state", ["unknown", "known"])
+def test_deadline_non_call_preserves_prior_outcome(setup, prior_state):
+    source, service, factory, clock = setup(1)
+    factory.responses["case-00"] = [
+        DispatchOutcome(
+            state=prior_state,
+            error=ServiceError(
+                code="provider_rejected",
+                reason="timeout" if prior_state == "unknown" else "rate_limit",
+            ),
+            retryable=prior_state == "known",
+        )
+    ]
+    first = asyncio.run(
+        service.start(
+            request(settings=ExecutionSettings(max_attempts=1, deadline_seconds=5)),
+            operation_id="start",
+        )
+    )
+
+    def delay(stage, _attempt):
+        if stage == "after_intent":
+            clock.value += 10
+
+    service.scheduler.hook = delay
+    stopped = asyncio.run(
+        service.resume(
+            first.run_id,
+            operation_id="deadline-resume",
+            retry_unknown=prior_state == "unknown",
+            max_attempts=3,
+        )
+    )
+    assert stopped.state == "budget_exhausted" and stopped.attempts_used == 2
+    assert stopped.cases == first.cases and len(factory.calls) == 1
+    history = read_history(source, first.run_id)
+    final = history.final_event(history.attempts[-1].id)
+    assert final is not None and final.state == "not_sent"
+    assert final.outcome.error.reason == "segment_deadline"
+    if prior_state == "unknown":
+        assert service.preview_resume(first.run_id).planned_case_ids == ()
+        assert service.preview_resume(first.run_id, retry_unknown=True).planned_case_ids == (
+            "case-00",
+        )
 
 
 def test_terminal_cancel_and_project_owner_do_not_change_completed_status(setup):

@@ -78,7 +78,9 @@ export function ProjectForm({
               focus
               reconnect={() => {
                 setError(undefined);
-                void onReconnect().catch((cause) => setError(safeMessage(cause)));
+                void onReconnect().catch((cause) =>
+                  setError(safeMessage(cause)),
+                );
               }}
             />
           )}

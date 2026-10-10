@@ -67,6 +67,11 @@ def snapshot_attempts(
         attempts=tuple(visible_attempts),
         attempt_events=tuple(visible_events),
     )
-    if historical.results() != snapshot.results:
+    # Pre-fix snapshots retain their exact deadline-error projection. Admit only
+    # that fully reconstructed legacy form; current scheduling uses pending cases.
+    if (
+        historical.results() != snapshot.results
+        and historical.results(legacy_deadline_errors=True) != snapshot.results
+    ):
         fail("result_attempt_evidence_mismatch", "incompatible_data")
     return tuple(dispatched)

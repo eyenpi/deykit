@@ -66,12 +66,30 @@ export function WarningList({ warnings }: { warnings: readonly ApiWarning[] }) {
           <li key={`${warning.code}-${index}`}>
             <strong>{warning.code}</strong>: {warning.message}
             <span className="warning-details">
-              {warning.reason && <> Reason: <code>{warning.reason}</code>.</>}
-              {warning.resource_id && <> Resource: <code>{warning.resource_id}</code>.</>}
-              {warning.row !== undefined && warning.row !== null && (
-                <> Row: <code>{warning.row}</code>.</>
+              {warning.reason && (
+                <>
+                  {" "}
+                  Reason: <code>{warning.reason}</code>.
+                </>
               )}
-              {warning.correlation_id && <> Reference: <code>{warning.correlation_id}</code>.</>}
+              {warning.resource_id && (
+                <>
+                  {" "}
+                  Resource: <code>{warning.resource_id}</code>.
+                </>
+              )}
+              {warning.row !== undefined && warning.row !== null && (
+                <>
+                  {" "}
+                  Row: <code>{warning.row}</code>.
+                </>
+              )}
+              {warning.correlation_id && (
+                <>
+                  {" "}
+                  Reference: <code>{warning.correlation_id}</code>.
+                </>
+              )}
             </span>
           </li>
         ))}
