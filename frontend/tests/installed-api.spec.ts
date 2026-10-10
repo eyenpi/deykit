@@ -284,7 +284,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 test("installed browser authors exact decision source and previews imports through real APIs", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(360_000);
+  test.setTimeout(420_000);
   page.setDefaultTimeout(10_000);
   const completedPhases: string[] = [];
   const screenshots: string[] = [];
@@ -3982,8 +3982,20 @@ test("installed browser authors exact decision source and previews imports throu
   await caseButton("seed-1").click();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
+  const applicableLabelSave = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/batch` &&
+      response.request().method() === "POST",
+    { timeout: 15_000 },
+  );
   await page.getByRole("button", { name: "Save expected answer" }).click();
-  await expect(page.getByText("Applicable · human")).toBeVisible();
+  const applicableLabelReceipt = await applicableLabelSave;
+  expect(applicableLabelReceipt.status()).toBe(200);
+  await applicableLabelReceipt.body();
+  await expect(page.getByText("Applicable · human")).toBeVisible({
+    timeout: 15_000,
+  });
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
@@ -4145,7 +4157,23 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByLabel("Destination")
     .fill("https://api.typesafe.ai/v1/systemone");
+  const providerProfileSave = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "PUT" &&
+        pathname.startsWith(
+          `/api/v1/projects/${registrationId}/providers/`,
+        ) &&
+        /^\/api\/v1\/projects\/[^/]+\/providers\/[^/]+$/.test(pathname)
+      );
+    },
+    { timeout: 15_000 },
+  );
   await page.getByRole("button", { name: "Save profile" }).click();
+  const providerProfileReceipt = await providerProfileSave;
+  expect(providerProfileReceipt.status()).toBe(200);
+  await providerProfileReceipt.body();
   await expect(
     page.getByText("Not configured · Unavailable", { exact: false }),
   ).toBeVisible();
@@ -4154,14 +4182,46 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   const environmentName = "M08_FAKE_ENV";
   await page.getByLabel("Environment variable name").fill(environmentName);
+  const environmentCredentialResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "POST" &&
+        pathname.startsWith(
+          `/api/v1/projects/${registrationId}/providers/`,
+        ) &&
+        pathname.endsWith("/credential-environment")
+      );
+    },
+    { timeout: 15_000 },
+  );
   await page
     .getByRole("button", { name: "Attach environment reference" })
     .click();
+  const environmentCredentialReceipt = await environmentCredentialResponse;
+  expect(environmentCredentialReceipt.status()).toBe(200);
+  await environmentCredentialReceipt.body();
   await expect(page.getByText(environmentName)).toHaveCount(0);
   await expect(
     page.getByText("Configured · Available", { exact: false }),
   ).toBeVisible();
+  const modelListResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "POST" &&
+        pathname.startsWith(
+          `/api/v1/projects/${registrationId}/providers/`,
+        ) &&
+        pathname.endsWith("/models")
+      );
+    },
+    { timeout: 15_000 },
+  );
   await page.getByRole("button", { name: "Refresh model list" }).click();
+  const modelListReceipt = await modelListResponse;
+  expect(modelListReceipt.status()).toBe(200);
+  await modelListReceipt.body();
   await expect(
     page.getByText("fake-offline-model", { exact: true }),
   ).toBeVisible();
@@ -4489,7 +4549,17 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByLabel("Strict binding source lines")
     .fill(bindingSources.join("\n"));
+  const initialFixtureCreate = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${fixtureRegistrationId}/fixtures` &&
+      response.request().method() === "POST",
+    { timeout: 15_000 },
+  );
   await page.getByRole("button", { name: "Create authored set" }).click();
+  const initialFixtureReceipt = await initialFixtureCreate;
+  expect(initialFixtureReceipt.status()).toBe(200);
+  await initialFixtureReceipt.body();
   await expect(
     page.getByRole("heading", { name: "Browser authored exact copy" }),
   ).toBeVisible();
