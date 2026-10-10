@@ -1676,8 +1676,8 @@ test("installed browser authors exact decision source and previews imports throu
   const knownVersionWithFailedRead = await versionWithFailedRead;
   expect(knownVersionWithFailedRead.status()).toBe(200);
   const recoveryVersionData = (await knownVersionWithFailedRead.json()).data;
-  const recoveryVersionRevisionId =
-    recoveryVersionData.revision.record.id as string;
+  const recoveryVersionRevisionId = recoveryVersionData.revision.record
+    .id as string;
   await expect(
     page.getByText(/Version saved; refresh its draft context/),
   ).toBeVisible();
@@ -1762,10 +1762,10 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Save version", exact: true }).click();
   const savedWithIncompatibleContext = await incompatibleVersionReceipt;
   expect(savedWithIncompatibleContext.status()).toBe(200);
-  const incompatibleVersionData =
-    (await savedWithIncompatibleContext.json()).data;
-  const incompatibleVersionRevisionId =
-    incompatibleVersionData.revision.record.id as string;
+  const incompatibleVersionData = (await savedWithIncompatibleContext.json())
+    .data;
+  const incompatibleVersionRevisionId = incompatibleVersionData.revision.record
+    .id as string;
   await expect(
     page.getByText(/current draft or decision changed/),
   ).toBeVisible();
@@ -1880,9 +1880,9 @@ test("installed browser authors exact decision source and previews imports throu
   expect(
     firstRevisionData.revision.record.definition.questions[0].instructions,
   ).toBe("Browser losing edit");
-  expect(
-    firstRevisionData.revision.record.definition.input_schema_source,
-  ).toBe(schemaSource);
+  expect(firstRevisionData.revision.record.definition.input_schema_source).toBe(
+    acknowledgedCompositionSource,
+  );
   expect(firstRevisionEditorSource).toContain("committed-after-ack");
   expect(firstRevisionEditorSource).toContain("9007199254740993");
   expect(firstRevisionEditorSource).toContain("0.1234567890123456789");
