@@ -18,7 +18,7 @@ it("keeps exact source and the insertion caret through controlled edits", async 
   const insertionPoint = exactSource.indexOf("ab") + 1;
   editor.focus();
   editor.setSelectionRange(insertionPoint, insertionPoint);
-  await user.type(editor, "X");
+  await user.keyboard("X");
 
   expect(editor.value).toBe('{"large":9007199254740993,"value":"aXb"}');
   expect(editor.selectionStart).toBe(insertionPoint + 1);
