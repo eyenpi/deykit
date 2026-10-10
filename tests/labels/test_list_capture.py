@@ -314,7 +314,8 @@ def test_capture_propagates_unrelated_history_corruption_before_returning_a_page
     with pytest.raises(ServiceFailure) as failure:
         captured.list("decision", "data")
     assert failure.value.error.reason == "invalid_json"
-    assert counted.capture_calls == 1
+    # Epoch admission verifies the complete source before invoking the capture capability.
+    assert counted.capture_calls == 0
     assert counted.read_calls == counted.list_calls == 0
 
 
