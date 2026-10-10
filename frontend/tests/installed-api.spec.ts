@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { APIResponse, Request } from "@playwright/test";
+import type { ApiOperationData } from "../src/api/client";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { operationMetadata } from "../src/api/generated/operations";
@@ -3847,12 +3848,15 @@ test("installed browser authors exact decision source and previews imports throu
   expect(relatedAssignments).toHaveLength(4);
   expect(new Set(relatedAssignments).size).toBe(1);
   await captureScreenshot("split-server-preview.png");
-  const splitCommitResults: Array<Record<string, unknown>> = [];
+  type SplitCommitData = ApiOperationData<
+    "commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post"
+  >;
+  const splitCommitResults: SplitCommitData[] = [];
   let firstSplitCommitStatus: number | undefined;
   let firstSplitCommitAborted = false;
   await page.route("**/splits/commit", async (route) => {
     const response = await route.fetch();
-    const result = (await response.json()).data as Record<string, unknown>;
+    const result = (await response.json()).data as SplitCommitData;
     splitCommitResults.push(result);
     if (splitCommitResults.length === 1) {
       firstSplitCommitStatus = response.status();
@@ -3911,9 +3915,7 @@ test("installed browser authors exact decision source and previews imports throu
     true,
   ]);
   const splitReceipt = splitCommitResults[1];
-  const splitSnapshot = splitReceipt.snapshot as {
-    cases: Array<{ id: string; split: string }>;
-  };
+  const splitSnapshot = splitReceipt.snapshot;
   const expectedSplitByCase = Object.fromEntries(
     splitPreview.preview.assignments,
   );
@@ -3964,9 +3966,9 @@ test("installed browser authors exact decision source and previews imports throu
     },
   );
   expect(splitDatasetRead.status()).toBe(200);
-  expect((await splitDatasetRead.json()).data.record.revision_id).toBe(
-    (splitReceipt.snapshot as { id: string }).id,
-  );
+  const splitDatasetData = (await splitDatasetRead.json()).data;
+  expect(splitDatasetData.record).toEqual(splitReceipt.dataset.record);
+  expect(splitDatasetData.etag).toBe(splitReceipt.dataset.etag);
   const casesAfterSplitReplay = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases?limit=100`,
     {
@@ -3975,7 +3977,7 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(casesAfterSplitReplay.status()).toBe(200);
   expect((await casesAfterSplitReplay.json()).data.total).toBe(
-    String((splitReceipt.snapshot as { cases: unknown[] }).cases.length),
+    String(splitReceipt.snapshot.cases.length),
   );
 
   await caseButton("seed-1").click();
@@ -4093,6 +4095,10 @@ test("installed browser authors exact decision source and previews imports throu
   const archivedResponse = await archiveReplayResponse;
   expect(archivedResponse.status()).toBe(200);
   await archivedResponse.body();
+  const archivedResult = (await archivedResponse.json())
+    .data as ApiOperationData<"archiveDecision">;
+  expect(archivedResult.record.id).toBe(decisionId);
+  expect(archivedResult.record.archived).toBe(true);
   await expect(
     archiveDialog.getByRole("button", { name: "Retry same archive action" }),
   ).toHaveCount(0);
@@ -4229,6 +4235,8 @@ test("installed browser authors exact decision source and previews imports throu
   const credentialResponse = await credentialReplayResponse;
   expect(credentialResponse.status()).toBe(200);
   await credentialResponse.body();
+  const credentialResult = (await credentialResponse.json())
+    .data as ApiOperationData<"setOSStoreCredential">;
   await expect(
     page.getByRole("button", { name: "Retry the same credential request" }),
   ).toHaveCount(0);
@@ -4239,6 +4247,11 @@ test("installed browser authors exact decision source and previews imports throu
   expect(credentialBodies).toHaveLength(2);
   const originalCredentialBody = credentialBodies[0];
   const replayedCredentialBody = credentialBodies[1];
+  expect(credentialResult.operation_id).toBe(
+    originalCredentialBody.operation_id,
+  );
+  expect(credentialResult.replayed).toBe(true);
+  expect(credentialResult.profile.id).toBe(configuredProvider.id);
   const originalCredential = originalCredentialBody.credential_value;
   const replayedCredential = replayedCredentialBody.credential_value;
   expect(
@@ -4381,14 +4394,75 @@ test("installed browser authors exact decision source and previews imports throu
     { headers: fixtureHeaders },
   );
   expect(fixtureDetail.status()).toBe(200);
-  expect((await fixtureDetail.json()).data).toMatchObject({
-    id: fixtureSummary.id,
-    decision_id: fixtureSummary.decision_id,
-    dataset_id: fixtureSummary.dataset_id,
-    model_identity: fixtureSummary.model_identity,
-    requests: [],
-  });
+  const hiddenFixtureDetail = (await fixtureDetail.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(hiddenFixtureDetail.id).toBe(fixtureSummary.id);
+  expect(hiddenFixtureDetail.decision_id).toBe(fixtureSummary.decision_id);
+  expect(hiddenFixtureDetail.dataset_id).toBe(fixtureSummary.dataset_id);
+  expect(hiddenFixtureDetail.model_identity).toBe(fixtureSummary.model_identity);
+  expect(hiddenFixtureDetail.requests.length === 0).toBe(true);
+  await expect(
+    page.getByLabel(/^Stored request source \d+$/),
+  ).toHaveCount(0);
   await captureScreenshot("fixture-exact-bindings.png");
+
+  const fixtureRequestsVisibleResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
+      new URL(response.url()).searchParams.get("include_requests") === "true" &&
+      response.request().method() === "GET",
+  );
+  await page
+    .getByRole("checkbox", { name: "Show exact stored request source text" })
+    .check();
+  const fixtureRequestsVisible = await fixtureRequestsVisibleResponse;
+  expect(fixtureRequestsVisible.status()).toBe(200);
+  const revealedFixture = (await fixtureRequestsVisible.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  const requestSourceTextboxes = page.getByLabel(/^Stored request source \d+$/);
+  const fixtureRequestsHiddenResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
+      new URL(response.url()).searchParams.get("include_requests") === "false" &&
+      response.request().method() === "GET",
+  );
+  let revealedSourceMatches: boolean[] = [];
+  let revealedSourcesAreReadOnly: boolean[] = [];
+  let fixtureRequestsHidden: APIResponse;
+  try {
+    revealedSourceMatches = await Promise.all(
+      revealedFixture.requests.map(async (request, index) => {
+        const textbox = page.getByLabel(`Stored request source ${index + 1}`, {
+          exact: true,
+        });
+        return (await textbox.inputValue()) === request;
+      }),
+    );
+    revealedSourcesAreReadOnly = await Promise.all(
+      revealedFixture.requests.map(async (_, index) =>
+        requestSourceTextboxes.nth(index).evaluate(
+          (element) =>
+            element instanceof HTMLTextAreaElement && element.readOnly,
+        ),
+      ),
+    );
+  } finally {
+    await page
+      .getByRole("checkbox", {
+        name: "Show exact stored request source text",
+      })
+      .uncheck();
+    fixtureRequestsHidden = await fixtureRequestsHiddenResponse;
+  }
+  const hiddenFixture = (await fixtureRequestsHidden.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(revealedFixture.requests.length).toBeGreaterThan(0);
+  expect(requestSourceTextboxes).toHaveCount(revealedFixture.requests.length);
+  expect(revealedSourceMatches.every(Boolean)).toBe(true);
+  expect(revealedSourcesAreReadOnly.every(Boolean)).toBe(true);
+  expect(fixtureRequestsHidden.status()).toBe(200);
+  expect(hiddenFixture.requests.length === 0).toBe(true);
+  await expect(requestSourceTextboxes).toHaveCount(0);
 
   const bindingSources = execFileSync(
     "python",
@@ -4425,7 +4499,8 @@ test("installed browser authors exact decision source and previews imports throu
     { headers: fixtureHeaders },
   );
   expect(createdFixture.status()).toBe(200);
-  const createdFixtureData = (await createdFixture.json()).data;
+  const createdFixtureData = (await createdFixture.json())
+    .data as ApiOperationData<"readFixtureSet">;
   expect(createdFixtureData).toMatchObject({
     name: "Browser authored exact copy",
     decision_id: fixtureSummary.decision_id,
@@ -4441,7 +4516,7 @@ test("installed browser authors exact decision source and previews imports throu
       (binding: { request_hash: string }) => binding.request_hash,
     ),
   );
-  expect(createdFixtureData.requests).toEqual([]);
+  expect(createdFixtureData.requests.length === 0).toBe(true);
 
   await page.getByRole("button", { name: "Author fixture set" }).click();
   await page
@@ -4452,7 +4527,7 @@ test("installed browser authors exact decision source and previews imports throu
     .getByLabel("Strict binding source lines")
     .fill(bindingSources.join("\n"));
   const fixtureCreateBodies: Array<Record<string, unknown>> = [];
-  const fixtureCreateResults: Array<Record<string, unknown>> = [];
+  const fixtureCreateResults: ApiOperationData<"createFixtureSet">[] = [];
   let firstFixtureCreateStatus: number | undefined;
   let firstFixtureCreateAborted = false;
   await page.route("**/api/v1/projects/*/fixtures", async (route) => {
@@ -4462,7 +4537,7 @@ test("installed browser authors exact decision source and previews imports throu
     );
     const response = await route.fetch();
     fixtureCreateResults.push(
-      (await response.json()).data as Record<string, unknown>,
+      (await response.json()).data as ApiOperationData<"createFixtureSet">,
     );
     if (fixtureCreateBodies.length === 1) {
       firstFixtureCreateStatus = response.status();
@@ -4521,6 +4596,19 @@ test("installed browser authors exact decision source and previews imports throu
   expect(fixtureCreateBodies).toHaveLength(2);
   expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
   expect(fixtureCreateResults).toHaveLength(2);
+  expect(fixtureCreateResults.map((result) => result.replayed)).toEqual([
+    false,
+    true,
+  ]);
+  expect(fixtureCreateResults[1].operation_id).toBe(
+    fixtureCreateResults[0].operation_id,
+  );
+  expect(fixtureCreateResults[1].fixture.id).toBe(
+    fixtureCreateResults[0].fixture.id,
+  );
+  expect(fixtureCreateResults[1].fixture.name).toBe(
+    "Browser retained fixture request",
+  );
   await page.unroute("**/api/v1/projects/*/fixtures");
 
   await enterPhase("Responsive 320px and reduced-motion review");
@@ -4558,14 +4646,14 @@ test("installed browser authors exact decision source and previews imports throu
   expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(
     true,
   );
-  expect(page.url()).not.toContain(capability as string);
+  expect(!page.url().includes(capability as string)).toBe(true);
   expect(
     await page.evaluate(() => [localStorage.length, sessionStorage.length]),
   ).toEqual([0, 0]);
   expect(
-    await page.evaluate(
+    (await page.evaluate(
       () => (document as Document & { cookie: string }).cookie,
-    ),
-  ).toBe("");
+    )) === "",
+  ).toBe(true);
   await enterPhase("Connected authoring workflow complete");
 });
