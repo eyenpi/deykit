@@ -34,6 +34,7 @@ type LabelMutationBody =
   ApiOperationBody<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
 type LabelMutationReceipt =
   ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
+type LabelRecord = NonNullable<LabelMutationReceipt["changes"][number]["label"]>;
 type CaseEditBody =
   ApiOperationBody<"edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put">;
 type CaseMutationReceipt =
@@ -78,6 +79,31 @@ type CommittedRefresh =
     };
 
 const opId = () => crypto.randomUUID();
+
+function sameLabelRecord(
+  left: LabelRecord | null,
+  right: LabelRecord | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.id === right.id &&
+    left.case_id === right.case_id &&
+    left.dataset_id === right.dataset_id &&
+    left.decision_id === right.decision_id &&
+    left.question_id === right.question_id &&
+    left.input_hash === right.input_hash &&
+    left.schema_version === right.schema_version &&
+    left.hash_format === right.hash_format &&
+    left.provenance === right.provenance &&
+    left.status === right.status &&
+    left.note === right.note &&
+    left.updated_at === right.updated_at &&
+    left.acceptable_option_ids.length === right.acceptable_option_ids.length &&
+    left.acceptable_option_ids.every(
+      (optionId, index) => optionId === right.acceptable_option_ids[index],
+    )
+  );
+}
 
 export function ExamplesPage({
   project,
@@ -212,14 +238,14 @@ export function ExamplesPage({
         const submitted = pending.body.edits[0];
         if (!submitted)
           throw new Error("The saved label request is unavailable.");
-        const receiptMatches = pending.receipt.changes.some(
+        const receiptChange = pending.receipt.changes.find(
           (change) =>
             change.operation_id === pending.body.operation_id &&
             change.case_id === pending.caseId &&
             change.dataset_id === pending.context.datasetId &&
             change.decision_id === pending.decisionId,
         );
-        if (!receiptMatches)
+        if (!receiptChange)
           throw new Error("The saved label receipt did not match this review.");
         const refreshedLabel = await operations.readLabel({
           registrationId: pending.context.registrationId,
@@ -246,7 +272,8 @@ export function ExamplesPage({
         const reviewChanged =
           review.decision_etag !== submitted.review.decision_etag ||
           review.draft_etag !== submitted.review.draft_etag ||
-          review.input_hash !== submitted.review.input_hash;
+          review.input_hash !== submitted.review.input_hash ||
+          !sameLabelRecord(receiptChange.label, refreshedLabel.data.label);
         setLabelView(refreshedLabel.data);
         setLabels(page.data);
         setLabelCursor(page.data.next_cursor ?? undefined);

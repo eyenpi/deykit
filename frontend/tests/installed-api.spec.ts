@@ -2967,6 +2967,30 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
+
+  const labelBeforeExternalClear = await readSeedLabel();
+  expect(labelBeforeExternalClear.status()).toBe(200);
+  const labelBeforeExternalClearBody = (await labelBeforeExternalClear.json())
+    .data;
+  expect(labelBeforeExternalClearBody.label.acceptable_option_ids).toEqual([
+    "option-a",
+    "option-b",
+  ]);
+  const externalClearOperationId = "m10-external-clear-after-label-receipt";
+  const externalClearReceipt = await page.request.post(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/batch`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+      data: {
+        schema_version: 1,
+        operation_id: externalClearOperationId,
+        edits: [{ review: labelBeforeExternalClearBody.review, action: "clear" }],
+      },
+    },
+  );
+  expect(externalClearReceipt.status()).toBe(200);
+  await externalClearReceipt.body();
+
   const recoveredLabelRead = page.waitForResponse(
     (response) =>
       response.url().endsWith("/labels/seed-1") &&
@@ -2976,11 +3000,42 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Refresh saved label" }).click();
   await (await recoveredLabelRead).body();
   await expect(
-    page.getByRole("button", { name: "Dispute label" }),
+    page.getByRole("button", { name: "Review current label" }),
   ).toBeEnabled();
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
   await page.unroute("**/labels/seed-1");
   let savedLabel = await readSeedLabel();
+  expect((await savedLabel.json()).data.label).toBeNull();
+  await page.getByRole("button", { name: "Review current label" }).click();
+  await expect(
+    page.getByRole("button", { name: "Review current label" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
+  expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
+  const deliberateLabelSaveResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/batch") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save expected answer" }).click();
+  const deliberateLabelSaveReceipt = await deliberateLabelSaveResponse;
+  expect(deliberateLabelSaveReceipt.status()).toBe(200);
+  await deliberateLabelSaveReceipt.body();
+  const deliberateLabelBody = labelMutationBodies.at(-1);
+  expect(deliberateLabelBody?.operation_id).not.toBe(externalClearOperationId);
+  expect(
+    (deliberateLabelBody?.edits as Array<Record<string, unknown>>)[0],
+  ).toMatchObject({
+    action: "set",
+    acceptable_option_ids: ["option-a", "option-b"],
+  });
+  await expect(
+    page.getByRole("button", { name: "Dispute label" }),
+  ).toBeEnabled();
+  savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label).toMatchObject({
     acceptable_option_ids: ["option-a", "option-b"],
     provenance: "human",
