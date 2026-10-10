@@ -1028,7 +1028,9 @@ it("requires deliberate review when a recovered case receipt changes the label i
   expect(
     screen.queryByRole("button", { name: "Retry same case edit" }),
   ).toBeNull();
-  expect(screen.getByRole("button", { name: "Refresh saved case" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Refresh saved case" }),
+  ).toBeTruthy();
 
   await user.click(screen.getByRole("button", { name: "Refresh saved case" }));
   await screen.findByRole("region", { name: "Review selected context" });
