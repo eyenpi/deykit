@@ -34,9 +34,20 @@ function listedDecision(
   archived: boolean,
 ): DecisionItem {
   return {
+    schema_version: 1,
     decision: {
       etag: `etag-${id}`,
       record: { schema_version: 1, id, name, archived },
+    },
+    draft: {
+      etag: `draft-etag-${id}`,
+      record: {
+        schema_version: 1,
+        decision_id: id,
+        editor_source: "{}",
+        base_revision_id: null,
+        updated_at: "2026-10-11T00:00:00Z",
+      },
     },
   };
 }

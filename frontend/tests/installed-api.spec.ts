@@ -419,7 +419,10 @@ test("installed browser authors exact decision source and previews imports throu
     progressWriteQueue = write.catch(() => undefined);
     return write;
   }
-  async function recordDirectApiFailure(response: APIResponse, path: string) {
+  async function recordDirectApiFailure(
+    response: APIResponse | Response,
+    path: string,
+  ) {
     if (response.status() < 400) return;
     const body: unknown = await response.json().catch(() => undefined);
     const error = isRecord(body) ? body.error : undefined;
@@ -5268,13 +5271,13 @@ test("installed browser authors exact decision source and previews imports throu
   await restoreNavigationPrompt
     .getByRole("button", { name: "Keep editing" })
     .click();
-  const restoreReplayResponse = page.waitForResponse(
+  const decisionRestoreReplayResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/restore") &&
       response.request().method() === "POST",
     { timeout: 0 },
   );
-  void restoreReplayResponse.catch(() => undefined);
+  void decisionRestoreReplayResponse.catch(() => undefined);
   const restoredProjectOverview = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname ===
@@ -5285,7 +5288,7 @@ test("installed browser authors exact decision source and previews imports throu
   void restoredProjectOverview.catch(() => undefined);
   let restoredOverviewStatus: number | undefined;
   await retryRestore.click();
-  const restoreReceipt = await restoreReplayResponse;
+  const restoreReceipt = await decisionRestoreReplayResponse;
   await recordDirectApiFailure(
     restoreReceipt,
     new URL(restoreReceipt.url()).pathname,

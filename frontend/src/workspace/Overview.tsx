@@ -81,7 +81,7 @@ export function Overview({
   decisionsChangedRef.current = onDecisionsChanged;
 
   const [, setMutationRevision] = useState(0);
-  const mutationRef = useRef<OwnedMutation>();
+  const mutationRef = useRef<OwnedMutation | undefined>(undefined);
   if (!mutationRef.current || mutationRef.current.owner !== owner) {
     mutationRef.current = {
       owner,
@@ -106,7 +106,7 @@ export function Overview({
   const mutation = mutationRef.current.controller;
   const mutationState: MutationState<RestoreData> = mutation.state;
   const readEpochRef = useRef(0);
-  const readLockRef = useRef<ProjectOwner>();
+  const readLockRef = useRef<ProjectOwner | undefined>(undefined);
   const readControllerRef = useRef<
     { owner: ProjectOwner; controller: AbortController } | undefined
   >(undefined);
@@ -515,9 +515,7 @@ export function Overview({
                         )) ||
                       reviewRequired ||
                       readBusy ||
-                      currentArchive?.loading ||
-                      (mutationState.kind === "submitting" &&
-                        currentDecisionId === row.decision.record.id)
+                      currentArchive?.loading
                     }
                     onClick={() => void restore(row)}
                   >
