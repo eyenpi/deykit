@@ -17,7 +17,9 @@ def test_schema_export_has_only_real_routes_and_required_version(tmp_path: Path)
     assert "/api/v1/session/bootstrap" in paths
     assert "/api/v1/projects/register" in paths
     assert "/api/v1/projects/{registration_id}/overview" in paths
-    assert "/api/v1/projects/{registration_id}/providers" not in paths
+    providers = openapi["paths"]["/api/v1/projects/{registration_id}/providers"]
+    assert set(providers) == {"get"}
+    assert providers["get"]["operationId"] == "listProviderProfiles"
     request = openapi["components"]["schemas"]["BootstrapRequest"]
     assert request["required"] == ["schema_version"]
     assert request["additionalProperties"] is False

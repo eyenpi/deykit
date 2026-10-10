@@ -122,9 +122,7 @@ def run_review_payload(plan: RunPlan) -> JsonValue:
         "cases": [bytes_hash(dump_record(item)) for item in plan.cases],
         "labels": [bytes_hash(dump_record(item)) for item in plan.labels],
         "development_cases": [bytes_hash(dump_record(item)) for item in plan.development_cases],
-        "development_labels": [
-            bytes_hash(dump_record(item)) for item in plan.development_labels
-        ],
+        "development_labels": [bytes_hash(dump_record(item)) for item in plan.development_labels],
         "prepared": prepared,
     }
 

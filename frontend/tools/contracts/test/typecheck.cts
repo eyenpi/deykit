@@ -1,5 +1,8 @@
 import validators = require("../../../src/api/generated/validators.cjs");
-import { operationMetadata, type ApiOperationId } from "../../../src/api/generated/operations.js";
+import {
+  operationMetadata,
+  type ApiOperationId,
+} from "../../../src/api/generated/operations.js";
 import type { paths } from "../../../src/api/generated/openapi.js";
 type Route = keyof paths;
 const route: Route = "/api/v1/session/bootstrap";
