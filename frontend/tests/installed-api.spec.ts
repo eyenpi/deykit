@@ -4839,10 +4839,9 @@ test("installed browser authors exact decision source and previews imports throu
     name: "seed-1",
     exact: true,
   });
-  const selectedSeedSource = page.getByLabel(
-    "Complete example input source",
-    { exact: true },
-  );
+  const selectedSeedSource = page.getByLabel("Complete example input source", {
+    exact: true,
+  });
   const selectedSeedOptionA = page.getByRole("checkbox", {
     name: "Option A",
   });
@@ -4868,9 +4867,7 @@ test("installed browser authors exact decision source and previews imports throu
           .catch(() => false),
         selectedSeedOptionA.isEnabled({ timeout: 200 }).catch(() => false),
         selectedSeedOptionB.isEnabled({ timeout: 200 }).catch(() => false),
-        page
-          .getByText("Loading selected example…", { exact: true })
-          .count(),
+        page.getByText("Loading selected example…", { exact: true }).count(),
         page.getByText("Loading labels…", { exact: true }).count(),
       ]);
       return (
