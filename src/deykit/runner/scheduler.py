@@ -325,7 +325,7 @@ class Scheduler:
                     cancel_requested = await self._source_call(
                         run_id,
                         "cancel_observation",
-                        lambda: repo.cancelled(current, segment),
+                        lambda current=current: repo.cancelled(current, segment),
                     )
                 except _SourceContentionExhausted as error:
                     self._record_contention(stop, error)
@@ -356,7 +356,9 @@ class Scheduler:
                             reserved = await self._source_call(
                                 run_id,
                                 "reservation",
-                                lambda: repo.reserve(run_id, segment, work, deadline=deadline),
+                                lambda work=work: repo.reserve(
+                                    run_id, segment, work, deadline=deadline
+                                ),
                                 deadline=deadline,
                             )
                         except _SegmentDeadlineElapsed:

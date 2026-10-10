@@ -4,7 +4,6 @@ import asyncio
 from threading import Event, Thread
 
 import pytest
-
 from conftest import answer
 from test_execution import request
 
