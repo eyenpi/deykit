@@ -471,10 +471,14 @@ def test_group_callback_survives_disconnect_and_resume_uses_callback_identity(ki
         )
         assert resumed.replayed
 
+        key = (registration.id, "group-1")
+        assert supervisor._group_tasks[key] is worker
+        assert supervisor._groups[key] == (registration, service, kind)
+        assert supervisor._tasks == {worker}
         workers = tuple(supervisor._tasks)
         await supervisor.shutdown()
         assert service.cancelled_ids == ["group-1"]
-        assert len(workers) == 2
+        assert workers == (worker,)
         assert all(task.done() and not task.cancelled() for task in workers)
         assert supervisor._tasks == set()
 
