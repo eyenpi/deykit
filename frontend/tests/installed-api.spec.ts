@@ -4135,7 +4135,9 @@ test("installed browser authors exact decision source and previews imports throu
           (event.event === "body" && event.status !== 200),
       );
       if (failed)
-        throw new Error(`A project read body failed for ${failed.route_pattern}.`);
+        throw new Error(
+          `A project read body failed for ${failed.route_pattern}.`,
+        );
       if (routePatterns.every((pattern) => successful.has(pattern))) return;
       await new Promise<void>((resolve) => {
         const notify = () => {
@@ -4673,9 +4675,7 @@ test("installed browser authors exact decision source and previews imports throu
           pending_route_categories: [...pendingSourceReadCategories],
         };
         await recordProgress();
-        reject(
-          new Error("Split refresh did not reach a settled ready state."),
-        );
+        reject(new Error("Split refresh did not reach a settled ready state."));
       })().catch(() => {
         reject(new Error("Split refresh did not reach a settled ready state."));
       });
