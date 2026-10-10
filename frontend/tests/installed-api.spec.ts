@@ -5553,7 +5553,10 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page
       .getByRole("table", { name: "Authored fixture sets" })
-      .getByRole("button", { name: "Browser authored exact copy", exact: true }),
+      .getByRole("button", {
+        name: "Browser authored exact copy",
+        exact: true,
+      }),
   ).toBeVisible({ timeout: 15_000 });
   const createdFixtureId = await page
     .locator(".fixture-detail code")
