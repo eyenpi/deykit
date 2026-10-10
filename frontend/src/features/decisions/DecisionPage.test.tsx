@@ -530,9 +530,7 @@ it("does not continue an old drain after the same page is reused for another dec
   expectTextboxValue("Decision source", rawSource);
 
   mounted.rerenderDecision("decision-2");
-  await waitFor(() =>
-    expectTextboxValue("Question", "Start"),
-  );
+  await waitFor(() => expectTextboxValue("Question", "Start"));
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-old-ack")));
     await Promise.resolve();
