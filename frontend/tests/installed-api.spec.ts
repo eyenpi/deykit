@@ -25,6 +25,10 @@ function safeRoutePattern(pathname: string): string {
     ["groups", "group_id"],
     ["runs", "run_id"],
     ["comparisons", "comparison_id"],
+    ["reports", "report_id"],
+    ["regressions", "regression_id"],
+    ["evaluations", "evaluation_id"],
+    ["annotations", "annotation_id"],
   ]);
   const segments = pathname.split("/");
   return segments
