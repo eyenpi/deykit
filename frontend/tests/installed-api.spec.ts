@@ -2096,17 +2096,16 @@ test("installed browser authors exact decision source and previews imports throu
   const baselineRow = revisionRows.filter({ hasText: firstRevisionId });
   await expect(baselineRow).toHaveCount(1);
   await baselineRow.getByRole("button", { name: "Compare to latest" }).click();
-  await expect(page.getByLabel("Difference from latest")).toContainText(
+  await expect(page.getByLabel("Difference from latest version")).toContainText(
     "Option order changed: No",
   );
-  await expect(page.getByLabel("Difference from latest")).toContainText(
+  await expect(page.getByLabel("Difference from latest version")).toContainText(
     `Added option IDs: ${addedOptionIds[0]}`,
   );
   await baselineRow.getByRole("button", { name: "Inspect" }).click();
   await page.getByText("Exact saved editor source", { exact: true }).click();
   const savedEditor = page.getByLabel("Saved editor source");
-  await expect(savedEditor).toContainText("9007199254740993");
-  await expect(savedEditor).toContainText("0.1234567890123456789");
+  await expect(savedEditor).toHaveValue(firstRevisionEditorSource);
   await baselineRow.getByRole("button", { name: "Restore to draft…" }).click();
   const restoreDialog = page.getByRole("dialog", {
     name: "Restore this version to the draft?",
