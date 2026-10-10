@@ -1967,16 +1967,31 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  const immediateRevisionId = (await immediateRevisionPage.json()).data.items[0]
-    .revision.record.id as string;
+  expect(immediateRevisionPage.status()).toBe(200);
+  const immediateRevisionItems = (await immediateRevisionPage.json()).data.items;
+  expect(
+    immediateRevisionItems.some(
+      (item: { revision: { record: { id: string } } }) =>
+        item.revision.record.id === immediateVersionId,
+    ),
+  ).toBe(true);
   const immediateRevision = await page.request.get(
-    `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions/${immediateRevisionId}`,
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions/${immediateVersionId}`,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  const immediateRevisionSource = (await immediateRevision.json()).data
-    .editor_source as string;
+  expect(immediateRevision.status()).toBe(200);
+  const immediateRevisionData = (await immediateRevision.json()).data;
+  expect(immediateRevisionData.revision.record.id).toBe(immediateVersionId);
+  const immediateRevisionSource = immediateRevisionData.editor_source as string;
+  expect(immediateRevisionSource).toBe(immediateVersionData.editor_source);
+  expect(
+    immediateRevisionData.revision.record.definition.questions[0].instructions,
+  ).toBe("Browser losing edit");
+  expect(
+    immediateRevisionData.revision.record.definition.input_schema_source,
+  ).toBe(acknowledgedCompositionSource);
   expect(immediateRevisionSource).toContain(immediateVersionOptionName);
   expect(immediateRevisionSource).toContain("9007199254740993");
   expect(immediateRevisionSource).toContain("0.1234567890123456789");
@@ -1986,8 +2001,16 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
+  expect(draftAfterImmediateSave.status()).toBe(200);
+  const immediateSavedDecision = (await draftAfterImmediateSave.json()).data;
   expect(immediateRevisionSource).toBe(
-    (await draftAfterImmediateSave.json()).data.draft.record.editor_source,
+    immediateSavedDecision.draft.record.editor_source,
+  );
+  expect(immediateSavedDecision.draft.record.base_revision_id).toBe(
+    immediateVersionId,
+  );
+  expect(immediateSavedDecision.decision.record.latest_revision_id).toBe(
+    immediateVersionId,
   );
   await page
     .getByLabel("Version note (optional)")
@@ -2005,6 +2028,27 @@ test("installed browser authors exact decision source and previews imports throu
   expect(stableVersionReceipt.status()).toBe(200);
   const stableVersionData = (await stableVersionReceipt.json()).data;
   const stableVersionId = stableVersionData.revision.record.id as string;
+  const initialOptionIds =
+    firstRevisionData.revision.record.definition.questions[0].options.map(
+      (option: { id: string }) => option.id,
+    );
+  const latestSavedOptions =
+    stableVersionData.revision.record.definition.questions[0].options;
+  const latestSavedOptionIds = latestSavedOptions.map(
+    (option: { id: string }) => option.id,
+  );
+  const addedOptionIds = latestSavedOptionIds.filter(
+    (optionId: string) => !initialOptionIds.includes(optionId),
+  );
+  expect(addedOptionIds).toHaveLength(1);
+  expect(latestSavedOptionIds).toEqual([
+    initialOptionIds[0],
+    addedOptionIds[0],
+    initialOptionIds[1],
+  ]);
+  expect(
+    latestSavedOptions.map((option: { name: string }) => option.name),
+  ).toEqual(["Option A", immediateVersionOptionName, "Renamed Option B"]);
   await expect(
     page.getByRole("button", { name: "Save version", exact: true }),
   ).toBeEnabled();
@@ -2034,10 +2078,10 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(baselineRow).toHaveCount(1);
   await baselineRow.getByRole("button", { name: "Compare to latest" }).click();
   await expect(page.getByLabel("Difference from latest")).toContainText(
-    "Option order changed: Yes",
+    "Option order changed: No",
   );
   await expect(page.getByLabel("Difference from latest")).toContainText(
-    "Added option IDs:",
+    `Added option IDs: ${addedOptionIds[0]}`,
   );
   await baselineRow.getByRole("button", { name: "Inspect" }).click();
   await page.getByText("Exact saved editor source", { exact: true }).click();
