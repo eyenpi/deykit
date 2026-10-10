@@ -3324,7 +3324,63 @@ test("installed browser authors exact decision source and previews imports throu
         },
       },
     );
-  const caseBeforeTag = (await (await readCaseOne()).json()).data;
+  await caseButton("case-1").click();
+  await expect(
+    page.getByRole("heading", { name: "case-1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(staleCaseSource);
+  await expect(page.getByRole("heading", { name: "Expected answers" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Excluded: stale" })).toBeVisible();
+  const staleCaseOneLabelResponse = await readCaseOneLabel();
+  expect(staleCaseOneLabelResponse.status()).toBe(200);
+  const staleCaseOneLabel = (await staleCaseOneLabelResponse.json()).data;
+  expect(staleCaseOneLabel).toMatchObject({
+    status: "excluded",
+    reasons: ["stale"],
+  });
+  const staleCaseOneSourceHash = staleCaseOneLabel.review.input_hash;
+  const optionA = page.getByRole("checkbox", { name: "Option A" });
+  const optionB = page.getByRole("checkbox", { name: "Option B" });
+  await expect(optionA).toBeEnabled();
+  if (await optionA.isChecked()) await optionA.uncheck();
+  if (await optionB.isChecked()) await optionB.uncheck();
+  await optionA.check();
+  const reactivatedLabelResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/batch") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save expected answer" }).click();
+  const reactivatedLabelReceipt = await reactivatedLabelResponse;
+  expect(reactivatedLabelReceipt.status()).toBe(200);
+  await reactivatedLabelReceipt.body();
+  await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled();
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Applicable/ }),
+  ).toBeVisible();
+  const applicableCaseOneLabelResponse = await readCaseOneLabel();
+  expect(applicableCaseOneLabelResponse.status()).toBe(200);
+  const applicableCaseOneLabel =
+    (await applicableCaseOneLabelResponse.json()).data;
+  expect(applicableCaseOneLabel.status).toBe("applicable");
+  expect(applicableCaseOneLabel.reasons).toEqual([]);
+  expect(applicableCaseOneLabel.review.input_hash).toBe(
+    staleCaseOneSourceHash,
+  );
+  expect(applicableCaseOneLabel.label.input_hash).toBe(
+    applicableCaseOneLabel.review.input_hash,
+  );
+  expect(applicableCaseOneLabel.review.input_hash).not.toBe(
+    staleCaseOneLabel.label.input_hash,
+  );
+
+  const caseBeforeTagResponse = await readCaseOne();
+  expect(caseBeforeTagResponse.status()).toBe(200);
+  const caseBeforeTag = (await caseBeforeTagResponse.json()).data;
+  expect(caseBeforeTag.case.record.input_source).toBe(staleCaseSource);
+  const caseOneInputHashBeforeTag = applicableCaseOneLabel.review.input_hash;
   const tagOnly = await page.request.put(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
     {
@@ -3345,9 +3401,13 @@ test("installed browser authors exact decision source and previews imports throu
     },
   );
   expect(tagOnly.status()).toBe(200);
-  expect(
-    (await readCaseOneLabel().then((response) => response.json())).data.status,
-  ).toBe("applicable");
+  await tagOnly.body();
+  const caseOneLabelAfterTagResponse = await readCaseOneLabel();
+  expect(caseOneLabelAfterTagResponse.status()).toBe(200);
+  const caseOneLabelAfterTag = (await caseOneLabelAfterTagResponse.json()).data;
+  expect(caseOneLabelAfterTag.status).toBe("applicable");
+  expect(caseOneLabelAfterTag.review.input_hash).toBe(caseOneInputHashBeforeTag);
+  expect(caseOneLabelAfterTag.label).toEqual(applicableCaseOneLabel.label);
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
