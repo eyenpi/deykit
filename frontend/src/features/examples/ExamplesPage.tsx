@@ -616,7 +616,9 @@ export function ExamplesPage({
               ...(action === "set" || action === "resolve"
                 ? { provenance: "human" as const }
                 : {}),
-              ...(noteAtSubmit ? { note: noteAtSubmit } : {}),
+              ...(action !== "clear" && noteAtSubmit
+                ? { note: noteAtSubmit }
+                : {}),
             },
           ],
         };
@@ -1496,6 +1498,7 @@ export function ExamplesPage({
                     setEditorDirty(true);
                   }}
                 />
+                <p className="muted">A note is required to dispute a label.</p>
                 {labelView.status === "excluded" && (
                   <p className="muted">
                     This expectation is excluded from correctness until its

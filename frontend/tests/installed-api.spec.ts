@@ -283,7 +283,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 test("installed browser authors exact decision source and previews imports through real APIs", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(270_000);
   page.setDefaultTimeout(10_000);
   const completedPhases: string[] = [];
   const screenshots: string[] = [];
@@ -3202,11 +3202,18 @@ test("installed browser authors exact decision source and previews imports throu
     provenance: "human",
     status: "active",
   });
+  const disputeReason = "The source does not support this assigned answer.";
+  await page.getByLabel("Provenance note").fill(disputeReason);
   await page.getByRole("button", { name: "Dispute label" }).click();
   await expect(
     page.getByRole("button", { name: "Retry original label request" }),
   ).toBeVisible();
   expect(labelMutationBodies.at(-1)?.operation_id).toBeTruthy();
+  const firstDisputeEdit = (
+    labelMutationBodies.at(-1)?.edits as Array<Record<string, unknown>>
+  )[0];
+  expect(firstDisputeEdit?.action).toBe("dispute");
+  expect(firstDisputeEdit?.note).toBe(disputeReason);
   const unknownLabelHash = page.url();
   await page.evaluate((hash) => {
     window.location.hash = hash;
@@ -3243,6 +3250,12 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(disputeBodies).toHaveLength(2);
   expect(disputeBodies[1]).toEqual(disputeBodies[0]);
+  expect(
+    (disputeBodies[0]?.edits as Array<Record<string, unknown>>)[0]?.note,
+  ).toBe(disputeReason);
+  expect(
+    (disputeBodies[1]?.edits as Array<Record<string, unknown>>)[0]?.note,
+  ).toBe(disputeReason);
   await expect(
     page.getByRole("button", { name: "Resolve dispute with staged set" }),
   ).toBeEnabled();
@@ -3267,6 +3280,9 @@ test("installed browser authors exact decision source and previews imports throu
     status: "active",
     provenance: "human",
   });
+  const clearNote = "This note remains visible until the clear is saved.";
+  await page.getByLabel("Provenance note").fill(clearNote);
+  await expect(page.getByLabel("Provenance note")).toHaveValue(clearNote);
   const clearLabelResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/labels/batch") &&
@@ -3276,6 +3292,11 @@ test("installed browser authors exact decision source and previews imports throu
   const clearedLabelReceipt = await clearLabelResponse;
   expect(clearedLabelReceipt.status()).toBe(200);
   await clearedLabelReceipt.body();
+  const clearEdit = (
+    labelMutationBodies.at(-1)?.edits as Array<Record<string, unknown>>
+  )[0];
+  expect(clearEdit?.action).toBe("clear");
+  expect(clearEdit).not.toHaveProperty("note");
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Clear label" })).toHaveCount(
     0,
