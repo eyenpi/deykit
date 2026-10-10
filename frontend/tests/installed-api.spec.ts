@@ -3698,9 +3698,7 @@ test("installed browser authors exact decision source and previews imports throu
     removeBodies[0].expected_case_etag,
   );
   await page.unroute("**/datasets/*/cases/case-2");
-  await expect(
-    page.getByRole("region", { name: /^Cases in / }),
-  ).toBeVisible();
+  await expect(page.getByRole("region", { name: /^Cases in / })).toBeVisible();
   await expect(caseButton("case-2")).toHaveCount(0);
   await expect(caseButton("case-1")).toBeVisible();
   const datasetAfterRemoval = await page.request.get(
