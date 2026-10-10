@@ -2984,7 +2984,9 @@ test("installed browser authors exact decision source and previews imports throu
       data: {
         schema_version: 1,
         operation_id: externalClearOperationId,
-        edits: [{ review: labelBeforeExternalClearBody.review, action: "clear" }],
+        edits: [
+          { review: labelBeforeExternalClearBody.review, action: "clear" },
+        ],
       },
     },
   );

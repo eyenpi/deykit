@@ -34,7 +34,9 @@ type LabelMutationBody =
   ApiOperationBody<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
 type LabelMutationReceipt =
   ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
-type LabelRecord = NonNullable<LabelMutationReceipt["changes"][number]["label"]>;
+type LabelRecord = NonNullable<
+  LabelMutationReceipt["changes"][number]["label"]
+>;
 type CaseEditBody =
   ApiOperationBody<"edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put">;
 type CaseMutationReceipt =
@@ -662,7 +664,12 @@ export function ExamplesPage({
   }
 
   async function reviewLabelConflict(): Promise<void> {
-    if (committedRefreshRef.current || !decision || !datasetId || !selectedCaseId)
+    if (
+      committedRefreshRef.current ||
+      !decision ||
+      !datasetId ||
+      !selectedCaseId
+    )
       return;
     const context = currentReadContext.current;
     setBusy(true);
@@ -885,12 +892,7 @@ export function ExamplesPage({
   }
 
   async function removeSelectedCase() {
-    if (
-      committedRefreshRef.current ||
-      !dataset ||
-      !caseRead ||
-      !selectedCaseId
-    )
+    if (committedRefreshRef.current || !dataset || !caseRead || !selectedCaseId)
       return;
     if (pendingRemove?.conflict) return;
     setBusy(true);
@@ -1643,11 +1645,7 @@ export function ExamplesPage({
           <Modal
             title="Add example"
             onDismiss={() => {
-              if (
-                !busy &&
-                !committedRefresh &&
-                !pendingAdd?.uncertain
-              )
+              if (!busy && !committedRefresh && !pendingAdd?.uncertain)
                 setAddCaseOpen(false);
             }}
           >
@@ -1696,7 +1694,9 @@ export function ExamplesPage({
                     <input
                       type="radio"
                       checked={newInputKind === kind}
-                      disabled={busy || !!committedRefresh || pendingAdd?.uncertain}
+                      disabled={
+                        busy || !!committedRefresh || pendingAdd?.uncertain
+                      }
                       onChange={() => {
                         setNewInputKind(kind);
                         setEditorDirty(true);
@@ -1728,7 +1728,9 @@ export function ExamplesPage({
                 <button
                   type="button"
                   className="primary"
-                  disabled={busy || !!committedRefresh || !!pendingAdd?.conflict}
+                  disabled={
+                    busy || !!committedRefresh || !!pendingAdd?.conflict
+                  }
                   onClick={() => void addCase()}
                 >
                   {busy
@@ -1752,11 +1754,7 @@ export function ExamplesPage({
           <Modal
             title={`Remove ${currentCase.id}?`}
             onDismiss={() => {
-              if (
-                !busy &&
-                !committedRefresh &&
-                !pendingRemove?.uncertain
-              )
+              if (!busy && !committedRefresh && !pendingRemove?.uncertain)
                 setDeleteCaseOpen(false);
             }}
           >
@@ -1806,7 +1804,9 @@ export function ExamplesPage({
                 <button
                   type="button"
                   className="primary"
-                  disabled={busy || !!committedRefresh || !!pendingRemove?.conflict}
+                  disabled={
+                    busy || !!committedRefresh || !!pendingRemove?.conflict
+                  }
                   onClick={() => void removeSelectedCase()}
                 >
                   {busy
@@ -1817,7 +1817,9 @@ export function ExamplesPage({
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !!committedRefresh || pendingRemove?.uncertain}
+                  disabled={
+                    busy || !!committedRefresh || pendingRemove?.uncertain
+                  }
                   onClick={() => setDeleteCaseOpen(false)}
                 >
                   Cancel
