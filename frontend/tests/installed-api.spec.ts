@@ -70,7 +70,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Reconnect" })
+    .getByRole("button", { name: "Reconnect", exact: true })
     .click();
   await expect(pathField).toHaveValue(demoPath);
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -313,21 +313,25 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Welcome to deykit." }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Create project" }).click();
+  await page
+    .getByRole("button", { name: "Create project", exact: true })
+    .click();
   await page.getByLabel("Project name").fill(projectName);
   await page.getByLabel("Project folder path").fill(projectPath);
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create project" })
+    .getByRole("button", { name: "Create project", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
   await enterPhase("Dataset creation and first import mapping");
 
-  await page.getByRole("button", { name: "Create dataset" }).click();
+  await page
+    .getByRole("button", { name: "Create dataset", exact: true })
+    .click();
   await page.getByLabel("Dataset name").fill("Imported before decision");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create dataset" })
+    .getByRole("button", { name: "Create dataset", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await captureScreenshot("examples-before-decision.png");
@@ -336,7 +340,9 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Project examples", exact: true })
     .click();
-  await page.getByRole("button", { name: "Import examples" }).click();
+  await page
+    .getByRole("button", { name: "Import examples", exact: true })
+    .click();
   await page
     .getByLabel("Import source text")
     .fill("id,input\nseed-1,first imported input\n");
@@ -426,11 +432,13 @@ test("installed browser authors exact decision source and previews imports throu
   await enterPhase(
     "Exact decision source authoring and API/CLI conflict recovery",
   );
-  await page.getByRole("button", { name: "Create decision" }).click();
+  await page
+    .getByRole("button", { name: "Create decision", exact: true })
+    .click();
   await page.getByLabel("Decision name").fill(decisionName);
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create decision" })
+    .getByRole("button", { name: "Create decision", exact: true })
     .click();
   await expect(page.getByLabel("Question")).toBeVisible();
   const schemaSource =
@@ -533,7 +541,7 @@ test("installed browser authors exact decision source and previews imports throu
   expect(new URL(page.url()).hash).toBe(composingDecisionHash);
   expect(pausedCompositionTransforms).toHaveLength(0);
   await compositionNavigationGuard
-    .getByRole("button", { name: "Keep editing" })
+    .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await schemaCompositionEditor.evaluate((editor, committedSource) => {
     const setter = Object.getOwnPropertyDescriptor(
@@ -987,7 +995,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(ackCompositionGuard).toBeVisible();
   expect(new URL(page.url()).hash).toBe(titleHashDuringAck);
   await ackCompositionGuard
-    .getByRole("button", { name: "Keep editing" })
+    .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   const committedAckDraft = page.waitForResponse(
     (response) =>
@@ -1067,7 +1075,7 @@ test("installed browser authors exact decision source and previews imports throu
     await route.continue();
   });
   await saveAndLeaveGuard
-    .getByRole("button", { name: "Save and leave" })
+    .getByRole("button", { name: "Save and leave", exact: true })
     .click();
   await saveAndLeaveStarted;
   await expect(saveAndLeaveEditor).toHaveJSProperty("readOnly", true);
@@ -1371,7 +1379,9 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("status").filter({ hasText: /^Saved version / }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Version history" }).click();
+  await page
+    .getByRole("button", { name: "Version history", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Version history" }),
   ).toBeVisible();
@@ -1457,7 +1467,9 @@ test("installed browser authors exact decision source and previews imports throu
   expect(uncertainRestoreRequests[1]).toEqual(uncertainRestoreRequests[0]);
   await page.unroute(`**/decisions/${decisionId}/restore-revision`);
 
-  await page.getByRole("button", { name: "Version history" }).click();
+  await page
+    .getByRole("button", { name: "Version history", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Version history" }),
   ).toBeVisible();
@@ -1534,7 +1546,7 @@ test("installed browser authors exact decision source and previews imports throu
     conflictRestoreDialog.getByLabel("Editor source to restore"),
   ).toHaveValue(firstRevisionEditorSource);
   await conflictRestoreDialog
-    .getByRole("button", { name: "Review current draft" })
+    .getByRole("button", { name: "Review current draft", exact: true })
     .click();
   await expect(
     conflictRestoreDialog.getByLabel("Reviewed current draft source"),
@@ -1569,7 +1581,9 @@ test("installed browser authors exact decision source and previews imports throu
   await captureScreenshot("examples-label-review.png");
 
   await enterPhase("Import row validation and explicit accepted-row commit");
-  await page.getByRole("button", { name: "Import examples" }).click();
+  await page
+    .getByRole("button", { name: "Import examples", exact: true })
+    .click();
   await page.getByLabel("Map expected answers for").selectOption(decisionId);
   await page
     .getByLabel("Advanced mapping source")
@@ -1652,10 +1666,13 @@ test("installed browser authors exact decision source and previews imports throu
   });
   await expect(importUnknownGuard).toBeVisible();
   await expect(
-    importUnknownGuard.getByRole("button", { name: "Discard changes" }),
+    importUnknownGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
   ).toBeDisabled();
   await importUnknownGuard
-    .getByRole("button", { name: "Keep editing" })
+    .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await expect(page).toHaveURL(importHashBeforeRouteAttempt);
   expect(importCommitBodies).toHaveLength(1);
@@ -1699,7 +1716,9 @@ test("installed browser authors exact decision source and previews imports throu
   }, `#/p/${registrationId}/d/${decisionId}`);
   const keepStagedCase = page.getByRole("dialog", { name: "Unsaved changes" });
   await expect(keepStagedCase).toBeVisible();
-  await keepStagedCase.getByRole("button", { name: "Keep editing" }).click();
+  await keepStagedCase
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
   await expect(page).toHaveURL(stagedCaseHash);
   await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
   await page.getByRole("button", { name: "Save input" }).click();
@@ -1725,7 +1744,7 @@ test("installed browser authors exact decision source and previews imports throu
   });
   await expect(keepStagedSelection).toBeVisible();
   await keepStagedSelection
-    .getByRole("button", { name: "Keep editing" })
+    .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await expect(page).toHaveURL(stagedLabelHash);
   await expect(
@@ -1741,7 +1760,9 @@ test("installed browser authors exact decision source and previews imports throu
     .click();
   const keepStagedLabel = page.getByRole("dialog", { name: "Unsaved changes" });
   await expect(keepStagedLabel).toBeVisible();
-  await keepStagedLabel.getByRole("button", { name: "Keep editing" }).click();
+  await keepStagedLabel
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   await page
@@ -1752,7 +1773,7 @@ test("installed browser authors exact decision source and previews imports throu
     name: "Unsaved changes",
   });
   await discardStagedLabel
-    .getByRole("button", { name: "Discard changes" })
+    .getByRole("button", { name: "Discard changes", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
   expect((await (await readSeedLabel()).json()).data.label).toBeNull();
@@ -1852,9 +1873,14 @@ test("installed browser authors exact decision source and previews imports throu
   });
   await expect(unknownLabelGuard).toBeVisible();
   await expect(
-    unknownLabelGuard.getByRole("button", { name: "Discard changes" }),
+    unknownLabelGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
   ).toBeDisabled();
-  await unknownLabelGuard.getByRole("button", { name: "Keep editing" }).click();
+  await unknownLabelGuard
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
   await expect(page).toHaveURL(unknownLabelHash);
   expect(
     labelMutationBodies.filter(
@@ -1935,7 +1961,9 @@ test("installed browser authors exact decision source and previews imports throu
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
-  await page.getByRole("button", { name: "Add example" }).click();
+  await page
+    .getByRole("button", { name: "Add example", exact: true })
+    .click();
   const proposedAddSource = '{"proposal":"keep-after-review"}';
   await page.getByLabel("Input source").fill(proposedAddSource);
   const addBodies: Array<Record<string, unknown>> = [];
@@ -2234,7 +2262,9 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeNull();
 
   await enterPhase("Grouped server split preview and option-reference impact");
-  await page.getByRole("button", { name: "Split dataset" }).click();
+  await page
+    .getByRole("button", { name: "Split dataset", exact: true })
+    .click();
   const splitPreviewResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/splits/preview") &&
@@ -2299,9 +2329,14 @@ test("installed browser authors exact decision source and previews imports throu
   });
   await expect(splitUnknownGuard).toBeVisible();
   await expect(
-    splitUnknownGuard.getByRole("button", { name: "Discard changes" }),
+    splitUnknownGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
   ).toBeDisabled();
-  await splitUnknownGuard.getByRole("button", { name: "Keep editing" }).click();
+  await splitUnknownGuard
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
   await expect(page).toHaveURL(splitHashBeforeRouteAttempt);
   expect(splitCommitBodies).toHaveLength(1);
   await page
@@ -2373,7 +2408,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(referencedImpact).toContainText("seed-1");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Cancel" })
+    .getByRole("button", { name: "Cancel", exact: true })
     .click();
 
   await page.getByRole("button", { name: "Remove option Option C" }).click();
@@ -2407,7 +2442,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     uncomputableImpact.getByRole("list", { name: "Affected references" }),
   ).toHaveCount(0);
-  await uncomputableImpact.getByRole("button", { name: "Cancel" }).click();
+  await uncomputableImpact
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
 
   await enterPhase("Decision archive recovery and provider safety controls");
   await page.getByRole("button", { name: "Archive decision" }).click();
@@ -2779,10 +2816,13 @@ test("installed browser authors exact decision source and previews imports throu
   });
   await expect(fixtureUnknownGuard).toBeVisible();
   await expect(
-    fixtureUnknownGuard.getByRole("button", { name: "Discard changes" }),
+    fixtureUnknownGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
   ).toBeDisabled();
   await fixtureUnknownGuard
-    .getByRole("button", { name: "Keep editing" })
+    .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Fixture library" }),
