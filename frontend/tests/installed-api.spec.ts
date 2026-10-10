@@ -1441,10 +1441,22 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Retry same rename" }),
   ).toBeVisible();
+  const replayedRename = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/rename") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Retry same rename" }).click();
-  await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
+  const replayedRenameResponse = await replayedRename;
+  expect(replayedRenameResponse.status()).toBe(200);
+  expect((await replayedRenameResponse.json()).data.record.name).toBe(
+    decisionName,
+  );
   expect(renameBodies).toHaveLength(2);
   expect(renameBodies[1]).toEqual(renameBodies[0]);
+  await expect(
+    page.getByRole("button", { name: "Retry same rename" }),
+  ).toHaveCount(0);
   await page.unroute(`**/decisions/${decisionId}/rename`);
   const renamed = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
@@ -1452,6 +1464,19 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
+  if (!renamed.ok()) {
+    const failure = await renamed.json().catch(() => undefined);
+    const error = isRecord(failure) ? failure.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    apiFailures.push({
+      route_pattern: safeRoutePattern(new URL(renamed.url()).pathname),
+      status: renamed.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    });
+    await recordProgress();
+  }
+  expect(renamed.status()).toBe(200);
   expect((await renamed.json()).data.decision.record.name).toBe(decisionName);
 
   const revisionSaveBodies: Array<Record<string, unknown>> = [];
@@ -1730,9 +1755,21 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     restoreDialog.getByLabel("Editor source to restore"),
   ).toHaveValue(firstRevisionEditorSource);
+  const restoreReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/restore-revision") &&
+      response.request().method() === "POST",
+  );
   await page
     .getByRole("button", { name: "Retry the same restore request" })
     .click();
+  const restoredResponse = await restoreReplayResponse;
+  expect(restoredResponse.status()).toBe(200);
+  await restoredResponse.body();
+  await expect(
+    page.getByRole("button", { name: "Retry the same restore request" }),
+  ).toHaveCount(0);
+  await expect(restoreDialog).toHaveCount(0);
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
   expect(firstRestoreStatus).toBe(200);
   expect(uncertainRestoreRequests).toHaveLength(2);
@@ -1946,9 +1983,20 @@ test("installed browser authors exact decision source and previews imports throu
     .click();
   await expect(page).toHaveURL(importHashBeforeRouteAttempt);
   expect(importCommitBodies).toHaveLength(1);
+  const importReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/imports/commit") &&
+      response.request().method() === "POST",
+  );
   await page
     .getByRole("button", { name: "Retry the same import request" })
     .click();
+  const importedResponse = await importReplayResponse;
+  expect(importedResponse.status()).toBe(200);
+  await importedResponse.body();
+  await expect(
+    page.getByRole("button", { name: "Retry the same import request" }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "case-1", exact: true }),
   ).toBeVisible();
@@ -2743,9 +2791,21 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     archiveDialog.getByRole("button", { name: "Retry same archive action" }),
   ).toBeVisible();
+  const archiveReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/archive") &&
+      response.request().method() === "POST",
+  );
   await archiveDialog
     .getByRole("button", { name: "Retry same archive action" })
     .click();
+  const archivedResponse = await archiveReplayResponse;
+  expect(archivedResponse.status()).toBe(200);
+  await archivedResponse.body();
+  await expect(
+    archiveDialog.getByRole("button", { name: "Retry same archive action" }),
+  ).toHaveCount(0);
+  await expect(archiveDialog).toHaveCount(0);
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
   expect(archiveBodies).toHaveLength(2);
   expect(archiveBodies[1]).toEqual(archiveBodies[0]);
@@ -2852,9 +2912,20 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Store credential" }),
   ).toBeDisabled();
   expect(await page.locator("body").innerText()).not.toContain(credentialValue);
+  const credentialReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/credential-os-store") &&
+      response.request().method() === "POST",
+  );
   await page
     .getByRole("button", { name: "Retry the same credential request" })
     .click();
+  const credentialResponse = await credentialReplayResponse;
+  expect(credentialResponse.status()).toBe(200);
+  await credentialResponse.body();
+  await expect(
+    page.getByRole("button", { name: "Retry the same credential request" }),
+  ).toHaveCount(0);
   await expect(
     page.getByText("Configured · Available", { exact: false }),
   ).toBeVisible();
@@ -3095,7 +3166,18 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Fixture library" }),
   ).toBeVisible();
+  const fixtureReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/fixtures") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Retry same create" }).click();
+  const fixtureResponse = await fixtureReplayResponse;
+  expect(fixtureResponse.status()).toBe(200);
+  await fixtureResponse.body();
+  await expect(
+    page.getByRole("button", { name: "Retry same create" }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Browser retained fixture request" }),
   ).toBeVisible();
