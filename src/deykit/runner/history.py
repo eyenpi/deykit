@@ -89,7 +89,8 @@ class RunHistory:
     def case_attempts(self, case_id: str) -> tuple[AttemptRecord, ...]:
         return tuple(attempt for attempt in self.attempts if attempt.case_id == case_id)
 
-    def results(self) -> tuple[CaseResult, ...]:
+    def results(self, *, legacy_deadline_errors: bool = False) -> tuple[CaseResult, ...]:
+        """Project current outcomes, or the legacy form for saved-snapshot admission."""
         results: list[CaseResult] = []
         for prepared in self.prepared:
             if prepared.error is not None:
@@ -121,7 +122,13 @@ class RunHistory:
                     outcome is not None
                     and outcome.state == "not_sent"
                     and outcome.error
-                    and outcome.error.reason == "cancelled_before_dispatch"
+                    and (
+                        outcome.error.reason == "cancelled_before_dispatch"
+                        or (
+                            outcome.error.reason == "segment_deadline"
+                            and not legacy_deadline_errors
+                        )
+                    )
                 ):
                     continue  # Keep the prior unknown/error; a proven non-call is not new evidence.
                 elif outcome is None or outcome.state == "unknown":

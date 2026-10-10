@@ -820,7 +820,10 @@ def test_forget_recovers_native_deletion_after_source_failure_and_replays_origin
     ]
     failed = CliRunner().invoke(app, arguments)
     assert failed.exit_code == 1, failed.output
-    assert json.loads(failed.stdout)["error"]["reason"] == "storage_io"
+    failure = json.loads(failed.stdout)["error"]
+    assert failure["code"] == "internal_error"
+    assert failure["reason"] == "credential_update_outcome_unknown"
+    assert failure["resource_id"] == "live"
     assert values == {} and deletions == [("deykit", "live")]
     unchanged = CliRunner().invoke(app, [*base, "provider", "show", "live"])
     assert (

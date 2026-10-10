@@ -3,3 +3,6 @@ dist/
 package-lock.json
 test-results/
 playwright-report/
+# Exact, byte-checked Python schema exports are formatted by their exporter.
+api-contracts/openapi.json
+api-contracts/schemas.json

@@ -186,9 +186,7 @@ def test_reviewed_run_hash_binds_exact_captured_plan_and_stale_start_has_no_effe
     before = source.capture_snapshot()
     with pytest.raises(ServiceFailure) as failure:
         asyncio.run(
-            runner.start(
-                request(), operation_id="stale-run", expected_review_context_hash="0" * 64
-            )
+            runner.start(request(), operation_id="stale-run", expected_review_context_hash="0" * 64)
         )
     assert failure.value.error.code == "conflict"
     assert source.capture_snapshot() == before
@@ -292,6 +290,7 @@ def test_reviewed_run_rejects_real_context_mutations_before_effects(setup, chang
             operation_id="edit-review-profile",
         )
     else:
+
         class AlternateCompiler:
             review_identity = CompilerIdentity("alternate-choice", "9")
 
@@ -327,9 +326,7 @@ def test_reviewed_start_rejects_same_etag_fixture_body_substitution_before_effec
     original_capture = source.capture_snapshot
     original_records = original_capture()
     fixture_record = next(
-        record
-        for record in original_records
-        if record.key == ResourceKey("fixtures", "set")
+        record for record in original_records if record.key == ResourceKey("fixtures", "set")
     )
     fixture = load_record(FixtureSet, fixture_record.body)
     substituted_fixture = fixture.model_copy(update={"name": "Renamed evidence"})
@@ -412,9 +409,7 @@ def test_group_selection_codec_preserves_legacy_bytes_and_binds_review_hash():
     assert legacy_hash(old_payload) == expected_legacy_intent
     assert group_start_intent(legacy) == expected_legacy_intent
 
-    reviewed = encode_group_start_selection(
-        source, expected_review_context_hash="a" * 64
-    )
+    reviewed = encode_group_start_selection(source, expected_review_context_hash="a" * 64)
     decoded = decode_group_start_selection(reviewed.stored_source, expected_kind="choice_order")
     assert decoded.original_selection == legacy.original_selection
     assert decoded.expected_review_context_hash == "a" * 64
@@ -553,9 +548,7 @@ def test_same_etag_regression_provenance_substitution_conflicts_before_check_gro
         operation_id="save-review-regression",
     )
     service = CheckService(runner)
-    check_request = CheckRequest(
-        decision_id="decision", mode="fixture", fixture_set_id="set"
-    )
+    check_request = CheckRequest(decision_id="decision", mode="fixture", fixture_set_id="set")
     preview_hash = service.preview(check_request).review_context_hash
     original_capture = source.capture_snapshot
     original_records = original_capture()
@@ -568,9 +561,7 @@ def test_same_etag_regression_provenance_substitution_conflicts_before_check_gro
     changed = regression.model_copy(update={"provenance": "authored_fixture"})
     substituted = changed.model_copy(update={"content_hash": regression_hash(changed)})
     faulted = tuple(
-        replace(record, body=dump_record(substituted))
-        if record.key == stored.key
-        else record
+        replace(record, body=dump_record(substituted)) if record.key == stored.key else record
         for record in original_records
     )
     captured = next(record for record in faulted if record.key == stored.key)
@@ -650,9 +641,7 @@ def test_default_check_review_binds_label_provenance_and_regression_membership(s
             operation_id="save-" + option,
         )
     service = CheckService(runner)
-    check_request = CheckRequest(
-        decision_id="decision", mode="fixture", fixture_set_id="set"
-    )
+    check_request = CheckRequest(decision_id="decision", mode="fixture", fixture_set_id="set")
     preview_hash = service.preview(check_request).review_context_hash
     regressions.remove("reg-a", decision_id="decision", operation_id="remove-reg-a")
     before = source.capture_snapshot()
@@ -662,9 +651,7 @@ def test_default_check_review_binds_label_provenance_and_regression_membership(s
         if record.key.collection in {"regressions", "regression_removals"}
     ]
     regression_ids = {
-        record.key.resource_id
-        for record in membership
-        if record.key.collection == "regressions"
+        record.key.resource_id for record in membership if record.key.collection == "regressions"
     }
     assert regression_ids == {
         "reg-a",
@@ -705,9 +692,7 @@ def test_legacy_group_selection_remains_admitted_and_report_readable(setup):
             },
         }
     )
-    frozen = diagnostic_snapshot_from_records(
-        source.capture_snapshot(), progress.group.snapshot_id
-    )
+    frozen = diagnostic_snapshot_from_records(source.capture_snapshot(), progress.group.snapshot_id)
     orders = tuple(member.manifest.option_order for member in frozen.members)
     assert report_group_selection(frozen) == (23, "deykit-choice-order-v1", orders)
     assert factory.calls
@@ -727,9 +712,7 @@ def test_same_etag_body_substitution_conflicts_in_admission_port(setup, monkeypa
     case = load_record(CaseRecord, case_record.body)
     substituted = case.model_copy(update={"input_source": '{"text":"same-etag substitution"}'})
     faulted = tuple(
-        replace(record, body=dump_record(substituted))
-        if record.key == case_record.key
-        else record
+        replace(record, body=dump_record(substituted)) if record.key == case_record.key else record
         for record in original_records
     )
     captured = next(record for record in faulted if record.key == case_record.key)

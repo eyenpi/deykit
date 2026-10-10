@@ -1,4 +1,4 @@
-import validators from "./generated/validators.cjs";
+import validators from "@deykit/validators";
 import { ApiError, object } from "./client";
 import type {
   ProjectOverview,
@@ -75,7 +75,8 @@ export function decodeRegistration(value: unknown): string {
 
 export function decodeDemoRegistration(value: unknown): string {
   const result = object(value);
-  if (!validators.validateRegistrationDTO(result.registration)) return invalid();
+  if (!validators.validateRegistrationDTO(result.registration))
+    return invalid();
   const registration = object(result.registration);
   const demo = object(result.demo);
   if (

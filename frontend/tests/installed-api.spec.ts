@@ -42,27 +42,52 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 
   const shell = await page.goto("/");
   expect(shell?.status()).toBe(200);
-  expect(shell?.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
-  await expect(page.getByRole("heading", { name: "Welcome to deykit." })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("initial.png"), fullPage: true });
+  expect(shell?.headers()["content-security-policy"]).toContain(
+    "frame-ancestors 'none'",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("initial.png"),
+    fullPage: true,
+  });
 
   await page.getByRole("button", { name: "Try support demo" }).click();
   const pathField = page.getByLabel("Project folder path");
   await pathField.fill(demoPath);
-  await page.getByRole("button", { name: "Try support demo", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
   await expect(page.getByRole("dialog").getByRole("alert")).toBeVisible();
   await expect(pathField).toHaveValue(demoPath);
-  await page.screenshot({ path: testInfo.outputPath("error.png"), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath("error.png"),
+    fullPage: true,
+  });
 
-  await page.getByRole("dialog").getByRole("button", { name: "Reconnect" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Reconnect" })
+    .click();
   await expect(pathField).toHaveValue(demoPath);
   await expect(page.getByRole("dialog")).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("reconnect.png"), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath("reconnect.png"),
+    fullPage: true,
+  });
 
-  await page.getByRole("button", { name: "Try support demo", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Sandbox", exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
   await expect(page.getByText(demoPath, { exact: true })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("open-demo.png"), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath("open-demo.png"),
+    fullPage: true,
+  });
 
   expect(
     typeof capability === "string" && /^[A-Za-z0-9_-]{43}$/.test(capability),
@@ -88,13 +113,17 @@ test("installed shell recovers a lost authored-demo response without duplicate w
     { headers: authorizedHeaders },
   );
   expect(demoRegistration.status()).toBe(200);
-  expect((await demoRegistration.json()).data.registration_id).toBe(registrationId);
+  expect((await demoRegistration.json()).data.registration_id).toBe(
+    registrationId,
+  );
   const demoOverview = await page.request.get(
     `/api/v1/projects/${registrationId}/overview`,
     { headers: authorizedHeaders },
   );
   expect(demoOverview.status()).toBe(200);
-  expect((await demoOverview.json()).data.registration.project.name).toBe("Sandbox");
+  expect((await demoOverview.json()).data.registration.project.name).toBe(
+    "Sandbox",
+  );
   const demoValidated = await page.request.post(
     `/api/v1/projects/${registrationId}/validate`,
     { headers: authorizedHeaders, data: { schema_version: 1 } },
@@ -159,7 +188,9 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   );
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Welcome to deykit." })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Projects", exact: true })
@@ -188,18 +219,27 @@ test("installed shell recovers a lost authored-demo response without duplicate w
     { status: 200, replayed: false },
     { status: 200, replayed: true },
   ]);
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([
-    0,
-    0,
-  ]);
-  expect(await page.evaluate(() => (document as Document & { cookie: string }).cookie)).toBe("");
-  expect(await page.evaluate(() => (window as Window & { __xss?: unknown }).__xss)).toBeUndefined();
+  expect(
+    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
+  ).toEqual([0, 0]);
+  expect(
+    await page.evaluate(
+      () => (document as Document & { cookie: string }).cookie,
+    ),
+  ).toBe("");
+  expect(
+    await page.evaluate(() => (window as Window & { __xss?: unknown }).__xss),
+  ).toBeUndefined();
   await expect(page.locator("img")).toHaveCount(0);
   expect(page.url()).not.toContain("?");
   expect(
-    requestUrls.every((url) => new URL(url).origin === new URL(page.url()).origin),
+    requestUrls.every(
+      (url) => new URL(url).origin === new URL(page.url()).origin,
+    ),
   ).toBe(true);
   expect(page.url()).not.toContain(sessionCapability);
-  expect(requestUrls.every((url) => !url.includes(sessionCapability))).toBe(true);
+  expect(requestUrls.every((url) => !url.includes(sessionCapability))).toBe(
+    true,
+  );
   expect(consoleMessages.join("\n")).not.toContain(sessionCapability);
 });

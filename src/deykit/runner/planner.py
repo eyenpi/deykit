@@ -227,9 +227,8 @@ class Planner:
             current = self._capture(plan.selection)
         except ServiceFailure:
             fail("run_source_changed", "conflict")
-        if (
-            fingerprint(current) != plan.context_hash
-            or _exact_records(current) != _exact_records(plan.review_records)
+        if fingerprint(current) != plan.context_hash or _exact_records(current) != _exact_records(
+            plan.review_records
         ):
             fail("run_source_changed", "conflict")
 
@@ -312,10 +311,9 @@ class Planner:
                 context = self._capture(plan.selection, captured)
             except ServiceFailure:
                 fail("run_source_changed", "conflict")
-            if (
-                fingerprint(context) != plan.context_hash
-                or _exact_records(context) != _exact_records(plan.review_records)
-            ):
+            if fingerprint(context) != plan.context_hash or _exact_records(
+                context
+            ) != _exact_records(plan.review_records):
                 fail("run_source_changed", "conflict")
 
     def _prepare(

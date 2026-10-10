@@ -143,10 +143,18 @@ describe("workspace API adapter", () => {
       )
       .mockResolvedValueOnce(json(registration))
       .mockResolvedValueOnce(
-        new Response("{}", { status: 503, headers: { "Content-Type": "application/json" } }),
+        new Response("{}", {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
-        json({ registration, decisions: [summary], datasets: [], schema_version: 1 }),
+        json({
+          registration,
+          decisions: [summary],
+          datasets: [],
+          schema_version: 1,
+        }),
       );
     const gateway = createWorkspaceGateway(
       new ApiClient(transport, () => "http://localhost"),
@@ -157,9 +165,13 @@ describe("workspace API adapter", () => {
       name: "Decision project",
       operationId: "operation-1",
     };
-    await expect(gateway.openProject(request)).rejects.toMatchObject({ status: 503 });
+    await expect(gateway.openProject(request)).rejects.toMatchObject({
+      status: 503,
+    });
     const result = await gateway.openProject(request);
-    expect(result.decisions).toEqual([summary].map(({ id, name }) => ({ id, name })));
+    expect(result.decisions).toEqual(
+      [summary].map(({ id, name }) => ({ id, name })),
+    );
     expect(transport.mock.calls.map(([url]) => url)).toEqual([
       "/api/v1/session/bootstrap",
       "/api/v1/projects/register",
