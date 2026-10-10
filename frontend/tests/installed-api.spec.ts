@@ -165,6 +165,562 @@ test("installed history retains a pending revision restore through Back and exac
   }
 });
 
+test("installed archive restore retains exact actions and projects receipts", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  page.setDefaultTimeout(10_000);
+  const demoPath = testInfo.outputPath("focused-archive-restore-demo");
+  const progressPath = testInfo.outputPath("authoring-progress.json");
+  const screenshots: string[] = [];
+  const apiFailures: Array<{
+    route_pattern: string;
+    status: number;
+    code: string | null;
+    reason: string | null;
+  }> = [];
+  const pendingReads = new Map<Request, string>();
+  let stage = "demo setup";
+  let listRequestSeen = false;
+  let listQueryMatches = false;
+  let archiveListRequestSeen = false;
+  let archiveListQueryMatches = false;
+  let archiveListStatus = 0;
+  let archiveListBodyComplete = false;
+  let archiveTargetListed = false;
+  let archiveRowVisible = false;
+  let archiveHeadingVisible = false;
+  let archiveTableVisible = false;
+  let navigationPromptVisible = false;
+  let firstArchiveStatus = 0;
+  let restoreStatus = 0;
+  let firstRestoreStatus = 0;
+  let restoreOverviewStatus = 0;
+  let restoreOverviewBodyComplete = false;
+  let restoredTargetListed = false;
+  let restoredActiveRowVisible = false;
+  let archivedRowAbsent = false;
+  let archiveRequestsIdentical = false;
+  let restoreRequestsIdentical = false;
+  let archiveReceiptsIdentical = false;
+  let restoreReceiptsIdentical = false;
+  let saveAndDiscardWereBlocked = false;
+  const pendingRouteCategories = new Set<string>();
+
+  function decisionListQueryMatches(request: Request): boolean {
+    const url = new URL(request.url());
+    return (
+      url.searchParams.get("include_archived") === "true" &&
+      url.searchParams.get("limit") === "50"
+    );
+  }
+
+  page.on("request", (request) => {
+    if (request.method() !== "GET") return;
+    const url = new URL(request.url());
+    const routePattern = safeRoutePattern(url.pathname);
+    if (
+      routePattern !== "/api/v1/projects/:registration_id/decisions" &&
+      routePattern !== "/api/v1/projects/:registration_id/overview"
+    )
+      return;
+    pendingReads.set(request, routePattern);
+    pendingRouteCategories.add(routePattern);
+    if (routePattern === "/api/v1/projects/:registration_id/decisions") {
+      if (stage === "demo setup") {
+        listRequestSeen = true;
+        listQueryMatches = decisionListQueryMatches(request);
+      }
+      if (stage === "archive retry") {
+        archiveListRequestSeen = true;
+        archiveListQueryMatches = decisionListQueryMatches(request);
+      }
+    }
+  });
+  function settleRead(request: Request) {
+    const routePattern = pendingReads.get(request);
+    if (!routePattern) return;
+    pendingReads.delete(request);
+    if (![...pendingReads.values()].includes(routePattern))
+      pendingRouteCategories.delete(routePattern);
+  }
+  page.on("response", (response) => {
+    if (!pendingReads.has(response.request())) return;
+    void response.body().then(
+      () => settleRead(response.request()),
+      () => settleRead(response.request()),
+    );
+  });
+  page.on("requestfailed", (request) => settleRead(request));
+
+  async function recordSafeProgress() {
+    await writeFile(
+      progressPath,
+      `${JSON.stringify(
+        {
+          qualification_scope: "focused archive restore diagnostic",
+          stage,
+          list_request_seen: listRequestSeen,
+          list_query_matches: listQueryMatches,
+          archive_list_request_seen: archiveListRequestSeen,
+          archive_list_query_matches: archiveListQueryMatches,
+          archive_list_status: archiveListStatus,
+          archive_list_body_complete: archiveListBodyComplete,
+          first_archive_status: firstArchiveStatus,
+          archive_target_listed: archiveTargetListed,
+          archive_row_visible: archiveRowVisible,
+          archive_heading_visible: archiveHeadingVisible,
+          archive_table_visible: archiveTableVisible,
+          navigation_prompt_visible: navigationPromptVisible,
+          restore_status: restoreStatus,
+          first_restore_status: firstRestoreStatus,
+          restore_overview_status: restoreOverviewStatus,
+          restore_overview_body_complete: restoreOverviewBodyComplete,
+          restored_target_listed: restoredTargetListed,
+          restored_active_row_visible: restoredActiveRowVisible,
+          archived_row_absent: archivedRowAbsent,
+          archive_requests_identical: archiveRequestsIdentical,
+          restore_requests_identical: restoreRequestsIdentical,
+          archive_receipts_identical: archiveReceiptsIdentical,
+          restore_receipts_identical: restoreReceiptsIdentical,
+          save_and_discard_were_blocked: saveAndDiscardWereBlocked,
+          pending_route_categories: [...pendingRouteCategories].sort(),
+          api_failures: apiFailures,
+          screenshots,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  }
+
+  async function recordSafeFailure(response: Response) {
+    if (response.status() < 400) return;
+    const body: unknown = await response.json().catch(() => undefined);
+    const error = isRecord(body) ? body.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    apiFailures.push({
+      route_pattern: safeRoutePattern(new URL(response.url()).pathname),
+      status: response.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    });
+  }
+
+  async function captureSafeScreenshot(name: string) {
+    const path = testInfo.outputPath(name);
+    await page.screenshot({ path, fullPage: true });
+    await testInfo.attach(name, { path, contentType: "image/png" });
+    screenshots.push(name);
+    await recordSafeProgress();
+  }
+
+  const anyDecisionListRead = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      /^\/api\/v1\/projects\/[^/]+\/decisions$/.test(
+        new URL(response.url()).pathname,
+      ),
+    { timeout: 0 },
+  );
+  void anyDecisionListRead.catch(() => undefined);
+  const demoReply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/projects/demo") &&
+      response.request().method() === "POST",
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try support demo" }).click();
+  await page.getByLabel("Project folder path").fill(demoPath);
+  const demoSubmit = page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Try support demo", exact: true });
+  await demoSubmit.click();
+  const demoResponse = await demoReply;
+  await recordSafeFailure(demoResponse);
+  expect(demoResponse.status()).toBe(200);
+  const demoEnvelope: {
+    data: { registration: { registration_id: string } };
+  } = await demoResponse.json();
+  const registrationId = demoEnvelope.data.registration.registration_id;
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
+  const initialDecisionListResponse = await anyDecisionListRead;
+  await recordSafeFailure(initialDecisionListResponse);
+  expect(initialDecisionListResponse.status()).toBe(200);
+  const initialDecisionListUrl = new URL(initialDecisionListResponse.url());
+  listQueryMatches =
+    initialDecisionListUrl.searchParams.get("include_archived") === "true" &&
+    initialDecisionListUrl.searchParams.get("limit") === "50";
+  expect(listRequestSeen).toBe(true);
+  expect(listQueryMatches).toBe(true);
+  await initialDecisionListResponse.body();
+  const initialDecisionListEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"listDecisions">;
+  } = await initialDecisionListResponse.json();
+  expect(initialDecisionListEnvelope.schema_version).toBe(1);
+  const target = initialDecisionListEnvelope.data.items.find(
+    (item) =>
+      item.decision.record.name === "Content category" &&
+      item.decision.record.archived === false,
+  );
+  if (!target) throw new Error("The support demo decision was not listed.");
+  const decisionId = target.decision.record.id;
+  await captureSafeScreenshot("focused-overview-before-archive.png");
+  await page
+    .getByRole("region", { name: "Project decisions" })
+    .getByRole("button", { name: "Content category", exact: true })
+    .click();
+  await expect(page.getByLabel("Decision name")).toHaveValue(
+    "Content category",
+  );
+  await page.getByRole("button", { name: "Archive decision" }).click();
+  const archiveDialog = page.getByRole("dialog", {
+    name: "Archive this decision?",
+  });
+  await expect(archiveDialog).toBeVisible();
+  const archiveBodies: Array<Record<string, unknown>> = [];
+  let firstArchiveReceipt: ApiOperationData<"archiveDecision"> | undefined;
+  await page.route(
+    `**/projects/${registrationId}/decisions/${decisionId}/archive`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      archiveBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (archiveBodies.length === 1) {
+        firstArchiveStatus = response.status();
+        if (firstArchiveStatus !== 200)
+          return route.fulfill({ response });
+        const envelope: {
+          data: ApiOperationData<"archiveDecision">;
+        } = await response.json();
+        firstArchiveReceipt = envelope.data;
+        expect(
+          firstArchiveReceipt.record.id === decisionId &&
+            firstArchiveReceipt.record.archived,
+        ).toBe(true);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  await archiveDialog
+    .getByRole("button", { name: "Archive decision", exact: true })
+    .click();
+  await expect.poll(() => firstArchiveStatus, { timeout: 15_000 }).toBe(200);
+  const retryArchive = archiveDialog.getByRole("button", {
+    name: "Retry same archive action",
+    exact: true,
+  });
+  await expect(retryArchive).toBeVisible();
+  stage = "archive retry";
+  const anyArchiveListRead = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions`,
+    { timeout: 0 },
+  );
+  const exactArchiveListRead = page.waitForResponse(
+    (response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.pathname === `/api/v1/projects/${registrationId}/decisions` &&
+        url.searchParams.get("include_archived") === "true" &&
+        url.searchParams.get("limit") === "50"
+      );
+    },
+    { timeout: 0 },
+  );
+  const archiveRetryResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions/${decisionId}/archive`,
+    { timeout: 0 },
+  );
+  void anyArchiveListRead.catch(() => undefined);
+  void exactArchiveListRead.catch(() => undefined);
+  void archiveRetryResponse.catch(() => undefined);
+  await retryArchive.click();
+  const archivedResponse = await archiveRetryResponse;
+  await recordSafeFailure(archivedResponse);
+  expect(archivedResponse.status()).toBe(200);
+  await archivedResponse.body();
+  const archivedEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"archiveDecision">;
+  } = await archivedResponse.json();
+  expect(archivedEnvelope.schema_version).toBe(1);
+  expect(archivedEnvelope.data.record.archived).toBe(true);
+  expect(archivedEnvelope.data.record.id === decisionId).toBe(true);
+  expect(firstArchiveReceipt).toBeDefined();
+  archiveRequestsIdentical =
+    archiveBodies.length === 2 &&
+    JSON.stringify(archiveBodies[0]) === JSON.stringify(archiveBodies[1]);
+  archiveReceiptsIdentical =
+    JSON.stringify(archivedEnvelope.data) ===
+    JSON.stringify(firstArchiveReceipt);
+  expect(archiveRequestsIdentical).toBe(true);
+  expect(archiveReceiptsIdentical).toBe(true);
+  const archivedRow = page
+    .getByRole("table", { name: "Archived decisions" })
+    .getByRole("row", { name: /Content category/ });
+  const archiveProjection = (async () => {
+    const observed = await anyArchiveListRead;
+    const observedUrl = new URL(observed.url());
+    archiveListRequestSeen = true;
+    archiveListQueryMatches =
+      observedUrl.searchParams.get("include_archived") === "true" &&
+      observedUrl.searchParams.get("limit") === "50";
+    archiveListStatus = observed.status();
+    expect(archiveListQueryMatches).toBe(true);
+    const exactObserved = await exactArchiveListRead;
+    expect(observed === exactObserved).toBe(true);
+    await recordSafeFailure(observed);
+    expect(observed.status()).toBe(200);
+    await observed.body();
+    archiveListBodyComplete = true;
+    const listEnvelope: {
+      schema_version: 1;
+      data: ApiOperationData<"listDecisions">;
+    } = await observed.json();
+    expect(listEnvelope.schema_version).toBe(1);
+    const archivedItem = listEnvelope.data.items.find(
+      (item) => item.decision.record.id === decisionId,
+    );
+    archiveTargetListed = archivedItem?.decision.record.archived === true;
+    expect(archiveTargetListed).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: "Sandbox", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(archivedRow).toBeVisible({ timeout: 15_000 });
+    await expect(archiveDialog).toHaveCount(0);
+    await expect
+      .poll(() => pendingReads.size, { timeout: 15_000 })
+      .toBe(0);
+    archiveHeadingVisible = true;
+    archiveTableVisible = true;
+  })();
+  void archiveProjection.catch(() => undefined);
+  const archiveProjectionTimeout = new Error(
+    "The archive list did not project the committed decision.",
+  );
+  let archiveProjectionTimer: ReturnType<typeof setTimeout> | undefined;
+  const archiveProjectionDeadline = new Promise<never>((_, reject) => {
+    archiveProjectionTimer = setTimeout(
+      () => reject(archiveProjectionTimeout),
+      15_000,
+    );
+  });
+  try {
+    await Promise.race([archiveProjection, archiveProjectionDeadline]);
+  } catch (error) {
+    try {
+      const [heading, table, dialog, row] = await Promise.all([
+        page.getByRole("heading", { name: "Sandbox", exact: true }).count(),
+        page.getByRole("table", { name: "Archived decisions" }).count(),
+        page.getByRole("dialog", { name: "Unsaved changes" }).count(),
+        archivedRow.count(),
+      ]);
+      archiveHeadingVisible = heading > 0;
+      archiveTableVisible = table > 0;
+      navigationPromptVisible = dialog > 0;
+      archiveRowVisible = row > 0;
+      await recordSafeProgress();
+    } catch {
+      // Preserve the archive projection error if finite diagnostics fail.
+    }
+    throw error;
+  } finally {
+    if (archiveProjectionTimer !== undefined)
+      clearTimeout(archiveProjectionTimer);
+  }
+  await page.unroute(
+    `**/projects/${registrationId}/decisions/${decisionId}/archive`,
+  );
+  stage = "archive list projected";
+  await captureSafeScreenshot("focused-overview-after-archive.png");
+
+  const restoreBodies: Array<Record<string, unknown>> = [];
+  let firstRestoreReceipt: ApiOperationData<"restoreDecision"> | undefined;
+  await page.route(
+    `**/projects/${registrationId}/decisions/${decisionId}/restore`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      restoreBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (restoreBodies.length === 1) {
+        firstRestoreStatus = response.status();
+        if (firstRestoreStatus !== 200)
+          return route.fulfill({ response });
+        const envelope: {
+          data: ApiOperationData<"restoreDecision">;
+        } = await response.json();
+        firstRestoreReceipt = envelope.data;
+        expect(
+          firstRestoreReceipt.record.id === decisionId &&
+            !firstRestoreReceipt.record.archived,
+        ).toBe(true);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  await archivedRow
+    .getByRole("button", { name: "Restore", exact: true })
+    .click();
+  await expect.poll(() => firstRestoreStatus, { timeout: 15_000 }).toBe(200);
+  const retryRestore = page.getByRole("button", {
+    name: "Retry same restore action",
+    exact: true,
+  });
+  await expect(retryRestore).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Providers", exact: true })
+    .click();
+  const navigationPrompt = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(navigationPrompt).toBeVisible();
+  await expect(
+    navigationPrompt.getByRole("button", { name: "Save and leave" }),
+  ).toBeDisabled();
+  await expect(
+    navigationPrompt.getByRole("button", { name: "Discard changes" }),
+  ).toBeDisabled();
+  saveAndDiscardWereBlocked = true;
+  stage = "restore unknown navigation blocked";
+  await captureSafeScreenshot("focused-restore-navigation-blocked.png");
+  await navigationPrompt.getByRole("button", { name: "Keep editing" }).click();
+  stage = "restore retry";
+  const restoreReplayResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions/${decisionId}/restore`,
+    { timeout: 0 },
+  );
+  const restoredOverview = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/overview`,
+    { timeout: 0 },
+  );
+  void restoreReplayResponse.catch(() => undefined);
+  void restoredOverview.catch(() => undefined);
+  await retryRestore.click();
+  const restoredResponse = await restoreReplayResponse;
+  await recordSafeFailure(restoredResponse);
+  restoreStatus = restoredResponse.status();
+  expect(restoreStatus).toBe(200);
+  await restoredResponse.body();
+  const restoredEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"restoreDecision">;
+  } = await restoredResponse.json();
+  expect(restoredEnvelope.schema_version).toBe(1);
+  expect(restoredEnvelope.data.record.archived).toBe(false);
+  expect(restoredEnvelope.data.record.id === decisionId).toBe(true);
+  expect(firstRestoreReceipt).toBeDefined();
+  restoreRequestsIdentical =
+    restoreBodies.length === 2 &&
+    JSON.stringify(restoreBodies[0]) === JSON.stringify(restoreBodies[1]);
+  restoreReceiptsIdentical =
+    JSON.stringify(restoredEnvelope.data) === JSON.stringify(firstRestoreReceipt);
+  expect(restoreRequestsIdentical).toBe(true);
+  expect(restoreReceiptsIdentical).toBe(true);
+  const activeRow = page
+    .getByRole("table", { name: "Project decisions" })
+    .getByRole("row", { name: /Content category/ });
+  const archivedTargetRow = page
+    .getByRole("table", { name: "Archived decisions" })
+    .getByRole("row", { name: /Content category/ });
+  const restoreProjection = (async () => {
+    const response = await restoredOverview;
+    restoreOverviewStatus = response.status();
+    await recordSafeFailure(response);
+    expect(restoreOverviewStatus).toBe(200);
+    await response.body();
+    restoreOverviewBodyComplete = true;
+    const envelope: {
+      schema_version: 1;
+      data: ApiOperationData<"projectOverview">;
+    } = await response.json();
+    expect(envelope.schema_version).toBe(1);
+    restoredTargetListed = envelope.data.decisions.some(
+      (item) => item.id === decisionId && item.name === "Content category",
+    );
+    expect(restoredTargetListed).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: "Sandbox", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(activeRow).toBeVisible({ timeout: 15_000 });
+    await expect(archivedTargetRow).toHaveCount(0);
+    await expect(retryRestore).toHaveCount(0);
+    await expect
+      .poll(() => pendingReads.size, { timeout: 15_000 })
+      .toBe(0);
+    restoredActiveRowVisible = true;
+    archivedRowAbsent = true;
+  })();
+  void restoreProjection.catch(() => undefined);
+  const restoreProjectionTimeout = new Error(
+    "The restored project overview did not settle.",
+  );
+  let restoreProjectionTimer: ReturnType<typeof setTimeout> | undefined;
+  const restoreProjectionDeadline = new Promise<never>((_, reject) => {
+    restoreProjectionTimer = setTimeout(
+      () => reject(restoreProjectionTimeout),
+      15_000,
+    );
+  });
+  try {
+    await Promise.race([restoreProjection, restoreProjectionDeadline]);
+  } catch (error) {
+    try {
+      const [active, archived, retry] = await Promise.all([
+        activeRow.count(),
+        archivedTargetRow.count(),
+        retryRestore.count(),
+      ]);
+      restoredActiveRowVisible = active > 0;
+      archivedRowAbsent = archived === 0;
+      await recordSafeProgress();
+    } catch {
+      // Preserve the restore projection error if finite diagnostics fail.
+    }
+    throw error;
+  } finally {
+    if (restoreProjectionTimer !== undefined)
+      clearTimeout(restoreProjectionTimer);
+  }
+  await captureSafeScreenshot("focused-overview-after-restore.png");
+  stage = "complete";
+  await recordSafeProgress();
+  await page.unroute(
+    `**/projects/${registrationId}/decisions/${decisionId}/restore`,
+  );
+});
+
 test("installed shell recovers a lost authored-demo response without duplicate writes", async ({
   page,
 }, testInfo) => {
@@ -456,9 +1012,18 @@ test("installed browser authors exact decision source and previews imports throu
     | undefined;
   let archiveReadinessFacts:
     | {
+        stage: string;
+        list_request_seen: boolean;
+        list_query_matches: boolean;
+        list_status: number;
+        list_body_complete: boolean;
+        heading_present: boolean;
+        table_present: boolean;
+        navigation_prompt_present: boolean;
         loading: boolean;
         error_present: boolean;
-        row_present: boolean;
+        expected_row_listed: boolean;
+        rendered_row_present: boolean;
         pending_route_categories: string[];
       }
     | undefined;
@@ -5220,6 +5785,32 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(archiveDialog).toBeVisible();
   const archiveBodies: Array<Record<string, unknown>> = [];
   let firstArchiveStatus: number | undefined;
+  let archiveListStage = "awaiting archive retry";
+  let archiveListRequestSeen = false;
+  let archiveListQueryMatches = false;
+  let archiveListStatus = 0;
+  let archiveListBodyComplete = false;
+  let archiveHeadingVisible = false;
+  let archiveTableVisible = false;
+  let archiveNavigationPromptVisible = false;
+  let archiveExpectedRowListed = false;
+  let archiveRowVisible = false;
+  page.on("request", (request) => {
+    if (
+      archiveListStage !== "awaiting archive list" ||
+      request.method() !== "GET"
+    )
+      return;
+    const url = new URL(request.url());
+    if (
+      url.pathname !== `/api/v1/projects/${registrationId}/decisions`
+    )
+      return;
+    archiveListRequestSeen = true;
+    archiveListQueryMatches =
+      url.searchParams.get("include_archived") === "true" &&
+      url.searchParams.get("limit") === "50";
+  });
   await page.route(`**/decisions/${decisionId}/archive`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     archiveBodies.push(
@@ -5262,6 +5853,7 @@ test("installed browser authors exact decision source and previews imports throu
     { timeout: 0 },
   );
   void archiveListResponse.catch(() => undefined);
+  archiveListStage = "awaiting archive list";
   await archiveDialog
     .getByRole("button", { name: "Retry same archive action" })
     .click();
@@ -5287,9 +5879,17 @@ test("installed browser authors exact decision source and previews imports throu
   );
   const archiveListReadiness = (async () => {
     const response = await archiveListResponse;
+    archiveListStage = "archive list response received";
+    archiveListStatus = response.status();
+    const responseUrl = new URL(response.url());
+    archiveListQueryMatches =
+      responseUrl.searchParams.get("include_archived") === "true" &&
+      responseUrl.searchParams.get("limit") === "50";
     await recordDirectApiFailure(response, new URL(response.url()).pathname);
     expect(response.status()).toBe(200);
     await response.body();
+    archiveListBodyComplete = true;
+    archiveListStage = "archive list body parsed";
     const envelope: {
       schema_version: 1;
       data: ApiOperationData<"listDecisions">;
@@ -5304,11 +5904,18 @@ test("installed browser authors exact decision source and previews imports throu
       name: archivedResult.record.name,
       archived: true,
     });
+    archiveExpectedRowListed = true;
     await expect(archivedRow).toBeVisible({ timeout: 15_000 });
+    archiveRowVisible = true;
     await expect(
       page.getByRole("heading", { name: projectName }),
     ).toBeVisible();
+    archiveHeadingVisible = true;
+    archiveTableVisible =
+      (await page.getByRole("table", { name: "Archived decisions" }).count()) >
+      0;
     await settleProjectReads();
+    archiveListStage = "archive list and rendered row settled";
   })();
   void archiveListReadiness.catch(() => undefined);
   let archiveReadinessTimer: ReturnType<typeof setTimeout> | undefined;
@@ -5322,15 +5929,31 @@ test("installed browser authors exact decision source and previews imports throu
     await Promise.race([archiveListReadiness, archiveReadinessDeadline]);
   } catch (error) {
     try {
-      const [loading, hasError, rowPresent] = await Promise.all([
+      const [loading, hasError, rowPresent, heading, table, prompt] = await Promise.all([
         page.getByText("Loading decision archive…", { exact: true }).count(),
         page.getByRole("alert").count(),
         archivedRow.count(),
+        page.getByRole("heading", { name: projectName }).count(),
+        page.getByRole("table", { name: "Archived decisions" }).count(),
+        page.getByRole("dialog", { name: "Unsaved changes" }).count(),
       ]);
+      archiveHeadingVisible = heading > 0;
+      archiveTableVisible = table > 0;
+      archiveNavigationPromptVisible = prompt > 0;
+      archiveRowVisible = rowPresent > 0;
       archiveReadinessFacts = {
+        stage: archiveListStage,
+        list_request_seen: archiveListRequestSeen,
+        list_query_matches: archiveListQueryMatches,
+        list_status: archiveListStatus,
+        list_body_complete: archiveListBodyComplete,
+        heading_present: archiveHeadingVisible,
+        table_present: archiveTableVisible,
+        navigation_prompt_present: archiveNavigationPromptVisible,
         loading: loading > 0,
         error_present: hasError > 0,
-        row_present: rowPresent > 0,
+        expected_row_listed: archiveExpectedRowListed,
+        rendered_row_present: archiveRowVisible,
         pending_route_categories: [...pendingSourceReadCategories],
       };
       await recordProgress();
