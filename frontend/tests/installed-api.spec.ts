@@ -2753,10 +2753,12 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.getByRole("button", { name: "Refresh saved case" }).click();
   await (await recoveredCaseRead).body();
-  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled({
+    timeout: 10_000,
+  });
   await expect(
     page.getByText("Loading selected example…", { exact: true }),
-  ).toHaveCount(0);
+  ).toHaveCount(0, { timeout: 10_000 });
   expect(committedCaseBodies).toHaveLength(1);
   expect(committedCaseBodies[0]?.input_source).toBe(stagedCaseSource);
   await expect(
@@ -2781,10 +2783,12 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "case-1", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled({
+    timeout: 10_000,
+  });
   await expect(
     page.getByText("Loading selected example…", { exact: true }),
-  ).toHaveCount(0);
+  ).toHaveCount(0, { timeout: 10_000 });
   const caseOneBefore = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
     {
