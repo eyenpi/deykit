@@ -305,7 +305,7 @@ test("installed browser authors exact decision source and previews imports throu
     reason: string | null;
   }> = [];
   const sourceReadEvents: Array<{
-    event: "start" | "headers" | "body" | "body_error";
+    event: "start" | "headers" | "body" | "body_error" | "cancelled";
     route_pattern: string;
     method: "GET";
     elapsed_ms: number;
@@ -3960,10 +3960,74 @@ test("installed browser authors exact decision source and previews imports throu
     reasons: ["stale"],
   });
 
+  type ObservedProjectRead = {
+    startedAt: number;
+    settled: Promise<void>;
+    finish: (terminal: "body" | "body_error" | "cancelled", status?: number) => void;
+  };
+  const pendingProjectReads = new Map<Request, ObservedProjectRead>();
+  let observeProjectReads = true;
+  const finishProjectRead = (
+    request: Request,
+    terminal: "body" | "body_error" | "cancelled",
+    status?: number,
+  ) => pendingProjectReads.get(request)?.finish(terminal, status);
+  page.on("request", (request) => {
+    if (!observeProjectReads || request.method() !== "GET") return;
+    const routePattern = safeRoutePattern(new URL(request.url()).pathname);
+    if (!sourceReadTemplates.has(routePattern)) return;
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    let terminalRecorded = false;
+    pendingProjectReads.set(request, {
+      startedAt: Date.now(),
+      settled,
+      finish: (terminal, status) => {
+        if (terminalRecorded) return;
+        terminalRecorded = true;
+        const startedAt = pendingProjectReads.get(request)?.startedAt;
+        sourceReadEvents.push({
+          event: terminal,
+          route_pattern: routePattern,
+          method: "GET",
+          elapsed_ms:
+            startedAt === undefined ? 0 : Date.now() - startedAt,
+          ...(status === undefined ? {} : { status }),
+        });
+        if (sourceReadEvents.length > 160) sourceReadEvents.shift();
+        pendingProjectReads.delete(request);
+        settle();
+      },
+    });
+  });
+  page.on("response", (response) => {
+    if (!pendingProjectReads.has(response.request())) return;
+    void response.body().then(
+      () => finishProjectRead(response.request(), "body", response.status()),
+      () =>
+        finishProjectRead(response.request(), "body_error", response.status()),
+    );
+  });
+  page.on("requestfailed", (request) =>
+    finishProjectRead(request, "cancelled"),
+  );
+  async function settleProjectReads() {
+    while (pendingProjectReads.size > 0)
+      await Promise.all(
+        [...pendingProjectReads.values()].map((read) => read.settled),
+      );
+  }
+
   await caseButton("case-2").click();
   await expect(
     page.getByRole("heading", { name: "case-2", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(page.getByText("Loading selected example…", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(0);
+  await settleProjectReads();
   await page.getByRole("button", { name: "Remove case" }).click();
   let releaseRemove!: () => void;
   let reportRemoveStarted!: () => void;
@@ -3998,7 +4062,18 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  const caseTwo = (await caseTwoResponse.json()).data;
+  await recordDirectApiFailure(
+    caseTwoResponse,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
+  );
+  expect(caseTwoResponse.status()).toBe(200);
+  const caseTwoEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get">;
+  } = await caseTwoResponse.json();
+  expect(caseTwoEnvelope.schema_version).toBe(1);
+  const caseTwo = caseTwoEnvelope.data;
+  expect(caseTwo.case.record.id).toBe("case-2");
   const removeConflictWinner = await page.request.put(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
     {
@@ -4018,6 +4093,10 @@ test("installed browser authors exact decision source and previews imports throu
       },
     },
   );
+  await recordDirectApiFailure(
+    removeConflictWinner,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
+  );
   expect(removeConflictWinner.status()).toBe(200);
   releaseRemove();
   await expect(
@@ -4034,7 +4113,18 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Reapply reviewed removal" }).click();
   const reapplyRemoveReceipt = await reapplyRemoveResponse;
   expect(reapplyRemoveReceipt.status()).toBe(200);
-  await reapplyRemoveReceipt.body();
+  const reapplyRemoveEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"delete_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__delete">;
+  } = await reapplyRemoveReceipt.json();
+  expect(reapplyRemoveEnvelope.schema_version).toBe(1);
+  expect(reapplyRemoveEnvelope.data).toMatchObject({
+    schema_version: 1,
+    replayed: false,
+    case: null,
+  });
+  expect(reapplyRemoveEnvelope.data.dataset.record.id).toBe(datasetId);
+  const removeReceiptDatasetEtag = reapplyRemoveEnvelope.data.dataset.etag;
   expect(removeBodies).toHaveLength(2);
   expect(removeBodies[1].operation_id).not.toBe(removeBodies[0].operation_id);
   expect(removeBodies[1].expected_case_etag).not.toBe(
@@ -4044,12 +4134,27 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("region", { name: /^Cases in / })).toBeVisible();
   await expect(caseButton("case-2")).toHaveCount(0);
   await expect(caseButton("case-1")).toBeVisible();
-  const datasetAfterRemoval = await page.request.get(
-    `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
-    {
-      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
-    },
-  );
+  await expect(
+    page.getByText("Loading labels…", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
+  await caseButton("case-1").click();
+  await expect(
+    page.getByRole("heading", { name: "case-1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(staleCaseSource);
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Loading labels…", { exact: true }),
+  ).toHaveCount(0);
+  await settleProjectReads();
   const readdCaseTwo = await page.request.post(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
     {
@@ -4057,7 +4162,7 @@ test("installed browser authors exact decision source and previews imports throu
       data: {
         schema_version: 1,
         operation_id: "m10-readd-case-two-after-conflict-test",
-        expected_dataset_etag: (await datasetAfterRemoval.json()).data.etag,
+        expected_dataset_etag: removeReceiptDatasetEtag,
         case_id: "case-2",
         input_kind: caseTwo.case.record.input_kind,
         input_source: caseTwo.case.record.input_source,
@@ -4069,11 +4174,19 @@ test("installed browser authors exact decision source and previews imports throu
       },
     },
   );
+  await recordDirectApiFailure(
+    readdCaseTwo,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
+  );
   expect(readdCaseTwo.status()).toBe(200);
-  await caseButton("case-1").click();
-  await expect(
-    page.getByRole("heading", { name: "case-1", exact: true }),
-  ).toBeVisible();
+  const readdCaseTwoEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"add_case_api_v1_projects__registration_id__datasets__dataset_id__cases_post">;
+  } = await readdCaseTwo.json();
+  expect(readdCaseTwoEnvelope.schema_version).toBe(1);
+  expect(readdCaseTwoEnvelope.data.case?.record.id).toBe("case-2");
+  expect(readdCaseTwoEnvelope.data.case?.record.dataset_id).toBe(datasetId);
+  expect(readdCaseTwoEnvelope.data.replayed).toBe(false);
 
   const currentCase = (await (await readCaseOne()).json()).data;
   const removed = await page.request.delete(
@@ -4088,8 +4201,18 @@ test("installed browser authors exact decision source and previews imports throu
       },
     },
   );
+  await recordDirectApiFailure(
+    removed,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
+  );
   expect(removed.status()).toBe(200);
-  const removedData = (await removed.json()).data;
+  const removedEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"delete_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__delete">;
+  } = await removed.json();
+  expect(removedEnvelope.schema_version).toBe(1);
+  expect(removedEnvelope.data.case).toBeNull();
+  const removedDatasetEtag = removedEnvelope.data.dataset.etag;
   const readded = await page.request.post(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
     {
@@ -4097,7 +4220,7 @@ test("installed browser authors exact decision source and previews imports throu
       data: {
         schema_version: 1,
         operation_id: "m10-readd-case-one",
-        expected_dataset_etag: removedData.dataset.etag,
+        expected_dataset_etag: removedDatasetEtag,
         case_id: "case-1",
         input_kind: currentCase.case.record.input_kind,
         input_source: currentCase.case.record.input_source,
@@ -4109,10 +4232,118 @@ test("installed browser authors exact decision source and previews imports throu
       },
     },
   );
+  await recordDirectApiFailure(
+    readded,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
+  );
   expect(readded.status()).toBe(200);
+  const readdedEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"add_case_api_v1_projects__registration_id__datasets__dataset_id__cases_post">;
+  } = await readded.json();
+  expect(readdedEnvelope.schema_version).toBe(1);
+  expect(readdedEnvelope.data.case?.record.id).toBe("case-1");
+  expect(readdedEnvelope.data.case?.record.dataset_id).toBe(datasetId);
+  expect(readdedEnvelope.data.replayed).toBe(false);
   expect(
     (await readCaseOneLabel().then((response) => response.json())).data.label,
   ).toBeNull();
+
+  await enterPhase("External case changes and explicit current review refresh");
+  await caseButton("seed-1").click();
+  await expect(
+    page.getByRole("heading", { name: "seed-1", exact: true }),
+  ).toBeVisible();
+  if (seedCaseSource === undefined)
+    throw new Error("The seed case source fixture was not captured.");
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(seedCaseSource);
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "Labels unavailable" }),
+  ).toBeVisible();
+  await settleProjectReads();
+
+  const labelsUnavailable = page.getByRole("region", {
+    name: "Labels unavailable",
+  });
+  const refreshedDatasetReadResponses = [
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/datasets/${datasetId}` &&
+        response.request().method() === "GET",
+    ),
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases` &&
+        response.request().method() === "GET",
+    ),
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels` &&
+        response.request().method() === "GET",
+    ),
+  ];
+  await labelsUnavailable.getByRole("button", { name: "Reload labels" }).click();
+  const refreshedDatasetReads = await Promise.all(
+    refreshedDatasetReadResponses,
+  );
+  await expect(labelsUnavailable).toHaveCount(0);
+  await expect(
+    page.getByRole("table", { name: "Expected answers for Imported" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Loading labels…", { exact: true }),
+  ).toHaveCount(0);
+  await settleProjectReads();
+  expect(refreshedDatasetReads).toHaveLength(3);
+  for (const response of refreshedDatasetReads) {
+    expect(response.status()).toBe(200);
+    await response.body();
+  }
+
+  const selectedCaseReads = [
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1` &&
+        response.request().method() === "GET",
+    ),
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/case-1` &&
+        response.request().method() === "GET",
+    ),
+  ];
+  await caseButton("case-1").click();
+  const selectedCaseResponses = await Promise.all(selectedCaseReads);
+  for (const response of selectedCaseResponses) {
+    expect(response.status()).toBe(200);
+    await response.body();
+  }
+  await expect(
+    page.getByRole("heading", { name: "case-1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(staleCaseSource);
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Loading labels…", { exact: true }),
+  ).toHaveCount(0);
+  await settleProjectReads();
+  observeProjectReads = false;
 
   await enterPhase("Grouped server split preview and option-reference impact");
   await page
