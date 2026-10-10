@@ -7,6 +7,15 @@ operation identifiers, arguments, request bodies, and response validators remain
 owned by the API client/generator. Pages receive narrow authoring ports rather than
 constructing transport requests or a second client.
 
+Source reads and writes for one registration share a serial admission lane so a
+source projection cannot overlap a local source mutation. The adapter snapshots
+the typed outer request arguments when a call enters the lane; user-authored
+source strings stay opaque and exact. A queued mutation cancelled before
+admission is reported as not sent. Once admitted, a mutation remains in the lane
+through response-body parsing and returns its actual receipt or failure, even if
+its caller has gone away. Service conflicts remain visible for explicit review;
+the lane does not retry requests or replace their operation IDs or ETags.
+
 `WorkspaceNavigation` validates hash routes before publishing them, retains the
 last admitted route across external hash changes, and coordinates asynchronous
 dirty guards for browser Back/Forward and in-app navigation. Route parameters are
