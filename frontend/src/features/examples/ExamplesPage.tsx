@@ -1520,7 +1520,7 @@ export function ExamplesPage({
           >
             <div className="modal-body case-editor">
               {committedRefresh?.kind === "case" && (
-                <div
+                <section
                   className="warning-summary"
                   aria-label="Saved changes awaiting refresh"
                 >
@@ -1535,7 +1535,7 @@ export function ExamplesPage({
                   >
                     {busy ? "Refreshing saved review…" : "Refresh saved case"}
                   </button>
-                </div>
+                </section>
               )}
               {pendingCase?.uncertain && (
                 <div className="warning-summary">
