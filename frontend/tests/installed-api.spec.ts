@@ -1039,7 +1039,10 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("dialog", { name: "Unsaved changes" }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: decisionName, exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: decisionName, exact: true })
+    .click();
   await page.getByText("Advanced editor source", { exact: true }).click();
   await expect(page.getByLabel("Decision source")).toHaveValue(
     rawReplacementSource,
@@ -1290,7 +1293,10 @@ test("installed browser authors exact decision source and previews imports throu
   releaseSaveAndLeave();
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
   await page.unroute("**/draft");
-  await page.getByRole("button", { name: decisionName, exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: decisionName, exact: true })
+    .click();
   await expect(page.getByLabel("Question")).toHaveValue(
     "Question saved before leave",
   );
