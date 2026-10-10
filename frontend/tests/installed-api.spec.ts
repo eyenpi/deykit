@@ -4040,13 +4040,11 @@ test("installed browser authors exact decision source and previews imports throu
   );
 
   const caseOneBeforeSeedSaveResponse = await readCaseOne();
-  const caseOneBeforeSeedSave: ApiOperationData<
-    "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"
-  > = (await caseOneBeforeSeedSaveResponse.json()).data;
+  const caseOneBeforeSeedSave: ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"> =
+    (await caseOneBeforeSeedSaveResponse.json()).data;
   const caseOneLabelBeforeSeedSaveResponse = await readCaseOneLabel();
-  const caseOneLabelBeforeSeedSave: ApiOperationData<
-    "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"
-  > = (await caseOneLabelBeforeSeedSaveResponse.json()).data;
+  const caseOneLabelBeforeSeedSave: ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"> =
+    (await caseOneLabelBeforeSeedSaveResponse.json()).data;
 
   await caseButton("seed-1").click();
   await page.getByRole("checkbox", { name: "Option A" }).check();
@@ -4062,9 +4060,8 @@ test("installed browser authors exact decision source and previews imports throu
   const applicableLabelReceipt = await applicableLabelSave;
   expect(applicableLabelReceipt.status()).toBe(200);
   await applicableLabelReceipt.body();
-  const applicableLabelReceiptData: ApiOperationData<
-    "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post"
-  > = (await applicableLabelReceipt.json()).data;
+  const applicableLabelReceiptData: ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post"> =
+    (await applicableLabelReceipt.json()).data;
   expect(applicableLabelReceiptData.changes).toHaveLength(1);
   expect(applicableLabelReceiptData.changes[0]).toMatchObject({
     action: "set",
@@ -4076,16 +4073,15 @@ test("installed browser authors exact decision source and previews imports throu
       provenance: "human",
     },
   });
-  await expect(
-    page.getByRole("button", { name: "Dispute label" }),
-  ).toBeEnabled({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled(
+    { timeout: 15_000 },
+  );
   await expect(
     page.getByRole("status").filter({ hasText: /^Applicable · human$/ }),
   ).toBeVisible({ timeout: 15_000 });
   const seedLabelAfterSaveResponse = await readSeedLabel();
-  const seedLabelAfterSave: ApiOperationData<
-    "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"
-  > = (await seedLabelAfterSaveResponse.json()).data;
+  const seedLabelAfterSave: ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"> =
+    (await seedLabelAfterSaveResponse.json()).data;
   expect(seedLabelAfterSave.status).toBe("applicable");
   expect(seedLabelAfterSave.reasons).toEqual([]);
   expect(seedLabelAfterSave.label).toMatchObject({
@@ -4097,13 +4093,11 @@ test("installed browser authors exact decision source and previews imports throu
   );
 
   const caseOneAfterSeedSaveResponse = await readCaseOne();
-  const caseOneAfterSeedSave: ApiOperationData<
-    "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"
-  > = (await caseOneAfterSeedSaveResponse.json()).data;
+  const caseOneAfterSeedSave: ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"> =
+    (await caseOneAfterSeedSaveResponse.json()).data;
   const caseOneLabelAfterSeedSaveResponse = await readCaseOneLabel();
-  const caseOneLabelAfterSeedSave: ApiOperationData<
-    "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"
-  > = (await caseOneLabelAfterSeedSaveResponse.json()).data;
+  const caseOneLabelAfterSeedSave: ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"> =
+    (await caseOneLabelAfterSeedSaveResponse.json()).data;
   expect(caseOneAfterSeedSave.case.record.input_source).toBe(
     caseOneBeforeSeedSave.case.record.input_source,
   );

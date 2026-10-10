@@ -497,9 +497,11 @@ export function ExamplesPage({
       stage.owner !== admission ||
       selectionNeedsReviewRef.current ||
       pending?.conflict ||
-      (pending?.uncertain && !matchesSelectionScope(pending.scope, admission)) ||
+      (pending?.uncertain &&
+        !matchesSelectionScope(pending.scope, admission)) ||
       pendingCaseUncertainRef.current ||
-      (pendingLabelUncertainRef.current && !pendingLabelRef.current?.uncertain) ||
+      (pendingLabelUncertainRef.current &&
+        !pendingLabelRef.current?.uncertain) ||
       pendingAddRef.current?.uncertain ||
       pendingRemoveRef.current?.uncertain ||
       committedRefreshRef.current ||
@@ -603,16 +605,24 @@ export function ExamplesPage({
       pendingCaseRef.current?.conflict ||
       pendingAddRef.current?.uncertain ||
       pendingRemoveRef.current?.uncertain ||
-      (stage.answers.length === 0 && action !== "clear" && action !== "dispute") ||
+      (stage.answers.length === 0 &&
+        action !== "clear" &&
+        action !== "dispute") ||
       busyRef.current ||
       mutationLockRef.current
     )
       return undefined;
-    return { admission, stage: { ...stage, answers: [...stage.answers] }, action };
+    return {
+      admission,
+      stage: { ...stage, answers: [...stage.answers] },
+      action,
+    };
   }
   function patchCaseStage(
     rendered: SelectionAdmission | undefined,
-    patch: Partial<Pick<CaseStageSnapshot, "inputKind" | "inputSource" | "metadataSource">>,
+    patch: Partial<
+      Pick<CaseStageSnapshot, "inputKind" | "inputSource" | "metadataSource">
+    >,
   ): boolean {
     if (!mayEditCaseStageNow(rendered)) return false;
     const current = caseStageRef.current;
@@ -681,7 +691,9 @@ export function ExamplesPage({
   }
   function patchDatasetStage(
     rendered: DatasetAdmission | undefined,
-    patch: Partial<Pick<DatasetStageSnapshot, "inputKind" | "inputSource" | "metadataSource">>,
+    patch: Partial<
+      Pick<DatasetStageSnapshot, "inputKind" | "inputSource" | "metadataSource">
+    >,
   ): boolean {
     if (!mayEditDatasetStageNow(rendered)) return false;
     const current = datasetStageRef.current;
@@ -1032,7 +1044,8 @@ export function ExamplesPage({
           generation: caseEditGeneration.current,
           inputKind: refreshedCase.data.case.record.input_kind,
           inputSource: refreshedCase.data.case.record.input_source,
-          metadataSource: refreshedCase.data.case.record.metadata_source ?? "{}",
+          metadataSource:
+            refreshedCase.data.case.record.metadata_source ?? "{}",
         };
       }
       if (
@@ -1341,16 +1354,15 @@ export function ExamplesPage({
         previous.caseId === admission.caseId;
       const caseStage = caseStageRef.current;
       const labelStage = labelStageRef.current;
-      const caseOwnedByPrevious =
-        !!previous && caseStage?.owner === previous;
-      const labelOwnedByPrevious =
-        !!previous && labelStage?.owner === previous;
+      const caseOwnedByPrevious = !!previous && caseStage?.owner === previous;
+      const labelOwnedByPrevious = !!previous && labelStage?.owner === previous;
       const caseStageChanged =
         !!previous &&
         caseStage !== undefined &&
         caseStage.owner === previous &&
         (caseStage.inputKind !== previous.caseRead.case.record.input_kind ||
-          caseStage.inputSource !== previous.caseRead.case.record.input_source ||
+          caseStage.inputSource !==
+            previous.caseRead.case.record.input_source ||
           caseStage.metadataSource !==
             (previous.caseRead.case.record.metadata_source ?? "{}"));
       const labelStageChanged =
@@ -1431,12 +1443,14 @@ export function ExamplesPage({
       setLabelView(labelResult?.data);
       setSelectionLoading(false);
     }
-    void loadSelectedCase().catch((cause: unknown) => {
-      if (isCurrentSelectionRead()) {
-        setError(safeMessage(cause));
-        setSelectionLoading(false);
-      }
-    }).finally(() => finishSelectionReload(selectionReloadToken));
+    void loadSelectedCase()
+      .catch((cause: unknown) => {
+        if (isCurrentSelectionRead()) {
+          setError(safeMessage(cause));
+          setSelectionLoading(false);
+        }
+      })
+      .finally(() => finishSelectionReload(selectionReloadToken));
     return () => controller.abort();
   }, [
     dataset,
@@ -1662,10 +1676,7 @@ export function ExamplesPage({
       (stage.answers.length === 0 && action !== "clear" && action !== "dispute")
     )
       return false;
-    if (
-      pending?.uncertain &&
-      !matchesSelectionScope(pending.scope, admission)
-    )
+    if (pending?.uncertain && !matchesSelectionScope(pending.scope, admission))
       return false;
     if (pending?.conflict) return false;
     if (pendingLabelUncertainRef.current && !pending?.uncertain) return false;
@@ -1884,7 +1895,9 @@ export function ExamplesPage({
     }
   }
 
-  async function saveCaseWithLock(snapshot: CaseWriteSnapshot): Promise<boolean> {
+  async function saveCaseWithLock(
+    snapshot: CaseWriteSnapshot,
+  ): Promise<boolean> {
     const { admission, stage } = snapshot;
     const data = currentDatasetAdmission();
     const pending = pendingCaseRef.current;
@@ -1897,10 +1910,7 @@ export function ExamplesPage({
       !ownsSelectionStage(caseStageRef.current, admission)
     )
       return false;
-    if (
-      pending?.uncertain &&
-      !matchesSelectionScope(pending.scope, admission)
-    )
+    if (pending?.uncertain && !matchesSelectionScope(pending.scope, admission))
       return false;
     if (pending?.conflict) return false;
     if (pendingCaseUncertainRef.current && !pending?.uncertain) return false;
@@ -2090,7 +2100,9 @@ export function ExamplesPage({
     return executeAddCase(snapshot);
   }
 
-  async function executeAddCase(snapshot: DatasetWriteSnapshot): Promise<boolean> {
+  async function executeAddCase(
+    snapshot: DatasetWriteSnapshot,
+  ): Promise<boolean> {
     if (captureRenderedDataset(snapshot.admission) !== snapshot.admission)
       return false;
     if (!acquireMutationLock()) return false;
@@ -2101,14 +2113,13 @@ export function ExamplesPage({
     }
   }
 
-  async function addCaseWithLock(snapshot: DatasetWriteSnapshot): Promise<boolean> {
+  async function addCaseWithLock(
+    snapshot: DatasetWriteSnapshot,
+  ): Promise<boolean> {
     const { admission, stage } = snapshot;
     const pending = pendingAddRef.current;
     if (committedRefreshRef.current || !admission) return false;
-    if (
-      pending?.uncertain &&
-      !matchesDatasetScope(pending.scope, admission)
-    )
+    if (pending?.uncertain && !matchesDatasetScope(pending.scope, admission))
       return false;
     if (pending?.conflict) return false;
     updateBusy(true);
@@ -2240,9 +2251,7 @@ export function ExamplesPage({
     }
   }
 
-  async function removeSelectedCase(
-    rendered: SelectionAdmission | undefined,
-  ) {
+  async function removeSelectedCase(rendered: SelectionAdmission | undefined) {
     const admission = captureRenderedSelection(rendered);
     if (
       !admission ||
@@ -2281,10 +2290,7 @@ export function ExamplesPage({
       !ownsSelectionStage(caseStageRef.current, admission)
     )
       return;
-    if (
-      pending?.uncertain &&
-      !matchesSelectionScope(pending.scope, admission)
-    )
+    if (pending?.uncertain && !matchesSelectionScope(pending.scope, admission))
       return;
     if (pending?.conflict) return;
     updateBusy(true);
@@ -2468,18 +2474,22 @@ export function ExamplesPage({
   function hasCurrentLabelEdits(): boolean {
     const admission = currentSelectionAdmission();
     const stage = labelStageRef.current;
-    return !!admission?.labelView &&
+    return (
+      !!admission?.labelView &&
       !!stage &&
       stage.owner === admission &&
       ([...stage.answers].sort().join("\0") !==
         [...(admission.labelView.label?.acceptable_option_ids ?? [])]
           .sort()
           .join("\0") ||
-        stage.note.trim().length > 0);
+        stage.note.trim().length > 0)
+    );
   }
   async function saveBeforeLeaving() {
     if (mutationLockRef.current)
-      throw new Error("An examples write is still in progress. Keep this page open until it finishes.");
+      throw new Error(
+        "An examples write is still in progress. Keep this page open until it finishes.",
+      );
     if (committedRefreshRef.current) {
       const kind = committedRefreshRef.current.kind;
       throw new Error(
@@ -2527,9 +2537,9 @@ export function ExamplesPage({
         ? captureGuardDataset(expectedDataset)
         : undefined;
       if (!snapshot || !(await executeAddCase(snapshot)))
-      throw new Error(
-        "The new example did not save. Its source is still available for review.",
-      );
+        throw new Error(
+          "The new example did not save. Its source is still available for review.",
+        );
     }
     const hadCaseEdit = editCase;
     if (hadCaseEdit) {
@@ -2537,9 +2547,9 @@ export function ExamplesPage({
         ? captureGuardCase(expectedSelection)
         : undefined;
       if (!snapshot || !(await executeCaseWrite(snapshot)))
-      throw new Error(
-        "The case edit did not save. Its source is still available for review.",
-      );
+        throw new Error(
+          "The case edit did not save. Its source is still available for review.",
+        );
     }
     if (committedRefreshRef.current) {
       throw new Error(
@@ -2553,9 +2563,7 @@ export function ExamplesPage({
       !!afterCaseStage &&
       afterCaseStage.owner === afterCaseAdmission &&
       ([...afterCaseStage.answers].sort().join("\0") !==
-        [
-          ...(afterCaseAdmission.labelView.label?.acceptable_option_ids ?? []),
-        ]
+        [...(afterCaseAdmission.labelView.label?.acceptable_option_ids ?? [])]
           .sort()
           .join("\0") ||
         afterCaseStage.note.trim().length > 0);
@@ -2893,7 +2901,11 @@ export function ExamplesPage({
                       <button
                         className="text-button"
                         onClick={() =>
-                          selectCase(writableDataset, decision?.id, item.record.id)
+                          selectCase(
+                            writableDataset,
+                            decision?.id,
+                            item.record.id,
+                          )
                         }
                       >
                         {item.record.id}
@@ -2948,7 +2960,11 @@ export function ExamplesPage({
                           <button
                             className="text-button"
                             onClick={() =>
-                              selectCase(writableDataset, decision?.id, item.case.id)
+                              selectCase(
+                                writableDataset,
+                                decision?.id,
+                                item.case.id,
+                              )
                             }
                           >
                             {item.case.id}
@@ -3112,7 +3128,9 @@ export function ExamplesPage({
                         busy ||
                         !!committedRefresh
                       }
-                      onClick={() => void reviewLabelConflict(writableSelection)}
+                      onClick={() =>
+                        void reviewLabelConflict(writableSelection)
+                      }
                     >
                       Review current label
                     </button>
@@ -3168,7 +3186,10 @@ export function ExamplesPage({
                     pendingLabel?.uncertain
                   }
                   onChange={(event) => {
-                    patchLabelNote(writableSelection, event.currentTarget.value);
+                    patchLabelNote(
+                      writableSelection,
+                      event.currentTarget.value,
+                    );
                   }}
                 />
                 <p className="muted">A note is required to dispute a label.</p>

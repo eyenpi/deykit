@@ -348,27 +348,33 @@ it("keeps the last admitted pair read-only after the selected label read fails",
 
   await waitForSelectedSource(sourceA);
   await user.click(screen.getByRole("button", { name: "case-b" }));
-  await screen.findByText("The selected example is not ready for changes. Reload its current review.");
-  expect(screen.getByLabelText("Complete example input source").textContent).toBe(
-    sourceA,
-  );
-  expect(screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled")).toBe(
-    true,
+  await screen.findByText(
+    "The selected example is not ready for changes. Reload its current review.",
   );
   expect(
-    screen.getByRole("button", { name: "Reload selected review" }).matches(":disabled"),
+    screen.getByLabelText("Complete example input source").textContent,
+  ).toBe(sourceA);
+  expect(
+    screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled"),
+  ).toBe(true);
+  expect(
+    screen
+      .getByRole("button", { name: "Reload selected review" })
+      .matches(":disabled"),
   ).toBe(false);
   expect(saveLabels).not.toHaveBeenCalled();
 
-  await user.click(screen.getByRole("button", { name: "Reload selected review" }));
-  await waitFor(() => {
-    expect(screen.getByLabelText("Complete example input source").textContent).toBe(
-      sourceB,
-    );
-  });
-  expect(readLabel.mock.calls.filter(([args]) => args.caseId === "case-b")).toHaveLength(
-    2,
+  await user.click(
+    screen.getByRole("button", { name: "Reload selected review" }),
   );
+  await waitFor(() => {
+    expect(
+      screen.getByLabelText("Complete example input source").textContent,
+    ).toBe(sourceB);
+  });
+  expect(
+    readLabel.mock.calls.filter(([args]) => args.caseId === "case-b"),
+  ).toHaveLength(2);
   expect(saveLabels).not.toHaveBeenCalled();
 });
 
@@ -431,9 +437,10 @@ it("saves the old admitted case before completing a dirty navigation", async () 
   let routeAtWrite: string | undefined;
   const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(
     async ({ caseId, body }) => {
-      routeAtWrite = navigation?.current.kind === "examples"
-        ? navigation.current.caseId
-        : undefined;
+      routeAtWrite =
+        navigation?.current.kind === "examples"
+          ? navigation.current.caseId
+          : undefined;
       const updated = caseRead(caseId, body.input_source);
       currentDataset = {
         ...dataset,
@@ -582,10 +589,9 @@ it("recaptures the acknowledged same-scope label after a guard saves the case", 
   await waitForSelectedSource(sourceA);
   await user.click(screen.getByRole("checkbox", { name: "Option A" }));
   await user.click(screen.getByRole("button", { name: "Edit input" }));
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Metadata source" }),
-    { target: { value: '{"guard":"saved first"}' } },
-  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Metadata source" }), {
+    target: { value: '{"guard":"saved first"}' },
+  });
   await user.click(screen.getByRole("button", { name: "case-b" }));
   await screen.findByRole("button", { name: "Save and leave" });
   await user.click(screen.getByRole("button", { name: "Save and leave" }));
@@ -700,7 +706,9 @@ it("rejects A's retained callback after B's paired admission publishes before re
   ).toBe(false);
   expect(saveLabels).not.toHaveBeenCalled();
   await user.click(screen.getByRole("checkbox", { name: "Option A" }));
-  await user.click(screen.getByRole("button", { name: "Save expected answer" }));
+  await user.click(
+    screen.getByRole("button", { name: "Save expected answer" }),
+  );
   await waitFor(() => expect(saveLabels).toHaveBeenCalledTimes(1));
   expect(saveLabels.mock.calls[0]?.[0].body.edits[0]?.review.case_id).toBe(
     "case-b",
@@ -724,23 +732,21 @@ it("admits one same-turn label write and releases the lock after its refresh", a
       return firstRequest;
     })
     .mockRejectedValue(new ApiError("validation_failed", "Rejected.", 422));
-  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
-    async () => {
-      const view = labelView(caseA);
-      return {
-        data: {
-          ...view,
-          status: currentLabel ? "applicable" : "unlabelled",
-          label: currentLabel,
-          review: {
-            ...view.review,
-            label_etag: currentLabel ? "label-etag-a" : null,
-          },
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(async () => {
+    const view = labelView(caseA);
+    return {
+      data: {
+        ...view,
+        status: currentLabel ? "applicable" : "unlabelled",
+        label: currentLabel,
+        review: {
+          ...view.review,
+          label_etag: currentLabel ? "label-etag-a" : null,
         },
-        warnings: [],
-      };
-    },
-  );
+      },
+      warnings: [],
+    };
+  });
   const { user } = mountExamples({ saveLabels, readLabel });
 
   await waitForSelectedSource(sourceA);
@@ -766,7 +772,9 @@ it("admits one same-turn label write and releases the lock after its refresh", a
   });
 
   await user.click(screen.getByRole("checkbox", { name: "Option B" }));
-  await user.click(screen.getByRole("button", { name: "Save expected answer" }));
+  await user.click(
+    screen.getByRole("button", { name: "Save expected answer" }),
+  );
   expect(saveLabels).toHaveBeenCalledTimes(2);
   expect(firstOperationId).toBeDefined();
   expect(saveLabels.mock.calls[1]?.[0].body.operation_id).not.toBe(
@@ -824,25 +832,30 @@ it("does not admit a captured case write while label conflict review is reading"
 
   await waitForSelectedSource(sourceA);
   await user.click(screen.getByRole("button", { name: "Edit input" }));
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Input source" }),
-    { target: { value: sourceB } },
-  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Input source" }), {
+    target: { value: sourceB },
+  });
   await user.click(screen.getByRole("checkbox", { name: "Option A" }));
-  await user.click(screen.getByRole("button", { name: "Save expected answer" }));
+  await user.click(
+    screen.getByRole("button", { name: "Save expected answer" }),
+  );
   expect(saveLabels).toHaveBeenCalledTimes(1);
   await screen.findByRole("button", { name: "Review current label" });
 
   holdReviewRead = true;
   injectCapturedSave = true;
   capturedSave = screen.getByRole("button", { name: "Save input" });
-  await user.click(screen.getByRole("button", { name: "Review current label" }));
+  await user.click(
+    screen.getByRole("button", { name: "Review current label" }),
+  );
   await reviewReadStarted;
   expect(editCase).not.toHaveBeenCalled();
 
   releaseReviewRead();
   await waitFor(() => {
-    expect(screen.queryByRole("button", { name: "Review current label" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Review current label" }),
+    ).toBeNull();
   });
 });
 
@@ -876,9 +889,11 @@ it("writes the latest same-owner case fields before React mirrors the edits", as
 });
 
 it("accumulates same-owner answer toggles and the latest note in the write snapshot", async () => {
-  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(async () => {
-    throw new ApiError("validation_failed", "Rejected for the test.", 422);
-  });
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async () => {
+      throw new ApiError("validation_failed", "Rejected for the test.", 422);
+    },
+  );
   const { user } = mountExamples({ saveLabels });
 
   await waitForSelectedSource(sourceA);
@@ -932,10 +947,9 @@ it("keeps Add available from a dataset admission without a selected case", async
       { name: "JSON" },
     ),
   );
-  fireEvent.change(
-    screen.getByRole("textbox", { name: "Input source" }),
-    { target: { value: '{"dataset-only":true}' } },
-  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Input source" }), {
+    target: { value: '{"dataset-only":true}' },
+  });
   await user.click(
     within(screen.getByRole("dialog", { name: "Add example" })).getByRole(
       "button",
@@ -950,9 +964,15 @@ it("keeps Add available from a dataset admission without a selected case", async
 });
 
 it("rejects an A1 callback after the live route moves through B and back to A", async () => {
-  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(async () => {
-    throw new ApiError("validation_failed", "A stale callback must not write.", 422);
-  });
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async () => {
+      throw new ApiError(
+        "validation_failed",
+        "A stale callback must not write.",
+        422,
+      );
+    },
+  );
   mountExamples({ saveLabels });
   await waitForSelectedSource(sourceA);
   const oldAnswer = screen.getByRole("checkbox", { name: "Option A" });
