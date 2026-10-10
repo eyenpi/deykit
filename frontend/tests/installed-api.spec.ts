@@ -509,9 +509,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   await captureScreenshot("import-before-decision.png");
   await page.getByRole("button", { name: "Import cases" }).click();
-  await expect(
-    caseButton("seed-1"),
-  ).toBeVisible();
+  await expect(caseButton("seed-1")).toBeVisible();
   const initialImportHash = new URL(page.url()).hash;
   const registrationId = initialImportHash.match(
     /^#\/p\/([A-Za-z0-9_-]+)/,
@@ -2440,15 +2438,11 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Retry the same import request" }),
   ).toHaveCount(0);
-  await expect(
-    caseButton("case-1"),
-  ).toBeVisible();
+  await expect(caseButton("case-1")).toBeVisible();
   expect(importCommitBodies).toHaveLength(2);
   expect(importCommitBodies[1]).toEqual(importCommitBodies[0]);
   await page.unroute("**/imports/commit");
-  await expect(
-    caseButton("case-1"),
-  ).toBeVisible();
+  await expect(caseButton("case-1")).toBeVisible();
   expect(importCommitBody).toBeDefined();
   const commitReplay = await page.request.post(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/imports/commit`,
@@ -2730,9 +2724,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page).toHaveURL(
     new URL(caseOneExamplesHash, page.url()).toString(),
   );
-  await expect(
-    caseButton("seed-1"),
-  ).toBeVisible();
+  await expect(caseButton("seed-1")).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
   const readSeedLabel = async () => {
     const response = await page.request.get(
