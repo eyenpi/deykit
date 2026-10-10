@@ -37,6 +37,134 @@ function safeRoutePattern(pathname: string): string {
     .join("/");
 }
 
+test("installed history retains a pending revision restore through Back and exact retry", async ({
+  page,
+}, testInfo) => {
+  const demoReply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/projects/demo") &&
+      response.request().method() === "POST",
+  );
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try support demo" }).click();
+  await page
+    .getByLabel("Project folder path")
+    .fill(testInfo.outputPath("restore-demo"));
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
+  const demo = await demoReply;
+  expect(demo.status()).toBe(200);
+  const registrationId = (await demo.json()).data.registration
+    .registration_id as string;
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("region", { name: "Project decisions" })
+    .getByRole("button", { name: "Content category", exact: true })
+    .click();
+  await expect(page.getByLabel("Decision name")).toHaveValue(
+    "Content category",
+  );
+  await page
+    .getByRole("button", { name: "Version history", exact: true })
+    .click();
+  const historyHeading = page.getByRole("heading", {
+    name: "Version history",
+    exact: true,
+  });
+  await expect(historyHeading).toBeVisible();
+  await page
+    .getByRole("button", { name: "Restore to draft…", exact: true })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Restore this version to the draft?",
+  });
+  await expect(dialog).toBeVisible();
+  const savedSource = await dialog
+    .getByLabel("Editor source to restore")
+    .inputValue();
+  const requests: string[] = [];
+  const replyStatuses: number[] = [];
+  let releaseReply!: () => void;
+  const heldReply = new Promise<void>((resolve) => {
+    releaseReply = resolve;
+  });
+  await page.route(
+    `**/projects/${registrationId}/decisions/*/restore-revision`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      requests.push(route.request().postData()!);
+      const response = await route.fetch();
+      replyStatuses.push(response.status());
+      if (requests.length === 1) {
+        await heldReply;
+        return route.abort("failed");
+      }
+      await route.fulfill({ response });
+    },
+  );
+  try {
+    await dialog
+      .getByRole("button", { name: "Restore to draft", exact: true })
+      .click();
+    await expect.poll(() => replyStatuses.length).toBe(1);
+    expect(replyStatuses[0]).toBe(200);
+    const admittedUrl = page.url();
+    await page.goBack();
+    await expect.poll(() => page.url()).toBe(admittedUrl);
+    await expect(historyHeading).toBeVisible();
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "Restore to draft", exact: true }),
+    ).toBeDisabled();
+    await expect(dialog.getByLabel("Editor source to restore")).toHaveValue(
+      savedSource,
+    );
+    expect(requests).toHaveLength(1);
+    await page.screenshot({
+      path: testInfo.outputPath("restore-submitting-after-back.png"),
+      fullPage: true,
+    });
+    releaseReply();
+    const retry = dialog.getByRole("button", {
+      name: "Retry the same restore request",
+      exact: true,
+    });
+    await expect(retry).toBeEnabled();
+    await page.evaluate(() => {
+      window.location.hash = "#/";
+    });
+    await expect.poll(() => page.url()).toBe(admittedUrl);
+    await expect(dialog).toBeVisible();
+    await retry.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath("restore-unknown-before-exact-retry.png"),
+      fullPage: true,
+    });
+    const retryReply = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/restore-revision") &&
+        response.request().method() === "POST",
+    );
+    await retry.click();
+    const recovered = await retryReply;
+    expect(recovered.status()).toBe(200);
+    await recovered.body();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByLabel("Decision name")).toHaveValue(
+      "Content category",
+    );
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toBe(requests[0]);
+  } finally {
+    releaseReply();
+  }
+});
+
 test("installed shell recovers a lost authored-demo response without duplicate writes", async ({
   page,
 }, testInfo) => {
@@ -2271,11 +2399,21 @@ test("installed browser authors exact decision source and previews imports throu
   const restoreHashBeforeBack = page.url();
   await page.goBack();
   await expect(restoreDialog).toBeVisible();
-  expect(page.url()).toBe(restoreHashBeforeBack);
+  await expect.poll(() => page.url()).toBe(restoreHashBeforeBack);
+  await expect(
+    page.getByRole("heading", { name: "Version history", exact: true }),
+  ).toBeVisible();
+  await expect(
+    restoreDialog.getByRole("button", {
+      name: "Restore to draft",
+      exact: true,
+    }),
+  ).toBeDisabled();
   expect(uncertainRestoreRequests).toHaveLength(1);
   await expect(
     restoreDialog.getByLabel("Editor source to restore"),
   ).toHaveValue(firstRevisionEditorSource);
+  await captureScreenshot("restore-submitting-after-back.png");
   releaseRestoreReply();
   await expect(
     page.getByRole("button", { name: "Retry the same restore request" }),
@@ -2283,6 +2421,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     restoreDialog.getByLabel("Editor source to restore"),
   ).toHaveValue(firstRevisionEditorSource);
+  await captureScreenshot("restore-unknown-before-exact-retry.png");
   const restoreReplayResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/restore-revision") &&
