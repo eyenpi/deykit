@@ -1682,7 +1682,7 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Retry same version save" }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Save version", exact: true }),
+    page.getByRole("button", { name: "Refreshing saved draft…", exact: true }),
   ).toBeDisabled();
   expect(recoveryVersionPosts).toBe(1);
   const recoveryReadResponse = page.waitForResponse(
@@ -1745,7 +1745,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   await expect(rawSourceEditor).toHaveValue(sourceDuringHeldRefresh);
   await expect(
-    page.getByRole("button", { name: "Save version", exact: true }),
+    page.getByRole("button", { name: "Refreshing saved draft…", exact: true }),
   ).toBeDisabled();
   const deliberateReviewRead = page.waitForResponse(
     (response) =>
