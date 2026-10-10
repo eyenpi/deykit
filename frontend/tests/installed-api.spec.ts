@@ -366,7 +366,6 @@ test("installed browser authors exact decision source and previews imports throu
   const projectPath = testInfo.outputPath("authoring-project");
   const apiResponses: string[] = [];
   const bundledAssetOrigins: string[] = [];
-  let importCommitBody: Record<string, unknown> | undefined;
   const importCommitBodies: Array<Record<string, unknown>> = [];
   const splitCommitBodies: Array<Record<string, unknown>> = [];
   const addBodies: Array<Record<string, unknown>> = [];
@@ -404,8 +403,9 @@ test("installed browser authors exact decision source and previews imports throu
         `${request.method()} ${safeRoutePattern(new URL(request.url()).pathname)}`,
       );
     if (request.url().endsWith("/imports/commit")) {
-      importCommitBody = request.postDataJSON() as Record<string, unknown>;
-      importCommitBodies.push(importCommitBody);
+      importCommitBodies.push(
+        request.postDataJSON() as Record<string, unknown>,
+      );
     }
     if (request.url().endsWith("/splits/commit"))
       splitCommitBodies.push(request.postDataJSON() as Record<string, unknown>);
@@ -2558,24 +2558,51 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Retry the same import request" }),
   ).toHaveCount(0);
   await expect(caseButton("case-1")).toBeVisible({ timeout: 10_000 });
+  await expect(caseButton("case-10")).toBeVisible({ timeout: 10_000 });
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
   expect(importCommitBodies).toHaveLength(
     importCommitsBeforeReplayScenario + 2,
   );
+  const originalImportCommitBody =
+    importCommitBodies[importCommitsBeforeReplayScenario];
+  if (!originalImportCommitBody)
+    throw new Error("Original import commit request was not captured");
   expect(importCommitBodies[importCommitsBeforeReplayScenario + 1]).toEqual(
-    importCommitBodies[importCommitsBeforeReplayScenario],
+    originalImportCommitBody,
   );
   await page.unroute("**/imports/commit");
-  await expect(caseButton("case-1")).toBeVisible();
-  expect(importCommitBody).toBeDefined();
+  await expect(page.getByLabel("Dataset")).toHaveValue(datasetId);
   const commitReplay = await page.request.post(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/imports/commit`,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
-      data: importCommitBody,
+      data: originalImportCommitBody,
     },
   );
+  const commitReplayBody: unknown = await commitReplay
+    .json()
+    .catch(() => undefined);
+  if (commitReplay.status() >= 400) {
+    const error = isRecord(commitReplayBody) ? commitReplayBody.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    apiFailures.push({
+      route_pattern: safeRoutePattern(
+        `/api/v1/projects/${registrationId}/datasets/${datasetId}/imports/commit`,
+      ),
+      status: commitReplay.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    });
+    await recordProgress();
+  }
   expect(commitReplay.status()).toBe(200);
-  expect((await commitReplay.json()).data.replayed).toBe(true);
+  expect(
+    isRecord(commitReplayBody) &&
+      isRecord(commitReplayBody.data) &&
+      commitReplayBody.data.replayed,
+  ).toBe(true);
   const importedCases = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases?limit=50`,
     {
