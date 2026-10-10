@@ -7,6 +7,8 @@ import { ErrorSummary, LoadingState } from "../../components/States";
 import type { ExampleAuthoringOperations, ProjectOverview } from "../../workspace/gateway";
 import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
+import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
+import type { WorkspaceNavigation } from "../../workspace/navigation";
 
 type SplitPreview = ApiOperationData<"preview_split_api_v1_projects__registration_id__datasets__dataset_id__splits_preview_post">;
 type SplitCommit = ApiOperationData<"commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post">;
@@ -16,12 +18,14 @@ export function SplitSheet({
   project,
   datasetId,
   examples,
+  navigation,
   onClose,
   onApplied,
 }: {
   project: ProjectOverview;
   datasetId: string;
   examples: ExampleAuthoringOperations;
+  navigation: WorkspaceNavigation;
   onClose: () => void;
   onApplied: (result: SplitCommit) => void;
 }) {
@@ -42,9 +46,23 @@ export function SplitSheet({
     datasetId: string;
     body: ApiOperationBody<"commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post">;
   }, SplitCommit> | undefined>(undefined);
+  const changed = state.kind !== "committed" && (mode !== "seeded" || seed !== "0" || ratiosSource !== '{"development":0.8,"test":0.2}' || !!preview || state.kind !== "idle");
+  const writePending = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const guard = useDirtyNavigationGuard({
+    dirty: changed || writePending,
+    blockedMessage: writePending
+      ? "A split write may have completed. Keep this sheet open and retry its original request before leaving."
+      : undefined,
+    save: async () => {
+      if (writePending) throw new Error("Retry the original split request before leaving this sheet.");
+      throw new Error("Review or explicitly discard the split proposal before leaving.");
+    },
+    discard: onClose,
+  });
+  useEffect(() => navigation.registerDirtyGuard(`split:${project.id}:${datasetId}`, guard.guard), [datasetId, guard.guard, navigation, project.id]);
   function requestClose() {
     if (busy) return;
-    const changed = mode !== "seeded" || seed !== "0" || ratiosSource !== '{"development":0.8,"test":0.2}' || !!preview || state.kind === "outcome-unknown";
+    if (state.kind === "outcome-unknown") return;
     if (changed) setDiscardConfirm(true);
     else onClose();
   }
@@ -174,12 +192,13 @@ export function SplitSheet({
             <p>Input identity: <code>{preview.preview.input_identity}</code></p>
             <table className="records-table"><caption>Actual assignment counts</caption><thead><tr><th scope="col">Split</th><th scope="col">Cases</th></tr></thead><tbody>{preview.preview.counts.map(([split, count]) => <tr key={split}><th scope="row">{split}</th><td>{count}</td></tr>)}</tbody></table>
             <details><summary>Assignments</summary><table className="records-table"><thead><tr><th scope="col">Case</th><th scope="col">Split</th></tr></thead><tbody>{preview.preview.assignments.map(([id, split]) => <tr key={id}><th scope="row">{id}</th><td>{split}</td></tr>)}</tbody></table></details>
-            <div className="actions"><button type="button" className="primary" disabled={busy || locked || state.kind === "committed" || state.kind === "conflict" || state.kind === "failed"} onClick={() => void apply()}>{busy ? "Applying…" : "Apply split"}</button><button type="button" disabled={busy} onClick={requestClose}>Close</button></div>
+            <div className="actions"><button type="button" className="primary" disabled={busy || locked || state.kind === "committed" || state.kind === "conflict" || state.kind === "failed"} onClick={() => void apply()}>{busy ? "Applying…" : "Apply split"}</button><button type="button" disabled={busy || state.kind === "outcome-unknown"} onClick={requestClose}>Close</button></div>
           </section>
         )}
         {state.kind === "committed" && <p role="status">Saved new dataset revision {state.receipt.snapshot.id}.</p>}
       </div>
-      {discardConfirm && <Modal title="Discard this split proposal?" onDismiss={() => setDiscardConfirm(false)}><div className="modal-body"><p>The preview and unsaved split settings will be cleared when this sheet closes.</p><div className="actions"><button className="primary" onClick={onClose}>Discard proposal</button><button onClick={() => setDiscardConfirm(false)}>Keep editing</button></div></div></Modal>}
+      {discardConfirm && <Modal title="Discard this split proposal?" onDismiss={() => { if (state.kind !== "outcome-unknown") setDiscardConfirm(false); }}><div className="modal-body"><p>The preview and unsaved split settings will be cleared when this sheet closes.</p><div className="actions"><button className="primary" disabled={state.kind === "outcome-unknown"} onClick={onClose}>Discard proposal</button><button onClick={() => setDiscardConfirm(false)}>Keep editing</button></div></div></Modal>}
+      {guard.prompt}
     </Modal>
   );
 }

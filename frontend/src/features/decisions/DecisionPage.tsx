@@ -69,10 +69,11 @@ export function DecisionPage({
   const optionOriginals = useRef(new Map<string, { name: string; description: string }>());
   const schemaOriginal = useRef<string | undefined>(undefined);
   const composingSource = useRef(false);
+  const schemaBlurredWhileComposing = useRef(false);
   const transformQueue = useRef<Array<{ edit: EditorEdit; sequence: number; sourceSequence: number }>>([]);
   const transformTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const transforming = useRef(false);
-  const transformTask = useRef<Promise<void> | undefined>(undefined);
+  const transformTask = useRef<Promise<boolean> | undefined>(undefined);
   const autosave = useRef<DraftAutosaveController | undefined>(undefined);
   const versionRequest = useRef<ApiOperationBody<"saveDecisionRevision"> | undefined>(undefined);
   const renameRequest = useRef<ApiOperationBody<"renameDecision"> | undefined>(undefined);
@@ -146,7 +147,8 @@ export function DecisionPage({
 
   const drainTransforms = useCallback(() => {
     if (transformTask.current) return transformTask.current;
-    const task = (async () => {
+    const task = (async (): Promise<boolean> => {
+      let completed = true;
       transforming.current = true;
       while (transformQueue.current.length) {
         const queued = transformQueue.current.shift();
@@ -176,10 +178,12 @@ export function DecisionPage({
         } catch (cause) {
           setEditError(safeMessage(cause));
           transformQueue.current = [];
+          completed = false;
           break;
         }
       }
       transforming.current = false;
+      return completed;
     })();
     transformTask.current = task.finally(() => {
       transformTask.current = undefined;
@@ -187,15 +191,23 @@ export function DecisionPage({
     return transformTask.current;
   }, [decisionId, operations, registrationId]);
 
+  const unresolvedWrite = versionOutcomeUnknown || renameOutcomeUnknown || archiveOutcomeUnknown || draftStatus.kind === "outcome-unknown";
+  const navigationBlockedMessage = unresolvedWrite
+    ? "A write may have completed. Keep editing and retry its original request before leaving this decision."
+    : working || renameWorking
+      ? "A write is still in progress. Keep this decision open until it finishes."
+      : undefined;
   const dirtyGuard = useDirtyNavigationGuard({
-    dirty: draftDirty,
+    dirty: draftDirty || unresolvedWrite || working || renameWorking,
+    blockedMessage: navigationBlockedMessage,
     save: async () => {
+      if (navigationBlockedMessage) throw new Error(navigationBlockedMessage);
+      if (composingSource.current) throw new Error("Finish composing the schema source before saving or leaving.");
       if (transformTimer.current !== undefined) {
         clearTimeout(transformTimer.current);
         transformTimer.current = undefined;
       }
-      await drainTransforms();
-      if (editError) throw new Error(editError);
+      if (!(await drainTransforms())) throw new Error("A pending editor transform failed. Review the error before leaving.");
       await autosave.current?.flush();
     },
     discard: () => {
@@ -294,9 +306,15 @@ export function DecisionPage({
     setWorking(true);
     setEditError(undefined);
     try {
+      if (composingSource.current) throw new Error("Finish composing the schema source before saving a version.");
       let request = versionRequest.current;
       let refreshedRecord = current;
       if (!versionOutcomeUnknown || !request) {
+        if (transformTimer.current !== undefined) {
+          clearTimeout(transformTimer.current);
+          transformTimer.current = undefined;
+        }
+        if (!(await drainTransforms())) throw new Error("The latest editor change could not be applied. No version was saved.");
         await controller.flush();
         const refreshed = await operations.read({ registrationId, decisionId });
         refreshedRecord = refreshed.data;
@@ -365,13 +383,16 @@ export function DecisionPage({
   }
 
   async function previewOptionRemoval(optionId: string, optionName: string) {
+    if (composingSource.current) {
+      setEditError("Finish composing the schema source before reviewing option removal.");
+      return;
+    }
     if (transformTimer.current !== undefined) {
       clearTimeout(transformTimer.current);
       transformTimer.current = undefined;
     }
     try {
-      await drainTransforms();
-      if (editError) throw new Error(editError);
+      if (!(await drainTransforms())) throw new Error("A pending editor transform failed. Review the error before removing this option.");
       await autosave.current?.flush();
       const result = await operations.transformEditor({
         registrationId,
@@ -647,9 +668,21 @@ export function DecisionPage({
               label="Advanced JSON Schema source"
               value={form.input_schema_source ?? ""}
               onCompositionStart={() => { composingSource.current = true; }}
-              onCompositionEnd={() => { composingSource.current = false; }}
+              onCompositionEnd={(event) => {
+                composingSource.current = false;
+                if (!schemaBlurredWhileComposing.current) return;
+                schemaBlurredWhileComposing.current = false;
+                const original = schemaOriginal.current;
+                schemaOriginal.current = undefined;
+                if (event.currentTarget.value !== original)
+                  queueTransform({ kind: "replace_schema", input_schema_source: event.currentTarget.value || null });
+              }}
               onFocus={(event) => { schemaOriginal.current = event.currentTarget.value; }}
               onBlur={(event) => {
+                if (composingSource.current) {
+                  schemaBlurredWhileComposing.current = true;
+                  return;
+                }
                 if (event.currentTarget.value !== schemaOriginal.current)
                   queueTransform({ kind: "replace_schema", input_schema_source: event.currentTarget.value || null });
                 schemaOriginal.current = undefined;
@@ -712,14 +745,15 @@ export function DecisionPage({
       {archiveConfirm && (
         <Modal
           title={record.decision.record.archived ? "Restore this decision?" : "Archive this decision?"}
-          onDismiss={() => { if (!renameWorking) setArchiveConfirm(false); }}
+          onDismiss={() => { if (!renameWorking && !archiveOutcomeUnknown) setArchiveConfirm(false); }}
         >
           <div className="modal-body">
             <p>{record.decision.record.archived ? "This decision will return to the active project list." : "The decision will leave the active list. Its drafts, saved versions, labels, and evidence stay available."}</p>
+            {archiveOutcomeUnknown && <p role="status">The archive outcome may be unknown. Retry the same request before closing this confirmation.</p>}
             {editError && <ErrorSummary message={editError} />}
             <div className="actions">
               <button className="primary" disabled={renameWorking} onClick={() => void toggleArchive()}>{archiveOutcomeUnknown ? `Retry same ${archiveAction.current ?? "decision"} action` : record.decision.record.archived ? "Restore decision" : "Archive decision"}</button>
-              <button disabled={renameWorking} onClick={() => setArchiveConfirm(false)}>Cancel</button>
+              <button disabled={renameWorking || archiveOutcomeUnknown} onClick={() => setArchiveConfirm(false)}>Cancel</button>
             </div>
           </div>
         </Modal>

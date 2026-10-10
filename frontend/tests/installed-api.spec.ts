@@ -241,11 +241,17 @@ test("installed browser authors exact decision source and previews imports throu
   const projectPath = testInfo.outputPath("authoring-project");
   const apiResponses: string[] = [];
   let importCommitBody: Record<string, unknown> | undefined;
+  const importCommitBodies: Array<Record<string, unknown>> = [];
+  const splitCommitBodies: Array<Record<string, unknown>> = [];
   let capability: string | undefined;
   page.on("request", (request) => {
     apiResponses.push(request.url());
-    if (request.url().endsWith("/imports/commit"))
+    if (request.url().endsWith("/imports/commit")) {
       importCommitBody = request.postDataJSON() as Record<string, unknown>;
+      importCommitBodies.push(importCommitBody);
+    }
+    if (request.url().endsWith("/splits/commit"))
+      splitCommitBodies.push(request.postDataJSON() as Record<string, unknown>);
   });
   page.on("response", async (response) => {
     if (response.url().endsWith("/api/v1/session/bootstrap")) {
@@ -344,6 +350,34 @@ test("installed browser authors exact decision source and previews imports throu
     '{"type":"object","properties":{"large":{"const":9007199254740993},"fraction":{"multipleOf":0.1234567890123456789}}}';
   await page.getByLabel("Advanced JSON Schema source").fill(schemaSource);
   await page.getByLabel("Advanced JSON Schema source").press("Tab");
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText("Draft saved");
+  const schemaCompositionEditor = page.getByLabel("Advanced JSON Schema source");
+  const intermediateCompositionSource = '{"type":"object","properties":{"ime":{"const":"intermediate"}}}';
+  const committedCompositionSource = '{"type":"object","properties":{"ime":{"const":"committed"}}}';
+  const compositionTransforms: Array<Record<string, unknown>> = [];
+  await page.route("**/editor-transform", async (route) => {
+    if (route.request().method() === "POST")
+      compositionTransforms.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.continue();
+  });
+  const compositionTransformResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/editor-transform") && response.request().method() === "POST",
+  );
+  await schemaCompositionEditor.focus();
+  await schemaCompositionEditor.dispatchEvent("compositionstart", { data: "" });
+  await schemaCompositionEditor.fill(intermediateCompositionSource);
+  await schemaCompositionEditor.evaluate((editor) => editor.blur());
+  await schemaCompositionEditor.evaluate((editor, committedSource) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(editor, committedSource);
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertCompositionText", data: "" }));
+    editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "" }));
+  }, committedCompositionSource);
+  await compositionTransformResponse;
+  expect(compositionTransforms).toHaveLength(1);
+  expect(compositionTransforms[0].edit).toEqual({ kind: "replace_schema", input_schema_source: committedCompositionSource });
+  expect(compositionTransforms[0].editor_source).not.toContain(intermediateCompositionSource);
+  await page.unroute("**/editor-transform");
   await expect(page.locator(".document-title-row [role=status]")).toHaveText("Draft saved");
   await captureScreenshot("decision-json-schema.png");
 
@@ -527,6 +561,32 @@ test("installed browser authors exact decision source and previews imports throu
   expect(transformedSource).toContain("9007199254740993");
   expect(transformedSource).toContain("0.1234567890123456789");
   await expect(page.locator(".option-list > li")).toContainText(["Option A", "Option C", "Renamed Option B"]);
+  const immediateVersionOptionName = "Saved before transform debounce";
+  await page.getByLabel("Option name").nth(1).fill(immediateVersionOptionName);
+  const immediateSaveResponse = page.waitForResponse((response) =>
+    response.url().endsWith(`/decisions/${decisionId}/revisions`) && response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  expect((await immediateSaveResponse).status()).toBe(200);
+  await expect(page.getByRole("status").filter({ hasText: /^Saved version / })).toBeVisible();
+  const immediateRevisionPage = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  const immediateRevisionId = (await immediateRevisionPage.json()).data.items[0].revision.record.id as string;
+  const immediateRevision = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions/${immediateRevisionId}`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  const immediateRevisionSource = (await immediateRevision.json()).data.editor_source as string;
+  expect(immediateRevisionSource).toContain(immediateVersionOptionName);
+  expect(immediateRevisionSource).toContain("9007199254740993");
+  expect(immediateRevisionSource).toContain("0.1234567890123456789");
+  const draftAfterImmediateSave = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  expect(immediateRevisionSource).toBe((await draftAfterImmediateSave.json()).data.draft.record.editor_source);
   await page.getByLabel("Version note (optional)").fill("Stable option identity and order");
   await page.getByRole("button", { name: "Save version", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: /^Saved version / })).toBeVisible();
@@ -534,8 +594,8 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Version history" }).click();
   await expect(page.getByRole("heading", { name: "Version history" })).toBeVisible();
   const revisionRows = page.getByRole("table", { name: "Saved decision versions" }).getByRole("row");
-  await expect(revisionRows).toHaveCount(3);
-  const baselineRow = revisionRows.nth(2);
+  await expect(revisionRows).toHaveCount(4);
+  const baselineRow = revisionRows.nth(3);
   await baselineRow.getByRole("button", { name: "Compare to latest" }).click();
   await expect(page.getByLabel("Difference from latest")).toContainText("Option order changed: Yes");
   await expect(page.getByLabel("Difference from latest")).toContainText("Added option IDs:");
@@ -685,7 +745,33 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("status").filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" })).toBeVisible();
   await page.getByRole("checkbox", { name: "Import valid rows only (8) and keep the exclusion report" }).check();
   await captureScreenshot("import-valid-rows-reviewed.png");
+  let firstImportCommitStatus: number | undefined;
+  await page.route("**/imports/commit", async (route) => {
+    const response = await route.fetch();
+    if (importCommitBodies.length === 1) {
+      firstImportCommitStatus = response.status();
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({ response });
+  });
   await page.getByRole("button", { name: "Import valid rows" }).click();
+  await expect(page.getByRole("button", { name: "Retry the same import request" })).toBeVisible();
+  expect(firstImportCommitStatus).toBe(200);
+  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+  const importHashBeforeRouteAttempt = page.url();
+  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
+  const importUnknownGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(importUnknownGuard).toBeVisible();
+  await expect(importUnknownGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
+  await importUnknownGuard.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page).toHaveURL(importHashBeforeRouteAttempt);
+  expect(importCommitBodies).toHaveLength(1);
+  await page.getByRole("button", { name: "Retry the same import request" }).click();
+  await expect(page.getByRole("button", { name: "case-1", exact: true })).toBeVisible();
+  expect(importCommitBodies).toHaveLength(2);
+  expect(importCommitBodies[1]).toEqual(importCommitBodies[0]);
+  await page.unroute("**/imports/commit");
   await expect(page.getByRole("button", { name: "case-1", exact: true })).toBeVisible();
   expect(importCommitBody).toBeDefined();
   const commitReplay = await page.request.post(
@@ -704,6 +790,18 @@ test("installed browser authors exact decision source and previews imports throu
   expect((await importedCases.json()).data.total).toBe("9");
 
   await page.getByRole("button", { name: "seed-1", exact: true }).click();
+  await page.getByRole("button", { name: "Edit input" }).click();
+  const stagedCaseSource = '{"case":"seed-1","kept":true}';
+  await page.getByLabel("Input source").fill(stagedCaseSource);
+  const stagedCaseHash = page.url();
+  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
+  const keepStagedCase = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(keepStagedCase).toBeVisible();
+  await keepStagedCase.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page).toHaveURL(stagedCaseHash);
+  await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
+  await page.getByRole("button", { name: "Save input" }).click();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
   const readSeedLabel = () => page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/seed-1`,
     { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
@@ -712,6 +810,15 @@ test("installed browser authors exact decision source and previews imports throu
   expect((await emptySeedLabel.json()).data.label).toBeNull();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
+  const stagedLabelHash = page.url();
+  await page.getByRole("button", { name: "case-2", exact: true }).click();
+  const keepStagedSelection = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(keepStagedSelection).toBeVisible();
+  await keepStagedSelection.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page).toHaveURL(stagedLabelHash);
+  await expect(page.getByRole("heading", { name: "seed-1", exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   const stillUnlabelled = await readSeedLabel();
   expect((await stillUnlabelled.json()).data.label).toBeNull();
   await page.getByRole("navigation", { name: "Workspace" })
@@ -742,15 +849,27 @@ test("installed browser authors exact decision source and previews imports throu
   const labelSaveStarted = new Promise<void>((resolve) => { reportLabelSaveStarted = resolve; });
   const holdLabelSave = new Promise<void>((resolve) => { releaseLabelSave = resolve; });
   let heldLabelSave = false;
+  let droppedCommittedLabelResponse = false;
   let losingLabelBody: Record<string, unknown> | undefined;
+  const labelMutationBodies: Array<Record<string, unknown>> = [];
   await page.route("**/labels/batch", async (route) => {
-    if (route.request().method() === "POST" && !heldLabelSave) {
+    if (route.request().method() !== "POST") return route.continue();
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    labelMutationBodies.push(body);
+    if (!heldLabelSave) {
       heldLabelSave = true;
-      losingLabelBody = route.request().postDataJSON() as Record<string, unknown>;
+      losingLabelBody = body;
       reportLabelSaveStarted();
       await holdLabelSave;
     }
-    await route.continue();
+    const response = await route.fetch();
+    const edits = body.edits as Array<Record<string, unknown>>;
+    if (edits[0]?.action === "dispute" && !droppedCommittedLabelResponse) {
+      droppedCommittedLabelResponse = true;
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Save expected answer" }).click();
   await labelSaveStarted;
@@ -786,6 +905,21 @@ test("installed browser authors exact decision source and previews imports throu
     status: "active",
   });
   await page.getByRole("button", { name: "Dispute label" }).click();
+  await expect(page.getByRole("button", { name: "Retry original label request" })).toBeVisible();
+  expect(labelMutationBodies.at(-1)?.operation_id).toBeTruthy();
+  const unknownLabelHash = page.url();
+  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
+  const unknownLabelGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(unknownLabelGuard).toBeVisible();
+  await expect(unknownLabelGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
+  await unknownLabelGuard.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page).toHaveURL(unknownLabelHash);
+  expect(labelMutationBodies.filter((body) => ((body.edits as Array<Record<string, unknown>>)[0]?.action === "dispute"))).toHaveLength(1);
+  await page.getByRole("button", { name: "Retry original label request" }).click();
+  await expect(page.getByRole("button", { name: "Retry original label request" })).toHaveCount(0);
+  const disputeBodies = labelMutationBodies.filter((body) => ((body.edits as Array<Record<string, unknown>>)[0]?.action === "dispute"));
+  expect(disputeBodies).toHaveLength(2);
+  expect(disputeBodies[1]).toEqual(disputeBodies[0]);
   savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label.status).toBe("disputed");
   await page.getByRole("button", { name: "Resolve dispute with staged set" }).click();
@@ -826,15 +960,207 @@ test("installed browser authors exact decision source and previews imports throu
   expect(tagOnly.status()).toBe(200);
   expect((await readCaseOneLabel().then((response) => response.json())).data.status).toBe("applicable");
 
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
+  await page.getByRole("button", { name: "Add example" }).click();
+  const proposedAddSource = '{"proposal":"keep-after-review"}';
+  await page.getByLabel("Input source").fill(proposedAddSource);
+  const addBodies: Array<Record<string, unknown>> = [];
+  let releaseAdd!: () => void;
+  let reportAddStarted!: () => void;
+  const addGate = new Promise<void>((resolve) => { releaseAdd = resolve; });
+  const addStarted = new Promise<void>((resolve) => { reportAddStarted = resolve; });
+  let heldAdd = false;
+  await page.route("**/datasets/*/cases", async (route) => {
+    if (route.request().method() === "POST") {
+      addBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      if (!heldAdd) {
+        heldAdd = true;
+        reportAddStarted();
+        await addGate;
+      }
+    }
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Add example", exact: true }).last().click();
+  await addStarted;
+  const addDataset = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  const addDatasetData = (await addDataset.json()).data;
+  const addWinner = await page.request.post(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+      data: {
+        schema_version: 1,
+        operation_id: "m10-add-case-conflict-winner",
+        expected_dataset_etag: addDatasetData.etag,
+        case_id: "m10-add-conflict-winner",
+        input_kind: "text",
+        input_source: '{"proposal":"winner"}',
+        metadata_source: "{}",
+        tags: [],
+        split: "development",
+        group_id: null,
+        derived_from: [],
+      },
+    },
+  );
+  expect(addWinner.status()).toBe(200);
+  releaseAdd();
+  await expect(page.getByRole("button", { name: "Review current cases and dataset" })).toBeVisible();
+  await expect(page.getByLabel("Input source")).toHaveValue(proposedAddSource);
+  await page.getByRole("button", { name: "Review current cases and dataset" }).click();
+  await page.getByRole("button", { name: "Reapply reviewed example" }).click();
+  expect(addBodies).toHaveLength(2);
+  expect(addBodies[1].input_source).toBe(proposedAddSource);
+  expect(addBodies[1].operation_id).not.toBe(addBodies[0].operation_id);
+  expect(addBodies[1].expected_dataset_etag).not.toBe(addBodies[0].expected_dataset_etag);
+  await page.unroute("**/datasets/*/cases");
+
   await enterPhase("Case source preservation and stale-label applicability");
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await page.getByRole("button", { name: "case-1", exact: true }).click();
   await page.getByRole("button", { name: "Edit input" }).click();
   await page.getByLabel("Input source").fill('{"case":1,"changed":true}');
+  const caseEditBodies: Array<Record<string, unknown>> = [];
+  let releaseCaseEdit!: () => void;
+  let reportCaseEditStarted!: () => void;
+  const caseEditGate = new Promise<void>((resolve) => { releaseCaseEdit = resolve; });
+  const caseEditStarted = new Promise<void>((resolve) => { reportCaseEditStarted = resolve; });
+  let heldCaseEdit = false;
+  await page.route("**/cases/case-1", async (route) => {
+    if (route.request().method() === "PUT") {
+      caseEditBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      if (!heldCaseEdit) {
+        heldCaseEdit = true;
+        reportCaseEditStarted();
+        await caseEditGate;
+      }
+    }
+    await route.continue();
+  });
   await page.getByRole("button", { name: "Save input" }).click();
+  await caseEditStarted;
+  const caseEditBeforeWinner = (await (await readCaseOne()).json()).data;
+  const caseEditWinner = await page.request.put(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+      data: {
+        schema_version: 1,
+        operation_id: "m10-case-edit-conflict-winner",
+        expected_case_etag: caseEditBeforeWinner.case.etag,
+        expected_dataset_etag: caseEditBeforeWinner.dataset_etag,
+        input_kind: caseEditBeforeWinner.case.record.input_kind,
+        input_source: '{"case":1,"winner":true}',
+        tags: caseEditBeforeWinner.case.record.tags,
+        split: caseEditBeforeWinner.case.record.split,
+        group_id: caseEditBeforeWinner.case.record.group_id,
+        derived_from: caseEditBeforeWinner.case.record.derived_from,
+        metadata_source: caseEditBeforeWinner.case.record.metadata_source,
+      },
+    },
+  );
+  expect(caseEditWinner.status()).toBe(200);
+  releaseCaseEdit();
+  await expect(page.getByRole("button", { name: "Review current case and dataset" })).toBeVisible();
+  await expect(page.getByLabel("Input source")).toHaveValue('{"case":1,"changed":true}');
+  await page.getByRole("button", { name: "Review current case and dataset" }).click();
+  await page.getByRole("button", { name: "Reapply reviewed case edit" }).click();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
+  expect(caseEditBodies).toHaveLength(2);
+  expect(caseEditBodies[1].input_source).toBe('{"case":1,"changed":true}');
+  expect(caseEditBodies[1].operation_id).not.toBe(caseEditBodies[0].operation_id);
+  expect(caseEditBodies[1].expected_case_etag).not.toBe(caseEditBodies[0].expected_case_etag);
+  await page.unroute("**/cases/case-1");
   const staleLabel = await readCaseOneLabel();
   expect((await staleLabel.json()).data).toMatchObject({ status: "excluded", reasons: ["stale"] });
+
+  await page.getByRole("button", { name: "case-2", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "case-2", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Remove case" }).click();
+  const removeBodies: Array<Record<string, unknown>> = [];
+  let releaseRemove!: () => void;
+  let reportRemoveStarted!: () => void;
+  const removeGate = new Promise<void>((resolve) => { releaseRemove = resolve; });
+  const removeStarted = new Promise<void>((resolve) => { reportRemoveStarted = resolve; });
+  let heldRemove = false;
+  await page.route("**/datasets/*/cases/case-2", async (route) => {
+    if (route.request().method() === "DELETE") {
+      removeBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      if (!heldRemove) {
+        heldRemove = true;
+        reportRemoveStarted();
+        await removeGate;
+      }
+    }
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Remove case", exact: true }).last().click();
+  await removeStarted;
+  const caseTwoResponse = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  const caseTwo = (await caseTwoResponse.json()).data;
+  const removeConflictWinner = await page.request.put(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+      data: {
+        schema_version: 1,
+        operation_id: "m10-remove-case-conflict-winner",
+        expected_case_etag: caseTwo.case.etag,
+        expected_dataset_etag: caseTwo.dataset_etag,
+        input_kind: caseTwo.case.record.input_kind,
+        input_source: caseTwo.case.record.input_source,
+        tags: [...caseTwo.case.record.tags, "remove-conflict-winner"],
+        split: caseTwo.case.record.split,
+        group_id: caseTwo.case.record.group_id,
+        derived_from: caseTwo.case.record.derived_from,
+        metadata_source: caseTwo.case.record.metadata_source,
+      },
+    },
+  );
+  expect(removeConflictWinner.status()).toBe(200);
+  releaseRemove();
+  await expect(page.getByRole("button", { name: "Review current case and dataset" })).toBeVisible();
+  await page.getByRole("button", { name: "Review current case and dataset" }).click();
+  await page.getByRole("button", { name: "Reapply reviewed removal" }).click();
+  expect(removeBodies).toHaveLength(2);
+  expect(removeBodies[1].operation_id).not.toBe(removeBodies[0].operation_id);
+  expect(removeBodies[1].expected_case_etag).not.toBe(removeBodies[0].expected_case_etag);
+  await page.unroute("**/datasets/*/cases/case-2");
+  const datasetAfterRemoval = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  const readdCaseTwo = await page.request.post(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+      data: {
+        schema_version: 1,
+        operation_id: "m10-readd-case-two-after-conflict-test",
+        expected_dataset_etag: (await datasetAfterRemoval.json()).data.etag,
+        case_id: "case-2",
+        input_kind: caseTwo.case.record.input_kind,
+        input_source: caseTwo.case.record.input_source,
+        tags: caseTwo.case.record.tags,
+        split: caseTwo.case.record.split,
+        group_id: caseTwo.case.record.group_id,
+        derived_from: caseTwo.case.record.derived_from,
+        metadata_source: caseTwo.case.record.metadata_source,
+      },
+    },
+  );
+  expect(readdCaseTwo.status()).toBe(200);
+  await page.getByRole("button", { name: "case-1", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "case-1", exact: true })).toBeVisible();
 
   const currentCase = (await (await readCaseOne()).json()).data;
   const removed = await page.request.delete(
@@ -875,7 +1201,11 @@ test("installed browser authors exact decision source and previews imports throu
 
   await enterPhase("Grouped server split preview and option-reference impact");
   await page.getByRole("button", { name: "Split dataset" }).click();
+  const splitPreviewResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/splits/preview") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Preview assignments" }).click();
+  const splitPreview = (await (await splitPreviewResponse).json()).data;
   await expect(page.getByRole("heading", { name: "Server split preview" })).toBeVisible();
   await page.locator(".split-preview details summary").click();
   const assignments = await page.locator(".split-preview details table tbody tr").evaluateAll((rows) =>
@@ -890,8 +1220,52 @@ test("installed browser authors exact decision source and previews imports throu
   expect(relatedAssignments).toHaveLength(4);
   expect(new Set(relatedAssignments).size).toBe(1);
   await captureScreenshot("split-server-preview.png");
+  const splitCommitResults: Array<Record<string, unknown>> = [];
+  let firstSplitCommitStatus: number | undefined;
+  await page.route("**/splits/commit", async (route) => {
+    const response = await route.fetch();
+    const result = (await response.json()).data as Record<string, unknown>;
+    splitCommitResults.push(result);
+    if (splitCommitResults.length === 1) {
+      firstSplitCommitStatus = response.status();
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({ response });
+  });
+  await page.getByRole("button", { name: "Apply split" }).click();
+  await expect(page.getByRole("button", { name: "Retry the same split request" })).toBeVisible();
+  expect(firstSplitCommitStatus).toBe(200);
+  expect(splitCommitBodies).toHaveLength(1);
+  expect(splitCommitBodies[0].preview_document_source).toBe(splitPreview.preview_document_source);
+  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+  const splitHashBeforeRouteAttempt = page.url();
+  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
+  const splitUnknownGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(splitUnknownGuard).toBeVisible();
+  await expect(splitUnknownGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
+  await splitUnknownGuard.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page).toHaveURL(splitHashBeforeRouteAttempt);
+  expect(splitCommitBodies).toHaveLength(1);
+  await page.getByRole("button", { name: "Retry the same split request" }).click();
+  await expect.poll(() => splitCommitResults.length).toBe(2);
+  await expect(page.getByRole("status").filter({ hasText: "Saved new dataset revision" })).toBeVisible();
+  expect(splitCommitBodies[1]).toEqual(splitCommitBodies[0]);
+  expect(splitCommitResults.map((result) => result.replayed)).toEqual([false, true]);
+  const splitReceipt = splitCommitResults[1];
+  const splitDatasetRead = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  expect(splitDatasetRead.status()).toBe(200);
+  expect((await splitDatasetRead.json()).data.record.revision_id).toBe((splitReceipt.snapshot as { id: string }).id);
+  const casesAfterSplitReplay = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases?limit=100`,
+    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+  );
+  expect((await casesAfterSplitReplay.json()).data.total).toBe(String((splitReceipt.snapshot as { cases: unknown[] }).cases.length));
+  await page.unroute("**/splits/commit");
   await page.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByRole("button", { name: "Discard proposal" }).click();
 
   await page.getByRole("button", { name: "seed-1", exact: true }).click();
   await page.getByRole("checkbox", { name: "Option A" }).check();
@@ -963,7 +1337,7 @@ test("installed browser authors exact decision source and previews imports throu
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
     { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
   );
-  expect((await retainedRevisions.json()).data.items).toHaveLength(2);
+  expect((await retainedRevisions.json()).data.items).toHaveLength(3);
   await archivedRow.getByRole("button", { name: "Restore", exact: true }).click();
   await expect(page.getByRole("table", { name: "Project decisions" })).toContainText(decisionName);
 
@@ -1145,10 +1519,58 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(createdFixtureData.requests).toEqual([]);
 
+  await page.getByRole("button", { name: "Author fixture set" }).click();
+  await page.getByLabel("Fixture set name").fill("Browser retained fixture request");
+  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
+  await page.getByLabel("Strict binding source lines").fill(bindingSources.join("\n"));
+  const fixtureCreateBodies: Array<Record<string, unknown>> = [];
+  const fixtureCreateResults: Array<Record<string, unknown>> = [];
+  await page.route("**/api/v1/projects/*/fixtures", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    fixtureCreateBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    const response = await route.fetch();
+    fixtureCreateResults.push((await response.json()).data as Record<string, unknown>);
+    if (fixtureCreateBodies.length === 1) {
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({ response });
+  });
+  await page.getByRole("button", { name: "Create authored set" }).click();
+  await expect(page.getByRole("button", { name: "Retry same create" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+  await page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Examples", exact: true }).click();
+  const fixtureUnknownGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(fixtureUnknownGuard).toBeVisible();
+  await expect(fixtureUnknownGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
+  await fixtureUnknownGuard.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page.getByRole("heading", { name: "Fixture library" })).toBeVisible();
+  await page.getByRole("button", { name: "Retry same create" }).click();
+  await expect(page.getByRole("heading", { name: "Browser retained fixture request" })).toBeVisible();
+  expect(fixtureCreateBodies).toHaveLength(2);
+  expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
+  expect(fixtureCreateResults).toHaveLength(2);
+  await page.unroute("**/api/v1/projects/*/fixtures");
+
   await enterPhase("Responsive 320px and reduced-motion review");
   await page.setViewportSize({ width: 320, height: 800 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    await page.evaluate(() => window.innerWidth) + 1,
+  );
+  await page.keyboard.press("Tab");
+  let visibleKeyboardStops = 0;
+  for (let index = 0; index < 12; index += 1) {
+    const visible = await page.evaluate(() => {
+      const active = document.activeElement;
+      return active instanceof HTMLElement && active !== document.body && active.getClientRects().length > 0;
+    });
+    expect(visible).toBe(true);
+    visibleKeyboardStops += 1;
+    await page.keyboard.press("Tab");
+  }
+  expect(visibleKeyboardStops).toBe(12);
   await captureScreenshot("authoring-narrow-320.png");
 
   expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(true);

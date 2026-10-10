@@ -182,9 +182,17 @@ export function App({ gateway = disconnectedWorkspace }: { gateway?: WorkspaceGa
       datasetFromRoute={route.datasetId ?? selectedDataset?.id}
       caseFromRoute={route.caseId ?? (selectedDataset?.id === sessionState.read(project.id).selectedDatasetId ? sessionState.read(project.id).selectedCaseId : undefined)}
       refreshToken={examplesRefresh}
-      onDatasetChange={(datasetId, caseId) => {
+      onDatasetChange={async (datasetId, caseId) => {
+        const moved = await navigation.navigate({
+          kind: "examples",
+          registrationId: project.id,
+          decisionId: route.kind === "examples" ? route.decisionId : null,
+          ...(datasetId ? { datasetId } : {}),
+          ...(caseId ? { caseId } : {}),
+        });
+        if (!moved) return false;
         sessionState.update(project.id, { selectedDatasetId: datasetId, selectedCaseId: caseId });
-        void navigation.navigate({ kind: "examples", registrationId: project.id, decisionId: route.decisionId, ...(datasetId ? { datasetId } : {}), ...(caseId ? { caseId } : {}) });
+        return true;
       }}
       onImport={requestImport}
       onSplit={() => setSplitOpen(true)}
@@ -235,8 +243,8 @@ export function App({ gateway = disconnectedWorkspace }: { gateway?: WorkspaceGa
         }
       }} />}
       {createdError && <Modal title="Refresh workspace" onDismiss={() => setCreatedError(undefined)}><div className="modal-body"><ErrorSummary message={createdError} /><p>{createdName} was created. Refresh the workspace to load its current state.</p><button onClick={() => void refreshProject().then(() => setCreatedError(undefined)).catch((cause) => setCreatedError(safeMessage(cause)))}>Refresh workspace</button></div></Modal>}
-      {importOpen && project && route.kind === "examples" && route.datasetId && <ImportSheet project={project} datasetId={route.datasetId} examples={gateway.authoring.examples} sources={gateway.authoring.sources} onClose={() => setImportOpen(false)} onImported={() => { setImportOpen(false); setExamplesRefresh((value) => value + 1); void refreshProject(); }} />}
-      {splitOpen && project && route.kind === "examples" && route.datasetId && <SplitSheet project={project} datasetId={route.datasetId} examples={gateway.authoring.examples} onClose={() => setSplitOpen(false)} onApplied={() => { setSplitOpen(false); setExamplesRefresh((value) => value + 1); void refreshProject(); }} />}
+      {importOpen && project && route.kind === "examples" && route.datasetId && <ImportSheet project={project} datasetId={route.datasetId} examples={gateway.authoring.examples} sources={gateway.authoring.sources} navigation={navigation} onClose={() => setImportOpen(false)} onImported={() => { setImportOpen(false); setExamplesRefresh((value) => value + 1); void refreshProject(); }} />}
+      {splitOpen && project && route.kind === "examples" && route.datasetId && <SplitSheet project={project} datasetId={route.datasetId} examples={gateway.authoring.examples} navigation={navigation} onClose={() => setSplitOpen(false)} onApplied={() => { setExamplesRefresh((value) => value + 1); void refreshProject(); }} />}
     </Shell>
   );
 }

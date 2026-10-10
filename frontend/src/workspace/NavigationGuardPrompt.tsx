@@ -11,10 +11,12 @@ export function useDirtyNavigationGuard({
   dirty,
   save,
   discard,
+  blockedMessage,
 }: {
   dirty: boolean;
   save: () => Promise<void>;
   discard: () => void;
+  blockedMessage?: string;
 }): {
   guard: DirtyNavigationGuard;
   prompt: ReactNode;
@@ -85,18 +87,18 @@ export function useDirtyNavigationGuard({
         }}
       >
         <div className="modal-body">
-          <p>Save your changes before leaving, discard them, or keep editing.</p>
+          <p>{blockedMessage ?? "Save your changes before leaving, discard them, or keep editing."}</p>
           {error && <ErrorSummary message={error} focus />}
           <div className="actions">
             <button
               type="button"
               className="primary"
-              disabled={saving}
+              disabled={saving || !!blockedMessage}
               onClick={() => void saveAndLeave()}
             >
               {saving ? "Saving…" : "Save and leave"}
             </button>
-            <button type="button" disabled={saving} onClick={discardAndLeave}>
+            <button type="button" disabled={saving || !!blockedMessage} onClick={discardAndLeave}>
               Discard changes
             </button>
             <button type="button" disabled={saving} onClick={() => settle(false)}>

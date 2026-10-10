@@ -44,7 +44,7 @@ export function ExamplesPage({
   datasetFromRoute?: string;
   caseFromRoute?: string;
   refreshToken: number;
-  onDatasetChange: (datasetId?: string, caseId?: string) => void;
+  onDatasetChange: (datasetId?: string, caseId?: string) => Promise<boolean>;
   onImport: () => void;
   onSplit: () => void;
 }) {
@@ -61,6 +61,7 @@ export function ExamplesPage({
   const [stagedAnswers, setStagedAnswers] = useState<readonly string[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [mutationInFlight, setMutationInFlight] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [editCase, setEditCase] = useState(false);
@@ -79,6 +80,9 @@ export function ExamplesPage({
   const [pendingCase, setPendingCase] = useState<{ body: CaseEditBody; uncertain: boolean; conflict: boolean }>();
   const [pendingAdd, setPendingAdd] = useState<{ body: AddCaseBody; uncertain: boolean; conflict: boolean }>();
   const [pendingRemove, setPendingRemove] = useState<{ body: RemoveCaseBody; uncertain: boolean; conflict: boolean }>();
+  const [caseConflictReviewed, setCaseConflictReviewed] = useState(false);
+  const [addConflictReviewed, setAddConflictReviewed] = useState(false);
+  const [removeConflictReviewed, setRemoveConflictReviewed] = useState(false);
 
   useEffect(() => {
     setDatasetId(datasetFromRoute ?? "");
@@ -211,15 +215,18 @@ export function ExamplesPage({
     }
   }
 
-  function selectCase(caseId: string) {
+  async function selectCase(caseId: string) {
+    if (caseId === selectedCaseId || !datasetId) return;
+    const moved = await onDatasetChange(datasetId, caseId);
+    if (!moved) return;
     setSelectedCaseId(caseId);
-    onDatasetChange(datasetId, caseId);
   }
 
   async function saveLabel(action: "set" | "resolve" | "dispute" | "clear"): Promise<boolean> {
     if (!decision || !datasetId || !labelView || stagedAnswers.length === 0 && action !== "clear" && action !== "dispute") return false;
     if (pendingLabel?.conflict) return false;
     setBusy(true);
+    setMutationInFlight(true);
     setError(undefined);
     const body: LabelMutationBody = pendingLabel?.uncertain ? pendingLabel.body : {
       schema_version: 1,
@@ -261,6 +268,7 @@ export function ExamplesPage({
       return false;
     } finally {
       setBusy(false);
+      setMutationInFlight(false);
     }
     return true;
   }
@@ -287,10 +295,16 @@ export function ExamplesPage({
     }
   }
 
+  function retryUnknownLabel() {
+    const action = pendingLabel?.body.edits[0]?.action;
+    if (pendingLabel?.uncertain && action) void saveLabel(action);
+  }
+
   async function saveCase(): Promise<boolean> {
     if (!dataset || !caseRead || !selectedCaseId) return false;
     if (pendingCase?.conflict) return false;
     setBusy(true);
+    setMutationInFlight(true);
     setError(undefined);
     const record = caseRead.case.record;
     const body: CaseEditBody = pendingCase?.uncertain ? pendingCase.body : {
@@ -314,6 +328,7 @@ export function ExamplesPage({
         body,
       });
       setPendingCase(undefined);
+      setCaseConflictReviewed(false);
       setEditCase(false);
       setEditorDirty(false);
       const refreshed = await operations.readCase({ registrationId, datasetId, caseId: selectedCaseId });
@@ -329,20 +344,46 @@ export function ExamplesPage({
       setCaseCursor(page.data.next_cursor ?? undefined);
     } catch (cause) {
       if (isOutcomeUnknown(cause)) setPendingCase({ body, uncertain: true, conflict: false });
-      else if (cause instanceof ApiError && cause.status === 409) setPendingCase({ body, uncertain: false, conflict: true });
+      else if (cause instanceof ApiError && cause.status === 409) {
+        setPendingCase({ body, uncertain: false, conflict: true });
+        setCaseConflictReviewed(false);
+      }
       else setPendingCase(undefined);
       setError(safeMessage(cause));
       return false;
     } finally {
       setBusy(false);
+      setMutationInFlight(false);
     }
     return true;
+  }
+
+  async function reviewCaseConflict() {
+    if (!dataset || !caseRead || !selectedCaseId) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const [currentCase, currentDataset] = await Promise.all([
+        operations.readCase({ registrationId, datasetId, caseId: selectedCaseId }),
+        datasetOperations.read({ registrationId, datasetId }),
+      ]);
+      setCaseRead(currentCase.data);
+      setDataset(currentDataset.data);
+      setPendingCase(undefined);
+      setCaseConflictReviewed(true);
+      setNotice("Current case and dataset versions reviewed. Your edited source is retained; reapply it deliberately.");
+    } catch (cause) {
+      setError(safeMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function addCase(): Promise<boolean> {
     if (!dataset) return false;
     if (pendingAdd?.conflict) return false;
     setBusy(true);
+    setMutationInFlight(true);
     setError(undefined);
     const body: AddCaseBody = pendingAdd?.uncertain ? pendingAdd.body : {
       schema_version: 1,
@@ -363,6 +404,7 @@ export function ExamplesPage({
         body,
       });
       setPendingAdd(undefined);
+      setAddConflictReviewed(false);
       const createdId = result.data.case?.record.id;
       setAddCaseOpen(false);
       setEditorDirty(false);
@@ -371,25 +413,51 @@ export function ExamplesPage({
       setNewMetadataSource("{}");
       setRefreshGeneration((value) => value + 1);
       if (createdId) {
-        setSelectedCaseId(createdId);
-        onDatasetChange(datasetId, createdId);
+        setNotice("Example added. Select it from the cases list when ready.");
       }
     } catch (cause) {
       if (isOutcomeUnknown(cause)) setPendingAdd({ body, uncertain: true, conflict: false });
-      else if (cause instanceof ApiError && cause.status === 409) setPendingAdd({ body, uncertain: false, conflict: true });
+      else if (cause instanceof ApiError && cause.status === 409) {
+        setPendingAdd({ body, uncertain: false, conflict: true });
+        setAddConflictReviewed(false);
+      }
       else setPendingAdd(undefined);
       setError(safeMessage(cause));
       return false;
     } finally {
       setBusy(false);
+      setMutationInFlight(false);
     }
     return true;
+  }
+
+  async function reviewAddConflict() {
+    if (!dataset) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const [currentDataset, currentCases] = await Promise.all([
+        datasetOperations.read({ registrationId, datasetId }),
+        operations.listCases({ registrationId, datasetId, query: { limit: "50" } }),
+      ]);
+      setDataset(currentDataset.data);
+      setCases(currentCases.data);
+      setCaseCursor(currentCases.data.next_cursor ?? undefined);
+      setPendingAdd(undefined);
+      setAddConflictReviewed(true);
+      setNotice("Current dataset and cases reviewed. Your new example source is retained; reapply it deliberately.");
+    } catch (cause) {
+      setError(safeMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function removeSelectedCase() {
     if (!dataset || !caseRead || !selectedCaseId) return;
     if (pendingRemove?.conflict) return;
     setBusy(true);
+    setMutationInFlight(true);
     setError(undefined);
     const body: RemoveCaseBody = pendingRemove?.uncertain ? pendingRemove.body : {
       schema_version: 1,
@@ -405,18 +473,41 @@ export function ExamplesPage({
         body,
       });
       setPendingRemove(undefined);
+      setRemoveConflictReviewed(false);
       const cleared = result.data.cleared_label_ids;
       setDeleteCaseOpen(false);
-      setSelectedCaseId(undefined);
-      setCaseRead(undefined);
-      setLabelView(undefined);
-      onDatasetChange(datasetId, undefined);
       setRefreshGeneration((value) => value + 1);
+      setNotice("Case removed. Its last reviewed view remains until you select another case.");
       if (cleared.length) setNotice(`Case removed. ${cleared.length} current label record(s) were cleared; label history remains available.`);
     } catch (cause) {
       if (isOutcomeUnknown(cause)) setPendingRemove({ body, uncertain: true, conflict: false });
-      else if (cause instanceof ApiError && cause.status === 409) setPendingRemove({ body, uncertain: false, conflict: true });
+      else if (cause instanceof ApiError && cause.status === 409) {
+        setPendingRemove({ body, uncertain: false, conflict: true });
+        setRemoveConflictReviewed(false);
+      }
       else setPendingRemove(undefined);
+      setError(safeMessage(cause));
+    } finally {
+      setBusy(false);
+      setMutationInFlight(false);
+    }
+  }
+
+  async function reviewRemoveConflict() {
+    if (!dataset || !caseRead || !selectedCaseId) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const [currentCase, currentDataset] = await Promise.all([
+        operations.readCase({ registrationId, datasetId, caseId: selectedCaseId }),
+        datasetOperations.read({ registrationId, datasetId }),
+      ]);
+      setCaseRead(currentCase.data);
+      setDataset(currentDataset.data);
+      setPendingRemove(undefined);
+      setRemoveConflictReviewed(true);
+      setNotice("Current case and dataset versions reviewed. Reapply removal deliberately if the case is still present.");
+    } catch (cause) {
       setError(safeMessage(cause));
     } finally {
       setBusy(false);
@@ -428,6 +519,10 @@ export function ExamplesPage({
   const labelSetChanged = !!decision && !!labelView &&
     [...stagedAnswers].sort().join("\0") !== [...(currentLabel?.acceptable_option_ids ?? [])].sort().join("\0");
   async function saveBeforeLeaving() {
+    if (pendingLabel?.uncertain || pendingCase?.uncertain || pendingAdd?.uncertain || pendingRemove?.uncertain)
+      throw new Error("A write may have completed. Retry its original request before leaving this examples page.");
+    if (pendingLabel?.conflict || pendingCase?.conflict || pendingAdd?.conflict || pendingRemove?.conflict)
+      throw new Error("Review the current server state before reapplying or explicitly discarding this conflicted change.");
     if (addCaseOpen && !await addCase()) throw new Error("The new example did not save. Its source is still available for review.");
     const savedCase = editCase;
     if (savedCase && !await saveCase()) throw new Error("The case edit did not save. Its source is still available for review.");
@@ -438,8 +533,16 @@ export function ExamplesPage({
       if (!await saveLabel(action)) throw new Error("The label did not save. Its staged answer is still available for review.");
     }
   }
+  const uncertainWrite = !!(pendingLabel?.uncertain || pendingCase?.uncertain || pendingAdd?.uncertain || pendingRemove?.uncertain);
+  const unresolvedConflict = !!(pendingLabel?.conflict || pendingCase?.conflict || pendingAdd?.conflict || pendingRemove?.conflict);
+  const navigationBlockedMessage = uncertainWrite
+    ? "A write may have completed. Keep editing and retry its original request before leaving this examples page."
+    : mutationInFlight
+      ? "An examples write is still in progress. Keep this page open until it finishes."
+      : undefined;
   const dirtyGuard = useDirtyNavigationGuard({
-    dirty: editorDirty || labelSetChanged || (decision !== undefined && note.trim().length > 0),
+    dirty: editorDirty || labelSetChanged || (decision !== undefined && note.trim().length > 0) || uncertainWrite || unresolvedConflict || mutationInFlight,
+    blockedMessage: navigationBlockedMessage,
     save: saveBeforeLeaving,
     discard: () => {
       setEditorDirty(false);
@@ -453,6 +556,13 @@ export function ExamplesPage({
       setEditCase(false);
       setAddCaseOpen(false);
       setDeleteCaseOpen(false);
+      if (pendingLabel?.conflict) setPendingLabel(undefined);
+      if (pendingCase?.conflict) setPendingCase(undefined);
+      if (pendingAdd?.conflict) setPendingAdd(undefined);
+      if (pendingRemove?.conflict) setPendingRemove(undefined);
+      setCaseConflictReviewed(false);
+      setAddConflictReviewed(false);
+      setRemoveConflictReviewed(false);
     },
   });
   useEffect(() => navigation.registerDirtyGuard(`examples:${registrationId}:${datasetId}:${decision?.id ?? "none"}`, dirtyGuard.guard), [datasetId, decision?.id, dirtyGuard.guard, navigation, registrationId]);
@@ -476,9 +586,12 @@ export function ExamplesPage({
           id="examples-dataset"
           value={datasetId}
           onChange={(event) => {
-            setDatasetId(event.target.value);
-            setSelectedCaseId(undefined);
-            onDatasetChange(event.target.value || undefined, undefined);
+            const nextDatasetId = event.target.value;
+            void onDatasetChange(nextDatasetId || undefined, undefined).then((moved) => {
+              if (!moved) return;
+              setDatasetId(nextDatasetId);
+              setSelectedCaseId(undefined);
+            });
           }}
         >
           <option value="">Choose a dataset</option>
@@ -552,19 +665,20 @@ export function ExamplesPage({
                 selected={stagedAnswers}
                 onChange={(answers) => { setStagedAnswers(answers); setEditorDirty(true); }}
                 onSave={() => void saveLabel(currentLabel?.status === "disputed" ? "resolve" : "set")}
-                saving={busy}
+                saving={busy || pendingLabel?.uncertain}
               />
+              {pendingLabel?.uncertain && <div className="warning-summary"><p>The label write outcome may be unknown. Retry the identical request before changing its staged answer or leaving this page.</p><button type="button" disabled={busy} onClick={retryUnknownLabel}>Retry original label request</button></div>}
               {pendingLabel?.conflict && (
                 <div className="warning-summary">
                   <p>The label changed elsewhere. Review the current saved answer before deliberately reapplying your staged set.</p>
                   <button disabled={busy} onClick={() => void reviewLabelConflict()}>Review current label</button>
                 </div>
               )}
-              {currentLabel?.status === "disputed" && <button disabled={busy} onClick={() => void saveLabel("resolve")}>Resolve dispute with staged set</button>}
-              {currentLabel && currentLabel.status !== "disputed" && <button disabled={busy} onClick={() => void saveLabel("dispute")}>Dispute label</button>}
-              {currentLabel && <button disabled={busy} onClick={() => void saveLabel("clear")}>Clear label</button>}
+              {currentLabel?.status === "disputed" && <button disabled={busy || pendingLabel?.uncertain} onClick={() => void saveLabel("resolve")}>Resolve dispute with staged set</button>}
+              {currentLabel && currentLabel.status !== "disputed" && <button disabled={busy || pendingLabel?.uncertain} onClick={() => void saveLabel("dispute")}>Dispute label</button>}
+              {currentLabel && <button disabled={busy || pendingLabel?.uncertain} onClick={() => void saveLabel("clear")}>Clear label</button>}
               <label htmlFor="label-note">Provenance note</label>
-              <input id="label-note" value={note} onChange={(event) => { setNote(event.target.value); setEditorDirty(true); }} />
+              <input id="label-note" value={note} disabled={pendingLabel?.uncertain} onChange={(event) => { setNote(event.target.value); setEditorDirty(true); }} />
               {labelView.status === "excluded" && <p className="muted">This expectation is excluded from correctness until its stale, disputed, or incompatible state is resolved.</p>}
             </section>
           ) : (
@@ -573,44 +687,53 @@ export function ExamplesPage({
         </aside>
       )}
       {editCase && currentCase && caseRead && (
-        <Modal title={`Edit ${currentCase.id}`} onDismiss={() => setEditCase(false)}>
+        <Modal title={`Edit ${currentCase.id}`} onDismiss={() => { if (!busy && !pendingCase?.uncertain) setEditCase(false); }}>
           <div className="modal-body case-editor">
+            {pendingCase?.uncertain && <div className="warning-summary"><p>The case edit outcome may be unknown. The exact request is retained; retry it before closing or changing the source.</p><button type="button" disabled={busy} onClick={() => void saveCase()}>Retry same case edit</button></div>}
+            {pendingCase?.conflict && <div className="warning-summary"><p>The case or dataset changed elsewhere. Your edited source remains staged until you review the current versions.</p><button type="button" disabled={busy} onClick={() => void reviewCaseConflict()}>Review current case and dataset</button></div>}
+            {caseConflictReviewed && <p role="status">Current case and dataset versions were reviewed. Reapply the retained edit with a new request.</p>}
             <fieldset>
               <legend>Input format</legend>
-              {(["text", "json"] as const).map((kind) => <label key={kind}><input type="radio" checked={inputKind === kind} onChange={() => { setInputKind(kind); setEditorDirty(true); }} />{kind.toUpperCase()}</label>)}
+              {(["text", "json"] as const).map((kind) => <label key={kind}><input type="radio" checked={inputKind === kind} disabled={busy || pendingCase?.uncertain} onChange={() => { setInputKind(kind); setEditorDirty(true); }} />{kind.toUpperCase()}</label>)}
             </fieldset>
-            <JsonSourceEditor label="Input source" value={inputSource} onChange={(value) => { setInputSource(value); setEditorDirty(true); }} />
-            <JsonSourceEditor label="Metadata source" value={metadataSource} onChange={(value) => { setMetadataSource(value); setEditorDirty(true); }} />
+            <JsonSourceEditor label="Input source" value={inputSource} readOnly={busy || pendingCase?.uncertain} onChange={(value) => { setInputSource(value); setEditorDirty(true); }} />
+            <JsonSourceEditor label="Metadata source" value={metadataSource} readOnly={busy || pendingCase?.uncertain} onChange={(value) => { setMetadataSource(value); setEditorDirty(true); }} />
             <div className="actions">
-              <button type="button" className="primary" disabled={busy} onClick={() => void saveCase()}>{busy ? "Saving…" : "Save input"}</button>
-              <button type="button" onClick={() => setEditCase(false)}>Cancel</button>
+              <button type="button" className="primary" disabled={busy || !!pendingCase?.conflict} onClick={() => void saveCase()}>{busy ? "Saving…" : caseConflictReviewed ? "Reapply reviewed case edit" : "Save input"}</button>
+              <button type="button" disabled={busy || pendingCase?.uncertain} onClick={() => setEditCase(false)}>Cancel</button>
             </div>
           </div>
         </Modal>
       )}
       {addCaseOpen && dataset && (
-        <Modal title="Add example" onDismiss={() => { if (!busy) setAddCaseOpen(false); }}>
+        <Modal title="Add example" onDismiss={() => { if (!busy && !pendingAdd?.uncertain) setAddCaseOpen(false); }}>
           <div className="modal-body case-editor">
+            {pendingAdd?.uncertain && <div className="warning-summary"><p>The add outcome may be unknown. The exact request is retained; retry it before closing or changing the source.</p><button type="button" disabled={busy} onClick={() => void addCase()}>Retry same add request</button></div>}
+            {pendingAdd?.conflict && <div className="warning-summary"><p>The dataset changed elsewhere. Your new example source remains staged until you review current cases and the dataset version.</p><button type="button" disabled={busy} onClick={() => void reviewAddConflict()}>Review current cases and dataset</button></div>}
+            {addConflictReviewed && <p role="status">Current cases and dataset version were reviewed. Reapply the retained example with a new request.</p>}
             <fieldset>
               <legend>Input format</legend>
-              {(["text", "json"] as const).map((kind) => <label key={kind}><input type="radio" checked={newInputKind === kind} onChange={() => { setNewInputKind(kind); setEditorDirty(true); }} />{kind.toUpperCase()}</label>)}
+              {(["text", "json"] as const).map((kind) => <label key={kind}><input type="radio" checked={newInputKind === kind} disabled={busy || pendingAdd?.uncertain} onChange={() => { setNewInputKind(kind); setEditorDirty(true); }} />{kind.toUpperCase()}</label>)}
             </fieldset>
-            <JsonSourceEditor label="Input source" value={newInputSource} onChange={(value) => { setNewInputSource(value); setEditorDirty(true); }} />
-            <JsonSourceEditor label="Metadata source" value={newMetadataSource} onChange={(value) => { setNewMetadataSource(value); setEditorDirty(true); }} />
+            <JsonSourceEditor label="Input source" value={newInputSource} readOnly={busy || pendingAdd?.uncertain} onChange={(value) => { setNewInputSource(value); setEditorDirty(true); }} />
+            <JsonSourceEditor label="Metadata source" value={newMetadataSource} readOnly={busy || pendingAdd?.uncertain} onChange={(value) => { setNewMetadataSource(value); setEditorDirty(true); }} />
             <div className="actions">
-              <button type="button" className="primary" disabled={busy} onClick={() => void addCase()}>{busy ? "Adding…" : "Add example"}</button>
-              <button type="button" disabled={busy} onClick={() => setAddCaseOpen(false)}>Cancel</button>
+              <button type="button" className="primary" disabled={busy || !!pendingAdd?.conflict} onClick={() => void addCase()}>{busy ? "Adding…" : addConflictReviewed ? "Reapply reviewed example" : "Add example"}</button>
+              <button type="button" disabled={busy || pendingAdd?.uncertain} onClick={() => setAddCaseOpen(false)}>Cancel</button>
             </div>
           </div>
         </Modal>
       )}
       {deleteCaseOpen && currentCase && (
-        <Modal title={`Remove ${currentCase.id}?`} onDismiss={() => { if (!busy) setDeleteCaseOpen(false); }}>
+        <Modal title={`Remove ${currentCase.id}?`} onDismiss={() => { if (!busy && !pendingRemove?.uncertain) setDeleteCaseOpen(false); }}>
           <div className="modal-body">
             <p>Removing this case clears its current labels from each decision while preserving label history. Re-adding the same ID later starts unlabelled.</p>
+            {pendingRemove?.uncertain && <div className="warning-summary"><p>The removal outcome may be unknown. Retry the identical request before closing this confirmation.</p><button type="button" disabled={busy} onClick={() => void removeSelectedCase()}>Retry same removal</button></div>}
+            {pendingRemove?.conflict && <div className="warning-summary"><p>The case or dataset changed elsewhere. Review the current case and dataset versions before reapplying removal.</p><button type="button" disabled={busy} onClick={() => void reviewRemoveConflict()}>Review current case and dataset</button></div>}
+            {removeConflictReviewed && <p role="status">Current case and dataset versions were reviewed. Reapply removal deliberately.</p>}
             <div className="actions">
-              <button type="button" className="primary" disabled={busy} onClick={() => void removeSelectedCase()}>{busy ? "Removing…" : "Remove case"}</button>
-              <button type="button" disabled={busy} onClick={() => setDeleteCaseOpen(false)}>Cancel</button>
+              <button type="button" className="primary" disabled={busy || !!pendingRemove?.conflict} onClick={() => void removeSelectedCase()}>{busy ? "Removing…" : removeConflictReviewed ? "Reapply reviewed removal" : "Remove case"}</button>
+              <button type="button" disabled={busy || pendingRemove?.uncertain} onClick={() => setDeleteCaseOpen(false)}>Cancel</button>
             </div>
           </div>
         </Modal>

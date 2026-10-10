@@ -162,11 +162,15 @@ export function FixtureLibrary({
     return true;
   }
 
-  const fixtureDirty = createOpen && !!(name || note || modelIdentity || bindingsSource);
+  const pendingOutcomeUnknown = !!pending && !awaitingReview;
+  const fixtureDirty = createOpen && (!!(name || note || modelIdentity || bindingsSource) || !!pending);
   const dirtyGuard = useDirtyNavigationGuard({
     dirty: fixtureDirty,
+    blockedMessage: pendingOutcomeUnknown
+      ? "The fixture write may have completed. Keep this form open and retry its original request before leaving."
+      : undefined,
     save: async () => {
-      if (pending) throw new Error("Retry the exact pending fixture operation first, or discard it deliberately.");
+      if (pending || awaitingReview) throw new Error("Review the current fixture list before deliberately reapplying this source.");
       if (!name.trim() || !modelIdentity.trim() || !bindingsSource.trim())
         throw new Error("Complete the fixture identity and strict binding source before leaving.");
       if (!(await create())) throw new Error("The fixture set was not created. Its exact source remains available.");
@@ -212,7 +216,7 @@ export function FixtureLibrary({
         />
       )}
       {cursor && <button disabled={busy} onClick={() => void loadMore()}>Load more fixture sets</button>}
-      {decision && dataset && <button className="primary" onClick={beginCreate}>Author fixture set</button>}
+      {decision && dataset && <button className="primary" disabled={createOpen || pendingOutcomeUnknown} onClick={beginCreate}>Author fixture set</button>}
 
       {selected && (
         <section className="section fixture-detail" aria-labelledby="fixture-detail-heading">
@@ -258,7 +262,7 @@ export function FixtureLibrary({
           {awaitingReview && <div className="warning-summary"><p>The service reported a conflict. Review the current fixture list before changing and reapplying the authored source.</p><button disabled={busy} onClick={() => { void operations.list({ registrationId: project.id, query: { limit: "50" } }).then((result) => { setPage(result.data); setCursor(result.data.next_cursor ?? undefined); setPending(undefined); setAwaitingReview(false); }).catch((cause: unknown) => setError(safeMessage(cause))); }}>Review current fixture sets</button></div>}
           <div className="actions">
             {pending && !awaitingReview ? <button disabled={busy} onClick={() => void create(true)}>Retry same create</button> : !pending && <button className="primary" disabled={busy || !name.trim() || !modelIdentity.trim() || !bindingsSource.trim()} onClick={() => void create()}>Create authored set</button>}
-            <button disabled={busy} onClick={() => { setCreateOpen(false); setPending(undefined); setAwaitingReview(false); }}>Close</button>
+            <button disabled={busy || pendingOutcomeUnknown} onClick={() => { setCreateOpen(false); setPending(undefined); setAwaitingReview(false); }}>Close</button>
           </div>
         </section>
       )}

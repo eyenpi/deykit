@@ -5,6 +5,8 @@ import { JsonSourceEditor } from "../../components/JsonSourceEditor";
 import { Modal } from "../../components/Modal";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import type { ExampleAuthoringOperations, ProjectOverview, SourceAuthoringOperations } from "../../workspace/gateway";
+import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
+import type { WorkspaceNavigation } from "../../workspace/navigation";
 import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
 import { MappingTransformQueue } from "./mapping-transform-queue";
@@ -21,6 +23,7 @@ export function ImportSheet({
   datasetId,
   examples,
   sources,
+  navigation,
   onClose,
   onImported,
 }: {
@@ -28,6 +31,7 @@ export function ImportSheet({
   datasetId: string;
   examples: ExampleAuthoringOperations;
   sources: SourceAuthoringOperations;
+  navigation: WorkspaceNavigation;
   onClose: () => void;
   onImported: (result: ImportCommit) => void;
 }) {
@@ -284,9 +288,23 @@ export function ImportSheet({
   const mutationMessage = state.kind === "conflict" || state.kind === "failed" || state.kind === "outcome-unknown" ? state.message : undefined;
   const locked = state.kind === "submitting" || state.kind === "outcome-unknown";
   const hasUnsavedImport = !!sourceText || mappingSource !== INITIAL_MAPPING || !!preview;
+  const writePending = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const guard = useDirtyNavigationGuard({
+    dirty: hasUnsavedImport || mappingTransformPending || writePending,
+    blockedMessage: writePending
+      ? "An import write may have completed. Keep this sheet open and retry its original request before leaving."
+      : undefined,
+    save: async () => {
+      if (writePending) throw new Error("Retry the original import request before leaving this sheet.");
+      throw new Error("Review or explicitly discard the import sheet before leaving.");
+    },
+    discard: onClose,
+  });
+  useEffect(() => navigation.registerDirtyGuard(`import:${project.id}:${datasetId}`, guard.guard), [datasetId, guard.guard, navigation, project.id]);
   function requestClose() {
     if (busy) return;
-    if (hasUnsavedImport || locked) setDiscardConfirm(true);
+    if (state.kind === "outcome-unknown") return;
+    if (hasUnsavedImport) setDiscardConfirm(true);
     else onClose();
   }
   return (
@@ -405,7 +423,7 @@ export function ImportSheet({
               <button type="button" className="primary" disabled={busy || (rejectedCount > 0 && !skipInvalid) || state.kind === "committed" || state.kind === "conflict" || state.kind === "failed"} onClick={() => void commitImport()}>
                 {busy ? "Importing…" : `Import ${rejectedCount > 0 ? "valid rows" : "cases"}`}
               </button>
-              <button type="button" disabled={busy} onClick={requestClose}>Close</button>
+              <button type="button" disabled={busy || state.kind === "outcome-unknown"} onClick={requestClose}>Close</button>
             </div>
             {state.kind === "committed" && (
               <div role="status"><p>Imported {state.receipt.imported_case_ids.length} case(s) into the selected dataset.</p><p>Excluded rows: {state.receipt.exclusions.length}. The exact server exclusions remain available in this report.</p></div>
@@ -413,7 +431,8 @@ export function ImportSheet({
           </section>
         )}
       </div>
-      {discardConfirm && <Modal title="Discard this import review?" onDismiss={() => setDiscardConfirm(false)}><div className="modal-body"><p>The selected source, mapping, and preview will be cleared when this sheet closes.</p><div className="actions"><button className="primary" onClick={onClose}>Discard import review</button><button onClick={() => setDiscardConfirm(false)}>Keep editing</button></div></div></Modal>}
+      {discardConfirm && <Modal title="Discard this import review?" onDismiss={() => { if (state.kind !== "outcome-unknown") setDiscardConfirm(false); }}><div className="modal-body"><p>The selected source, mapping, and preview will be cleared when this sheet closes.</p><div className="actions"><button className="primary" disabled={state.kind === "outcome-unknown"} onClick={onClose}>Discard import review</button><button onClick={() => setDiscardConfirm(false)}>Keep editing</button></div></div></Modal>}
+      {guard.prompt}
     </Modal>
   );
 }
