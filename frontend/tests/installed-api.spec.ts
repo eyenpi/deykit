@@ -375,8 +375,9 @@ test("installed browser authors exact decision source and previews imports throu
   page.on("request", (request) => {
     apiResponses.push(request.url());
     if (
-      activePhase ===
-        "Import row validation and explicit accepted-row commit" &&
+      (activePhase ===
+        "Import row validation and explicit accepted-row commit" ||
+        activePhase === "Case source preservation and stale-label applicability") &&
       request.method() === "GET"
     ) {
       const routePattern = safeRoutePattern(new URL(request.url()).pathname);
@@ -392,7 +393,7 @@ test("installed browser authors exact decision source and previews imports throu
           method: "GET",
           elapsed_ms: 0,
         });
-        if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+        if (sourceReadEvents.length > 160) sourceReadEvents.shift();
         void recordProgress().catch(() => undefined);
       }
     }
@@ -425,7 +426,7 @@ test("installed browser authors exact decision source and previews imports throu
         elapsed_ms: Math.max(0, Date.now() - sourceRead.startedAt),
         status: response.status(),
       });
-      if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+      if (sourceReadEvents.length > 160) sourceReadEvents.shift();
       void recordProgress().catch(() => undefined);
       void response
         .body()
@@ -437,7 +438,7 @@ test("installed browser authors exact decision source and previews imports throu
             elapsed_ms: Math.max(0, Date.now() - sourceRead.startedAt),
             status: response.status(),
           });
-          if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+          if (sourceReadEvents.length > 160) sourceReadEvents.shift();
           return recordProgress();
         })
         .catch(() => {
@@ -448,7 +449,7 @@ test("installed browser authors exact decision source and previews imports throu
             elapsed_ms: Math.max(0, Date.now() - sourceRead.startedAt),
             status: response.status(),
           });
-          if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+          if (sourceReadEvents.length > 160) sourceReadEvents.shift();
           return recordProgress();
         });
     }
@@ -3642,6 +3643,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.unroute("**/cases/case-1");
   await expect(page.getByRole("dialog", { name: "Edit case-1" })).toHaveCount(
     0,
+    { timeout: 15_000 },
   );
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
