@@ -379,28 +379,24 @@ export function DefinitionHistory({
               rows={14}
             />
           </details>
-          {diff && (
-            <section aria-label="Difference from latest version">
-              <h3>Difference from latest</h3>
-              <ul>
-                <li>
-                  Question changed: {diff.question_changed ? "Yes" : "No"}
-                </li>
-                <li>Input changed: {diff.input_changed ? "Yes" : "No"}</li>
-                <li>
-                  Option order changed:{" "}
-                  {diff.option_order_changed ? "Yes" : "No"}
-                </li>
-                <li>
-                  Added option IDs: {diff.added_option_ids.join(", ") || "None"}
-                </li>
-                <li>
-                  Removed option IDs:{" "}
-                  {diff.removed_option_ids.join(", ") || "None"}
-                </li>
-              </ul>
-            </section>
-          )}
+        </section>
+      )}
+      {diff && (
+        <section aria-label="Difference from latest version">
+          <h2>Difference from latest</h2>
+          <ul>
+            <li>Question changed: {diff.question_changed ? "Yes" : "No"}</li>
+            <li>Input changed: {diff.input_changed ? "Yes" : "No"}</li>
+            <li>
+              Option order changed: {diff.option_order_changed ? "Yes" : "No"}
+            </li>
+            <li>
+              Added option IDs: {diff.added_option_ids.join(", ") || "None"}
+            </li>
+            <li>
+              Removed option IDs: {diff.removed_option_ids.join(", ") || "None"}
+            </li>
+          </ul>
         </section>
       )}
       {restorePreview && (
