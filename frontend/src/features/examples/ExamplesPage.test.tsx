@@ -320,18 +320,30 @@ it("does not publish a case page from a different dataset version", async () => 
     ...listCases,
     dataset_etag: "dataset-etag-stale",
   };
-  mountExamples(
-    { listCases: async () => ({ data: mismatchedCases, warnings: [] }) },
+  const listLabels = vi.fn<ExampleAuthoringOperations["listLabels"]>(
+    async () => ({ data: emptyLabelPage, warnings: [] }),
+  );
+  const { saveLabels } = mountExamples(
+    {
+      listCases: async () => ({ data: mismatchedCases, warnings: [] }),
+      listLabels,
+    },
     {},
     null,
   );
 
-  await screen.findByText(
-    "The examples changed while loading. Reload the current review.",
+  expect(await screen.findByRole("alert").textContent).toContain(
+    "The operation could not be completed. Your changes have been kept.",
   );
+  expect(
+    screen.getByRole("heading", { name: "Examples could not be loaded" }),
+  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Reload examples" })).toBeTruthy();
   expect(
     screen.queryByRole("region", { name: "Cases in Examples" }),
   ).toBeNull();
+  expect(listLabels).not.toHaveBeenCalled();
+  expect(saveLabels).not.toHaveBeenCalled();
 });
 
 it("keeps the old display read-only until the selected case and label pair is admitted", async () => {
