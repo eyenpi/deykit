@@ -1633,7 +1633,8 @@ test("installed browser authors exact decision source and previews imports throu
     (nextVersionReceipt.request().postDataJSON() as Record<string, unknown>)
       .expected_draft_etag,
   ).toBe(postVersionDraftEtag);
-  await nextVersionReceipt.body();
+  const nextVersionData = (await nextVersionReceipt.json()).data;
+  const nextVersionRevisionId = nextVersionData.revision.record.id as string;
   await expect(
     page.getByRole("button", { name: "Save version", exact: true }),
   ).toBeEnabled();
@@ -1674,7 +1675,9 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Save version", exact: true }).click();
   const knownVersionWithFailedRead = await versionWithFailedRead;
   expect(knownVersionWithFailedRead.status()).toBe(200);
-  await knownVersionWithFailedRead.body();
+  const recoveryVersionData = (await knownVersionWithFailedRead.json()).data;
+  const recoveryVersionRevisionId =
+    recoveryVersionData.revision.record.id as string;
   await expect(
     page.getByText(/Version saved; refresh its draft context/),
   ).toBeVisible();
@@ -1738,8 +1741,8 @@ test("installed browser authors exact decision source and previews imports throu
     incompatibleDraftWriteStatus = externalDraftWrite.status();
     if (externalDraftWrite.ok()) {
       const externalDraftData = (await externalDraftWrite.json()).data;
-      incompatibleDraftWriteSource =
-        externalDraftData.record.editor_source as string;
+      incompatibleDraftWriteSource = externalDraftData.record
+        .editor_source as string;
       incompatibleDraftWriteEtag = externalDraftData.etag as string;
     }
     const afterExternalWrite = await route.fetch();
@@ -1759,7 +1762,10 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Save version", exact: true }).click();
   const savedWithIncompatibleContext = await incompatibleVersionReceipt;
   expect(savedWithIncompatibleContext.status()).toBe(200);
-  await savedWithIncompatibleContext.body();
+  const incompatibleVersionData =
+    (await savedWithIncompatibleContext.json()).data;
+  const incompatibleVersionRevisionId =
+    incompatibleVersionData.revision.record.id as string;
   await expect(
     page.getByText(/current draft or decision changed/),
   ).toBeVisible();
@@ -1769,9 +1775,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeDisabled();
   expect(incompatibleDraftWriteCount).toBe(1);
   expect(incompatibleDraftWriteStatus).toBe(200);
-  expect(incompatibleDraftWriteSource).toBe(
-    `${sourceDuringHeldRefresh} `,
-  );
+  expect(incompatibleDraftWriteSource).toBe(`${sourceDuringHeldRefresh} `);
   expect(typeof incompatibleDraftWriteEtag).toBe("string");
   const deliberateReviewRead = page.waitForResponse(
     (response) =>
@@ -1853,18 +1857,35 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  const firstRevisionId = (await firstRevisionPage.json()).data.items[0]
-    .revision.record.id as string;
+  expect(firstRevisionPage.status()).toBe(200);
+  const firstRevisionId = replayedVersionData.revision.record.id as string;
+  const firstRevisionItems = (await firstRevisionPage.json()).data.items;
+  expect(
+    firstRevisionItems.some(
+      (item: { revision: { record: { id: string } } }) =>
+        item.revision.record.id === firstRevisionId,
+    ),
+  ).toBe(true);
   const firstRevision = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions/${firstRevisionId}`,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  const firstRevisionEditorSource = (await firstRevision.json()).data
-    .editor_source as string;
+  expect(firstRevision.status()).toBe(200);
+  const firstRevisionData = (await firstRevision.json()).data;
+  expect(firstRevisionData.revision.record.id).toBe(firstRevisionId);
+  const firstRevisionEditorSource = firstRevisionData.editor_source as string;
+  expect(firstRevisionEditorSource).toBe(replayedVersionData.editor_source);
+  expect(
+    firstRevisionData.revision.record.definition.questions[0].instructions,
+  ).toBe("Browser losing edit");
+  expect(
+    firstRevisionData.revision.record.definition.input_schema_source,
+  ).toBe(schemaSource);
   expect(firstRevisionEditorSource).toContain("committed-after-ack");
-  expect(firstRevisionEditorSource).toContain("Question saved before leave");
+  expect(firstRevisionEditorSource).toContain("9007199254740993");
+  expect(firstRevisionEditorSource).toContain("0.1234567890123456789");
 
   await page.getByRole("button", { name: "+ Add option" }).click();
   const optionNames = page.getByLabel("Option name");
@@ -1933,7 +1954,10 @@ test("installed browser authors exact decision source and previews imports throu
       response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Save version", exact: true }).click();
-  expect((await immediateSaveResponse).status()).toBe(200);
+  const immediateVersionReceipt = await immediateSaveResponse;
+  expect(immediateVersionReceipt.status()).toBe(200);
+  const immediateVersionData = (await immediateVersionReceipt.json()).data;
+  const immediateVersionId = immediateVersionData.revision.record.id as string;
   await expect(
     page.getByRole("status").filter({ hasText: /^Saved version / }),
   ).toBeVisible();
@@ -1968,11 +1992,32 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByLabel("Version note (optional)")
     .fill("Stable option identity and order");
-  await page.getByRole("button", { name: "Save version", exact: true }).click();
   await expect(
-    page.getByRole("status").filter({ hasText: /^Saved version / }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeEnabled();
+  const stableVersionResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  const stableVersionReceipt = await stableVersionResponse;
+  expect(stableVersionReceipt.status()).toBe(200);
+  const stableVersionData = (await stableVersionReceipt.json()).data;
+  const stableVersionId = stableVersionData.revision.record.id as string;
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeEnabled();
 
+  const expectedRevisionIds = [
+    firstRevisionId,
+    nextVersionRevisionId,
+    recoveryVersionRevisionId,
+    incompatibleVersionRevisionId,
+    immediateVersionId,
+    stableVersionId,
+  ];
+  expect(new Set(expectedRevisionIds).size).toBe(expectedRevisionIds.length);
   await page
     .getByRole("button", { name: "Version history", exact: true })
     .click();
@@ -1982,8 +2027,11 @@ test("installed browser authors exact decision source and previews imports throu
   const revisionRows = page
     .getByRole("table", { name: "Saved decision versions" })
     .getByRole("row");
-  await expect(revisionRows).toHaveCount(4);
-  const baselineRow = revisionRows.nth(3);
+  await expect(revisionRows).toHaveCount(expectedRevisionIds.length + 1);
+  for (const revisionId of expectedRevisionIds)
+    await expect(revisionRows.filter({ hasText: revisionId })).toHaveCount(1);
+  const baselineRow = revisionRows.filter({ hasText: firstRevisionId });
+  await expect(baselineRow).toHaveCount(1);
   await baselineRow.getByRole("button", { name: "Compare to latest" }).click();
   await expect(page.getByLabel("Difference from latest")).toContainText(
     "Option order changed: Yes",
@@ -2082,8 +2130,11 @@ test("installed browser authors exact decision source and previews imports throu
   const refreshedRevisionRows = page
     .getByRole("table", { name: "Saved decision versions" })
     .getByRole("row");
-  await refreshedRevisionRows
-    .nth(2)
+  const firstRevisionRow = refreshedRevisionRows.filter({
+    hasText: firstRevisionId,
+  });
+  await expect(firstRevisionRow).toHaveCount(1);
+  await firstRevisionRow
     .getByRole("button", { name: "Restore to draft…" })
     .click();
   const conflictRestoreDialog = page.getByRole("dialog", {
@@ -3165,7 +3216,14 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  expect((await retainedRevisions.json()).data.items).toHaveLength(3);
+  expect(retainedRevisions.status()).toBe(200);
+  const retainedRevisionIds = (await retainedRevisions.json()).data.items.map(
+    (item: { revision: { record: { id: string } } }) => item.revision.record.id,
+  );
+  expect(new Set(retainedRevisionIds).size).toBe(expectedRevisionIds.length);
+  expect([...retainedRevisionIds].sort()).toEqual(
+    [...expectedRevisionIds].sort(),
+  );
   await archivedRow
     .getByRole("button", { name: "Restore", exact: true })
     .click();
