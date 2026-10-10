@@ -1147,6 +1147,138 @@ it("requires deliberate review when a recovered case receipt changes the label i
   expect(editCase).toHaveBeenCalledTimes(1);
 });
 
+it("requires in-modal context acknowledgement before reapplying a conflicted case edit", async () => {
+  let currentDataset: DatasetRead = dataset;
+  let currentCase: CaseRead = caseA;
+  let editCount = 0;
+  const stagedSource = '{"case":"staged"}';
+  const winnerSource = '{"case":"external-winner"}';
+  const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(
+    async ({ caseId, body }) => {
+      editCount += 1;
+      if (editCount === 1) {
+        currentDataset = { ...dataset, etag: "dataset-etag-winner" };
+        const winner = caseRead(caseId, winnerSource);
+        currentCase = {
+          ...winner,
+          dataset_etag: currentDataset.etag,
+          case: { ...winner.case, etag: "etag-case-winner" },
+        };
+        throw new ApiError("etag_conflict", "Case changed elsewhere.", 409);
+      }
+      currentDataset = { ...dataset, etag: "dataset-etag-reapplied" };
+      const saved = caseRead(caseId, body.input_source);
+      currentCase = {
+        ...saved,
+        dataset_etag: currentDataset.etag,
+        case: { ...saved.case, etag: "etag-case-reapplied" },
+      };
+      const receipt: CaseEditReceipt = {
+        schema_version: 1,
+        case: currentCase.case,
+        dataset: currentDataset,
+        cleared_label_ids: [],
+        replayed: false,
+      };
+      return { data: receipt, warnings: [] };
+    },
+  );
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    async () => {
+      const view = labelView(currentCase);
+      const inputHash =
+        currentCase.case.record.input_source === sourceA
+          ? "hash-case-a-initial"
+          : currentCase.case.record.input_source === winnerSource
+            ? "hash-case-a-winner"
+            : "hash-case-a-staged";
+      return {
+        data: {
+          ...view,
+          review: { ...view.review, input_hash: inputHash },
+        },
+        warnings: [],
+      };
+    },
+  );
+  const { user } = mountExamples(
+    {
+      editCase,
+      readCase: async () => ({ data: currentCase, warnings: [] }),
+      readLabel,
+      listCases: async () => ({
+        data: {
+          ...listCases,
+          dataset_etag: currentDataset.etag,
+          items: [currentCase.case, caseB.case],
+        },
+        warnings: [],
+      }),
+    },
+    { read: async () => ({ data: currentDataset, warnings: [] }) },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "Edit input" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Input source" }), {
+    target: { value: stagedSource },
+  });
+  await user.click(screen.getByRole("button", { name: "Save input" }));
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Review current case and dataset",
+    }),
+  );
+
+  const dialog = screen.getByRole("dialog", { name: "Edit case-a" });
+  const contextReview = within(dialog).getByRole("region", {
+    name: "Review selected context",
+  });
+  const stagedInput = within(dialog).getByRole("textbox", {
+    name: "Input source",
+  });
+  const stagedInputValue = () =>
+    stagedInput instanceof HTMLTextAreaElement ? stagedInput.value : undefined;
+  expect(contextReview.textContent).toContain(
+    "The current example or label context changed.",
+  );
+  expect(
+    within(contextReview).getByRole("button", {
+      name: "Review current selection",
+    }),
+  ).toBeTruthy();
+  expect(
+    within(dialog).getByRole("button", { name: "Reapply reviewed case edit" })
+      .matches(":disabled"),
+  ).toBe(true);
+  expect(stagedInputValue()).toBe(stagedSource);
+  expect(editCase).toHaveBeenCalledTimes(1);
+
+  await user.click(
+    within(contextReview).getByRole("button", {
+      name: "Review current selection",
+    }),
+  );
+  expect(
+    within(dialog).queryByRole("region", { name: "Review selected context" }),
+  ).toBeNull();
+  expect(
+    within(dialog).getByRole("button", { name: "Reapply reviewed case edit" })
+      .matches(":disabled"),
+  ).toBe(false);
+  expect(stagedInputValue()).toBe(stagedSource);
+  await user.click(
+    within(dialog).getByRole("button", { name: "Reapply reviewed case edit" }),
+  );
+  await waitFor(() => expect(editCase).toHaveBeenCalledTimes(2));
+  const firstRequest = editCase.mock.calls[0]?.[0].body;
+  const reapplyRequest = editCase.mock.calls[1]?.[0].body;
+  expect(reapplyRequest?.input_source).toBe(stagedSource);
+  expect(reapplyRequest?.operation_id).not.toBe(firstRequest?.operation_id);
+  expect(reapplyRequest?.expected_case_etag).toBe("etag-case-winner");
+  expect(reapplyRequest?.expected_dataset_etag).toBe("dataset-etag-winner");
+});
+
 it("rejects a stale expected-answer callback after live navigation publishes before render", async () => {
   const { saveLabels } = mountExamples();
   await waitForSelectedSource(sourceA);

@@ -1757,13 +1757,29 @@ export function ExamplesPage({
   }
 
   function reviewCurrentSelection(rendered: SelectionAdmission | undefined) {
-    if (!canStartBusyAction()) return;
+    if (
+      !canStartBusyAction() ||
+      !selectionNeedsReviewRef.current ||
+      committedRefreshRef.current ||
+      pendingCaseUncertainRef.current ||
+      pendingLabelUncertainRef.current ||
+      pendingAddRef.current?.uncertain ||
+      pendingRemoveRef.current?.uncertain
+    )
+      return;
     const admission = captureRenderedSelection(rendered);
     if (!admission) return;
-    if (caseStageRef.current)
-      caseStageRef.current = { ...caseStageRef.current, owner: admission };
-    if (labelStageRef.current)
-      labelStageRef.current = { ...labelStageRef.current, owner: admission };
+    const caseStage = caseStageRef.current;
+    const labelStage = labelStageRef.current;
+    if (
+      (caseStage && !matchesSelectionScope(caseStage.owner, admission)) ||
+      (labelStage && !matchesSelectionScope(labelStage.owner, admission))
+    )
+      return;
+    if (caseStage)
+      caseStageRef.current = { ...caseStage, owner: admission };
+    if (labelStage)
+      labelStageRef.current = { ...labelStage, owner: admission };
     updateSelectionNeedsReview(false);
     setNotice(
       "Current example and label review acknowledged. Your staged changes remain available to reapply deliberately.",
@@ -2883,6 +2899,24 @@ export function ExamplesPage({
       id: option.id,
       name: option.name,
     })) ?? [];
+  const selectionReviewNotice = selectionNeedsReview ? (
+    <section
+      className="warning-summary"
+      aria-label="Review selected context"
+    >
+      <p role="status">
+        The current example or label context changed. Review it before making
+        another change.
+      </p>
+      <button
+        type="button"
+        disabled={!selectionReady || busy || !!committedRefresh}
+        onClick={() => reviewCurrentSelection(writableSelection)}
+      >
+        Review current selection
+      </button>
+    </section>
+  ) : null;
   return (
     <>
       <article className="document examples-page">
@@ -2949,24 +2983,7 @@ export function ExamplesPage({
             </button>
           </section>
         )}
-        {selectionNeedsReview && (
-          <section
-            className="warning-summary"
-            aria-label="Review selected context"
-          >
-            <p role="status">
-              The current example or label context changed. Review it before
-              making another change.
-            </p>
-            <button
-              type="button"
-              disabled={!selectionReady || busy || !!committedRefresh}
-              onClick={() => reviewCurrentSelection(writableSelection)}
-            >
-              Review current selection
-            </button>
-          </section>
-        )}
+        {!(editCase && currentCase && caseRead) && selectionReviewNotice}
         {committedRefresh?.kind === "label" && (
           <section
             className="warning-summary"
@@ -3383,6 +3400,7 @@ export function ExamplesPage({
             }}
           >
             <div className="modal-body case-editor">
+              {selectionReviewNotice}
               {committedRefresh?.kind === "case" && (
                 <section
                   className="warning-summary"

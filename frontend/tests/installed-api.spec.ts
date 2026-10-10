@@ -3869,12 +3869,40 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Review current case and dataset" })
     .click();
+  const caseEditDialog = page.getByRole("dialog", { name: "Edit case-1" });
+  await expect(
+    caseEditDialog.getByRole("region", { name: "Review selected context" }),
+  ).toContainText(
+    "The current example or label context changed. Review it before making another change.",
+  );
+  await expect(
+    caseEditDialog.getByRole("button", {
+      name: "Reapply reviewed case edit",
+    }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(
+    '{"case":1,"changed":true}',
+  );
+  await caseEditDialog
+    .getByRole("button", { name: "Review current selection" })
+    .click();
+  await expect(
+    caseEditDialog.getByRole("region", { name: "Review selected context" }),
+  ).toHaveCount(0);
+  await expect(
+    caseEditDialog.getByRole("button", {
+      name: "Reapply reviewed case edit",
+    }),
+  ).toBeEnabled();
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(
+    '{"case":1,"changed":true}',
+  );
   const reapplyCaseEditResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/cases/case-1") &&
       response.request().method() === "PUT",
   );
-  await page
+  await caseEditDialog
     .getByRole("button", { name: "Reapply reviewed case edit" })
     .click();
   const reapplyCaseEditReceipt = await reapplyCaseEditResponse;
@@ -3888,6 +3916,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(caseEditBodies[1].expected_case_etag).not.toBe(
     caseEditBodies[0].expected_case_etag,
+  );
+  expect(caseEditBodies[1].expected_dataset_etag).not.toBe(
+    caseEditBodies[0].expected_dataset_etag,
   );
   await page.unroute("**/cases/case-1");
   await expect(page.getByRole("dialog", { name: "Edit case-1" })).toHaveCount(
