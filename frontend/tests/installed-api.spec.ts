@@ -3680,6 +3680,41 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Review current cases and dataset" })
     .click();
+  const selectedCaseReadPath =
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/`;
+  const selectedLabelReadPath =
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/`;
+  const selectedCaseReadResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "GET" &&
+        pathname.startsWith(selectedCaseReadPath) &&
+        pathname.slice(selectedCaseReadPath.length).length > 0 &&
+        !pathname.slice(selectedCaseReadPath.length).includes("/")
+      );
+    },
+    { timeout: 10_000 },
+  );
+  const selectedLabelReadResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "GET" &&
+        pathname.startsWith(selectedLabelReadPath) &&
+        pathname.slice(selectedLabelReadPath.length).length > 0 &&
+        !pathname.slice(selectedLabelReadPath.length).includes("/")
+      );
+    },
+    { timeout: 10_000 },
+  );
+  const labelListReadResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels`,
+    { timeout: 10_000 },
+  );
   const reapplyAddResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/cases") &&
@@ -3688,6 +3723,15 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Reapply reviewed example" }).click();
   const reapplyAddReceipt = await reapplyAddResponse;
   expect(reapplyAddReceipt.status()).toBe(200);
+  const refreshedReadResponses = await Promise.all([
+    selectedCaseReadResponse,
+    selectedLabelReadResponse,
+    labelListReadResponse,
+  ]);
+  for (const response of refreshedReadResponses) {
+    expect(response.status()).toBe(200);
+    await response.body();
+  }
   const reapplyAddData = (await reapplyAddReceipt.json()).data;
   expect(addBodies).toHaveLength(2);
   expect(addBodies[1].input_source).toBe(proposedAddSource);
@@ -3703,6 +3747,17 @@ test("installed browser authors exact decision source and previews imports throu
     0,
   );
   await expect(caseButton(reapplyAddedCaseId)).toBeVisible();
+  await Promise.all([
+    expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled({
+      timeout: 10_000,
+    }),
+    expect(
+      page.getByText("Loading selected example…", { exact: true }),
+    ).toHaveCount(0, { timeout: 10_000 }),
+    expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(0, {
+      timeout: 10_000,
+    }),
+  ]);
 
   await enterPhase("Case source preservation and stale-label applicability");
   await page.reload();
