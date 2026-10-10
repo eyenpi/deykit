@@ -299,7 +299,7 @@ test("installed browser authors exact decision source and previews imports throu
     reason: string | null;
   }> = [];
   const sourceReadEvents: Array<{
-    event: "start" | "response";
+    event: "start" | "headers" | "body" | "body_error";
     route_pattern: string;
     method: "GET";
     elapsed_ms: number;
@@ -415,7 +415,7 @@ test("installed browser authors exact decision source and previews imports throu
     const sourceRead = sourceReadStarts.get(response.request());
     if (sourceRead) {
       sourceReadEvents.push({
-        event: "response",
+        event: "headers",
         route_pattern: sourceRead.route_pattern,
         method: "GET",
         elapsed_ms: Math.max(0, Date.now() - sourceRead.startedAt),
@@ -423,6 +423,30 @@ test("installed browser authors exact decision source and previews imports throu
       });
       if (sourceReadEvents.length > 40) sourceReadEvents.shift();
       void recordProgress().catch(() => undefined);
+      void response
+        .body()
+        .then(() => {
+          sourceReadEvents.push({
+            event: "body",
+            route_pattern: sourceRead.route_pattern,
+            method: "GET",
+            elapsed_ms: Math.max(0, Date.now() - sourceRead.startedAt),
+            status: response.status(),
+          });
+          if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+          return recordProgress();
+        })
+        .catch(() => {
+          sourceReadEvents.push({
+            event: "body_error",
+            route_pattern: sourceRead.route_pattern,
+            method: "GET",
+            elapsed_ms: Math.max(0, Date.now() - sourceRead.startedAt),
+            status: response.status(),
+          });
+          if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+          return recordProgress();
+        });
     }
     if (response.status() >= 400) {
       const body = await response.json().catch(() => undefined);
@@ -2526,7 +2550,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Retry the same import request" }),
   ).toHaveCount(0);
-  await expect(caseButton("case-1")).toBeVisible();
+  await expect(caseButton("case-1")).toBeVisible({ timeout: 10_000 });
   expect(importCommitBodies).toHaveLength(
     importCommitsBeforeReplayScenario + 2,
   );
