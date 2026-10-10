@@ -4256,7 +4256,27 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeNull();
 
   await enterPhase("External case changes and explicit current review refresh");
+  const seedPairReads = [
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/seed-1` &&
+        response.request().method() === "GET",
+    ),
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/seed-1` &&
+        response.request().method() === "GET",
+    ),
+  ];
   await caseButton("seed-1").click();
+  const seedPairResponses = await Promise.all(seedPairReads);
+  for (const response of seedPairResponses) {
+    expect(response.status()).toBe(200);
+    await response.body();
+  }
+  await settleProjectReads();
   await expect(
     page.getByRole("heading", { name: "seed-1", exact: true }),
   ).toBeVisible();
@@ -4305,7 +4325,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await expect(labelsUnavailable).toHaveCount(0);
   await expect(
-    page.getByRole("table", { name: "Expected answers for Imported" }),
+    page.getByRole("table", {
+      name: `Expected answers for ${decisionName}`,
+    }),
   ).toBeVisible();
   await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(
     0,
