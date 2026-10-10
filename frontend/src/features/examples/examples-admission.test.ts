@@ -14,7 +14,6 @@ const record: CaseRead["case"]["record"] = {
   dataset_id: "dataset-1",
   input_kind: "json",
   input_source: source,
-  operation_id: "case-op-1",
 };
 const dataset: DatasetRead = {
   schema_version: 1,

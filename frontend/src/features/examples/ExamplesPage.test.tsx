@@ -96,6 +96,7 @@ function labelView(read: CaseRead): LabelView {
 
 const listCases: CasePage = {
   schema_version: 1,
+  dataset_etag: dataset.etag,
   items: [caseA.case, caseB.case],
   total: "2",
   next_cursor: null,
@@ -187,7 +188,7 @@ it("keeps the old display read-only until the selected case and label pair is ad
     screen.getByLabelText("Complete example input source").textContent,
   ).toBe(sourceA);
   const optionA = screen.getByRole("checkbox", { name: "Option A" });
-  expect(optionA).toBeDisabled();
+  expect(optionA.matches(":disabled")).toBe(true);
   expect(saveLabels).not.toHaveBeenCalled();
 
   releaseTargetRead();

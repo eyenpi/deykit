@@ -230,10 +230,13 @@ export function ExamplesPage({
     decisionId?: string;
     caseId?: string;
   }): boolean {
-    return liveSelectionRouteMatches(navigation.current, context, {
-      datasetId: datasetFromRoute,
-      caseId: caseFromRoute,
-    });
+    const caseId = context.caseId;
+    if (!caseId) return false;
+    return liveSelectionRouteMatches(
+      navigation.current,
+      { ...context, caseId },
+      { datasetId: datasetFromRoute, caseId: caseFromRoute },
+    );
   }
   function currentDatasetAdmission(): DatasetAdmission | undefined {
     const admission = datasetAdmissionRef.current;
@@ -780,8 +783,8 @@ export function ExamplesPage({
     const requestedDatasetId = datasetId;
     const requestedCaseId = selectedCaseId;
     const requestedDecisionId = decision?.id;
-    const datasetAdmission = currentDatasetAdmission();
-    if (!datasetAdmission) return;
+    const admittedDataset = currentDatasetAdmission();
+    if (!admittedDataset) return;
     if (
       !liveRouteMatchesSelection({
         registrationId,
@@ -806,7 +809,7 @@ export function ExamplesPage({
         !controller.signal.aborted &&
         readEpoch === selectionReadEpochRef.current &&
         requestedNavigationEpoch === navigationEpochRef.current &&
-        datasetAdmissionRef.current === datasetAdmission &&
+        datasetAdmissionRef.current === admittedDataset &&
         current.registrationId === requestedContext.registrationId &&
         current.datasetId === requestedDatasetId &&
         current.decisionId === requestedDecisionId &&
@@ -845,7 +848,7 @@ export function ExamplesPage({
           datasetId: requestedDatasetId,
           decisionId: requestedDecisionId,
           caseId: requestedCaseId,
-          dataset: datasetAdmission.read,
+          dataset: admittedDataset.read,
           caseRead: caseResult.data,
           labelView: labelResult?.data,
         })
@@ -860,7 +863,7 @@ export function ExamplesPage({
         caseId: requestedCaseId,
         readEpoch,
         navigationEpoch: requestedNavigationEpoch,
-        datasetAdmission,
+        datasetAdmission: admittedDataset,
         caseRead: caseResult.data,
         labelView: labelResult?.data,
       });
@@ -902,7 +905,7 @@ export function ExamplesPage({
         previous !== undefined &&
         caseOwnedByPrevious &&
         (previous.caseRead.case.etag !== caseResult.data.case.etag ||
-          previous.datasetAdmission.read.etag !== datasetAdmission.read.etag ||
+          previous.datasetAdmission.read.etag !== admittedDataset.read.etag ||
           !sameCaseSource(
             previous.caseRead.case.record,
             caseResult.data.case.record,
