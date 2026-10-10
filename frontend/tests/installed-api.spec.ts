@@ -5550,6 +5550,11 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Browser authored exact copy" }),
   ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Authored fixture sets" })
+      .getByRole("button", { name: "Browser authored exact copy", exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
   const createdFixtureId = await page
     .locator(".fixture-detail code")
     .first()
@@ -5657,6 +5662,14 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Browser retained fixture request" }),
   ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Authored fixture sets" })
+      .getByRole("button", {
+        name: "Browser retained fixture request",
+        exact: true,
+      }),
+  ).toBeVisible({ timeout: 15_000 });
   expect(fixtureCreateBodies).toHaveLength(2);
   expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
   expect(fixtureCreateResults).toHaveLength(2);
