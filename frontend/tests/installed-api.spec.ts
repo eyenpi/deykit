@@ -298,6 +298,27 @@ test("installed browser authors exact decision source and previews imports throu
     code: string | null;
     reason: string | null;
   }> = [];
+  const sourceReadEvents: Array<{
+    event: "start" | "response";
+    route_pattern: string;
+    method: "GET";
+    elapsed_ms: number;
+    status?: number;
+  }> = [];
+  const sourceReadStarts = new WeakMap<
+    Request,
+    { route_pattern: string; startedAt: number }
+  >();
+  const sourceReadTemplates = new Set(
+    Object.values(operationMetadata)
+      .filter(
+        ({ method, path }) =>
+          method === "GET" &&
+          path.includes("/projects/{registration_id}/") &&
+          /(overview|datasets|cases|labels)/.test(path),
+      )
+      .map(({ path }) => path.replace(/\{([a-z_]+)\}/g, ":$1")),
+  );
   async function recordProgress() {
     const body = JSON.stringify({
       active_phase: activePhase,
@@ -306,6 +327,7 @@ test("installed browser authors exact decision source and previews imports throu
       browser_version: browserVersion,
       initial_viewport: initialViewport,
       api_failures: apiFailures,
+      source_read_events: sourceReadEvents,
     });
     await writeFile(progressPath, `${body}\n`, "utf8");
     progressSequence += 1;
@@ -352,6 +374,24 @@ test("installed browser authors exact decision source and previews imports throu
   let capability: string | undefined;
   page.on("request", (request) => {
     apiResponses.push(request.url());
+    if (
+      activePhase === "Import row validation and explicit accepted-row commit" &&
+      request.method() === "GET"
+    ) {
+      const routePattern = safeRoutePattern(new URL(request.url()).pathname);
+      if (sourceReadTemplates.has(routePattern)) {
+        const startedAt = Date.now();
+        sourceReadStarts.set(request, { route_pattern: routePattern, startedAt });
+        sourceReadEvents.push({
+          event: "start",
+          route_pattern: routePattern,
+          method: "GET",
+          elapsed_ms: 0,
+        });
+        if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+        void recordProgress().catch(() => undefined);
+      }
+    }
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()))
       mutationRequests.push(
         `${request.method()} ${safeRoutePattern(new URL(request.url()).pathname)}`,
@@ -372,6 +412,18 @@ test("installed browser authors exact decision source and previews imports throu
       bundledAssetOrigins.push(new URL(response.url()).origin);
   });
   page.on("response", async (response) => {
+    const sourceRead = sourceReadStarts.get(response.request());
+    if (sourceRead) {
+      sourceReadEvents.push({
+        event: "response",
+        route_pattern: sourceRead.route_pattern,
+        method: "GET",
+        elapsed_ms: Math.max(0, Date.now() - sourceRead.startedAt),
+        status: response.status(),
+      });
+      if (sourceReadEvents.length > 40) sourceReadEvents.shift();
+      void recordProgress().catch(() => undefined);
+    }
     if (response.status() >= 400) {
       const body = await response.json().catch(() => undefined);
       const error = isRecord(body) ? body.error : undefined;
