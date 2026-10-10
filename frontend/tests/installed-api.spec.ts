@@ -2457,7 +2457,9 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await expect(page).toHaveURL(importHashBeforeRouteAttempt);
-  expect(importCommitBodies).toHaveLength(importCommitsBeforeReplayScenario + 1);
+  expect(importCommitBodies).toHaveLength(
+    importCommitsBeforeReplayScenario + 1,
+  );
   const importReplayResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/imports/commit") &&
@@ -2473,7 +2475,9 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Retry the same import request" }),
   ).toHaveCount(0);
   await expect(caseButton("case-1")).toBeVisible();
-  expect(importCommitBodies).toHaveLength(importCommitsBeforeReplayScenario + 2);
+  expect(importCommitBodies).toHaveLength(
+    importCommitsBeforeReplayScenario + 2,
+  );
   expect(importCommitBodies[importCommitsBeforeReplayScenario + 1]).toEqual(
     importCommitBodies[importCommitsBeforeReplayScenario],
   );
