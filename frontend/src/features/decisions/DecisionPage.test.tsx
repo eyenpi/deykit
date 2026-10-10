@@ -502,10 +502,6 @@ it("does not continue an old drain after the same page is reused for another dec
   const priorDraftAck = new Promise<ApiResult<DraftReceipt>>((resolve) => {
     releasePriorDraft = resolve;
   });
-  let signalNewDecisionRead!: () => void;
-  const newDecisionRead = new Promise<void>((resolve) => {
-    signalNewDecisionRead = resolve;
-  });
   let signalNewDraftSent!: () => void;
   const newDraftSent = new Promise<void>((resolve) => {
     signalNewDraftSent = resolve;
@@ -518,14 +514,12 @@ it("does not continue an old drain after the same page is reused for another dec
   );
   const saveRevision = vi.fn(async () => apiResult(revisionReceipt(source2)));
   const mounted = mountDecision({
-    read: async ({ decisionId: targetDecisionId }) => {
-      if (targetDecisionId === "decision-2") signalNewDecisionRead();
-      return apiResult(
+    read: async ({ decisionId: targetDecisionId }) =>
+      apiResult(
         decisionRead(source0, `draft-${targetDecisionId}`, {
           decisionId: targetDecisionId,
         }),
-      );
-    },
+      ),
     updateDraft: async (request) => {
       updateRequests.push(request);
       if (updateRequests.length === 1) return priorDraftAck;
@@ -562,9 +556,9 @@ it("does not continue an old drain after the same page is reused for another dec
 
   await act(async () => {
     mounted.rerenderDecision("decision-2");
-    await newDecisionRead;
     await settleMicrotasks();
   });
+  expectTextboxValue("Question", "Start");
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-old-ack")));
     await settleMicrotasks();
@@ -576,6 +570,7 @@ it("does not continue an old drain after the same page is reused for another dec
   expect(updateRequests).toHaveLength(1);
 
   await editQuestion("New page edit");
+  await advanceTransformDelay();
   await advanceTransformDelay();
   await act(async () => {
     await newDraftSent;
