@@ -283,7 +283,7 @@ class QualificationServer(uvicorn.Server):
             "lifespan_shutdown_error": self._lifespan.shutdown_error,
             "capability_active": self._boundary.session.active,
             "registry_empty": len(registry.list()) == 0,
-            "registry_pending_empty": None if pending is None else len(pending) == 0,
+            "registry_pending_empty": None if pending is None else pending == 0,
             "workers_idle": len(workers._tasks) == 0,
             "supervisor_idle": all(supervisor_sets.values()) and not supervisor._admitting,
             **supervisor_sets,
