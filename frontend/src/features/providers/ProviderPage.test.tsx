@@ -158,7 +158,7 @@ it("retries an unknown OS credential write with the same request after clearing 
     if (calls.length === 1) throw new ApiError("response_invalid", "Malformed success.", 200);
     return {
       data: {
-        schema_version: 1,
+        schema_version: 1 as const,
         operation_id: request.body.operation_id,
         replayed: false,
         profile,
@@ -215,10 +215,10 @@ it("presents fixture profiles as authored evidence without credential or model-l
     adapter: "fixture",
     requested_model: "authored-sandbox-v1",
     destination: "fixture:jev-choice",
-    evidence_mode: "authored_fixture",
+    evidence_mode: "authored_fixture" as const,
   };
   const credentialStatus = vi.fn(async () => ({
-    data: { schema_version: 1, profile_id: fixtureProfile.id, configured: false, available: false, kind: null },
+    data: { schema_version: 1 as const, profile_id: fixtureProfile.id, configured: false, available: false, kind: null },
     warnings: [],
   }));
   const operations = providerOperations({
