@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
+import { operationMetadata } from "../src/api/generated/operations";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -13,29 +14,24 @@ function safeErrorIdentifier(value: unknown): string | null {
 }
 
 function safeRoutePattern(pathname: string): string {
-  const identifiers = new Map<string, string>([
-    ["projects", "registration_id"],
-    ["decisions", "decision_id"],
-    ["datasets", "dataset_id"],
-    ["cases", "case_id"],
-    ["providers", "profile_id"],
-    ["fixture-sets", "fixture_set_id"],
-    ["fixtures", "fixture_set_id"],
-    ["revisions", "revision_id"],
-    ["groups", "group_id"],
-    ["runs", "run_id"],
-    ["comparisons", "comparison_id"],
-    ["reports", "report_id"],
-    ["regressions", "regression_id"],
-    ["evaluations", "evaluation_id"],
-    ["annotations", "annotation_id"],
-  ]);
-  const segments = pathname.split("/");
-  return segments
-    .map((segment, index) => {
-      const identifier = identifiers.get(segments[index - 1] ?? "");
-      return identifier ? `:${identifier}` : segment;
-    })
+  const route = Object.values(operationMetadata)
+    .map(({ path }) => path.split("/"))
+    .find((templateSegments) => {
+      const pathSegments = pathname.split("/");
+      return (
+        pathSegments.length === templateSegments.length &&
+        templateSegments.every((segment, index) =>
+          /^\{[a-z_]+\}$/.test(segment)
+            ? pathSegments[index] !== ""
+            : pathSegments[index] === segment,
+        )
+      );
+    });
+  if (!route) return "<unknown-route>";
+  return route
+    .map((segment) =>
+      /^\{[a-z_]+\}$/.test(segment) ? `:${segment.slice(1, -1)}` : segment,
+    )
     .join("/");
 }
 
@@ -521,6 +517,30 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
     "Draft saved",
   );
+  const initialDecisionMatch = new URL(page.url()).hash.match(
+    /\/d\/([A-Za-z0-9_-]+)/,
+  );
+  if (!initialDecisionMatch?.[1])
+    throw new Error("The created decision is missing from the current route.");
+  if (typeof capability !== "string")
+    throw new Error("The local API capability was not initialized.");
+  const initialOrigin = new URL(page.url()).origin;
+  const initialSchemaResponse = await page.request.get(
+    `/api/v1/projects/${registrationId}/decisions/${initialDecisionMatch[1]}`,
+    {
+      headers: {
+        Origin: initialOrigin,
+        "X-Deykit-Capability": capability,
+      },
+    },
+  );
+  expect(initialSchemaResponse.status()).toBe(200);
+  const initialSchemaDecision = (await initialSchemaResponse.json()).data;
+  expect(initialSchemaDecision.draft.record.editor_source).toContain(
+    JSON.stringify(schemaSource),
+  );
+  await captureScreenshot("decision-json-schema-initial-exact.png");
+
   const schemaCompositionEditor = page.getByLabel(
     "Advanced JSON Schema source",
   );
@@ -679,7 +699,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(stored.status()).toBe(200);
   const decision = (await stored.json()).data;
-  expect(decision.draft.record.editor_source).toContain(schemaSource);
+  expect(decision.draft.record.editor_source).toContain(
+    JSON.stringify(committedAfterBlurSource),
+  );
 
   await enterPhase("Failed transforms remain pending until explicit retry");
   const failedTransformRequests: Array<Record<string, unknown>> = [];
