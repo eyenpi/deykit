@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ApiOperationData, ApiOperationBody } from "../../api/client";
 import { ApiError, safeMessage } from "../../api/client";
 import { DataTable } from "../../components/DataTable";
@@ -67,10 +67,15 @@ export function FixtureLibrary({
     signature: string;
   }>();
   const [awaitingReview, setAwaitingReview] = useState(false);
+  const listGeneration = useRef(0);
+  const detailGeneration = useRef(0);
+  const projectIdRef = useRef(project.id);
+  projectIdRef.current = project.id;
   const decision = project.decisions.find((item) => item.id === decisionId);
   const dataset = project.datasets.find((item) => item.id === datasetId);
 
   useEffect(() => {
+    const generation = ++listGeneration.current;
     const controller = new AbortController();
     setLoading(true);
     setError(undefined);
@@ -81,7 +86,8 @@ export function FixtureLibrary({
         signal: controller.signal,
       })
       .then((result) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || listGeneration.current !== generation)
+          return;
         setPage(result.data);
         setCursor(result.data.next_cursor ?? undefined);
         if (
@@ -91,15 +97,18 @@ export function FixtureLibrary({
           setSelectedId("");
       })
       .catch((cause: unknown) => {
-        if (!controller.signal.aborted) setError(safeMessage(cause));
+        if (!controller.signal.aborted && listGeneration.current === generation)
+          setError(safeMessage(cause));
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted && listGeneration.current === generation)
+          setLoading(false);
       });
     return () => controller.abort();
   }, [operations, project.id]);
 
   useEffect(() => {
+    const generation = ++detailGeneration.current;
     if (!selectedId) {
       setSelected(undefined);
       return;
@@ -114,22 +123,38 @@ export function FixtureLibrary({
         signal: controller.signal,
       })
       .then((result) => {
-        if (!controller.signal.aborted) setSelected(result.data);
+        if (
+          !controller.signal.aborted &&
+          detailGeneration.current === generation
+        )
+          setSelected(result.data);
       })
       .catch((cause: unknown) => {
-        if (!controller.signal.aborted) setError(safeMessage(cause));
+        if (
+          !controller.signal.aborted &&
+          detailGeneration.current === generation
+        )
+          setError(safeMessage(cause));
       });
     return () => controller.abort();
   }, [operations, project.id, selectedId, showRequests]);
 
   async function loadMore() {
     if (!cursor || busy) return;
+    const requestedGeneration = listGeneration.current;
+    const requestedProjectId = project.id;
+    const requestedCursor = cursor;
     setBusy(true);
     try {
       const result = await operations.list({
-        registrationId: project.id,
-        query: { cursor, limit: "50" },
+        registrationId: requestedProjectId,
+        query: { cursor: requestedCursor, limit: "50" },
       });
+      if (
+        listGeneration.current !== requestedGeneration ||
+        projectIdRef.current !== requestedProjectId
+      )
+        return;
       setPage((current) =>
         current
           ? {
@@ -141,9 +166,17 @@ export function FixtureLibrary({
       );
       setCursor(result.data.next_cursor ?? undefined);
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (
+        listGeneration.current === requestedGeneration &&
+        projectIdRef.current === requestedProjectId
+      )
+        setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      if (
+        listGeneration.current === requestedGeneration &&
+        projectIdRef.current === requestedProjectId
+      )
+        setBusy(false);
     }
   }
 

@@ -24,6 +24,14 @@ const registration = {
 };
 const summary = { id: "decision-1", name: "Where to go?", schema_version: 1 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((accept) => {
+    resolve = accept;
+  });
+  return { promise, resolve };
+}
+
 describe("workspace API adapter", () => {
   it("registers a project and reads its server-authoritative overview", async () => {
     const transport = vi
@@ -143,10 +151,18 @@ describe("workspace API adapter", () => {
       )
       .mockResolvedValueOnce(json(registration))
       .mockResolvedValueOnce(
-        new Response("{}", { status: 503, headers: { "Content-Type": "application/json" } }),
+        new Response("{}", {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
       )
       .mockResolvedValueOnce(
-        json({ registration, decisions: [summary], datasets: [], schema_version: 1 }),
+        json({
+          registration,
+          decisions: [summary],
+          datasets: [],
+          schema_version: 1,
+        }),
       );
     const gateway = createWorkspaceGateway(
       new ApiClient(transport, () => "http://localhost"),
@@ -157,14 +173,64 @@ describe("workspace API adapter", () => {
       name: "Decision project",
       operationId: "operation-1",
     };
-    await expect(gateway.openProject(request)).rejects.toMatchObject({ status: 503 });
+    await expect(gateway.openProject(request)).rejects.toMatchObject({
+      status: 503,
+    });
     const result = await gateway.openProject(request);
-    expect(result.decisions).toEqual([summary].map(({ id, name }) => ({ id, name })));
+    expect(result.decisions).toEqual(
+      [summary].map(({ id, name }) => ({ id, name })),
+    );
     expect(transport.mock.calls.map(([url]) => url)).toEqual([
       "/api/v1/session/bootstrap",
       "/api/v1/projects/register",
       "/api/v1/projects/registration-1/overview",
       "/api/v1/projects/registration-1/overview",
     ]);
+  });
+
+  it("keeps an aborted admitted overview in the registration lane through body parsing", async () => {
+    const heldResponse = deferred<Response>();
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json({
+          capability: "c".repeat(43),
+          origin: "http://localhost",
+          api_version: 1,
+        }),
+      )
+      .mockImplementationOnce(() => heldResponse.promise)
+      .mockResolvedValueOnce(
+        json({ registration, decisions: [], datasets: [], schema_version: 1 }),
+      );
+    const gateway = createWorkspaceGateway(
+      new ApiClient(transport, () => "http://localhost"),
+    );
+    const controller = new AbortController();
+    const staleOverview = gateway.projectOverview(
+      "registration-1",
+      controller.signal,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const currentOverview = gateway.projectOverview(
+      "registration-1",
+      new AbortController().signal,
+    );
+    controller.abort();
+    await Promise.resolve();
+    expect(transport).toHaveBeenCalledTimes(2);
+
+    heldResponse.resolve(
+      json({ registration, decisions: [], datasets: [], schema_version: 1 }),
+    );
+    await expect(staleOverview).rejects.toMatchObject({ code: "cancelled" });
+    await expect(currentOverview).resolves.toMatchObject({
+      id: "registration-1",
+      decisions: [],
+    });
+    expect(transport).toHaveBeenCalledTimes(3);
+    expect(transport.mock.calls[1][1]?.signal).toBeUndefined();
   });
 });

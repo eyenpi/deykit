@@ -60,6 +60,8 @@ export function ProviderPage({
   const [profileId, setProfileId] = useState(initialProfileId ?? "");
   const profileIdRef = useRef(profileId);
   profileIdRef.current = profileId;
+  const registrationIdRef = useRef(project.id);
+  registrationIdRef.current = project.id;
   const [adapter, setAdapter] = useState("jev");
   const [requestedModel, setRequestedModel] = useState("");
   const [destination, setDestination] = useState("");
@@ -204,13 +206,40 @@ export function ProviderPage({
 
   async function refreshProfile() {
     if (!profileId) return;
-    const [profileResult, credentialResult, listResult] = await Promise.all([
-      operations.read({ registrationId: project.id, profileId }),
-      operations.credentialStatus({ registrationId: project.id, profileId }),
-      operations.list({ registrationId: project.id, query: { limit: "100" } }),
-    ]);
+    const requestedProfileId = profileId;
+    const requestedRegistrationId = project.id;
+    const profileResult = await operations.read({
+      registrationId: requestedRegistrationId,
+      profileId: requestedProfileId,
+    });
+    if (
+      profileIdRef.current !== requestedProfileId ||
+      registrationIdRef.current !== requestedRegistrationId
+    )
+      return;
+    const credentialResult =
+      profileResult.data.adapter === "fixture"
+        ? undefined
+        : await operations.credentialStatus({
+            registrationId: requestedRegistrationId,
+            profileId: requestedProfileId,
+          });
+    if (
+      profileIdRef.current !== requestedProfileId ||
+      registrationIdRef.current !== requestedRegistrationId
+    )
+      return;
+    const listResult = await operations.list({
+      registrationId: requestedRegistrationId,
+      query: { limit: "100" },
+    });
+    if (
+      profileIdRef.current !== requestedProfileId ||
+      registrationIdRef.current !== requestedRegistrationId
+    )
+      return;
     setProfile(profileResult.data);
-    setCredential(credentialResult.data);
+    setCredential(credentialResult?.data);
     setPage(listResult.data);
     setProfileCursor(listResult.data.next_cursor ?? undefined);
   }

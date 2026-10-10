@@ -196,8 +196,36 @@ export function App({
       nextRegistration,
       new AbortController().signal,
     );
-    setProject(refreshed);
+    const currentRoute = navigation.current;
+    if (
+      currentRoute.kind !== "start" &&
+      currentRoute.registrationId === nextRegistration
+    )
+      setProject(refreshed);
     return refreshed;
+  }
+
+  async function refreshExamplesAfterSourceChange() {
+    const registrationId = project?.id;
+    if (!registrationId) return;
+    try {
+      await refreshProject(registrationId);
+      const currentRoute = navigation.current;
+      if (
+        currentRoute.kind === "start" ||
+        currentRoute.registrationId !== registrationId
+      )
+        return;
+      setProjectError(undefined);
+      setExamplesRefresh((value) => value + 1);
+    } catch (cause) {
+      const currentRoute = navigation.current;
+      if (
+        currentRoute.kind !== "start" &&
+        currentRoute.registrationId === registrationId
+      )
+        setProjectError(safeMessage(cause));
+    }
   }
 
   async function opened(item: ProjectOverview) {
@@ -580,8 +608,7 @@ export function App({
             onClose={() => setImportOpen(false)}
             onImported={() => {
               setImportOpen(false);
-              setExamplesRefresh((value) => value + 1);
-              void refreshProject();
+              void refreshExamplesAfterSourceChange();
             }}
           />
         )}
@@ -593,8 +620,7 @@ export function App({
           navigation={navigation}
           onClose={() => setSplitOpen(false)}
           onApplied={() => {
-            setExamplesRefresh((value) => value + 1);
-            void refreshProject();
+            void refreshExamplesAfterSourceChange();
           }}
         />
       )}

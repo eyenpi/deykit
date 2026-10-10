@@ -1,5 +1,10 @@
 import { ApiClient } from "../api/client";
-import type { ApiOperationBody, ApiWarning } from "../api/client";
+import type {
+  ApiOperationArguments,
+  ApiOperationBody,
+  ApiWarning,
+} from "../api/client";
+import type { ApiJsonOperationId } from "../api/generated/operations";
 import {
   decodeProjectOverview,
   decodeDemoRegistration,
@@ -8,6 +13,7 @@ import {
 } from "../api/codecs";
 import type { WorkspaceGateway } from "./gateway";
 import type { AuthoringGateway } from "./gateway";
+import { RegistrationReadSequencer } from "./read-sequencer";
 
 export function createWorkspaceGateway(
   client = new ApiClient(),
@@ -16,8 +22,14 @@ export function createWorkspaceGateway(
     string,
     { signature: string; id: string; warnings: readonly ApiWarning[] }
   >();
+  const reads = new RegistrationReadSequencer();
+  const read = <T>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    perform: () => Promise<T>,
+  ) => reads.enqueueRead(registrationId, signal, perform);
   return {
-    authoring: createAuthoringGateway(client),
+    authoring: createAuthoringGateway(client, read),
     async recentProjects(signal) {
       const result = await client.operation(
         "listRecentProjects",
@@ -27,10 +39,12 @@ export function createWorkspaceGateway(
       return { items: result.data, warnings: result.warnings };
     },
     async projectOverview(registrationId, signal) {
-      const overview = await client.operation(
-        "projectOverview",
-        { path: { registration_id: registrationId }, signal },
-        decodeProjectOverview,
+      const overview = await read(registrationId, signal, () =>
+        client.operation(
+          "projectOverview",
+          { path: { registration_id: registrationId } },
+          decodeProjectOverview,
+        ),
       );
       return { ...overview.data, warnings: overview.warnings };
     },
@@ -42,10 +56,12 @@ export function createWorkspaceGateway(
       });
       const previous = completedRegistrations.get(request.operationId);
       if (previous?.signature === signature) {
-        const overview = await client.operation(
-          "projectOverview",
-          { path: { registration_id: previous.id } },
-          decodeProjectOverview,
+        const overview = await read(previous.id, undefined, () =>
+          client.operation(
+            "projectOverview",
+            { path: { registration_id: previous.id } },
+            decodeProjectOverview,
+          ),
         );
         completedRegistrations.delete(request.operationId);
         return {
@@ -84,10 +100,12 @@ export function createWorkspaceGateway(
         id: registration.data,
         warnings: registration.warnings,
       });
-      const overview = await client.operation(
-        "projectOverview",
-        { path: { registration_id: registration.data } },
-        decodeProjectOverview,
+      const overview = await read(registration.data, undefined, () =>
+        client.operation(
+          "projectOverview",
+          { path: { registration_id: registration.data } },
+          decodeProjectOverview,
+        ),
       );
       completedRegistrations.delete(request.operationId);
       return {
@@ -100,14 +118,26 @@ export function createWorkspaceGateway(
 }
 
 /** Operation-specific presentation ports. ApiClient remains the sole transport. */
-function createAuthoringGateway(client: ApiClient): AuthoringGateway {
+function createAuthoringGateway(
+  client: ApiClient,
+  read: <T>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    perform: () => Promise<T>,
+  ) => Promise<T>,
+): AuthoringGateway {
+  const sourceRead = <K extends ApiJsonOperationId>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    operation: K,
+    args: Omit<ApiOperationArguments<K>, "signal">,
+  ) => read(registrationId, signal, () => client.operation(operation, args));
   return {
     decisions: {
       list: ({ registrationId, query, signal }) =>
-        client.operation("listDecisions", {
+        sourceRead(registrationId, signal, "listDecisions", {
           path: { registration_id: registrationId },
           query,
-          signal,
         }),
       create: ({ registrationId, body, signal }) =>
         client.operation("createDecision", {
@@ -116,9 +146,8 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           signal,
         }),
       read: ({ registrationId, decisionId, signal }) =>
-        client.operation("readDecision", {
+        sourceRead(registrationId, signal, "readDecision", {
           path: { registration_id: registrationId, decision_id: decisionId },
-          signal,
         }),
       updateDraft: ({ registrationId, decisionId, body, signal }) =>
         client.operation("updateDecisionDraft", {
@@ -127,22 +156,19 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           signal,
         }),
       projectEditor: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("projectDecisionEditor", {
+        sourceRead(registrationId, signal, "projectDecisionEditor", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       transformEditor: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("transformDecisionEditor", {
+        sourceRead(registrationId, signal, "transformDecisionEditor", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       validate: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("validateDecision", {
+        sourceRead(registrationId, signal, "validateDecision", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       saveRevision: ({ registrationId, decisionId, body, signal }) =>
         client.operation("saveDecisionRevision", {
@@ -151,30 +177,26 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           signal,
         }),
       revisions: ({ registrationId, decisionId, query, signal }) =>
-        client.operation("listDecisionRevisions", {
+        sourceRead(registrationId, signal, "listDecisionRevisions", {
           path: { registration_id: registrationId, decision_id: decisionId },
           query,
-          signal,
         }),
       latestRevision: ({ registrationId, decisionId, signal }) =>
-        client.operation("latestDecisionRevision", {
+        sourceRead(registrationId, signal, "latestDecisionRevision", {
           path: { registration_id: registrationId, decision_id: decisionId },
-          signal,
         }),
       revision: ({ registrationId, decisionId, revisionId, signal }) =>
-        client.operation("readDecisionRevision", {
+        sourceRead(registrationId, signal, "readDecisionRevision", {
           path: {
             registration_id: registrationId,
             decision_id: decisionId,
             revision_id: revisionId,
           },
-          signal,
         }),
       diff: ({ registrationId, decisionId, query, signal }) =>
-        client.operation("diffDecisionRevisions", {
+        sourceRead(registrationId, signal, "diffDecisionRevisions", {
           path: { registration_id: registrationId, decision_id: decisionId },
           query,
-          signal,
         }),
       rename: ({ registrationId, decisionId, body, signal }) =>
         client.operation("renameDecision", {
@@ -203,9 +225,11 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
     },
     datasets: {
       list: ({ registrationId, query, signal }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "list_datasets_api_v1_projects__registration_id__datasets_get",
-          { path: { registration_id: registrationId }, query, signal },
+          { path: { registration_id: registrationId }, query },
         ),
       create: ({ registrationId, body, signal }) =>
         client.operation("createDataset", {
@@ -214,11 +238,12 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           signal,
         }),
       read: ({ registrationId, datasetId, signal }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "read_dataset_api_v1_projects__registration_id__datasets__dataset_id__get",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
-            signal,
           },
         ),
       update: ({ registrationId, datasetId, body, signal }) =>
@@ -251,16 +276,19 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
     },
     examples: {
       listCases: ({ registrationId, datasetId, query, signal }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             query,
-            signal,
           },
         ),
       readCase: ({ registrationId, datasetId, caseId, signal }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get",
           {
             path: {
@@ -268,7 +296,6 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
               dataset_id: datasetId,
               case_id: caseId,
             },
-            signal,
           },
         ),
       addCase: ({ registrationId, datasetId, body, signal }) =>
@@ -307,7 +334,9 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           },
         ),
       listLabels: ({ registrationId, decisionId, datasetId, query, signal }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "list_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_get",
           {
             path: {
@@ -316,7 +345,6 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
               dataset_id: datasetId,
             },
             query,
-            signal,
           },
         ),
       readLabel: ({
@@ -327,7 +355,9 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
         query,
         signal,
       }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get",
           {
             path: {
@@ -337,7 +367,6 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
               case_id: caseId,
             },
             query,
-            signal,
           },
         ),
       labelHistory: ({
@@ -348,7 +377,9 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
         query,
         signal,
       }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "label_history_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__history_get",
           {
             path: {
@@ -358,7 +389,6 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
               case_id: caseId,
             },
             query,
-            signal,
           },
         ),
       saveLabels: ({ registrationId, decisionId, datasetId, body, signal }) =>
@@ -375,12 +405,13 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           },
         ),
       previewImport: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "preview_import_api_v1_projects__registration_id__datasets__dataset_id__imports_preview_post",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
       commitImport: ({ registrationId, datasetId, body, signal }) =>
@@ -393,12 +424,13 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           },
         ),
       previewSplit: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceRead(
+          registrationId,
+          signal,
           "preview_split_api_v1_projects__registration_id__datasets__dataset_id__splits_preview_post",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
       commitSplit: ({ registrationId, datasetId, body, signal }) =>
@@ -413,15 +445,13 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
     },
     providers: {
       list: ({ registrationId, query, signal }) =>
-        client.operation("listProviderProfiles", {
+        sourceRead(registrationId, signal, "listProviderProfiles", {
           path: { registration_id: registrationId },
           query,
-          signal,
         }),
       read: ({ registrationId, profileId, signal }) =>
-        client.operation("readProviderProfile", {
+        sourceRead(registrationId, signal, "readProviderProfile", {
           path: { registration_id: registrationId, profile_id: profileId },
-          signal,
         }),
       configure: ({ registrationId, profileId, body, signal }) =>
         client.operation("configureProviderProfile", {
@@ -430,9 +460,8 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
           signal,
         }),
       credentialStatus: ({ registrationId, profileId, signal }) =>
-        client.operation("providerCredentialStatus", {
+        sourceRead(registrationId, signal, "providerCredentialStatus", {
           path: { registration_id: registrationId, profile_id: profileId },
-          signal,
         }),
       attachEnvironment: ({ registrationId, profileId, body, signal }) =>
         client.operation("attachEnvironmentCredential", {
@@ -462,19 +491,17 @@ function createAuthoringGateway(client: ApiClient): AuthoringGateway {
     },
     fixtures: {
       list: ({ registrationId, query, signal }) =>
-        client.operation("listFixtureSets", {
+        sourceRead(registrationId, signal, "listFixtureSets", {
           path: { registration_id: registrationId },
           query,
-          signal,
         }),
       read: ({ registrationId, fixtureSetId, query, signal }) =>
-        client.operation("readFixtureSet", {
+        sourceRead(registrationId, signal, "readFixtureSet", {
           path: {
             registration_id: registrationId,
             fixture_set_id: fixtureSetId,
           },
           query,
-          signal,
         }),
       create: ({ registrationId, body, signal }) =>
         client.operation("createFixtureSet", {

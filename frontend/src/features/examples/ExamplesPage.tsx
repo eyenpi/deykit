@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
 import { ApiError, safeMessage } from "../../api/client";
 import { ExpectedAnswers } from "../../components/ExpectedAnswers";
@@ -117,6 +117,30 @@ export function ExamplesPage({
   const [caseConflictReviewed, setCaseConflictReviewed] = useState(false);
   const [addConflictReviewed, setAddConflictReviewed] = useState(false);
   const [removeConflictReviewed, setRemoveConflictReviewed] = useState(false);
+  const currentReadContext = useRef({
+    registrationId,
+    datasetId,
+    selectedCaseId,
+    refreshGeneration,
+    refreshToken,
+  });
+  currentReadContext.current = {
+    registrationId,
+    datasetId,
+    selectedCaseId,
+    refreshGeneration,
+    refreshToken,
+  };
+  function isCurrentContext(context: typeof currentReadContext.current) {
+    const current = currentReadContext.current;
+    return (
+      current.registrationId === context.registrationId &&
+      current.datasetId === context.datasetId &&
+      current.selectedCaseId === context.selectedCaseId &&
+      current.refreshGeneration === context.refreshGeneration &&
+      current.refreshToken === context.refreshToken
+    );
+  }
 
   useEffect(() => {
     setDatasetId(datasetFromRoute ?? "");
@@ -143,38 +167,39 @@ export function ExamplesPage({
     setLabels(undefined);
     setCaseRead(undefined);
     setLabelView(undefined);
-    void Promise.all([
-      operations.listCases({
+    async function loadExamples() {
+      const casePage = await operations.listCases({
         registrationId,
         datasetId,
         query: { limit: "50" },
         signal: controller.signal,
-      }),
-      datasetOperations.read({
+      });
+      if (controller.signal.aborted) return;
+      const datasetResult = await datasetOperations.read({
         registrationId,
         datasetId,
         signal: controller.signal,
-      }),
-      decision
-        ? operations.listLabels({
+      });
+      if (controller.signal.aborted) return;
+      const labelPage = decision
+        ? await operations.listLabels({
             registrationId,
             decisionId: decision.id,
             datasetId,
             query: { limit: "50" },
             signal: controller.signal,
           })
-        : Promise.resolve(undefined),
-    ])
-      .then(([casePage, datasetResult, labelPage]) => {
-        if (controller.signal.aborted) return;
-        setCases(casePage.data);
-        setCaseCursor(casePage.data.next_cursor ?? undefined);
-        setDataset(datasetResult.data);
-        if (labelPage) {
-          setLabels(labelPage.data);
-          setLabelCursor(labelPage.data.next_cursor ?? undefined);
-        }
-      })
+        : undefined;
+      if (controller.signal.aborted) return;
+      setCases(casePage.data);
+      setCaseCursor(casePage.data.next_cursor ?? undefined);
+      setDataset(datasetResult.data);
+      if (labelPage) {
+        setLabels(labelPage.data);
+        setLabelCursor(labelPage.data.next_cursor ?? undefined);
+      }
+    }
+    void loadExamples()
       .catch((cause: unknown) => {
         if (!controller.signal.aborted) setError(safeMessage(cause));
       })
@@ -201,41 +226,41 @@ export function ExamplesPage({
     }
     const controller = new AbortController();
     setError(undefined);
-    void Promise.all([
-      operations.readCase({
+    async function loadSelectedCase() {
+      const caseResult = await operations.readCase({
         registrationId,
         datasetId,
         caseId: selectedCaseId,
         signal: controller.signal,
-      }),
-      decision
-        ? operations.readLabel({
+      });
+      if (controller.signal.aborted) return;
+      const labelResult = decision
+        ? await operations.readLabel({
             registrationId,
             decisionId: decision.id,
             datasetId,
             caseId: selectedCaseId,
             signal: controller.signal,
           })
-        : Promise.resolve(undefined),
-    ])
-      .then(([caseResult, labelResult]) => {
-        if (controller.signal.aborted) return;
-        setCaseRead(caseResult.data);
-        setInputKind(caseResult.data.case.record.input_kind);
-        setInputSource(caseResult.data.case.record.input_source);
-        setMetadataSource(caseResult.data.case.record.metadata_source ?? "{}");
-        setLabelView(labelResult?.data);
-        setStagedAnswers(labelResult?.data.label?.acceptable_option_ids ?? []);
-        setEditorDirty(false);
-      })
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) setError(safeMessage(cause));
-      });
+        : undefined;
+      if (controller.signal.aborted) return;
+      setCaseRead(caseResult.data);
+      setInputKind(caseResult.data.case.record.input_kind);
+      setInputSource(caseResult.data.case.record.input_source);
+      setMetadataSource(caseResult.data.case.record.metadata_source ?? "{}");
+      setLabelView(labelResult?.data);
+      setStagedAnswers(labelResult?.data.label?.acceptable_option_ids ?? []);
+      setEditorDirty(false);
+    }
+    void loadSelectedCase().catch((cause: unknown) => {
+      if (!controller.signal.aborted) setError(safeMessage(cause));
+    });
     return () => controller.abort();
   }, [decision, datasetId, operations, registrationId, selectedCaseId]);
 
   async function loadMoreCases() {
     if (!datasetId || !caseCursor || busy) return;
+    const context = currentReadContext.current;
     setBusy(true);
     try {
       const result = await operations.listCases({
@@ -243,6 +268,7 @@ export function ExamplesPage({
         datasetId,
         query: { cursor: caseCursor, limit: "50" },
       });
+      if (!isCurrentContext(context)) return;
       setCases((current) =>
         current
           ? {
@@ -254,14 +280,15 @@ export function ExamplesPage({
       );
       setCaseCursor(result.data.next_cursor ?? undefined);
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      if (isCurrentContext(context)) setBusy(false);
     }
   }
 
   async function loadMoreLabels() {
     if (!datasetId || !decision || !labelCursor || busy) return;
+    const context = currentReadContext.current;
     setBusy(true);
     try {
       const result = await operations.listLabels({
@@ -270,6 +297,7 @@ export function ExamplesPage({
         datasetId,
         query: { cursor: labelCursor, limit: "50" },
       });
+      if (!isCurrentContext(context)) return;
       setLabels((current) =>
         current
           ? {
@@ -281,9 +309,9 @@ export function ExamplesPage({
       );
       setLabelCursor(result.data.next_cursor ?? undefined);
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      if (isCurrentContext(context)) setBusy(false);
     }
   }
 
@@ -370,6 +398,7 @@ export function ExamplesPage({
 
   async function reviewLabelConflict(): Promise<void> {
     if (!decision || !datasetId || !selectedCaseId) return;
+    const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
     try {
@@ -379,14 +408,15 @@ export function ExamplesPage({
         datasetId,
         caseId: selectedCaseId,
       });
+      if (!isCurrentContext(context)) return;
       // Keep the user's staged answer intact. A new deliberate save will use
       // this reviewed server context and a fresh operation ID.
       setLabelView(refreshed.data);
       setPendingLabel(undefined);
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      if (isCurrentContext(context)) setBusy(false);
     }
   }
 
@@ -473,17 +503,21 @@ export function ExamplesPage({
 
   async function reviewCaseConflict() {
     if (!dataset || !caseRead || !selectedCaseId) return;
+    const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
     try {
-      const [currentCase, currentDataset] = await Promise.all([
-        operations.readCase({
-          registrationId,
-          datasetId,
-          caseId: selectedCaseId,
-        }),
-        datasetOperations.read({ registrationId, datasetId }),
-      ]);
+      const currentCase = await operations.readCase({
+        registrationId,
+        datasetId,
+        caseId: selectedCaseId,
+      });
+      if (!isCurrentContext(context)) return;
+      const currentDataset = await datasetOperations.read({
+        registrationId,
+        datasetId,
+      });
+      if (!isCurrentContext(context)) return;
       setCaseRead(currentCase.data);
       setDataset(currentDataset.data);
       setPendingCase(undefined);
@@ -492,9 +526,9 @@ export function ExamplesPage({
         "Current case and dataset versions reviewed. Your edited source is retained; reapply it deliberately.",
       );
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      if (isCurrentContext(context)) setBusy(false);
     }
   }
 
@@ -554,17 +588,21 @@ export function ExamplesPage({
 
   async function reviewAddConflict() {
     if (!dataset) return;
+    const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
     try {
-      const [currentDataset, currentCases] = await Promise.all([
-        datasetOperations.read({ registrationId, datasetId }),
-        operations.listCases({
-          registrationId,
-          datasetId,
-          query: { limit: "50" },
-        }),
-      ]);
+      const currentDataset = await datasetOperations.read({
+        registrationId,
+        datasetId,
+      });
+      if (!isCurrentContext(context)) return;
+      const currentCases = await operations.listCases({
+        registrationId,
+        datasetId,
+        query: { limit: "50" },
+      });
+      if (!isCurrentContext(context)) return;
       setDataset(currentDataset.data);
       setCases(currentCases.data);
       setCaseCursor(currentCases.data.next_cursor ?? undefined);
@@ -574,9 +612,9 @@ export function ExamplesPage({
         "Current dataset and cases reviewed. Your new example source is retained; reapply it deliberately.",
       );
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      if (isCurrentContext(context)) setBusy(false);
     }
   }
 
@@ -629,17 +667,21 @@ export function ExamplesPage({
 
   async function reviewRemoveConflict() {
     if (!dataset || !caseRead || !selectedCaseId) return;
+    const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
     try {
-      const [currentCase, currentDataset] = await Promise.all([
-        operations.readCase({
-          registrationId,
-          datasetId,
-          caseId: selectedCaseId,
-        }),
-        datasetOperations.read({ registrationId, datasetId }),
-      ]);
+      const currentCase = await operations.readCase({
+        registrationId,
+        datasetId,
+        caseId: selectedCaseId,
+      });
+      if (!isCurrentContext(context)) return;
+      const currentDataset = await datasetOperations.read({
+        registrationId,
+        datasetId,
+      });
+      if (!isCurrentContext(context)) return;
       setCaseRead(currentCase.data);
       setDataset(currentDataset.data);
       setPendingRemove(undefined);
@@ -648,9 +690,9 @@ export function ExamplesPage({
         "Current case and dataset versions reviewed. Reapply removal deliberately if the case is still present.",
       );
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      if (isCurrentContext(context)) setBusy(false);
     }
   }
 
@@ -828,6 +870,20 @@ export function ExamplesPage({
         {!datasetId ? (
           <EmptyState title="Choose or create a dataset">
             Examples can be imported before a decision is created.
+          </EmptyState>
+        ) : !cases && error ? (
+          <EmptyState
+            title="Examples could not be loaded"
+            action={
+              <button
+                type="button"
+                onClick={() => setRefreshGeneration((value) => value + 1)}
+              >
+                Reload examples
+              </button>
+            }
+          >
+            The request failed. Reload to try again.
           </EmptyState>
         ) : loading || !cases ? (
           <LoadingState>Loading examples…</LoadingState>
