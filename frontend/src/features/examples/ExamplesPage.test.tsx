@@ -995,7 +995,7 @@ it("keeps Add available from a dataset admission without a selected case", async
   await user.click(screen.getByRole("button", { name: "Add example" }));
   await user.click(
     within(screen.getByRole("dialog", { name: "Add example" })).getByRole(
-      "button",
+      "radio",
       { name: "JSON" },
     ),
   );
