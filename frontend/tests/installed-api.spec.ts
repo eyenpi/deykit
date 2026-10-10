@@ -326,6 +326,32 @@ test("installed browser authors exact decision source and previews imports throu
         pending_route_categories: string[];
       }
     | undefined;
+  let archiveReadinessFacts:
+    | {
+        loading: boolean;
+        error_present: boolean;
+        row_present: boolean;
+        pending_route_categories: string[];
+      }
+    | undefined;
+  let restoreReplayFacts:
+    | {
+        first_status: number;
+        retry_status: number;
+        requests_identical: boolean;
+        committed_receipts_identical: boolean;
+        restored_record_matches: boolean;
+      }
+    | undefined;
+  let restoreProjectionFacts:
+    | {
+        overview_status: number;
+        archived_row_present: boolean;
+        active_row_present: boolean;
+        retry_present: boolean;
+        pending_route_categories: string[];
+      }
+    | undefined;
   let activeSplitReadEvents:
     | Array<{
         event: "body" | "body_error" | "cancelled";
@@ -360,7 +386,8 @@ test("installed browser authors exact decision source and previews imports throu
         ({ method, path }) =>
           method === "GET" &&
           path.includes("/projects/{registration_id}/") &&
-          /(overview|datasets|cases|labels)/.test(path),
+          (/(overview|datasets|cases|labels)/.test(path) ||
+            path.endsWith("/decisions")),
       )
       .map(({ path }) => path.replace(/\{([a-z_]+)\}/g, ":$1")),
   );
@@ -377,6 +404,9 @@ test("installed browser authors exact decision source and previews imports throu
       source_read_events: sourceReadEvents,
       pending_source_read_categories: pendingSourceReadCategories,
       split_readiness_facts: splitReadinessFacts,
+      archive_readiness_facts: archiveReadinessFacts,
+      restore_replay_facts: restoreReplayFacts,
+      restore_projection_facts: restoreProjectionFacts,
     });
     const sequence = ++progressSequence;
     const write = progressWriteQueue.then(async () => {
@@ -5077,6 +5107,20 @@ test("installed browser authors exact decision source and previews imports throu
       response.url().endsWith("/archive") &&
       response.request().method() === "POST",
   );
+  const archiveListResponse = page.waitForResponse(
+    (response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname ===
+          `/api/v1/projects/${registrationId}/decisions` &&
+        url.searchParams.get("include_archived") === "true" &&
+        url.searchParams.get("limit") === "50" &&
+        response.request().method() === "GET"
+      );
+    },
+    { timeout: 0 },
+  );
+  void archiveListResponse.catch(() => undefined);
   await archiveDialog
     .getByRole("button", { name: "Retry same archive action" })
     .click();
@@ -5091,15 +5135,70 @@ test("installed browser authors exact decision source and previews imports throu
     archiveDialog.getByRole("button", { name: "Retry same archive action" }),
   ).toHaveCount(0);
   await expect(archiveDialog).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
   expect(archiveBodies).toHaveLength(2);
   expect(archiveBodies[1]).toEqual(archiveBodies[0]);
   await page.unroute(`**/decisions/${decisionId}/archive`);
   const archivedRow = page
     .getByRole("table", { name: "Archived decisions" })
     .getByRole("row", { name: new RegExp(decisionName) });
-  await expect(archivedRow).toBeVisible();
-  await settleProjectReads();
+  const archiveReadinessTimeout = new Error(
+    "The archived decision list did not settle after archive.",
+  );
+  const archiveListReadiness = (async () => {
+    const response = await archiveListResponse;
+    await recordDirectApiFailure(response, new URL(response.url()).pathname);
+    expect(response.status()).toBe(200);
+    await response.body();
+    const envelope: {
+      schema_version: 1;
+      data: ApiOperationData<"listDecisions">;
+    } = await response.json();
+    expect(envelope.schema_version).toBe(1);
+    expect(envelope.data.schema_version).toBe(1);
+    const listedDecision = envelope.data.items.find(
+      (item) => item.decision.record.id === archivedResult.record.id,
+    );
+    expect(listedDecision?.decision.record).toMatchObject({
+      id: archivedResult.record.id,
+      name: archivedResult.record.name,
+      archived: true,
+    });
+    await expect(archivedRow).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+    await settleProjectReads();
+  })();
+  void archiveListReadiness.catch(() => undefined);
+  let archiveReadinessTimer: ReturnType<typeof setTimeout> | undefined;
+  const archiveReadinessDeadline = new Promise<never>((_, reject) => {
+    archiveReadinessTimer = setTimeout(
+      () => reject(archiveReadinessTimeout),
+      15_000,
+    );
+  });
+  try {
+    await Promise.race([archiveListReadiness, archiveReadinessDeadline]);
+  } catch (error) {
+    try {
+      const [loading, hasError, rowPresent] = await Promise.all([
+        page.getByText("Loading decision archive…", { exact: true }).count(),
+        page.getByRole("alert").count(),
+        archivedRow.count(),
+      ]);
+      archiveReadinessFacts = {
+        loading: loading > 0,
+        error_present: hasError > 0,
+        row_present: rowPresent > 0,
+        pending_route_categories: [...pendingSourceReadCategories],
+      };
+      await recordProgress();
+    } catch {
+      // Keep the archive-list failure if finite diagnostics cannot be saved.
+    }
+    throw error;
+  } finally {
+    if (archiveReadinessTimer !== undefined)
+      clearTimeout(archiveReadinessTimer);
+  }
   const retainedRevisions = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
     {
@@ -5117,12 +5216,173 @@ test("installed browser authors exact decision source and previews imports throu
   expect([...retainedRevisionIds].sort()).toEqual(
     [...expectedRevisionIds].sort(),
   );
+  const restoreBodies: Array<Record<string, unknown>> = [];
+  let firstDecisionRestoreStatus: number | undefined;
+  let firstCommittedRestore: ApiOperationData<"restoreDecision"> | undefined;
+  await page.route(`**/decisions/${decisionId}/restore`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    restoreBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    const response = await route.fetch();
+    if (restoreBodies.length === 1) {
+      firstDecisionRestoreStatus = response.status();
+      const firstEnvelope: {
+        data: ApiOperationData<"restoreDecision">;
+      } = await response.json();
+      firstCommittedRestore = firstEnvelope.data;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "{}",
+      });
+      return;
+    }
+    await route.fulfill({ response });
+  });
   await archivedRow
     .getByRole("button", { name: "Restore", exact: true })
     .click();
+  await expect
+    .poll(() => firstDecisionRestoreStatus, { timeout: 15_000 })
+    .toBe(200);
+  const retryRestore = page.getByRole("button", {
+    name: "Retry same restore action",
+  });
+  await expect(retryRestore).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Providers", exact: true })
+    .click();
+  const restoreNavigationPrompt = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(restoreNavigationPrompt).toBeVisible();
   await expect(
-    page.getByRole("table", { name: "Project decisions" }),
-  ).toContainText(decisionName);
+    restoreNavigationPrompt.getByRole("button", { name: "Save and leave" }),
+  ).toBeDisabled();
+  await expect(
+    restoreNavigationPrompt.getByRole("button", { name: "Discard changes" }),
+  ).toBeDisabled();
+  await restoreNavigationPrompt
+    .getByRole("button", { name: "Keep editing" })
+    .click();
+  const restoreReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/restore") &&
+      response.request().method() === "POST",
+    { timeout: 0 },
+  );
+  void restoreReplayResponse.catch(() => undefined);
+  const restoredProjectOverview = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/overview` &&
+      response.request().method() === "GET",
+    { timeout: 0 },
+  );
+  void restoredProjectOverview.catch(() => undefined);
+  let restoredOverviewStatus: number | undefined;
+  await retryRestore.click();
+  const restoreReceipt = await restoreReplayResponse;
+  await recordDirectApiFailure(
+    restoreReceipt,
+    new URL(restoreReceipt.url()).pathname,
+  );
+  expect(restoreReceipt.status()).toBe(200);
+  await restoreReceipt.body();
+  const restoreEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"restoreDecision">;
+  } = await restoreReceipt.json();
+  expect(restoreEnvelope.schema_version).toBe(1);
+  expect(restoreEnvelope.data.record).toMatchObject({
+    id: decisionId,
+    name: decisionName,
+    archived: false,
+  });
+  expect(firstCommittedRestore).toBeDefined();
+  expect(restoreEnvelope.data).toEqual(firstCommittedRestore);
+  const restoredActiveRow = page
+    .getByRole("table", { name: "Project decisions" })
+    .getByRole("row", { name: new RegExp(decisionId) });
+  const restoreProjectionReadiness = (async () => {
+    const response = await restoredProjectOverview;
+    restoredOverviewStatus = response.status();
+    await recordDirectApiFailure(response, new URL(response.url()).pathname);
+    expect(response.status()).toBe(200);
+    await response.body();
+    const overviewEnvelope: {
+      schema_version: 1;
+      data: ApiOperationData<"projectOverview">;
+    } = await response.json();
+    expect(overviewEnvelope.schema_version).toBe(1);
+    expect(overviewEnvelope.data.schema_version).toBe(1);
+    expect(overviewEnvelope.data.registration.registration_id).toBe(
+      registrationId,
+    );
+    await expect(restoredActiveRow).toBeVisible({ timeout: 15_000 });
+    await expect(restoredActiveRow).toContainText(decisionName);
+    await expect(retryRestore).toHaveCount(0);
+    await expect(archivedRow).toHaveCount(0);
+    await settleProjectReads();
+  })();
+  void restoreProjectionReadiness.catch(() => undefined);
+  const restoreProjectionTimeout = new Error(
+    "The restored decision projection did not settle.",
+  );
+  let restoreProjectionTimer: ReturnType<typeof setTimeout> | undefined;
+  const restoreProjectionDeadline = new Promise<never>((_, reject) => {
+    restoreProjectionTimer = setTimeout(
+      () => reject(restoreProjectionTimeout),
+      15_000,
+    );
+  });
+  try {
+    await Promise.race([
+      restoreProjectionReadiness,
+      restoreProjectionDeadline,
+    ]);
+  } catch (error) {
+    try {
+      const [archivedCount, activeCount, retryCount] = await Promise.all([
+        archivedRow.count(),
+        restoredActiveRow.count(),
+        retryRestore.count(),
+      ]);
+      restoreProjectionFacts = {
+        overview_status: restoredOverviewStatus ?? 0,
+        archived_row_present: archivedCount > 0,
+        active_row_present: activeCount > 0,
+        retry_present: retryCount > 0,
+        pending_route_categories: [...pendingSourceReadCategories],
+      };
+      await recordProgress();
+    } catch {
+      // Preserve the original projection failure if safe diagnostics fail.
+    }
+    throw error;
+  } finally {
+    if (restoreProjectionTimer !== undefined)
+      clearTimeout(restoreProjectionTimer);
+  }
+  expect(restoreBodies).toHaveLength(2);
+  expect(restoreBodies[1]).toEqual(restoreBodies[0]);
+  restoreReplayFacts = {
+    first_status: firstDecisionRestoreStatus ?? 0,
+    retry_status: restoreReceipt.status(),
+    requests_identical: restoreBodies[1]?.operation_id === restoreBodies[0]?.operation_id &&
+      JSON.stringify(restoreBodies[1]) === JSON.stringify(restoreBodies[0]),
+    committed_receipts_identical:
+      JSON.stringify(restoreEnvelope.data) ===
+      JSON.stringify(firstCommittedRestore),
+    restored_record_matches:
+      restoreEnvelope.data.record.id === decisionId &&
+      restoreEnvelope.data.record.name === decisionName &&
+      restoreEnvelope.data.record.archived === false,
+  };
+  await recordProgress();
+  await page.unroute(`**/decisions/${decisionId}/restore`);
 
   await page
     .getByRole("navigation", { name: "Workspace" })

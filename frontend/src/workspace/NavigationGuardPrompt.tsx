@@ -13,6 +13,7 @@ export function useDirtyNavigationGuard({
   save,
   discard,
   blockedMessage,
+  isBlockedNow,
   allowDiscardWhenBlocked = false,
 }: {
   dirty: boolean;
@@ -20,6 +21,7 @@ export function useDirtyNavigationGuard({
   save: () => Promise<void>;
   discard: () => void;
   blockedMessage?: string;
+  isBlockedNow?: () => boolean;
   allowDiscardWhenBlocked?: boolean;
 }): {
   guard: DirtyNavigationGuard;
@@ -33,8 +35,16 @@ export function useDirtyNavigationGuard({
   dirtyRef.current = dirty;
   const isDirtyNowRef = useRef(isDirtyNow);
   isDirtyNowRef.current = isDirtyNow;
+  const isBlockedNowRef = useRef(isBlockedNow);
+  isBlockedNowRef.current = isBlockedNow;
+  const blockedMessageRef = useRef(blockedMessage);
+  blockedMessageRef.current = blockedMessage;
   const currentDirty = useCallback(
     () => isDirtyNowRef.current?.() ?? dirtyRef.current,
+    [],
+  );
+  const currentlyBlocked = useCallback(
+    () => isBlockedNowRef.current?.() ?? false,
     [],
   );
 
@@ -70,6 +80,13 @@ export function useDirtyNavigationGuard({
   }
 
   async function saveAndLeave() {
+    if (currentlyBlocked()) {
+      setError(
+        blockedMessageRef.current ??
+          "This request is still settling. Retry it before leaving.",
+      );
+      return;
+    }
     setSaving(true);
     setError(undefined);
     try {
@@ -87,6 +104,7 @@ export function useDirtyNavigationGuard({
   }
 
   function discardAndLeave() {
+    if (currentlyBlocked()) return;
     discard();
     settle(true);
   }
@@ -110,7 +128,7 @@ export function useDirtyNavigationGuard({
             <button
               type="button"
               className="primary"
-              disabled={saving || !!blockedMessage}
+              disabled={saving || !!blockedMessage || currentlyBlocked()}
               onClick={() => void saveAndLeave()}
             >
               {saving ? "Saving…" : "Save and leave"}
@@ -118,7 +136,9 @@ export function useDirtyNavigationGuard({
             <button
               type="button"
               disabled={
-                saving || (!!blockedMessage && !allowDiscardWhenBlocked)
+                saving ||
+                currentlyBlocked() ||
+                (!!blockedMessage && !allowDiscardWhenBlocked)
               }
               onClick={discardAndLeave}
             >

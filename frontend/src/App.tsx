@@ -425,6 +425,7 @@ export function App({
           project={project}
           headingRef={openHeading}
           decisionOperations={gateway.authoring.decisions}
+          navigation={navigation}
           onDecisionsChanged={() => void refreshProject()}
           onDecision={(item) =>
             void navigation.navigate({
