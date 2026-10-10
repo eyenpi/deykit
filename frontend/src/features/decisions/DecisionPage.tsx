@@ -45,7 +45,8 @@ const VERSION_PREFLIGHT_MESSAGES: Record<VersionPreflightReason, string> = {
     "The latest editor change could not be applied. No version was saved.",
   "composing-after-transform":
     "Finish composing the editor source. No version was saved.",
-  "unrepresented-editor": "Commit the latest editor change. No version was saved.",
+  "unrepresented-editor":
+    "Commit the latest editor change. No version was saved.",
   "editor-changed": "The editor changed. No version was saved.",
   "editor-changed-during-draft-save":
     "The editor changed while saving its draft. No version was saved.",
