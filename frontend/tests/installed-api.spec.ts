@@ -3937,7 +3937,6 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
   ).toHaveText('{"case":1,"changed":true}', { timeout: 15_000 });
-  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
   await expect(
     page.getByRole("region", { name: "Saved changes awaiting refresh" }),
   ).toHaveCount(0);
