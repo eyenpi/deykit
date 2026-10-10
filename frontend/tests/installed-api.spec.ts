@@ -284,12 +284,12 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 test("installed browser authors exact decision source and previews imports through real APIs", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(420_000);
+  test.setTimeout(600_000);
   page.setDefaultTimeout(10_000);
   const completedPhases: string[] = [];
   const screenshots: string[] = [];
   const actionTimings: Array<{
-    action: "reapply_add";
+    action: "reapply_add" | "split_replay";
     stage: "receipt" | "readiness";
     elapsed_ms: number;
   }> = [];
@@ -311,6 +311,33 @@ test("installed browser authors exact decision source and previews imports throu
     elapsed_ms: number;
     status?: number;
   }> = [];
+  const sourceReadEventWaiters = new Set<() => void>();
+  let pendingSourceReadCategories: string[] = [];
+  let recordLateSourceReadProgress = false;
+  let activeSplitReadEvents:
+    | Array<{
+        event: "body" | "body_error" | "cancelled";
+        route_pattern: string;
+        status?: number;
+      }>
+    | undefined;
+  function recordSourceReadEvent(event: (typeof sourceReadEvents)[number]) {
+    sourceReadEvents.push(event);
+    if (sourceReadEvents.length > 160) sourceReadEvents.shift();
+    if (
+      activeSplitReadEvents &&
+      (event.event === "body" ||
+        event.event === "body_error" ||
+        event.event === "cancelled")
+    ) {
+      activeSplitReadEvents.push({
+        event: event.event,
+        route_pattern: event.route_pattern,
+        ...(event.status === undefined ? {} : { status: event.status }),
+      });
+      for (const notify of sourceReadEventWaiters) notify();
+    }
+  }
   const sourceReadStarts = new WeakMap<
     Request,
     { route_pattern: string; startedAt: number }
@@ -335,6 +362,7 @@ test("installed browser authors exact decision source and previews imports throu
       initial_viewport: initialViewport,
       api_failures: apiFailures,
       source_read_events: sourceReadEvents,
+      pending_source_read_categories: pendingSourceReadCategories,
     });
     await writeFile(progressPath, `${body}\n`, "utf8");
     progressSequence += 1;
@@ -355,6 +383,16 @@ test("installed browser authors exact decision source and previews imports throu
       reason: safeErrorIdentifier(details?.reason),
     });
     await recordProgress();
+  }
+  async function expectDirectDataEnvelope(response: APIResponse, path: string) {
+    await recordDirectApiFailure(response, path);
+    expect(response.status()).toBe(200);
+    const envelope: unknown = await response.json();
+    expect(
+      isRecord(envelope) &&
+        envelope.schema_version === 1 &&
+        isRecord(envelope.data),
+    ).toBe(true);
   }
   async function enterPhase(name: string) {
     completedPhases.push(activePhase);
@@ -414,7 +452,8 @@ test("installed browser authors exact decision source and previews imports throu
           elapsed_ms: 0,
         });
         if (sourceReadEvents.length > 160) sourceReadEvents.shift();
-        void recordProgress().catch(() => undefined);
+        if (recordLateSourceReadProgress)
+          void recordProgress().catch(() => undefined);
       }
     }
     if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()))
@@ -3059,6 +3098,12 @@ test("installed browser authors exact decision source and previews imports throu
       await recordProgress();
       expect(response.status(), JSON.stringify(diagnostic)).toBe(200);
     }
+    const envelope: unknown = await response.json();
+    expect(
+      isRecord(envelope) &&
+        envelope.schema_version === 1 &&
+        isRecord(envelope.data),
+    ).toBe(true);
     return response;
   };
   const emptySeedLabel = await readSeedLabel();
@@ -3489,6 +3534,12 @@ test("installed browser authors exact decision source and previews imports throu
     expect(status, JSON.stringify({ operation, status, code, reason })).toBe(
       200,
     );
+    const envelope: unknown = await response.json();
+    expect(
+      isRecord(envelope) &&
+        envelope.schema_version === 1 &&
+        isRecord(envelope.data),
+    ).toBe(true);
     return response;
   };
   const readCaseOne = async () =>
@@ -3961,6 +4012,7 @@ test("installed browser authors exact decision source and previews imports throu
   });
 
   type ObservedProjectRead = {
+    route_pattern: string;
     startedAt: number;
     settled: Promise<void>;
     finish: (
@@ -3969,14 +4021,13 @@ test("installed browser authors exact decision source and previews imports throu
     ) => void;
   };
   const pendingProjectReads = new Map<Request, ObservedProjectRead>();
-  let observeProjectReads = true;
   const finishProjectRead = (
     request: Request,
     terminal: "body" | "body_error" | "cancelled",
     status?: number,
   ) => pendingProjectReads.get(request)?.finish(terminal, status);
   page.on("request", (request) => {
-    if (!observeProjectReads || request.method() !== "GET") return;
+    if (request.method() !== "GET") return;
     const routePattern = safeRoutePattern(new URL(request.url()).pathname);
     if (!sourceReadTemplates.has(routePattern)) return;
     let settle!: () => void;
@@ -3985,31 +4036,58 @@ test("installed browser authors exact decision source and previews imports throu
     });
     let terminalRecorded = false;
     pendingProjectReads.set(request, {
+      route_pattern: routePattern,
       startedAt: Date.now(),
       settled,
       finish: (terminal, status) => {
         if (terminalRecorded) return;
         terminalRecorded = true;
         const startedAt = pendingProjectReads.get(request)?.startedAt;
-        sourceReadEvents.push({
+        recordSourceReadEvent({
           event: terminal,
           route_pattern: routePattern,
           method: "GET",
           elapsed_ms: startedAt === undefined ? 0 : Date.now() - startedAt,
           ...(status === undefined ? {} : { status }),
         });
-        if (sourceReadEvents.length > 160) sourceReadEvents.shift();
         pendingProjectReads.delete(request);
+        pendingSourceReadCategories = [
+          ...new Set(
+            [...pendingProjectReads.values()].map((read) => read.route_pattern),
+          ),
+        ];
         settle();
+        if (recordLateSourceReadProgress)
+          void recordProgress().catch(() => undefined);
       },
     });
+    pendingSourceReadCategories = [
+      ...new Set(
+        [...pendingProjectReads.values()].map((read) => read.route_pattern),
+      ),
+    ];
+    if (recordLateSourceReadProgress)
+      void recordProgress().catch(() => undefined);
   });
   page.on("response", (response) => {
     if (!pendingProjectReads.has(response.request())) return;
+    const pending = pendingProjectReads.get(response.request());
+    if (pending)
+      recordSourceReadEvent({
+        event: "headers",
+        route_pattern: pending.route_pattern,
+        method: "GET",
+        elapsed_ms: Math.max(0, Date.now() - pending.startedAt),
+        status: response.status(),
+      });
     void response.body().then(
       () => finishProjectRead(response.request(), "body", response.status()),
       () =>
-        finishProjectRead(response.request(), "body_error", response.status()),
+        finishProjectRead(
+          response.request(),
+          response.request().failure() ? "cancelled" : "body_error",
+          response.status(),
+        ),
     );
   });
   page.on("requestfailed", (request) =>
@@ -4020,6 +4098,34 @@ test("installed browser authors exact decision source and previews imports throu
       await Promise.all(
         [...pendingProjectReads.values()].map((read) => read.settled),
       );
+  }
+  async function waitForProjectReadBodies(
+    captureOffset: number,
+    routePatterns: readonly string[],
+  ) {
+    while (true) {
+      const events = (activeSplitReadEvents ?? []).slice(captureOffset);
+      const successful = new Set(
+        events
+          .filter((event) => event.event === "body" && event.status === 200)
+          .map((event) => event.route_pattern),
+      );
+      const failed = events.find(
+        (event) =>
+          event.event === "body_error" ||
+          (event.event === "body" && event.status !== 200),
+      );
+      if (failed)
+        throw new Error(`A project read body failed for ${failed.route_pattern}.`);
+      if (routePatterns.every((pattern) => successful.has(pattern))) return;
+      await new Promise<void>((resolve) => {
+        const notify = () => {
+          sourceReadEventWaiters.delete(notify);
+          resolve();
+        };
+        sourceReadEventWaiters.add(notify);
+      });
+    }
   }
 
   await caseButton("case-2").click();
@@ -4373,7 +4479,6 @@ test("installed browser authors exact decision source and previews imports throu
     0,
   );
   await settleProjectReads();
-  observeProjectReads = false;
 
   await enterPhase("Grouped server split preview and option-reference impact");
   await page
@@ -4460,9 +4565,45 @@ test("installed browser authors exact decision source and previews imports throu
     .click();
   await expect(page).toHaveURL(splitHashBeforeRouteAttempt);
   expect(splitCommitBodies).toHaveLength(1);
+  const splitReadPatterns = [
+    `/api/v1/projects/${registrationId}/overview`,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels`,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/case-1`,
+  ].map((path) => safeRoutePattern(path));
+  recordLateSourceReadProgress = true;
+  activeSplitReadEvents = [];
+  const splitReadCaptureStart = 0;
+  const splitReplayStartedAt = Date.now();
+  const splitReplayResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname.endsWith("/splits/commit") &&
+      response.request().method() === "POST",
+    { timeout: 0 },
+  );
+  void splitReplayResponse.catch(() => undefined);
   await page
     .getByRole("button", { name: "Retry the same split request" })
     .click();
+  const splitReplayReceipt = await splitReplayResponse;
+  expect(splitReplayReceipt.status()).toBe(200);
+  await splitReplayReceipt.body();
+  const splitReadinessStartedAt = Date.now();
+  actionTimings.push({
+    action: "split_replay",
+    stage: "receipt",
+    elapsed_ms: splitReadinessStartedAt - splitReplayStartedAt,
+  });
+  let refreshReadinessTimer: ReturnType<typeof setTimeout> | undefined;
+  const boundedSplitReadiness = new Promise<never>((_, reject) => {
+    refreshReadinessTimer = setTimeout(
+      () => reject(new Error("Split refresh did not reach a settled ready state.")),
+      15_000,
+    );
+  });
+  void boundedSplitReadiness.catch(() => undefined);
   await expect
     .poll(() => splitCommitResults.length, { timeout: 15_000 })
     .toBe(2);
@@ -4487,7 +4628,6 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
   const casesRegion = page.getByRole("region", { name: /^Cases in / });
-  await expect(casesRegion).toBeVisible({ timeout: 15_000 });
   const readVisibleCaseSplits = () =>
     casesRegion.locator("tbody tr").evaluateAll((rows) =>
       Object.fromEntries(
@@ -4500,24 +4640,53 @@ test("installed browser authors exact decision source and previews imports throu
         }),
       ),
     );
-  await expect
-    .poll(readVisibleCaseSplits, { timeout: 15_000 })
-    .toEqual(expectedSplitByCase);
-  await caseButton("case-1").click();
-  await expect(
-    page.getByRole("heading", { name: "case-1", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByLabel("Complete example input source", { exact: true }),
-  ).toHaveText('{"case":1,"changed":true}');
-  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
-  await expect(
-    page.getByRole("heading", { name: "Expected answers" }),
-  ).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
-  await expect(
-    page.getByRole("region", { name: "Saved changes awaiting refresh" }),
-  ).toHaveCount(0);
+  const splitReadyExpect = expect.configure({ timeout: 15_000 });
+  const splitRefreshReadiness = (async () => {
+    await waitForProjectReadBodies(splitReadCaptureStart, splitReadPatterns);
+    await splitReadyExpect(casesRegion).toBeVisible();
+    await splitReadyExpect
+      .poll(readVisibleCaseSplits)
+      .toEqual(expectedSplitByCase);
+    await splitReadyExpect(
+      page.getByRole("heading", { name: "case-1", exact: true }),
+    ).toBeVisible();
+    await splitReadyExpect(
+      page.getByLabel("Complete example input source", { exact: true }),
+    ).toHaveText('{"case":1,"changed":true}');
+    await splitReadyExpect(
+      page.getByRole("button", { name: "Edit input" }),
+    ).toBeEnabled();
+    await splitReadyExpect(
+      page.getByRole("heading", { name: "Expected answers" }),
+    ).toBeVisible();
+    await splitReadyExpect(
+      page.getByRole("checkbox", { name: "Option A" }),
+    ).toBeEnabled();
+    await splitReadyExpect(
+      page.getByRole("region", { name: "Saved changes awaiting refresh" }),
+    ).toHaveCount(0);
+    await splitReadyExpect(
+      page.getByText("Loading selected example…", { exact: true }),
+    ).toHaveCount(0);
+    await splitReadyExpect(
+      page.getByText("Loading labels…", { exact: true }),
+    ).toHaveCount(0);
+    await settleProjectReads();
+  })();
+  void splitRefreshReadiness.catch(() => undefined);
+  try {
+    await Promise.race([splitRefreshReadiness, boundedSplitReadiness]);
+  } finally {
+    if (refreshReadinessTimer !== undefined)
+      clearTimeout(refreshReadinessTimer);
+  }
+  actionTimings.push({
+    action: "split_replay",
+    stage: "readiness",
+    elapsed_ms: Date.now() - splitReadinessStartedAt,
+  });
+  await recordProgress();
+  activeSplitReadEvents = undefined;
 
   const splitDatasetRead = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
@@ -4525,7 +4694,10 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  expect(splitDatasetRead.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    splitDatasetRead,
+    new URL(splitDatasetRead.url()).pathname,
+  );
   const splitDatasetData = (await splitDatasetRead.json()).data;
   expect(splitDatasetData.record).toEqual(splitReceipt.dataset.record);
   expect(splitDatasetData.etag).toBe(splitReceipt.dataset.etag);
@@ -4535,7 +4707,10 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  expect(casesAfterSplitReplay.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    casesAfterSplitReplay,
+    new URL(casesAfterSplitReplay.url()).pathname,
+  );
   expect((await casesAfterSplitReplay.json()).data.total).toBe(
     String(splitReceipt.snapshot.cases.length),
   );
@@ -4580,6 +4755,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("status").filter({ hasText: /^Applicable · human$/ }),
   ).toBeVisible({ timeout: 15_000 });
+  await settleProjectReads();
   const seedLabelAfterSaveResponse = await readSeedLabel();
   const seedLabelAfterSave: ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"> =
     (await seedLabelAfterSaveResponse.json()).data;
@@ -4627,10 +4803,24 @@ test("installed browser authors exact decision source and previews imports throu
       response.request().method() === "PUT",
   );
   await optionNamesForRemoval.nth(2).press("Tab");
-  await removalSetupTransform;
-  await removalSetupSave;
+  const [removalSetupTransformResponse, removalSetupSaveResponse] =
+    await Promise.all([removalSetupTransform, removalSetupSave]);
+  expect(removalSetupTransformResponse.status()).toBe(200);
+  expect(removalSetupSaveResponse.status()).toBe(200);
+  await Promise.all([
+    removalSetupTransformResponse.body(),
+    removalSetupSaveResponse.body(),
+  ]);
 
+  const referencedImpactResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Remove option Option A" }).click();
+  const referencedImpactReceipt = await referencedImpactResponse;
+  expect(referencedImpactReceipt.status()).toBe(200);
+  await referencedImpactReceipt.body();
   const referencedImpact = page
     .getByRole("dialog", { name: "Remove Option A?" })
     .getByRole("list", { name: "Affected references" });
@@ -4640,7 +4830,15 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
 
+  const unreferencedImpactResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Remove option Option C" }).click();
+  const unreferencedImpactReceipt = await unreferencedImpactResponse;
+  expect(unreferencedImpactReceipt.status()).toBe(200);
+  await unreferencedImpactReceipt.body();
   const unreferencedImpact = page.getByRole("dialog", {
     name: "Remove Option C?",
   });
@@ -4655,7 +4853,15 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   await expect(page.getByLabel("Option name")).toHaveCount(2);
 
+  const uncomputableImpactResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Remove option Option A" }).click();
+  const uncomputableImpactReceipt = await uncomputableImpactResponse;
+  expect(uncomputableImpactReceipt.status()).toBe(200);
+  await uncomputableImpactReceipt.body();
   const uncomputableImpact = page.getByRole("dialog", {
     name: "Remove Option A?",
   });
@@ -4734,13 +4940,17 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("table", { name: "Archived decisions" })
     .getByRole("row", { name: new RegExp(decisionName) });
   await expect(archivedRow).toBeVisible();
+  await settleProjectReads();
   const retainedRevisions = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
-  expect(retainedRevisions.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    retainedRevisions,
+    new URL(retainedRevisions.url()).pathname,
+  );
   const retainedRevisionIds = (await retainedRevisions.json()).data.items.map(
     (item: { revision: { record: { id: string } } }) => item.revision.record.id,
   );
@@ -4839,7 +5049,10 @@ test("installed browser authors exact decision source and previews imports throu
     `/api/v1/projects/${registrationId}/providers?limit=100`,
     { headers: authorizedHeaders },
   );
-  expect(providerProfilesResponse.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    providerProfilesResponse,
+    new URL(providerProfilesResponse.url()).pathname,
+  );
   const configuredProvider = (
     await providerProfilesResponse.json()
   ).data.items.find(
@@ -4979,7 +5192,10 @@ test("installed browser authors exact decision source and previews imports throu
     `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
     { headers: fixtureHeaders },
   );
-  expect(fixtureProvidersResponse.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    fixtureProvidersResponse,
+    new URL(fixtureProvidersResponse.url()).pathname,
+  );
   const fixtureProvider = (
     await fixtureProvidersResponse.json()
   ).data.items.find((item: { adapter: string }) => item.adapter === "fixture");
@@ -4992,7 +5208,10 @@ test("installed browser authors exact decision source and previews imports throu
     `/api/v1/projects/${fixtureRegistrationId}/fixtures?limit=50`,
     { headers: fixtureHeaders },
   );
-  expect(fixturePage.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    fixturePage,
+    new URL(fixturePage.url()).pathname,
+  );
   const fixtureSummary = (await fixturePage.json()).data.items[0];
   expect(fixtureSummary).toMatchObject({
     decision_id: expect.any(String),
@@ -5058,7 +5277,10 @@ test("installed browser authors exact decision source and previews imports throu
     `/api/v1/projects/${fixtureRegistrationId}/fixtures/${fixtureSummary.id}?include_requests=false`,
     { headers: fixtureHeaders },
   );
-  expect(fixtureDetail.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    fixtureDetail,
+    new URL(fixtureDetail.url()).pathname,
+  );
   const hiddenFixtureDetail = (await fixtureDetail.json())
     .data as ApiOperationData<"readFixtureSet">;
   expect(hiddenFixtureDetail.id).toBe(fixtureSummary.id);
@@ -5178,7 +5400,10 @@ test("installed browser authors exact decision source and previews imports throu
     `/api/v1/projects/${fixtureRegistrationId}/fixtures/${createdFixtureId as string}?include_requests=false`,
     { headers: fixtureHeaders },
   );
-  expect(createdFixture.status()).toBe(200);
+  await expectDirectDataEnvelope(
+    createdFixture,
+    new URL(createdFixture.url()).pathname,
+  );
   const createdFixtureData = (await createdFixture.json())
     .data as ApiOperationData<"readFixtureSet">;
   expect(createdFixtureData).toMatchObject({
