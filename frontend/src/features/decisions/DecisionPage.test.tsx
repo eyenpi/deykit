@@ -118,7 +118,6 @@ function draftReceipt(
   targetDecisionId = decisionId,
 ): DraftReceipt {
   return {
-    schema_version: 1,
     etag,
     record: {
       schema_version: 1,
@@ -135,10 +134,8 @@ function revisionReceipt(
   targetDecisionId = decisionId,
 ): RevisionReceipt {
   return {
-    schema_version: 1,
     editor_source: editorSource,
     revision: {
-      schema_version: 1,
       etag: "revision-etag-1",
       record: {
         schema_version: 1,
@@ -212,6 +209,16 @@ async function editQuestion(value: string) {
   fireEvent.blur(question);
 }
 
+function expectTextboxValue(name: string, expected: string) {
+  const textbox = screen.getByRole("textbox", { name });
+  if (
+    !(textbox instanceof HTMLInputElement) &&
+    !(textbox instanceof HTMLTextAreaElement)
+  )
+    throw new Error(`Expected ${name} to be an input or textarea.`);
+  expect(textbox.value).toBe(expected);
+}
+
 async function advanceTransformDelay() {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(500);
@@ -236,7 +243,7 @@ it("flushes the represented draft before transforming and saving a version", asy
   const revisionBodies: Array<
     Parameters<DecisionAuthoringOperations["saveRevision"]>[0]["body"]
   > = [];
-  const { operations } = mountDecision({
+  mountDecision({
     read: async () => {
       readCount += 1;
       if (readCount === 1) return apiResult(decisionRead(source0, "draft-0"));
@@ -286,9 +293,7 @@ it("flushes the represented draft before transforming and saving a version", asy
   expect(updateBodies[0]?.editor_source).toContain("0.1234567890123456789");
   expect(transformBodies).toHaveLength(1);
   expect(revisionBodies).toHaveLength(0);
-  expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(
-    "Second queued",
-  );
+  expectTextboxValue("Question", "Second queued");
 
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-1")));
@@ -365,9 +370,7 @@ it("pauses queued transforms while the represented draft acknowledgement overlap
 
   expect(transformBodies).toHaveLength(1);
   expect(revisionBodies).toHaveLength(0);
-  expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(
-    "Second queued",
-  );
+  expectTextboxValue("Question", "Second queued");
 
   fireEvent.compositionEnd(schema);
   await act(async () => {
@@ -409,9 +412,7 @@ it.each([
     expect(transformEditor).toHaveBeenCalledTimes(1);
     expect(updateDraft).toHaveBeenCalledTimes(1);
     expect(saveRevision).not.toHaveBeenCalled();
-    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(
-      "Second queued",
-    );
+    expectTextboxValue("Question", "Second queued");
     expect(
       screen.queryByRole("button", {
         name:
@@ -475,9 +476,7 @@ it("drops an obsolete queued form edit when exact raw source replaces its sequen
     source1,
     rawSource,
   ]);
-  expect(screen.getByRole("textbox", { name: "Decision source" })).toHaveValue(
-    rawSource,
-  );
+  expectTextboxValue("Decision source", rawSource);
   expect(transformBodies).toHaveLength(1);
 });
 
@@ -517,9 +516,7 @@ it("does not continue an old drain after the same page is reused for another dec
 
   mounted.rerenderDecision("decision-2");
   await waitFor(() =>
-    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(
-      "Start",
-    ),
+    expectTextboxValue("Question", "Start"),
   );
   await act(async () => {
     releasePriorDraft(apiResult(draftReceipt(source1, "draft-old-ack")));
@@ -529,8 +526,6 @@ it("does not continue an old drain after the same page is reused for another dec
 
   expect(transformEditor).toHaveBeenCalledTimes(1);
   expect(saveRevision).not.toHaveBeenCalled();
-  expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(
-    "Start",
-  );
+  expectTextboxValue("Question", "Start");
   expect(updateCount).toBe(1);
 });
