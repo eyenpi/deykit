@@ -55,6 +55,8 @@ export function DefinitionHistory({
     restoreGuard.current ??
     (() => {
       const unresolvedRestore = () => {
+        // Navigation can run before React renders the submitting state. Read
+        // the live mutation so its original request survives until settlement.
         const state = restoreMutation.current?.state.kind;
         return state === "submitting" || state === "outcome-unknown";
       };

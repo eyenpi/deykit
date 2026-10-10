@@ -61,6 +61,40 @@ it("renders server supplied project context and keeps Run/History within decisio
       ...disconnectedWorkspace.authoring,
       decisions: {
         ...disconnectedWorkspace.authoring.decisions,
+        read: async ({ decisionId }) => ({
+          data: {
+            schema_version: 1,
+            decision: {
+              etag: "decision-etag",
+              record: {
+                schema_version: 1,
+                id: decisionId,
+                name: "Test decision",
+              },
+            },
+            draft: {
+              etag: "draft-etag",
+              record: {
+                schema_version: 1,
+                decision_id: decisionId,
+                editor_source: "{}",
+                updated_at: "2026-10-10T00:00:00Z",
+              },
+            },
+          },
+          warnings: [],
+        }),
+        projectEditor: async ({ body }) => ({
+          data: {
+            schema_version: 1,
+            editor_source: body.editor_source,
+            form: null,
+            form_unavailable_reason: "invalid_editor_source",
+            source_hash: null,
+            validation_advice: [],
+          },
+          warnings: [],
+        }),
         list: async () => ({
           data: { schema_version: 1, items: [], total: "0", next_cursor: null },
           warnings: [],
@@ -83,9 +117,12 @@ it("renders server supplied project context and keeps Run/History within decisio
   await screen.findByRole("heading", { name: "Authored test project" });
   expect(screen.queryByRole("button", { name: "History" })).toBeNull();
   await user.click(screen.getAllByRole("button", { name: "Test decision" })[0]);
+  await screen.findByLabelText("Decision name");
   expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
   await user.click(screen.getByRole("button", { name: "Providers" }));
-  expect(screen.queryByRole("button", { name: "History" })).toBeNull();
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "History" })).toBeNull(),
+  );
 });
 
 it("uses the selected recent path and focuses only the successful overview transition", async () => {
