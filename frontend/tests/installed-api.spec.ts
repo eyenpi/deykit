@@ -2420,10 +2420,11 @@ test("installed browser authors exact decision source and previews imports throu
     })
     .check();
   await captureScreenshot("import-valid-rows-reviewed.png");
+  const importCommitsBeforeReplayScenario = importCommitBodies.length;
   let firstImportCommitStatus: number | undefined;
   await page.route("**/imports/commit", async (route) => {
     const response = await route.fetch();
-    if (importCommitBodies.length === 1) {
+    if (importCommitBodies.length === importCommitsBeforeReplayScenario + 1) {
       firstImportCommitStatus = response.status();
       await route.abort("failed");
       return;
@@ -2456,7 +2457,7 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await expect(page).toHaveURL(importHashBeforeRouteAttempt);
-  expect(importCommitBodies).toHaveLength(1);
+  expect(importCommitBodies).toHaveLength(importCommitsBeforeReplayScenario + 1);
   const importReplayResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/imports/commit") &&
@@ -2472,8 +2473,10 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Retry the same import request" }),
   ).toHaveCount(0);
   await expect(caseButton("case-1")).toBeVisible();
-  expect(importCommitBodies).toHaveLength(2);
-  expect(importCommitBodies[1]).toEqual(importCommitBodies[0]);
+  expect(importCommitBodies).toHaveLength(importCommitsBeforeReplayScenario + 2);
+  expect(importCommitBodies[importCommitsBeforeReplayScenario + 1]).toEqual(
+    importCommitBodies[importCommitsBeforeReplayScenario],
+  );
   await page.unroute("**/imports/commit");
   await expect(caseButton("case-1")).toBeVisible();
   expect(importCommitBody).toBeDefined();
