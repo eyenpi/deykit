@@ -95,15 +95,17 @@ it("keeps an OS credential mounted only for its request and never calls model li
 });
 
 it("creates a provider profile using the displayed supported default adapter", async () => {
-  vi.stubGlobal("crypto", { randomUUID: () => "new-provider-id" });
+  const generatedId = "new-provider-id";
+  const expectedProfileId = `provider-${generatedId}`;
+  vi.stubGlobal("crypto", { randomUUID: () => generatedId });
   let configuredBody: ApiOperationBody<"configureProviderProfile"> | undefined;
   const operations = providerOperations({
     list: async () => ({ data: { schema_version: 1, items: [], total: "0", next_cursor: null }, warnings: [] }),
     read: async ({ profileId }) => ({
       data: { ...profile, id: profileId }, warnings: [],
     }),
-    credentialStatus: async () => ({
-      data: { schema_version: 1, profile_id: "new-provider-id", configured: false, available: false, kind: null },
+    credentialStatus: async ({ profileId }) => ({
+      data: { schema_version: 1, profile_id: profileId, configured: false, available: false, kind: null },
       warnings: [],
     }),
     configure: async ({ body }) => {
@@ -144,8 +146,8 @@ it("creates a provider profile using the displayed supported default adapter", a
   await user.type(screen.getByLabelText("Destination"), "https://api.typesafe.ai/v1/systemone");
   await user.click(screen.getByRole("button", { name: "Save profile" }));
 
-  await screen.findByRole("heading", { name: "new-provider-id" });
-  expect(configuredBody).toMatchObject({ profile_id: "new-provider-id", adapter: "jev" });
+  await screen.findByRole("heading", { name: expectedProfileId });
+  expect(configuredBody).toMatchObject({ profile_id: expectedProfileId, adapter: "jev" });
   navigation.dispose();
 });
 
