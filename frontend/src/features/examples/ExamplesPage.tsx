@@ -153,7 +153,7 @@ export function ExamplesPage({
     conflict: boolean;
   }>();
   const [committedRefresh, setCommittedRefresh] = useState<CommittedRefresh>();
-  const committedRefreshRef = useRef<CommittedRefresh>();
+  const committedRefreshRef = useRef<CommittedRefresh | undefined>(undefined);
   const caseEditGeneration = useRef(0);
   const labelEditGeneration = useRef(0);
   const [caseConflictReviewed, setCaseConflictReviewed] = useState(false);
