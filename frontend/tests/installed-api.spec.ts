@@ -341,9 +341,16 @@ test("installed browser authors exact decision source and previews imports throu
   let importCommitBody: Record<string, unknown> | undefined;
   const importCommitBodies: Array<Record<string, unknown>> = [];
   const splitCommitBodies: Array<Record<string, unknown>> = [];
+  const addBodies: Array<Record<string, unknown>> = [];
+  const removeBodies: Array<Record<string, unknown>> = [];
+  const mutationRequests: string[] = [];
   let capability: string | undefined;
   page.on("request", (request) => {
     apiResponses.push(request.url());
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method()))
+      mutationRequests.push(
+        `${request.method()} ${safeRoutePattern(new URL(request.url()).pathname)}`,
+      );
     if (request.url().endsWith("/imports/commit")) {
       importCommitBody = request.postDataJSON() as Record<string, unknown>;
       importCommitBodies.push(importCommitBody);
@@ -2898,6 +2905,26 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Dispute label" }),
   ).toBeDisabled();
   expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
+  const writesDuringCommittedLabelRefresh = mutationRequests.length;
+  const importCommitsBeforeBlockedActions = importCommitBodies.length;
+  const splitCommitsBeforeBlockedActions = splitCommitBodies.length;
+  await expect(
+    page.getByRole("button", { name: "Import examples" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Split dataset" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Add example" }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Remove case" }),
+  ).toBeDisabled();
+  expect(addBodies).toHaveLength(0);
+  expect(removeBodies).toHaveLength(0);
+  expect(mutationRequests).toHaveLength(writesDuringCommittedLabelRefresh);
+  expect(importCommitBodies).toHaveLength(importCommitsBeforeBlockedActions);
+  expect(splitCommitBodies).toHaveLength(splitCommitsBeforeBlockedActions);
   const committedLabelHash = page.url();
   await page.evaluate((hash) => {
     window.location.hash = hash;
@@ -3090,7 +3117,6 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Add example", exact: true }).click();
   const proposedAddSource = '{"proposal":"keep-after-review"}';
   await page.getByLabel("Input source").fill(proposedAddSource);
-  const addBodies: Array<Record<string, unknown>> = [];
   let releaseAdd!: () => void;
   let reportAddStarted!: () => void;
   const addGate = new Promise<void>((resolve) => {
@@ -3262,7 +3288,6 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("heading", { name: "case-2", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Remove case" }).click();
-  const removeBodies: Array<Record<string, unknown>> = [];
   let releaseRemove!: () => void;
   let reportRemoveStarted!: () => void;
   const removeGate = new Promise<void>((resolve) => {

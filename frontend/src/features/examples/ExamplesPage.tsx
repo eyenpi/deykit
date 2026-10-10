@@ -635,7 +635,8 @@ export function ExamplesPage({
   }
 
   async function reviewLabelConflict(): Promise<void> {
-    if (!decision || !datasetId || !selectedCaseId) return;
+    if (committedRefreshRef.current || !decision || !datasetId || !selectedCaseId)
+      return;
     const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
@@ -739,7 +740,8 @@ export function ExamplesPage({
   }
 
   async function reviewCaseConflict() {
-    if (!dataset || !caseRead || !selectedCaseId) return;
+    if (committedRefreshRef.current || !dataset || !caseRead || !selectedCaseId)
+      return;
     const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
@@ -770,7 +772,7 @@ export function ExamplesPage({
   }
 
   async function addCase(): Promise<boolean> {
-    if (!dataset) return false;
+    if (committedRefreshRef.current || !dataset) return false;
     if (pendingAdd?.conflict) return false;
     setBusy(true);
     setMutationInFlight(true);
@@ -824,7 +826,7 @@ export function ExamplesPage({
   }
 
   async function reviewAddConflict() {
-    if (!dataset) return;
+    if (committedRefreshRef.current || !dataset) return;
     const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
@@ -856,7 +858,13 @@ export function ExamplesPage({
   }
 
   async function removeSelectedCase() {
-    if (!dataset || !caseRead || !selectedCaseId) return;
+    if (
+      committedRefreshRef.current ||
+      !dataset ||
+      !caseRead ||
+      !selectedCaseId
+    )
+      return;
     if (pendingRemove?.conflict) return;
     setBusy(true);
     setMutationInFlight(true);
@@ -903,7 +911,8 @@ export function ExamplesPage({
   }
 
   async function reviewRemoveConflict() {
-    if (!dataset || !caseRead || !selectedCaseId) return;
+    if (committedRefreshRef.current || !dataset || !caseRead || !selectedCaseId)
+      return;
     const context = currentReadContext.current;
     setBusy(true);
     setError(undefined);
@@ -1002,6 +1011,12 @@ export function ExamplesPage({
       }
     }
   }
+  function launchImport() {
+    if (!committedRefreshRef.current) onImport();
+  }
+  function launchSplit() {
+    if (!committedRefreshRef.current) onSplit();
+  }
   const uncertainWrite = !!(
     pendingLabel?.uncertain ||
     pendingCase?.uncertain ||
@@ -1092,17 +1107,27 @@ export function ExamplesPage({
             </p>
           </div>
           <div className="actions">
-            <button type="button" onClick={onImport}>
+            <button
+              type="button"
+              onClick={launchImport}
+              disabled={!!committedRefresh}
+            >
               Import examples
             </button>
-            <button type="button" onClick={onSplit} disabled={!datasetId}>
+            <button
+              type="button"
+              onClick={launchSplit}
+              disabled={!datasetId || !!committedRefresh}
+            >
               Split dataset
             </button>
             <button
               type="button"
               className="primary"
-              onClick={() => setAddCaseOpen(true)}
-              disabled={!datasetId}
+              onClick={() => {
+                if (!committedRefreshRef.current) setAddCaseOpen(true);
+              }}
+              disabled={!datasetId || !!committedRefresh}
             >
               Add example
             </button>
@@ -1225,7 +1250,7 @@ export function ExamplesPage({
               {caseCursor && (
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !!committedRefresh}
                   onClick={() => void loadMoreCases()}
                 >
                   {busy ? "Loading…" : "Load more cases"}
@@ -1284,7 +1309,7 @@ export function ExamplesPage({
                 {labelCursor && (
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!committedRefresh}
                     onClick={() => void loadMoreLabels()}
                   >
                     {busy ? "Loading…" : "Load more labels"}
@@ -1313,7 +1338,13 @@ export function ExamplesPage({
               >
                 Edit input
               </button>
-              <button type="button" onClick={() => setDeleteCaseOpen(true)}>
+              <button
+                type="button"
+                disabled={!!committedRefresh}
+                onClick={() => {
+                  if (!committedRefreshRef.current) setDeleteCaseOpen(true);
+                }}
+              >
                 Remove case
               </button>
             </header>
@@ -1372,7 +1403,7 @@ export function ExamplesPage({
                     </p>
                     <button
                       type="button"
-                      disabled={busy}
+                      disabled={busy || !!committedRefresh}
                       onClick={retryUnknownLabel}
                     >
                       Retry original label request
@@ -1386,7 +1417,7 @@ export function ExamplesPage({
                       answer before deliberately reapplying your staged set.
                     </p>
                     <button
-                      disabled={busy}
+                      disabled={busy || !!committedRefresh}
                       onClick={() => void reviewLabelConflict()}
                     >
                       Review current label
@@ -1485,7 +1516,7 @@ export function ExamplesPage({
                   </p>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!committedRefresh}
                     onClick={() => void saveCase()}
                   >
                     Retry same case edit
@@ -1500,7 +1531,7 @@ export function ExamplesPage({
                   </p>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!committedRefresh}
                     onClick={() => void reviewCaseConflict()}
                   >
                     Review current case and dataset
@@ -1585,7 +1616,12 @@ export function ExamplesPage({
           <Modal
             title="Add example"
             onDismiss={() => {
-              if (!busy && !pendingAdd?.uncertain) setAddCaseOpen(false);
+              if (
+                !busy &&
+                !committedRefresh &&
+                !pendingAdd?.uncertain
+              )
+                setAddCaseOpen(false);
             }}
           >
             <div className="modal-body case-editor">
@@ -1597,7 +1633,7 @@ export function ExamplesPage({
                   </p>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!committedRefresh}
                     onClick={() => void addCase()}
                   >
                     Retry same add request
@@ -1613,7 +1649,7 @@ export function ExamplesPage({
                   </p>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!committedRefresh}
                     onClick={() => void reviewAddConflict()}
                   >
                     Review current cases and dataset
@@ -1633,7 +1669,7 @@ export function ExamplesPage({
                     <input
                       type="radio"
                       checked={newInputKind === kind}
-                      disabled={busy || pendingAdd?.uncertain}
+                      disabled={busy || !!committedRefresh || pendingAdd?.uncertain}
                       onChange={() => {
                         setNewInputKind(kind);
                         setEditorDirty(true);
@@ -1646,7 +1682,7 @@ export function ExamplesPage({
               <JsonSourceEditor
                 label="Input source"
                 value={newInputSource}
-                readOnly={busy || pendingAdd?.uncertain}
+                readOnly={busy || !!committedRefresh || pendingAdd?.uncertain}
                 onChange={(value) => {
                   setNewInputSource(value);
                   setEditorDirty(true);
@@ -1655,7 +1691,7 @@ export function ExamplesPage({
               <JsonSourceEditor
                 label="Metadata source"
                 value={newMetadataSource}
-                readOnly={busy || pendingAdd?.uncertain}
+                readOnly={busy || !!committedRefresh || pendingAdd?.uncertain}
                 onChange={(value) => {
                   setNewMetadataSource(value);
                   setEditorDirty(true);
@@ -1665,7 +1701,7 @@ export function ExamplesPage({
                 <button
                   type="button"
                   className="primary"
-                  disabled={busy || !!pendingAdd?.conflict}
+                  disabled={busy || !!committedRefresh || !!pendingAdd?.conflict}
                   onClick={() => void addCase()}
                 >
                   {busy
@@ -1676,7 +1712,7 @@ export function ExamplesPage({
                 </button>
                 <button
                   type="button"
-                  disabled={busy || pendingAdd?.uncertain}
+                  disabled={busy || !!committedRefresh || pendingAdd?.uncertain}
                   onClick={() => setAddCaseOpen(false)}
                 >
                   Cancel
@@ -1689,7 +1725,12 @@ export function ExamplesPage({
           <Modal
             title={`Remove ${currentCase.id}?`}
             onDismiss={() => {
-              if (!busy && !pendingRemove?.uncertain) setDeleteCaseOpen(false);
+              if (
+                !busy &&
+                !committedRefresh &&
+                !pendingRemove?.uncertain
+              )
+                setDeleteCaseOpen(false);
             }}
           >
             <div className="modal-body">
@@ -1706,7 +1747,7 @@ export function ExamplesPage({
                   </p>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!committedRefresh}
                     onClick={() => void removeSelectedCase()}
                   >
                     Retry same removal
@@ -1721,7 +1762,7 @@ export function ExamplesPage({
                   </p>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!committedRefresh}
                     onClick={() => void reviewRemoveConflict()}
                   >
                     Review current case and dataset
@@ -1738,7 +1779,7 @@ export function ExamplesPage({
                 <button
                   type="button"
                   className="primary"
-                  disabled={busy || !!pendingRemove?.conflict}
+                  disabled={busy || !!committedRefresh || !!pendingRemove?.conflict}
                   onClick={() => void removeSelectedCase()}
                 >
                   {busy
@@ -1749,7 +1790,7 @@ export function ExamplesPage({
                 </button>
                 <button
                   type="button"
-                  disabled={busy || pendingRemove?.uncertain}
+                  disabled={busy || !!committedRefresh || pendingRemove?.uncertain}
                   onClick={() => setDeleteCaseOpen(false)}
                 >
                   Cancel
