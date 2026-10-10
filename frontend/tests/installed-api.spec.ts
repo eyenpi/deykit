@@ -3418,6 +3418,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await page.getByRole("button", { name: "Add example", exact: true }).click();
+  await page.getByRole("radio", { name: "JSON", exact: true }).check();
   const proposedAddSource = '{"proposal":"keep-after-review"}';
   await page
     .getByLabel("Input source", { exact: true })
@@ -3447,6 +3448,9 @@ test("installed browser authors exact decision source and previews imports throu
     .last()
     .click();
   await addStarted;
+  expect(addBodies).toHaveLength(1);
+  expect(addBodies[0]?.input_kind).toBe("json");
+  expect(addBodies[0]?.input_source).toBe(proposedAddSource);
   const addDataset = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
     {
@@ -3463,7 +3467,7 @@ test("installed browser authors exact decision source and previews imports throu
         operation_id: "m10-add-case-conflict-winner",
         expected_dataset_etag: addDatasetData.etag,
         case_id: "m10-add-conflict-winner",
-        input_kind: "text",
+        input_kind: "json",
         input_source: '{"proposal":"winner"}',
         metadata_source: "{}",
         tags: [],
@@ -3473,7 +3477,21 @@ test("installed browser authors exact decision source and previews imports throu
       },
     },
   );
-  expect(addWinner.status()).toBe(200);
+  if (addWinner.status() !== 200) {
+    const failure = await addWinner.json().catch(() => undefined);
+    const error = isRecord(failure) ? failure.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    const diagnostic = {
+      route_pattern: safeRoutePattern(new URL(addWinner.url()).pathname),
+      status: addWinner.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    };
+    apiFailures.push(diagnostic);
+    await recordProgress();
+    expect(addWinner.status(), JSON.stringify(diagnostic)).toBe(200);
+  }
+  await addWinner.body();
   releaseAdd();
   await expect(
     page.getByRole("button", { name: "Review current cases and dataset" }),
@@ -3495,6 +3513,7 @@ test("installed browser authors exact decision source and previews imports throu
   await reapplyAddReceipt.body();
   expect(addBodies).toHaveLength(2);
   expect(addBodies[1].input_source).toBe(proposedAddSource);
+  expect(addBodies[1].input_kind).toBe("json");
   expect(addBodies[1].operation_id).not.toBe(addBodies[0].operation_id);
   expect(addBodies[1].expected_dataset_etag).not.toBe(
     addBodies[0].expected_dataset_etag,
