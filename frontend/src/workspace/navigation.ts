@@ -7,6 +7,20 @@ export type DirtyNavigationGuard = ((
   isDirty: () => boolean;
 };
 
+type ExternalIntent = {
+  route: WorkspaceRoute;
+  hash: string;
+  key: string;
+  generation: number;
+};
+
+type NativeFragmentPair = {
+  oldHash: string;
+  hash: string;
+  key: string;
+  generation: number;
+};
+
 export interface WorkspaceViewState {
   selectedDatasetId?: string;
   selectedCaseId?: string;
@@ -55,11 +69,14 @@ export class WorkspaceNavigation {
   #guards = new Map<string, DirtyNavigationGuard>();
   #externalCheckScheduled = false;
   #externalCheckRunning = false;
-  #pendingExternal:
-    { route: WorkspaceRoute; hash: string; generation: number } | undefined;
+  #pendingExternal: ExternalIntent | undefined;
+  #activeExternal: ExternalIntent | undefined;
+  // Changed-fragment traversals are removed by their companion or at disposal.
+  #nativeFragmentPairs: NativeFragmentPair[] = [];
   #intentGeneration = 0;
+  #disposed = false;
   #transitionTail: Promise<void> = Promise.resolve();
-  #onExternalNavigation: () => void;
+  #onExternalNavigation: (event: Event) => void;
   #onBeforeUnload = (event: BeforeUnloadEvent) => {
     if (![...this.#guards.values()].some((guard) => guard.isDirty())) return;
     event.preventDefault();
@@ -74,22 +91,35 @@ export class WorkspaceNavigation {
       ? browser.location.hash
       : routeToHash(this.#route);
     if (!parsed) browser.history.replaceState(null, "", this.#admittedHash);
-    this.#onExternalNavigation = () => {
-      const hash = browser.location.hash;
+    this.#onExternalNavigation = (event) => {
+      const hash = this.#eventHash(event);
       const route = routeFromHash(hash);
-      const generation = ++this.#intentGeneration;
-      this.#restoreAdmittedHash();
-      if (!route) {
-        this.#pendingExternal = undefined;
-        return;
+      const key = route ? routeToHash(route) : `invalid:${hash}`;
+      if (event.type === "hashchange") {
+        const oldHash = this.#eventOldHash(event);
+        const pairIndex = this.#nativeFragmentPairs.findIndex(
+          (pair) =>
+            pair.oldHash === oldHash && pair.hash === hash && pair.key === key,
+        );
+        if (pairIndex >= 0) {
+          this.#nativeFragmentPairs.splice(pairIndex, 1);
+          return;
+        }
       }
-      this.#pendingExternal = { route, hash, generation };
-      if (this.#externalCheckScheduled) return;
-      this.#externalCheckScheduled = true;
-      queueMicrotask(() => {
-        this.#externalCheckScheduled = false;
-        void this.#acceptExternalRoute();
-      });
+      const generation = this.#receiveExternal(route, hash, key);
+      if (
+        event.type === "popstate" &&
+        hash !== this.#admittedHash &&
+        generation !== undefined
+      ) {
+        // Keep this movement's companion identity even if a newer intent starts first.
+        this.#nativeFragmentPairs.push({
+          oldHash: this.#admittedHash,
+          hash,
+          key,
+          generation,
+        });
+      }
     };
     browser.addEventListener("hashchange", this.#onExternalNavigation);
     browser.addEventListener("popstate", this.#onExternalNavigation);
@@ -114,13 +144,14 @@ export class WorkspaceNavigation {
   }
 
   async navigate(route: WorkspaceRoute): Promise<boolean> {
-    if (!isValidWorkspaceRoute(route)) return false;
+    if (this.#disposed || !isValidWorkspaceRoute(route)) return false;
     const generation = ++this.#intentGeneration;
+    this.#pendingExternal = undefined;
     return this.#serialize(async () => {
-      if (generation !== this.#intentGeneration) return false;
+      if (this.#disposed || generation !== this.#intentGeneration) return false;
       if (sameRoute(route, this.#route)) return true;
       if (!(await this.#confirmDirtyEditors(route))) return false;
-      if (generation !== this.#intentGeneration) return false;
+      if (this.#disposed || generation !== this.#intentGeneration) return false;
       const hash = routeToHash(route);
       this.#browser.history.pushState(null, "", hash);
       this.#admittedHash = hash;
@@ -130,6 +161,10 @@ export class WorkspaceNavigation {
   }
 
   dispose(): void {
+    this.#disposed = true;
+    this.#intentGeneration += 1;
+    this.#pendingExternal = undefined;
+    this.#nativeFragmentPairs = [];
     this.#browser.removeEventListener("hashchange", this.#onExternalNavigation);
     this.#browser.removeEventListener("popstate", this.#onExternalNavigation);
     this.#browser.removeEventListener("beforeunload", this.#onBeforeUnload);
@@ -137,34 +172,113 @@ export class WorkspaceNavigation {
     this.#guards.clear();
   }
 
+  #eventHash(event: Event): string {
+    if (event.type !== "hashchange") return this.#browser.location.hash;
+    const hashChange = event as HashChangeEvent;
+    try {
+      return new URL(hashChange.newURL).hash;
+    } catch {
+      return "";
+    }
+  }
+
+  #eventOldHash(event: Event): string {
+    const hashChange = event as HashChangeEvent;
+    try {
+      return new URL(hashChange.oldURL).hash;
+    } catch {
+      return "";
+    }
+  }
+
+  #receiveExternal(
+    route: WorkspaceRoute | null,
+    hash: string,
+    key: string,
+  ): number | undefined {
+    if (this.#disposed) return undefined;
+    if (!route) {
+      this.#intentGeneration += 1;
+      this.#pendingExternal = undefined;
+      this.#restoreAdmittedHash();
+      return this.#intentGeneration;
+    }
+    if (
+      this.#activeExternal?.key === key &&
+      this.#activeExternal.generation === this.#intentGeneration
+    ) {
+      this.#restoreAdmittedHash();
+      return this.#activeExternal.generation;
+    }
+    if (this.#pendingExternal?.key === key) {
+      this.#restoreAdmittedHash();
+      return this.#pendingExternal.generation;
+    }
+    const intent: ExternalIntent = {
+      route,
+      hash,
+      key,
+      generation: ++this.#intentGeneration,
+    };
+    this.#pendingExternal = intent;
+    this.#restoreAdmittedHash();
+    if (this.#externalCheckScheduled) return intent.generation;
+    this.#externalCheckScheduled = true;
+    queueMicrotask(() => {
+      this.#externalCheckScheduled = false;
+      void this.#acceptExternalRoute();
+    });
+    return intent.generation;
+  }
+
   async #acceptExternalRoute(): Promise<void> {
-    if (this.#externalCheckRunning) return;
+    if (this.#disposed || this.#externalCheckRunning) return;
     this.#externalCheckRunning = true;
     try {
-      while (this.#pendingExternal) {
+      while (!this.#disposed && this.#pendingExternal) {
         const pending = this.#pendingExternal;
         this.#pendingExternal = undefined;
-        await this.#serialize(async () => {
-          if (pending.generation !== this.#intentGeneration) return;
-          if (sameRoute(pending.route, this.#route)) {
+        this.#activeExternal = pending;
+        try {
+          await this.#serialize(async () => {
+            if (
+              this.#disposed ||
+              pending.generation !== this.#intentGeneration
+            )
+              return;
+            if (sameRoute(pending.route, this.#route)) {
+              this.#admittedHash = pending.hash;
+              this.#browser.history.replaceState(null, "", pending.hash);
+              return;
+            }
+            if (!(await this.#confirmDirtyEditors(pending.route))) {
+              if (
+                !this.#disposed &&
+                pending.generation === this.#intentGeneration
+              )
+                this.#restoreAdmittedHash();
+              return;
+            }
+            if (
+              this.#disposed ||
+              pending.generation !== this.#intentGeneration
+            )
+              return;
             this.#admittedHash = pending.hash;
             this.#browser.history.replaceState(null, "", pending.hash);
-            return;
-          }
-          if (!(await this.#confirmDirtyEditors(pending.route))) {
-            if (pending.generation === this.#intentGeneration)
-              this.#restoreAdmittedHash();
-            return;
-          }
-          if (pending.generation !== this.#intentGeneration) return;
-          this.#admittedHash = pending.hash;
-          this.#browser.history.replaceState(null, "", pending.hash);
-          this.#publish(pending.route);
-        });
+            this.#publish(pending.route);
+          });
+        } finally {
+          if (this.#activeExternal === pending) this.#activeExternal = undefined;
+        }
       }
     } finally {
       this.#externalCheckRunning = false;
-      if (this.#pendingExternal && !this.#externalCheckScheduled) {
+      if (
+        !this.#disposed &&
+        this.#pendingExternal &&
+        !this.#externalCheckScheduled
+      ) {
         this.#externalCheckScheduled = true;
         queueMicrotask(() => {
           this.#externalCheckScheduled = false;
@@ -195,6 +309,7 @@ export class WorkspaceNavigation {
   }
 
   #publish(route: WorkspaceRoute): void {
+    if (this.#disposed) return;
     this.#route = route;
     for (const listener of this.#listeners) listener(route);
   }
