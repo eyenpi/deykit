@@ -458,8 +458,13 @@ it("admits a new dataset version with its matching case page and does not reload
       warnings: [],
     }),
   );
-  const { user, saveLabels } = mountExamples(
-    { listCases: casesReads, readCase: casesRead },
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async () => {
+      throw new ApiError("preflight_failed", "Synthetic rejection.", 422);
+    },
+  );
+  const { user } = mountExamples(
+    { listCases: casesReads, readCase: casesRead, saveLabels },
     { read: datasetReads },
   );
 
