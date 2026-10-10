@@ -2585,7 +2585,9 @@ test("installed browser authors exact decision source and previews imports throu
     .json()
     .catch(() => undefined);
   if (commitReplay.status() >= 400) {
-    const error = isRecord(commitReplayBody) ? commitReplayBody.error : undefined;
+    const error = isRecord(commitReplayBody)
+      ? commitReplayBody.error
+      : undefined;
     const details = isRecord(error) ? error : undefined;
     apiFailures.push({
       route_pattern: safeRoutePattern(
