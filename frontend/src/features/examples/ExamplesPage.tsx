@@ -360,6 +360,7 @@ export function ExamplesPage({
       return undefined;
     return admission;
   }
+  const datasetScopeReady = currentDatasetAdmission() !== undefined;
   function currentSelectionAdmission(): SelectionAdmission | undefined {
     const admission = selectionAdmissionRef.current;
     const context = currentReadContext.current;
@@ -1260,7 +1261,6 @@ export function ExamplesPage({
       finishSelectionReload(selectionReloadToken);
       return;
     }
-    const capturedDatasetAdmission = admittedDataset;
     if (
       !liveRouteMatchesSelection({
         registrationId,
@@ -1287,7 +1287,6 @@ export function ExamplesPage({
         !controller.signal.aborted &&
         readEpoch === selectionReadEpochRef.current &&
         requestedNavigationEpoch === navigationEpochRef.current &&
-        datasetAdmissionRef.current === capturedDatasetAdmission &&
         current.registrationId === requestedContext.registrationId &&
         current.datasetId === requestedDatasetId &&
         current.decisionId === requestedDecisionId &&
@@ -1310,6 +1309,44 @@ export function ExamplesPage({
         signal: controller.signal,
       });
       if (!isCurrentSelectionRead()) return;
+      const cachedDatasetAdmission = currentDatasetAdmission();
+      if (!cachedDatasetAdmission) return;
+      let selectedDatasetRead = cachedDatasetAdmission.read;
+      let selectedCasePage: CasePage | undefined;
+      let freshDatasetRead: DatasetRead | undefined;
+      const requiresFreshDataset =
+        selectionReloadToken !== undefined ||
+        caseResult.data.dataset_etag !== cachedDatasetAdmission.read.etag;
+      if (requiresFreshDataset) {
+        const refreshedDataset = await datasetOperations.read({
+          registrationId: requestedContext.registrationId,
+          datasetId: requestedDatasetId,
+          signal: controller.signal,
+        });
+        if (!isCurrentSelectionRead()) return;
+        if (refreshedDataset.data.record.id !== requestedDatasetId)
+          throw new Error("The loaded dataset does not match this selection.");
+        if (caseResult.data.dataset_etag !== refreshedDataset.data.etag)
+          throw new Error(
+            "The example changed while loading. Reload its current review.",
+          );
+        freshDatasetRead = refreshedDataset.data;
+        selectedDatasetRead = refreshedDataset.data;
+        if (refreshedDataset.data.etag !== cachedDatasetAdmission.read.etag) {
+          const currentCases = await operations.listCases({
+            registrationId: requestedContext.registrationId,
+            datasetId: requestedDatasetId,
+            query: { limit: "50" },
+            signal: controller.signal,
+          });
+          if (!isCurrentSelectionRead()) return;
+          if (currentCases.data.dataset_etag !== refreshedDataset.data.etag)
+            throw new Error(
+              "The examples changed while loading. Reload the current review.",
+            );
+          selectedCasePage = currentCases.data;
+        }
+      }
       const labelResult = requestedDecisionId
         ? await operations.readLabel({
             registrationId,
@@ -1326,11 +1363,45 @@ export function ExamplesPage({
           datasetId: requestedDatasetId,
           decisionId: requestedDecisionId,
           caseId: requestedCaseId,
-          dataset: capturedDatasetAdmission.read,
+          dataset: selectedDatasetRead,
           caseRead: caseResult.data,
           labelView: labelResult?.data,
         })
       )
+        throw new Error(
+          "The example changed while loading. Reload its current review.",
+        );
+      let pairedDatasetAdmission = currentDatasetAdmission();
+      if (!pairedDatasetAdmission) return;
+      const selectedDatasetEpoch = selectedCasePage
+        ? ++datasetReadEpochRef.current
+        : undefined;
+      if (pairedDatasetAdmission.read.etag !== selectedDatasetRead.etag) {
+        if (
+          !freshDatasetRead ||
+          freshDatasetRead.etag !== selectedDatasetRead.etag ||
+          !selectedCasePage
+        )
+          throw new Error(
+            "The example changed while loading. Reload its current review.",
+          );
+        pairedDatasetAdmission = Object.freeze({
+          registrationId: requestedContext.registrationId,
+          datasetId: requestedDatasetId,
+          refreshGeneration: requestedContext.refreshGeneration,
+          refreshToken: requestedContext.refreshToken,
+          epoch: selectedDatasetEpoch ?? ++datasetReadEpochRef.current,
+          read: freshDatasetRead,
+        });
+        datasetAdmissionRef.current = pairedDatasetAdmission;
+      }
+      if (selectedCasePage) {
+        setDataset(selectedDatasetRead);
+        setCases(selectedCasePage);
+        setCaseCursor(selectedCasePage.next_cursor ?? undefined);
+        setLoading(false);
+      }
+      if (caseResult.data.dataset_etag !== pairedDatasetAdmission.read.etag)
         throw new Error(
           "The example changed while loading. Reload its current review.",
         );
@@ -1341,7 +1412,7 @@ export function ExamplesPage({
         caseId: requestedCaseId,
         readEpoch,
         navigationEpoch: requestedNavigationEpoch,
-        datasetAdmission: capturedDatasetAdmission,
+        datasetAdmission: pairedDatasetAdmission,
         caseRead: caseResult.data,
         labelView: labelResult?.data,
       });
@@ -1379,7 +1450,7 @@ export function ExamplesPage({
         caseOwnedByPrevious &&
         (previous.caseRead.case.etag !== caseResult.data.case.etag ||
           previous.datasetAdmission.read.etag !==
-            capturedDatasetAdmission.read.etag ||
+            admission.datasetAdmission.read.etag ||
           !sameCaseSource(
             previous.caseRead.case.record,
             caseResult.data.case.record,
@@ -1454,7 +1525,8 @@ export function ExamplesPage({
       .finally(() => finishSelectionReload(selectionReloadToken));
     return () => controller.abort();
   }, [
-    dataset,
+    datasetScopeReady,
+    datasetOperations,
     decision,
     datasetId,
     navigationEpoch,

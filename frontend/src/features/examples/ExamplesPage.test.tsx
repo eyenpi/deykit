@@ -293,9 +293,13 @@ it("keeps the old display read-only until the selected case and label pair is ad
     }),
     saveLabels,
   };
+  const datasetRead = vi.fn<DatasetAuthoringOperations["read"]>(async () => ({
+    data: dataset,
+    warnings: [],
+  }));
   const datasetOperations: DatasetAuthoringOperations = {
     ...disconnectedWorkspace.authoring.datasets,
-    read: async () => ({ data: dataset, warnings: [] }),
+    read: datasetRead,
   };
   const user = userEvent.setup();
   render(
@@ -338,11 +342,13 @@ it("keeps the old display read-only until the selected case and label pair is ad
       screen.getByLabelText("Complete example input source").textContent,
     ).toBe(sourceB);
   });
+  expect(datasetRead).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole("checkbox", { name: "Option A" }));
   await user.click(
     screen.getByRole("button", { name: "Save expected answer" }),
   );
   await waitFor(() => expect(saveLabels).toHaveBeenCalledTimes(1));
+  expect(datasetRead).toHaveBeenCalledTimes(1);
   const request = saveLabels.mock.calls[0]?.[0];
   expect(request?.registrationId).toBe(project.id);
   expect(request?.decisionId).toBe(decision.id);
@@ -352,6 +358,14 @@ it("keeps the old display read-only until the selected case and label pair is ad
 
 it("keeps the last admitted pair read-only after the selected label read fails", async () => {
   let failedTargetRead = false;
+  const datasetRead = vi.fn<DatasetAuthoringOperations["read"]>(async () => ({
+    data: dataset,
+    warnings: [],
+  }));
+  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(async () => ({
+    data: listCases,
+    warnings: [],
+  }));
   const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
     async ({ caseId }) => {
       if (caseId === "case-b" && !failedTargetRead) {
@@ -364,9 +378,13 @@ it("keeps the last admitted pair read-only after the selected label read fails",
       };
     },
   );
-  const { user, saveLabels } = mountExamples({ readLabel });
+  const { user, saveLabels } = mountExamples(
+    { readLabel, listCases: casesRead },
+    { read: datasetRead },
+  );
 
   await waitForSelectedSource(sourceA);
+  expect(datasetRead).toHaveBeenCalledTimes(1);
   await user.click(screen.getByRole("button", { name: "case-b" }));
   await screen.findByText(
     "The selected example is not ready for changes. Reload its current review.",
@@ -395,6 +413,261 @@ it("keeps the last admitted pair read-only after the selected label read fails",
   expect(
     readLabel.mock.calls.filter(([args]) => args.caseId === "case-b"),
   ).toHaveLength(2);
+  expect(datasetRead).toHaveBeenCalledTimes(2);
+  expect(casesRead).toHaveBeenCalledTimes(1);
+  expect(saveLabels).not.toHaveBeenCalled();
+});
+
+it("admits a new dataset version with its matching case page and does not reload itself", async () => {
+  const currentDataset: DatasetRead = {
+    ...dataset,
+    etag: "dataset-etag-2",
+  };
+  const currentCase: CaseRead = {
+    ...caseB,
+    dataset_etag: currentDataset.etag,
+  };
+  let datasetReadCount = 0;
+  const datasetReads = vi.fn<DatasetAuthoringOperations["read"]>(
+    async () => {
+      datasetReadCount += 1;
+      return {
+        data: datasetReadCount === 1 ? dataset : currentDataset,
+        warnings: [],
+      };
+    },
+  );
+  const currentCasePage: CasePage = {
+    ...listCases,
+    dataset_etag: currentDataset.etag,
+    items: [caseA.case, currentCase.case],
+  };
+  let casesReadCount = 0;
+  const casesReads = vi.fn<ExampleAuthoringOperations["listCases"]>(
+    async () => {
+      casesReadCount += 1;
+      return {
+        data: casesReadCount === 1 ? listCases : currentCasePage,
+        warnings: [],
+      };
+    },
+  );
+  const casesRead = vi.fn<ExampleAuthoringOperations["readCase"]>(
+    async ({ caseId }) => ({
+      data: caseId === "case-b" ? currentCase : caseA,
+      warnings: [],
+    }),
+  );
+  const { user, saveLabels } = mountExamples(
+    { listCases: casesReads, readCase: casesRead },
+    { read: datasetReads },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await waitForSelectedSource(sourceB);
+
+  expect(datasetReads).toHaveBeenCalledTimes(2);
+  expect(casesReads).toHaveBeenCalledTimes(2);
+  expect(
+    casesRead.mock.calls.filter(([args]) => args.caseId === "case-b"),
+  ).toHaveLength(1);
+  expect(
+    screen.getByLabelText("Complete example input source").textContent,
+  ).toBe(sourceB);
+  await user.click(screen.getByRole("checkbox", { name: "Option A" }));
+  await user.click(
+    screen.getByRole("button", { name: "Save expected answer" }),
+  );
+  await waitFor(() => expect(saveLabels).toHaveBeenCalledTimes(1));
+  expect(saveLabels.mock.calls[0]?.[0].body.edits[0]?.review.case_id).toBe(
+    "case-b",
+  );
+});
+
+it("keeps a failed new-version read read-only until an explicit reload recovers it", async () => {
+  const currentDataset: DatasetRead = {
+    ...dataset,
+    etag: "dataset-etag-2",
+  };
+  const currentCase: CaseRead = {
+    ...caseB,
+    dataset_etag: currentDataset.etag,
+  };
+  let datasetReadCount = 0;
+  const datasetRead = vi.fn<DatasetAuthoringOperations["read"]>(async () => {
+    datasetReadCount += 1;
+    if (datasetReadCount === 2)
+      throw new ApiError("source_busy", "Fresh dataset unavailable.", 503);
+    return {
+      data: datasetReadCount === 1 ? dataset : currentDataset,
+      warnings: [],
+    };
+  });
+  let casePageReadCount = 0;
+  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(async () => {
+    casePageReadCount += 1;
+    return {
+      data:
+        casePageReadCount === 1
+          ? listCases
+          : {
+              ...listCases,
+              dataset_etag: currentDataset.etag,
+              items: [caseA.case, currentCase.case],
+            },
+      warnings: [],
+    };
+  });
+  const casesReadMock = vi.fn<ExampleAuthoringOperations["readCase"]>(
+    async ({ caseId }) => ({
+      data: caseId === "case-b" ? currentCase : caseA,
+      warnings: [],
+    }),
+  );
+  const { user, saveLabels } = mountExamples(
+    { listCases: casesRead, readCase: casesReadMock },
+    { read: datasetRead },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await screen.findByText(
+    "The selected example is not ready for changes. Reload its current review.",
+  );
+  expect(datasetRead).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled"))
+    .toBe(true);
+  expect(saveLabels).not.toHaveBeenCalled();
+
+  await user.click(
+    screen.getByRole("button", { name: "Reload selected review" }),
+  );
+  await waitForSelectedSource(sourceB);
+  expect(datasetRead).toHaveBeenCalledTimes(3);
+  expect(casesRead).toHaveBeenCalledTimes(2);
+  expect(saveLabels).not.toHaveBeenCalled();
+});
+
+it("rejects a case and dataset that report different dataset versions", async () => {
+  const currentDataset: DatasetRead = {
+    ...dataset,
+    etag: "dataset-etag-2",
+  };
+  const mismatchedCase: CaseRead = {
+    ...caseB,
+    dataset_etag: "dataset-etag-3",
+  };
+  let datasetReadCount = 0;
+  const datasetRead = vi.fn<DatasetAuthoringOperations["read"]>(async () => {
+    datasetReadCount += 1;
+    return {
+      data: datasetReadCount === 1 ? dataset : currentDataset,
+      warnings: [],
+    };
+  });
+  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(async () => ({
+    data: listCases,
+    warnings: [],
+  }));
+  const { user, saveLabels } = mountExamples(
+    {
+      readCase: async ({ caseId }) => ({
+        data: caseId === "case-b" ? mismatchedCase : caseA,
+        warnings: [],
+      }),
+      listCases: casesRead,
+    },
+    { read: datasetRead },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await screen.findByText(
+    "The selected example is not ready for changes. Reload its current review.",
+  );
+  expect(datasetRead).toHaveBeenCalledTimes(2);
+  expect(casesRead).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled"))
+    .toBe(true);
+  expect(saveLabels).not.toHaveBeenCalled();
+});
+
+it("does not let an older cases page replace a newly admitted dataset version", async () => {
+  const currentDataset: DatasetRead = {
+    ...dataset,
+    etag: "dataset-etag-2",
+  };
+  const currentCase: CaseRead = {
+    ...caseB,
+    dataset_etag: currentDataset.etag,
+  };
+  const oldCasePage: CasePage = {
+    ...listCases,
+    items: [caseA.case],
+  };
+  let releaseOldCases!: () => void;
+  const heldOldCases = new Promise<{ data: CasePage; warnings: [] }>(
+    (resolve) => {
+      releaseOldCases = () => resolve({ data: oldCasePage, warnings: [] });
+    },
+  );
+  let casePageReads = 0;
+  const currentCasePage: CasePage = {
+    ...listCases,
+    dataset_etag: currentDataset.etag,
+    items: [currentCase.case],
+  };
+  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(async () => {
+    casePageReads += 1;
+    return casePageReads === 1
+      ? heldOldCases
+      : { data: currentCasePage, warnings: [] };
+  });
+  let datasetReadCount = 0;
+  const datasetRead = vi.fn<DatasetAuthoringOperations["read"]>(async () => {
+    datasetReadCount += 1;
+    return {
+      data: datasetReadCount === 1 ? dataset : currentDataset,
+      warnings: [],
+    };
+  });
+  const { saveLabels } = mountExamples(
+    {
+      listCases: casesRead,
+      readCase: async ({ caseId }) => ({
+        data: caseId === "case-b" ? currentCase : caseA,
+        warnings: [],
+      }),
+    },
+    { read: datasetRead },
+    "case-a",
+    true,
+  );
+
+  await waitForSelectedSource(sourceA);
+  await waitFor(() => expect(casesRead).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    await navigation!.navigate({
+      kind: "examples",
+      registrationId: project.id,
+      decisionId: decision.id,
+      datasetId: "dataset-1",
+      caseId: "case-b",
+    });
+  });
+  await waitForSelectedSource(sourceB);
+  expect(casesRead).toHaveBeenCalledTimes(2);
+  expect(datasetRead).toHaveBeenCalledTimes(2);
+  await act(async () => {
+    releaseOldCases();
+    await heldOldCases;
+  });
+
+  expect(screen.getByRole("button", { name: "case-b" })).toBeTruthy();
+  expect(
+    screen.getByLabelText("Complete example input source").textContent,
+  ).toBe(sourceB);
   expect(saveLabels).not.toHaveBeenCalled();
 });
 
