@@ -1521,7 +1521,13 @@ test("installed browser authors exact decision source and previews imports throu
   const replayedVersionResponse = await versionReplayResponse;
   expect(replayedVersionResponse.status()).toBe(200);
   const replayedVersionData = (await replayedVersionResponse.json()).data;
-  await expect(page.getByRole("status")).toHaveText(
+  const replayedVersionNotice = page
+    .getByRole("status")
+    .filter({
+      hasText: `Saved version ${replayedVersionData.revision.record.id}.`,
+    });
+  await expect(replayedVersionNotice).toHaveCount(1);
+  await expect(replayedVersionNotice).toHaveText(
     `Saved version ${replayedVersionData.revision.record.id}.`,
   );
   expect(revisionSaveBodies).toHaveLength(2);
