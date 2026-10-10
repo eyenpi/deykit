@@ -957,8 +957,8 @@ test("installed browser authors exact decision source and previews imports throu
   const obsoleteRawEditor = page.getByLabel("Decision source");
   const sourceBeforeReplacement = await obsoleteRawEditor.inputValue();
   const rawReplacementSource = sourceBeforeReplacement.replace(
-    '"instructions": "Retained during composition failure"',
-    '"instructions": "Raw replacement after stale transform"',
+    '"Retained during composition failure"',
+    '"Raw replacement after stale transform"',
   );
   expect(rawReplacementSource).not.toBe(sourceBeforeReplacement);
   const rawIntermediateSource = rawReplacementSource.replace(
@@ -1278,12 +1278,12 @@ test("installed browser authors exact decision source and previews imports throu
   );
   const latestBeforeCli = (await latestBeforeCliResponse.json()).data;
   const cliSource = latestBeforeCli.draft.record.editor_source.replace(
-    '"instructions": "Question saved before leave"',
-    '"instructions": "CLI winner"',
+    '"Question saved before leave"',
+    '"CLI winner"',
   );
   const browserSource = latestBeforeCli.draft.record.editor_source.replace(
-    '"instructions": "Question saved before leave"',
-    '"instructions": "Browser losing edit"',
+    '"Question saved before leave"',
+    '"Browser losing edit"',
   );
   expect(cliSource).not.toBe(latestBeforeCli.draft.record.editor_source);
   expect(browserSource).not.toBe(latestBeforeCli.draft.record.editor_source);
