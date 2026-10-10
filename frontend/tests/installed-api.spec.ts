@@ -2585,7 +2585,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Edit input" }).click();
   await page.getByRole("radio", { name: "JSON", exact: true }).check();
   const stagedCaseSource = '{"case":"seed-1","kept":true}';
-  await page.getByLabel("Input source").fill(stagedCaseSource);
+  await page.getByLabel("Input source", { exact: true }).fill(stagedCaseSource);
   let caseRefreshFailures = 2;
   const committedCaseBodies: Array<Record<string, unknown>> = [];
   await page.route("**/cases/seed-1", async (route) => {
@@ -2624,7 +2624,7 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await expect(page).toHaveURL(stagedCaseHash);
-  await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(stagedCaseSource);
   const committedCaseResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/cases/seed-1") &&
@@ -2647,7 +2647,7 @@ test("installed browser authors exact decision source and previews imports throu
       .getByRole("region", { name: "Saved changes awaiting refresh" }),
   ).toContainText("Case saved; refresh its current review");
   await captureScreenshot("case-saved-refresh-pending.png");
-  await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(stagedCaseSource);
   await expect(page.getByRole("button", { name: "Save input" })).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Retry same case edit" }),
@@ -2692,7 +2692,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByText("The local service could not complete the request."),
   ).toBeVisible();
-  await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(stagedCaseSource);
   expect(committedCaseBodies).toHaveLength(1);
   const recoveredCaseRead = page.waitForResponse(
     (response) =>
@@ -2705,7 +2705,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
   expect(committedCaseBodies).toHaveLength(1);
   expect(committedCaseBodies[0]?.input_source).toBe(stagedCaseSource);
-  await expect(page.getByLabel("Complete example input source")).toHaveText(
+  await expect(page.getByLabel("Complete example input source", { exact: true })).toHaveText(
     stagedCaseSource,
   );
   const committedCaseRead = await page.request.get(
@@ -2743,7 +2743,7 @@ test("installed browser authors exact decision source and previews imports throu
     .input_source as string;
   await page.getByRole("button", { name: "Edit input" }).click();
   const staleCaseSource = '{"case":"case-1","stale":true}';
-  await page.getByLabel("Input source").fill(staleCaseSource);
+  await page.getByLabel("Input source", { exact: true }).fill(staleCaseSource);
   let releaseStaleCaseRead!: () => void;
   let reportStaleCaseReadStarted!: () => void;
   const staleCaseReadGate = new Promise<void>((resolve) => {
@@ -2822,7 +2822,7 @@ test("installed browser authors exact decision source and previews imports throu
   expect(staleCaseBodies).toHaveLength(1);
   expect(staleCaseBodies[0]?.input_source).toBe(staleCaseSource);
   await caseTwoReadStarted;
-  await expect(page.getByLabel("Complete example input source")).toHaveText(
+  await expect(page.getByLabel("Complete example input source", { exact: true })).toHaveText(
     caseOneOriginalSource,
   );
   releaseCaseTwoRead();
@@ -2830,7 +2830,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "case-2", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Complete example input source")).toHaveText(
+  await expect(page.getByLabel("Complete example input source", { exact: true })).toHaveText(
     caseTwoOriginalSource,
   );
   await expect(
@@ -3295,7 +3295,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await page.getByRole("button", { name: "Add example", exact: true }).click();
   const proposedAddSource = '{"proposal":"keep-after-review"}';
-  await page.getByLabel("Input source").fill(proposedAddSource);
+  await page.getByLabel("Input source", { exact: true }).fill(proposedAddSource);
   let releaseAdd!: () => void;
   let reportAddStarted!: () => void;
   const addGate = new Promise<void>((resolve) => {
@@ -3352,7 +3352,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Review current cases and dataset" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Input source")).toHaveValue(proposedAddSource);
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(
+    proposedAddSource,
+  );
   await page
     .getByRole("button", { name: "Review current cases and dataset" })
     .click();
@@ -3378,7 +3380,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await caseButton("case-1").click();
   await page.getByRole("button", { name: "Edit input" }).click();
-  await page.getByLabel("Input source").fill('{"case":1,"changed":true}');
+  await page
+    .getByLabel("Input source", { exact: true })
+    .fill('{"case":1,"changed":true}');
   const caseEditBodies: Array<Record<string, unknown>> = [];
   let releaseCaseEdit!: () => void;
   let reportCaseEditStarted!: () => void;
@@ -3429,7 +3433,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Review current case and dataset" }),
   ).toBeVisible();
-  await expect(page.getByLabel("Input source")).toHaveValue(
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(
     '{"case":1,"changed":true}',
   );
   await page
