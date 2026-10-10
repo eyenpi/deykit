@@ -4039,6 +4039,15 @@ test("installed browser authors exact decision source and previews imports throu
     String(splitReceipt.snapshot.cases.length),
   );
 
+  const caseOneBeforeSeedSaveResponse = await readCaseOne();
+  const caseOneBeforeSeedSave: ApiOperationData<
+    "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"
+  > = (await caseOneBeforeSeedSaveResponse.json()).data;
+  const caseOneLabelBeforeSeedSaveResponse = await readCaseOneLabel();
+  const caseOneLabelBeforeSeedSave: ApiOperationData<
+    "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"
+  > = (await caseOneLabelBeforeSeedSaveResponse.json()).data;
+
   await caseButton("seed-1").click();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
@@ -4053,9 +4062,57 @@ test("installed browser authors exact decision source and previews imports throu
   const applicableLabelReceipt = await applicableLabelSave;
   expect(applicableLabelReceipt.status()).toBe(200);
   await applicableLabelReceipt.body();
-  await expect(page.getByText("Applicable · human")).toBeVisible({
-    timeout: 15_000,
+  const applicableLabelReceiptData: ApiOperationData<
+    "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post"
+  > = (await applicableLabelReceipt.json()).data;
+  expect(applicableLabelReceiptData.changes).toHaveLength(1);
+  expect(applicableLabelReceiptData.changes[0]).toMatchObject({
+    action: "set",
+    case_id: "seed-1",
+    dataset_id: datasetId,
+    decision_id: decisionId,
+    label: {
+      acceptable_option_ids: ["option-a", "option-b"],
+      provenance: "human",
+    },
   });
+  await expect(
+    page.getByRole("button", { name: "Dispute label" }),
+  ).toBeEnabled({ timeout: 15_000 });
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Applicable · human$/ }),
+  ).toBeVisible({ timeout: 15_000 });
+  const seedLabelAfterSaveResponse = await readSeedLabel();
+  const seedLabelAfterSave: ApiOperationData<
+    "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"
+  > = (await seedLabelAfterSaveResponse.json()).data;
+  expect(seedLabelAfterSave.status).toBe("applicable");
+  expect(seedLabelAfterSave.reasons).toEqual([]);
+  expect(seedLabelAfterSave.label).toMatchObject({
+    acceptable_option_ids: ["option-a", "option-b"],
+    provenance: "human",
+  });
+  expect(seedLabelAfterSave.label?.input_hash).toBe(
+    seedLabelAfterSave.review.input_hash,
+  );
+
+  const caseOneAfterSeedSaveResponse = await readCaseOne();
+  const caseOneAfterSeedSave: ApiOperationData<
+    "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"
+  > = (await caseOneAfterSeedSaveResponse.json()).data;
+  const caseOneLabelAfterSeedSaveResponse = await readCaseOneLabel();
+  const caseOneLabelAfterSeedSave: ApiOperationData<
+    "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"
+  > = (await caseOneLabelAfterSeedSaveResponse.json()).data;
+  expect(caseOneAfterSeedSave.case.record.input_source).toBe(
+    caseOneBeforeSeedSave.case.record.input_source,
+  );
+  expect(caseOneLabelAfterSeedSave.label).toEqual(
+    caseOneLabelBeforeSeedSave.label,
+  );
+  expect(caseOneLabelAfterSeedSave.review.input_hash).toBe(
+    caseOneLabelBeforeSeedSave.review.input_hash,
+  );
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
