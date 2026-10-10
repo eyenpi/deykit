@@ -147,11 +147,12 @@ class _GroupLifecycle:
         self.loop = None
         self.cancelled_ids = []
         self.ack_index = 0
+        self.replay_operations = set()
 
     async def _ack(self, callback, operation_id) -> None:
         self.loop = asyncio.get_running_loop()
         self.started.set()
-        replayed = operation_id.startswith("replay-")
+        replayed = operation_id.startswith("replay-") or operation_id in self.replay_operations
         await self.release_ack.wait()
         self.ack_index += 1
         callback(
