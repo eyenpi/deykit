@@ -1512,10 +1512,18 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   expect(revisionSaveBodies).toHaveLength(1);
   await versionEditor.dispatchEvent("compositionend", { data: "" });
+  const versionReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Retry same version save" }).click();
-  await expect(
-    page.getByRole("status").filter({ hasText: /^Saved version / }),
-  ).toBeVisible();
+  const replayedVersionResponse = await versionReplayResponse;
+  expect(replayedVersionResponse.status()).toBe(200);
+  const replayedVersionData = (await replayedVersionResponse.json()).data;
+  await expect(page.getByRole("status")).toHaveText(
+    `Saved version ${replayedVersionData.revision.record.id}.`,
+  );
   expect(revisionSaveBodies).toHaveLength(2);
   expect(revisionSaveBodies[1]).toEqual(revisionSaveBodies[0]);
   await page.unroute(`**/decisions/${decisionId}/revisions`);
@@ -1540,7 +1548,20 @@ test("installed browser authors exact decision source and previews imports throu
       }),
     });
   });
+  const rejectedVersionResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Save version", exact: true }).click();
+  const knownRejectedVersion = await rejectedVersionResponse;
+  expect(knownRejectedVersion.status()).toBe(409);
+  expect(await knownRejectedVersion.json()).toMatchObject({
+    error: { code: "conflict", reason: "draft_changed" },
+  });
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Version changed" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Save version", exact: true }),
   ).toBeVisible();
@@ -2170,7 +2191,15 @@ test("installed browser authors exact decision source and previews imports throu
   ).toHaveCount(0);
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
+  const expectedLabelSaveResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/batch") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Save expected answer" }).click();
+  const expectedLabelReceipt = await expectedLabelSaveResponse;
+  expect(expectedLabelReceipt.status()).toBe(200);
+  await expectedLabelReceipt.body();
   let savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label).toMatchObject({
     acceptable_option_ids: ["option-a", "option-b"],
@@ -2220,15 +2249,31 @@ test("installed browser authors exact decision source and previews imports throu
   expect(disputeBodies[1]).toEqual(disputeBodies[0]);
   savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label.status).toBe("disputed");
+  const resolveLabelResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/batch") &&
+      response.request().method() === "POST",
+  );
   await page
     .getByRole("button", { name: "Resolve dispute with staged set" })
     .click();
+  const resolvedLabelReceipt = await resolveLabelResponse;
+  expect(resolvedLabelReceipt.status()).toBe(200);
+  await resolvedLabelReceipt.body();
   savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label).toMatchObject({
     status: "active",
     provenance: "human",
   });
+  const clearLabelResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/batch") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Clear label" }).click();
+  const clearedLabelReceipt = await clearLabelResponse;
+  expect(clearedLabelReceipt.status()).toBe(200);
+  await clearedLabelReceipt.body();
   const clearedLabel = await readSeedLabel();
   expect((await clearedLabel.json()).data.label).toBeNull();
 
@@ -2343,7 +2388,15 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Review current cases and dataset" })
     .click();
+  const reapplyAddResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases") &&
+      response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Reapply reviewed example" }).click();
+  const reapplyAddReceipt = await reapplyAddResponse;
+  expect(reapplyAddReceipt.status()).toBe(200);
+  await reapplyAddReceipt.body();
   expect(addBodies).toHaveLength(2);
   expect(addBodies[1].input_source).toBe(proposedAddSource);
   expect(addBodies[1].operation_id).not.toBe(addBodies[0].operation_id);
@@ -2414,9 +2467,17 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Review current case and dataset" })
     .click();
+  const reapplyCaseEditResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/case-1") &&
+      response.request().method() === "PUT",
+  );
   await page
     .getByRole("button", { name: "Reapply reviewed case edit" })
     .click();
+  const reapplyCaseEditReceipt = await reapplyCaseEditResponse;
+  expect(reapplyCaseEditReceipt.status()).toBe(200);
+  await reapplyCaseEditReceipt.body();
   await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
   expect(caseEditBodies).toHaveLength(2);
   expect(caseEditBodies[1].input_source).toBe('{"case":1,"changed":true}');
@@ -2500,7 +2561,15 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Review current case and dataset" })
     .click();
+  const reapplyRemoveResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/case-2") &&
+      response.request().method() === "DELETE",
+  );
   await page.getByRole("button", { name: "Reapply reviewed removal" }).click();
+  const reapplyRemoveReceipt = await reapplyRemoveResponse;
+  expect(reapplyRemoveReceipt.status()).toBe(200);
+  await reapplyRemoveReceipt.body();
   expect(removeBodies).toHaveLength(2);
   expect(removeBodies[1].operation_id).not.toBe(removeBodies[0].operation_id);
   expect(removeBodies[1].expected_case_etag).not.toBe(
