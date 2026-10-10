@@ -55,6 +55,30 @@ type AddCaseBody =
   ApiOperationBody<"add_case_api_v1_projects__registration_id__datasets__dataset_id__cases_post">;
 type RemoveCaseBody =
   ApiOperationBody<"delete_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__delete">;
+type PendingLabelMutation = {
+  body: LabelMutationBody;
+  scope: SelectionScope;
+  uncertain: boolean;
+  conflict: boolean;
+};
+type PendingCaseMutation = {
+  body: CaseEditBody;
+  scope: SelectionScope;
+  uncertain: boolean;
+  conflict: boolean;
+};
+type PendingAddMutation = {
+  body: AddCaseBody;
+  scope: DatasetScope;
+  uncertain: boolean;
+  conflict: boolean;
+};
+type PendingRemoveMutation = {
+  body: RemoveCaseBody;
+  scope: SelectionScope;
+  uncertain: boolean;
+  conflict: boolean;
+};
 
 type CommittedRefresh =
   | {
@@ -144,32 +168,22 @@ export function ExamplesPage({
   const [selectionLoading, setSelectionLoading] = useState(false);
   const [editorDirty, setEditorDirty] = useState(false);
   const [selectionNeedsReview, setSelectionNeedsReview] = useState(false);
-  const [pendingLabel, setPendingLabel] = useState<{
-    body: LabelMutationBody;
-    scope: SelectionScope;
-    uncertain: boolean;
-    conflict: boolean;
-  }>();
-  const [pendingCase, setPendingCase] = useState<{
-    body: CaseEditBody;
-    scope: SelectionScope;
-    uncertain: boolean;
-    conflict: boolean;
-  }>();
-  const [pendingAdd, setPendingAdd] = useState<{
-    body: AddCaseBody;
-    scope: DatasetScope;
-    uncertain: boolean;
-    conflict: boolean;
-  }>();
-  const [pendingRemove, setPendingRemove] = useState<{
-    body: RemoveCaseBody;
-    scope: SelectionScope;
-    uncertain: boolean;
-    conflict: boolean;
-  }>();
+  const [pendingLabel, setPendingLabel] = useState<PendingLabelMutation>();
+  const [pendingCase, setPendingCase] = useState<PendingCaseMutation>();
+  const [pendingAdd, setPendingAdd] = useState<PendingAddMutation>();
+  const [pendingRemove, setPendingRemove] = useState<PendingRemoveMutation>();
   const [committedRefresh, setCommittedRefresh] = useState<CommittedRefresh>();
   const committedRefreshRef = useRef<CommittedRefresh | undefined>(undefined);
+  // The ref fences duplicate event callbacks before React publishes busy state.
+  const mutationLockRef = useRef(false);
+  const busyRef = useRef(false);
+  const selectionNeedsReviewRef = useRef(false);
+  const pendingLabelUncertainRef = useRef(false);
+  const pendingCaseUncertainRef = useRef(false);
+  const pendingLabelRef = useRef<PendingLabelMutation | undefined>(undefined);
+  const pendingCaseRef = useRef<PendingCaseMutation | undefined>(undefined);
+  const pendingAddRef = useRef<PendingAddMutation | undefined>(undefined);
+  const pendingRemoveRef = useRef<PendingRemoveMutation | undefined>(undefined);
   const datasetAdmissionRef = useRef<DatasetAdmission | undefined>(undefined);
   const selectionAdmissionRef = useRef<SelectionAdmission | undefined>(
     undefined,
@@ -184,6 +198,40 @@ export function ExamplesPage({
   const labelStageOwnerRef = useRef<StagedOwner | undefined>(undefined);
   const caseEditGeneration = useRef(0);
   const labelEditGeneration = useRef(0);
+  function updateBusy(nextBusy: boolean) {
+    busyRef.current = nextBusy;
+    setBusy(nextBusy);
+  }
+  function updateSelectionNeedsReview(needsReview: boolean) {
+    selectionNeedsReviewRef.current = needsReview;
+    setSelectionNeedsReview(needsReview);
+  }
+  function updatePendingLabel(next: PendingLabelMutation | undefined) {
+    pendingLabelUncertainRef.current = next?.uncertain ?? false;
+    pendingLabelRef.current = next;
+    setPendingLabel(next);
+  }
+  function updatePendingCase(next: PendingCaseMutation | undefined) {
+    pendingCaseUncertainRef.current = next?.uncertain ?? false;
+    pendingCaseRef.current = next;
+    setPendingCase(next);
+  }
+  function updatePendingAdd(next: PendingAddMutation | undefined) {
+    pendingAddRef.current = next;
+    setPendingAdd(next);
+  }
+  function updatePendingRemove(next: PendingRemoveMutation | undefined) {
+    pendingRemoveRef.current = next;
+    setPendingRemove(next);
+  }
+  function acquireMutationLock(): boolean {
+    if (mutationLockRef.current) return false;
+    mutationLockRef.current = true;
+    return true;
+  }
+  function releaseMutationLock() {
+    mutationLockRef.current = false;
+  }
   const [caseConflictReviewed, setCaseConflictReviewed] = useState(false);
   const [addConflictReviewed, setAddConflictReviewed] = useState(false);
   const [removeConflictReviewed, setRemoveConflictReviewed] = useState(false);
@@ -288,6 +336,52 @@ export function ExamplesPage({
       !!admission &&
       owner?.readEpoch === admission.readEpoch &&
       owner.navigationEpoch === admission.navigationEpoch
+    );
+  }
+  function mayEditCaseStageNow(): boolean {
+    const admission = captureSelectionAdmission();
+    const owner = caseStageOwnerRef.current;
+    return (
+      !!admission &&
+      owner?.readEpoch === admission.readEpoch &&
+      owner.navigationEpoch === admission.navigationEpoch &&
+      !selectionNeedsReviewRef.current &&
+      !pendingCaseUncertainRef.current &&
+      !pendingLabelUncertainRef.current &&
+      !pendingAddRef.current?.uncertain &&
+      !pendingRemoveRef.current?.uncertain &&
+      !committedRefreshRef.current &&
+      !busyRef.current &&
+      !mutationLockRef.current
+    );
+  }
+  function mayEditLabelStageNow(): boolean {
+    const admission = captureSelectionAdmission();
+    const owner = labelStageOwnerRef.current;
+    return (
+      !!admission?.labelView &&
+      owner?.readEpoch === admission.readEpoch &&
+      owner.navigationEpoch === admission.navigationEpoch &&
+      !selectionNeedsReviewRef.current &&
+      !pendingLabelUncertainRef.current &&
+      !pendingCaseUncertainRef.current &&
+      !pendingAddRef.current?.uncertain &&
+      !pendingRemoveRef.current?.uncertain &&
+      !committedRefreshRef.current &&
+      !busyRef.current &&
+      !mutationLockRef.current
+    );
+  }
+  function mayEditDatasetStageNow(): boolean {
+    return (
+      !!captureDatasetAdmission() &&
+      !pendingLabelUncertainRef.current &&
+      !pendingCaseUncertainRef.current &&
+      !pendingAddRef.current?.uncertain &&
+      !pendingRemoveRef.current?.uncertain &&
+      !committedRefreshRef.current &&
+      !busyRef.current &&
+      !mutationLockRef.current
     );
   }
   function ownerFor(admission: SelectionAdmission): StagedOwner {
@@ -477,7 +571,7 @@ export function ExamplesPage({
         setLabels(page.data);
         setLabelCursor(page.data.next_cursor ?? undefined);
         if (reviewChanged) {
-          setPendingLabel({
+          updatePendingLabel({
             body: pending.body,
             scope: {
               registrationId: pending.context.registrationId,
@@ -497,10 +591,10 @@ export function ExamplesPage({
           );
           setNote("");
           setEditorDirty(false);
-          setPendingLabel(undefined);
+          updatePendingLabel(undefined);
           setNotice(undefined);
           labelStageOwnerRef.current = ownerFor(refreshedAdmission);
-          setSelectionNeedsReview(false);
+          updateSelectionNeedsReview(false);
         }
         clearCommittedRefresh(pending);
         setError(undefined);
@@ -576,7 +670,7 @@ export function ExamplesPage({
       setCases(page.data);
       setCaseCursor(page.data.next_cursor ?? undefined);
       if (currentCaseChanged) {
-        setPendingCase({
+        updatePendingCase({
           body: pending.body,
           scope: {
             registrationId: pending.context.registrationId,
@@ -600,7 +694,7 @@ export function ExamplesPage({
         );
         setEditorDirty(false);
         setEditCase(false);
-        setPendingCase(undefined);
+        updatePendingCase(undefined);
         setNotice(undefined);
         caseStageOwnerRef.current = ownerFor(refreshedAdmission);
       }
@@ -618,7 +712,7 @@ export function ExamplesPage({
             refreshedLabel.data.label ?? null,
           ))
       ) {
-        setSelectionNeedsReview(true);
+        updateSelectionNeedsReview(true);
         setNotice(
           "Case saved. The current label review changed; review it before making another label change.",
         );
@@ -636,10 +730,10 @@ export function ExamplesPage({
   async function refreshCommittedOutcome() {
     const pending = committedRefreshRef.current;
     if (!pending || busy) return;
-    setBusy(true);
+    updateBusy(true);
     setError(undefined);
     await refreshCommittedView(pending);
-    setBusy(false);
+    updateBusy(false);
   }
 
   useEffect(() => {
@@ -943,12 +1037,12 @@ export function ExamplesPage({
         labelStageOwnerRef.current = ownerFor(admission);
       }
       if (stageNeedsReview) {
-        setSelectionNeedsReview(true);
+        updateSelectionNeedsReview(true);
         setNotice(
           "The current example or review changed while edits were staged. Review it before reapplying those edits.",
         );
       } else if (!editorDirty || !sameSelection) {
-        setSelectionNeedsReview(false);
+        updateSelectionNeedsReview(false);
         setEditorDirty(false);
         setNotice(undefined);
       }
@@ -980,7 +1074,7 @@ export function ExamplesPage({
     const admission = captureDatasetAdmission();
     if (!admission || !caseCursor || busy) return;
     const context = currentReadContext.current;
-    setBusy(true);
+    updateBusy(true);
     try {
       const result = await operations.listCases({
         registrationId,
@@ -1003,7 +1097,7 @@ export function ExamplesPage({
       if (isCurrentContext(context) && currentDatasetAdmission() === admission)
         setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      updateBusy(false);
     }
   }
 
@@ -1011,7 +1105,7 @@ export function ExamplesPage({
     const admission = captureDatasetAdmission();
     if (!admission || !decision || !labelCursor || busy) return;
     const context = currentReadContext.current;
-    setBusy(true);
+    updateBusy(true);
     try {
       const result = await operations.listLabels({
         registrationId,
@@ -1039,7 +1133,7 @@ export function ExamplesPage({
       if (isCurrentContext(context) && currentDatasetAdmission() === admission)
         setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      updateBusy(false);
     }
   }
 
@@ -1056,7 +1150,7 @@ export function ExamplesPage({
     const owner = ownerFor(admission);
     caseStageOwnerRef.current = owner;
     labelStageOwnerRef.current = owner;
-    setSelectionNeedsReview(false);
+    updateSelectionNeedsReview(false);
     setNotice(
       "Current example and label review acknowledged. Your staged changes remain available to reapply deliberately.",
     );
@@ -1065,25 +1159,38 @@ export function ExamplesPage({
   async function saveLabel(
     action: "set" | "resolve" | "dispute" | "clear",
   ): Promise<boolean> {
+    if (!acquireMutationLock()) return false;
+    try {
+      return await saveLabelWithLock(action);
+    } finally {
+      releaseMutationLock();
+    }
+  }
+
+  async function saveLabelWithLock(
+    action: "set" | "resolve" | "dispute" | "clear",
+  ): Promise<boolean> {
     const admission = captureSelectionAdmission();
     const review = admission?.labelView;
+    const pending = pendingLabelRef.current;
     if (
       committedRefreshRef.current ||
       !admission ||
       !review ||
       !admission.decisionId ||
-      selectionNeedsReview ||
+      selectionNeedsReviewRef.current ||
       !ownsSelectionStage(labelStageOwnerRef.current) ||
       (stagedAnswers.length === 0 && action !== "clear" && action !== "dispute")
     )
       return false;
     if (
-      pendingLabel?.uncertain &&
-      !matchesSelectionScope(pendingLabel.scope, admission)
+      pending?.uncertain &&
+      !matchesSelectionScope(pending.scope, admission)
     )
       return false;
-    if (pendingLabel?.conflict) return false;
-    setBusy(true);
+    if (pending?.conflict) return false;
+    if (pendingLabelUncertainRef.current && !pending?.uncertain) return false;
+    updateBusy(true);
     setMutationInFlight(true);
     setError(undefined);
     const context = { ...currentReadContext.current };
@@ -1092,8 +1199,8 @@ export function ExamplesPage({
     const stagedGeneration = labelEditGeneration.current;
     const stagedAnswersAtSubmit = [...stagedAnswers];
     const noteAtSubmit = note;
-    const body: LabelMutationBody = pendingLabel?.uncertain
-      ? pendingLabel.body
+    const body: LabelMutationBody = pending?.uncertain
+      ? pending.body
       : {
           schema_version: 1,
           operation_id: opId(),
@@ -1125,7 +1232,7 @@ export function ExamplesPage({
       ).data;
     } catch (cause) {
       if (isOutcomeUnknown(cause))
-        setPendingLabel({
+        updatePendingLabel({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1137,7 +1244,7 @@ export function ExamplesPage({
           conflict: false,
         });
       else if (cause instanceof ApiError && cause.status === 409)
-        setPendingLabel({
+        updatePendingLabel({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1148,9 +1255,9 @@ export function ExamplesPage({
           uncertain: false,
           conflict: true,
         });
-      else setPendingLabel(undefined);
+      else updatePendingLabel(undefined);
       setError(safeMessage(cause));
-      setBusy(false);
+      updateBusy(false);
       setMutationInFlight(false);
       return false;
     }
@@ -1170,11 +1277,11 @@ export function ExamplesPage({
     };
     committedRefreshRef.current = pending;
     setCommittedRefresh(pending);
-    setPendingLabel(undefined);
+    updatePendingLabel(undefined);
     setNotice(undefined);
     setMutationInFlight(false);
     await refreshCommittedView(pending);
-    setBusy(false);
+    updateBusy(false);
     return true;
   }
 
@@ -1187,7 +1294,7 @@ export function ExamplesPage({
     )
       return;
     const context = currentReadContext.current;
-    setBusy(true);
+    updateBusy(true);
     setError(undefined);
     try {
       const refreshedDataset = await datasetOperations.read({
@@ -1247,8 +1354,8 @@ export function ExamplesPage({
       labelStageOwnerRef.current = ownerFor(reviewedAdmission);
       if (caseStillCurrent)
         caseStageOwnerRef.current = ownerFor(reviewedAdmission);
-      setPendingLabel(undefined);
-      setSelectionNeedsReview(!caseStillCurrent);
+      updatePendingLabel(undefined);
+      updateSelectionNeedsReview(!caseStillCurrent);
       setNotice(
         caseStillCurrent
           ? undefined
@@ -1257,34 +1364,46 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) setBusy(false);
+      if (isCurrentContext(context)) updateBusy(false);
     }
   }
 
   function retryUnknownLabel() {
-    const action = pendingLabel?.body.edits[0]?.action;
-    if (pendingLabel?.uncertain && action) void saveLabel(action);
+    const pending = pendingLabelRef.current;
+    const action = pending?.body.edits[0]?.action;
+    if (pending?.uncertain && action) void saveLabel(action);
   }
 
   async function saveCase(): Promise<boolean> {
+    if (!acquireMutationLock()) return false;
+    try {
+      return await saveCaseWithLock();
+    } finally {
+      releaseMutationLock();
+    }
+  }
+
+  async function saveCaseWithLock(): Promise<boolean> {
     const admission = captureSelectionAdmission();
     const data = currentDatasetAdmission();
+    const pending = pendingCaseRef.current;
     if (
       committedRefreshRef.current ||
       !admission ||
       !data ||
       admission.datasetAdmission !== data ||
-      selectionNeedsReview ||
+      selectionNeedsReviewRef.current ||
       !ownsSelectionStage(caseStageOwnerRef.current)
     )
       return false;
     if (
-      pendingCase?.uncertain &&
-      !matchesSelectionScope(pendingCase.scope, admission)
+      pending?.uncertain &&
+      !matchesSelectionScope(pending.scope, admission)
     )
       return false;
-    if (pendingCase?.conflict) return false;
-    setBusy(true);
+    if (pending?.conflict) return false;
+    if (pendingCaseUncertainRef.current && !pending?.uncertain) return false;
+    updateBusy(true);
     setMutationInFlight(true);
     setError(undefined);
     const context = { ...currentReadContext.current };
@@ -1295,8 +1414,8 @@ export function ExamplesPage({
     const inputSourceAtSubmit = inputSource;
     const metadataSourceAtSubmit = metadataSource;
     const record = admission.caseRead.case.record;
-    const body: CaseEditBody = pendingCase?.uncertain
-      ? pendingCase.body
+    const body: CaseEditBody = pending?.uncertain
+      ? pending.body
       : {
           schema_version: 1,
           operation_id: opId(),
@@ -1322,7 +1441,7 @@ export function ExamplesPage({
       ).data;
     } catch (cause) {
       if (isOutcomeUnknown(cause))
-        setPendingCase({
+        updatePendingCase({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1334,7 +1453,7 @@ export function ExamplesPage({
           conflict: false,
         });
       else if (cause instanceof ApiError && cause.status === 409) {
-        setPendingCase({
+        updatePendingCase({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1346,9 +1465,9 @@ export function ExamplesPage({
           conflict: true,
         });
         setCaseConflictReviewed(false);
-      } else setPendingCase(undefined);
+      } else updatePendingCase(undefined);
       setError(safeMessage(cause));
-      setBusy(false);
+      updateBusy(false);
       setMutationInFlight(false);
       return false;
     }
@@ -1369,11 +1488,11 @@ export function ExamplesPage({
     };
     committedRefreshRef.current = pending;
     setCommittedRefresh(pending);
-    setPendingCase(undefined);
+    updatePendingCase(undefined);
     setNotice(undefined);
     setMutationInFlight(false);
     await refreshCommittedView(pending);
-    setBusy(false);
+    updateBusy(false);
     return true;
   }
 
@@ -1381,7 +1500,7 @@ export function ExamplesPage({
     const admission = captureSelectionAdmission();
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
-    setBusy(true);
+    updateBusy(true);
     setError(undefined);
     try {
       const currentDataset = await datasetOperations.read({
@@ -1441,8 +1560,8 @@ export function ExamplesPage({
             );
       caseStageOwnerRef.current = ownerFor(reviewed);
       if (labelUnchanged) labelStageOwnerRef.current = ownerFor(reviewed);
-      setSelectionNeedsReview(!labelUnchanged);
-      setPendingCase(undefined);
+      updateSelectionNeedsReview(!labelUnchanged);
+      updatePendingCase(undefined);
       setCaseConflictReviewed(true);
       setNotice(
         labelUnchanged
@@ -1452,24 +1571,34 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) setBusy(false);
+      if (isCurrentContext(context)) updateBusy(false);
     }
   }
 
   async function addCase(): Promise<boolean> {
+    if (!acquireMutationLock()) return false;
+    try {
+      return await addCaseWithLock();
+    } finally {
+      releaseMutationLock();
+    }
+  }
+
+  async function addCaseWithLock(): Promise<boolean> {
     const admission = captureDatasetAdmission();
+    const pending = pendingAddRef.current;
     if (committedRefreshRef.current || !admission) return false;
     if (
-      pendingAdd?.uncertain &&
-      !matchesDatasetScope(pendingAdd.scope, admission)
+      pending?.uncertain &&
+      !matchesDatasetScope(pending.scope, admission)
     )
       return false;
-    if (pendingAdd?.conflict) return false;
-    setBusy(true);
+    if (pending?.conflict) return false;
+    updateBusy(true);
     setMutationInFlight(true);
     setError(undefined);
-    const body: AddCaseBody = pendingAdd?.uncertain
-      ? pendingAdd.body
+    const body: AddCaseBody = pending?.uncertain
+      ? pending.body
       : {
           schema_version: 1,
           operation_id: opId(),
@@ -1488,7 +1617,7 @@ export function ExamplesPage({
         datasetId: admission.datasetId,
         body,
       });
-      setPendingAdd(undefined);
+      updatePendingAdd(undefined);
       setAddConflictReviewed(false);
       const createdId = result.data.case?.record.id;
       setAddCaseOpen(false);
@@ -1502,7 +1631,7 @@ export function ExamplesPage({
       }
     } catch (cause) {
       if (isOutcomeUnknown(cause))
-        setPendingAdd({
+        updatePendingAdd({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1512,7 +1641,7 @@ export function ExamplesPage({
           conflict: false,
         });
       else if (cause instanceof ApiError && cause.status === 409) {
-        setPendingAdd({
+        updatePendingAdd({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1522,11 +1651,11 @@ export function ExamplesPage({
           conflict: true,
         });
         setAddConflictReviewed(false);
-      } else setPendingAdd(undefined);
+      } else updatePendingAdd(undefined);
       setError(safeMessage(cause));
       return false;
     } finally {
-      setBusy(false);
+      updateBusy(false);
       setMutationInFlight(false);
     }
     return true;
@@ -1536,7 +1665,7 @@ export function ExamplesPage({
     const admission = captureDatasetAdmission();
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
-    setBusy(true);
+    updateBusy(true);
     setError(undefined);
     try {
       const currentDataset = await datasetOperations.read({
@@ -1569,7 +1698,7 @@ export function ExamplesPage({
       setDataset(currentDataset.data);
       setCases(currentCases.data);
       setCaseCursor(currentCases.data.next_cursor ?? undefined);
-      setPendingAdd(undefined);
+      updatePendingAdd(undefined);
       setAddConflictReviewed(true);
       setNotice(
         "Current dataset and cases reviewed. Your new example source is retained; reapply it deliberately.",
@@ -1577,33 +1706,43 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) setBusy(false);
+      if (isCurrentContext(context)) updateBusy(false);
     }
   }
 
   async function removeSelectedCase() {
+    if (!acquireMutationLock()) return;
+    try {
+      await removeSelectedCaseWithLock();
+    } finally {
+      releaseMutationLock();
+    }
+  }
+
+  async function removeSelectedCaseWithLock() {
     const admission = captureSelectionAdmission();
     const data = currentDatasetAdmission();
+    const pending = pendingRemoveRef.current;
     if (
       committedRefreshRef.current ||
       !admission ||
       !data ||
       admission.datasetAdmission !== data ||
-      selectionNeedsReview ||
+      selectionNeedsReviewRef.current ||
       !ownsSelectionStage(labelStageOwnerRef.current)
     )
       return;
     if (
-      pendingRemove?.uncertain &&
-      !matchesSelectionScope(pendingRemove.scope, admission)
+      pending?.uncertain &&
+      !matchesSelectionScope(pending.scope, admission)
     )
       return;
-    if (pendingRemove?.conflict) return;
-    setBusy(true);
+    if (pending?.conflict) return;
+    updateBusy(true);
     setMutationInFlight(true);
     setError(undefined);
-    const body: RemoveCaseBody = pendingRemove?.uncertain
-      ? pendingRemove.body
+    const body: RemoveCaseBody = pending?.uncertain
+      ? pending.body
       : {
           schema_version: 1,
           operation_id: opId(),
@@ -1617,7 +1756,7 @@ export function ExamplesPage({
         caseId: admission.caseId,
         body,
       });
-      setPendingRemove(undefined);
+      updatePendingRemove(undefined);
       setRemoveConflictReviewed(false);
       const cleared = result.data.cleared_label_ids;
       setDeleteCaseOpen(false);
@@ -1631,7 +1770,7 @@ export function ExamplesPage({
         );
     } catch (cause) {
       if (isOutcomeUnknown(cause))
-        setPendingRemove({
+        updatePendingRemove({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1643,7 +1782,7 @@ export function ExamplesPage({
           conflict: false,
         });
       else if (cause instanceof ApiError && cause.status === 409) {
-        setPendingRemove({
+        updatePendingRemove({
           body,
           scope: {
             registrationId: admission.registrationId,
@@ -1655,10 +1794,10 @@ export function ExamplesPage({
           conflict: true,
         });
         setRemoveConflictReviewed(false);
-      } else setPendingRemove(undefined);
+      } else updatePendingRemove(undefined);
       setError(safeMessage(cause));
     } finally {
-      setBusy(false);
+      updateBusy(false);
       setMutationInFlight(false);
     }
   }
@@ -1667,7 +1806,7 @@ export function ExamplesPage({
     const admission = captureSelectionAdmission();
     if (committedRefreshRef.current || !admission) return;
     const context = currentReadContext.current;
-    setBusy(true);
+    updateBusy(true);
     setError(undefined);
     try {
       const currentDataset = await datasetOperations.read({
@@ -1713,8 +1852,8 @@ export function ExamplesPage({
       if (!reviewed) return;
       caseStageOwnerRef.current = ownerFor(reviewed);
       labelStageOwnerRef.current = ownerFor(reviewed);
-      setSelectionNeedsReview(false);
-      setPendingRemove(undefined);
+      updateSelectionNeedsReview(false);
+      updatePendingRemove(undefined);
       setRemoveConflictReviewed(true);
       setNotice(
         "Current case and dataset versions reviewed. Reapply removal deliberately if the case is still present.",
@@ -1722,7 +1861,7 @@ export function ExamplesPage({
     } catch (cause) {
       if (isCurrentContext(context)) setError(safeMessage(cause));
     } finally {
-      if (isCurrentContext(context)) setBusy(false);
+      if (isCurrentContext(context)) updateBusy(false);
     }
   }
 
@@ -1751,11 +1890,19 @@ export function ExamplesPage({
   const caseEditable =
     selectionReady &&
     !selectionNeedsReview &&
+    !pendingCase?.uncertain &&
+    !pendingLabel?.uncertain &&
+    !pendingAdd?.uncertain &&
+    !pendingRemove?.uncertain &&
     ownsSelectionStage(caseStageOwnerRef.current);
   const labelEditable =
     selectionReady &&
     writableSelection?.labelView !== undefined &&
     !selectionNeedsReview &&
+    !pendingLabel?.uncertain &&
+    !pendingCase?.uncertain &&
+    !pendingAdd?.uncertain &&
+    !pendingRemove?.uncertain &&
     ownsSelectionStage(labelStageOwnerRef.current);
   const labelSetChanged =
     !!decision &&
@@ -1763,6 +1910,8 @@ export function ExamplesPage({
     [...stagedAnswers].sort().join("\0") !==
       [...(currentLabel?.acceptable_option_ids ?? [])].sort().join("\0");
   async function saveBeforeLeaving() {
+    if (mutationLockRef.current)
+      throw new Error("An examples write is still in progress. Keep this page open until it finishes.");
     if (committedRefreshRef.current) {
       const kind = committedRefreshRef.current.kind;
       throw new Error(
@@ -1772,19 +1921,19 @@ export function ExamplesPage({
       );
     }
     if (
-      pendingLabel?.uncertain ||
-      pendingCase?.uncertain ||
-      pendingAdd?.uncertain ||
-      pendingRemove?.uncertain
+      pendingLabelRef.current?.uncertain ||
+      pendingCaseRef.current?.uncertain ||
+      pendingAddRef.current?.uncertain ||
+      pendingRemoveRef.current?.uncertain
     )
       throw new Error(
         "A write may have completed. Retry its original request before leaving this examples page.",
       );
     if (
-      pendingLabel?.conflict ||
-      pendingCase?.conflict ||
-      pendingAdd?.conflict ||
-      pendingRemove?.conflict
+      pendingLabelRef.current?.conflict ||
+      pendingCaseRef.current?.conflict ||
+      pendingAddRef.current?.conflict ||
+      pendingRemoveRef.current?.conflict
     )
       throw new Error(
         "Review the current server state before reapplying or explicitly discarding this conflicted change.",
@@ -1861,7 +2010,16 @@ export function ExamplesPage({
       unresolvedConflict ||
       mutationInFlight,
     isDirtyNow: () =>
+      mutationLockRef.current ||
       committedRefreshRef.current !== undefined ||
+      pendingLabelRef.current?.uncertain === true ||
+      pendingCaseRef.current?.uncertain === true ||
+      pendingAddRef.current?.uncertain === true ||
+      pendingRemoveRef.current?.uncertain === true ||
+      pendingLabelRef.current?.conflict === true ||
+      pendingCaseRef.current?.conflict === true ||
+      pendingAddRef.current?.conflict === true ||
+      pendingRemoveRef.current?.conflict === true ||
       editorDirty ||
       labelSetChanged ||
       (decision !== undefined && note.trim().length > 0) ||
@@ -1885,10 +2043,10 @@ export function ExamplesPage({
       setEditCase(false);
       setAddCaseOpen(false);
       setDeleteCaseOpen(false);
-      if (pendingLabel?.conflict) setPendingLabel(undefined);
-      if (pendingCase?.conflict) setPendingCase(undefined);
-      if (pendingAdd?.conflict) setPendingAdd(undefined);
-      if (pendingRemove?.conflict) setPendingRemove(undefined);
+      if (pendingLabel?.conflict) updatePendingLabel(undefined);
+      if (pendingCase?.conflict) updatePendingCase(undefined);
+      if (pendingAdd?.conflict) updatePendingAdd(undefined);
+      if (pendingRemove?.conflict) updatePendingRemove(undefined);
       setCaseConflictReviewed(false);
       setAddConflictReviewed(false);
       setRemoveConflictReviewed(false);
@@ -2186,7 +2344,7 @@ export function ExamplesPage({
                 type="button"
                 disabled={!caseEditable || busy || !!committedRefresh}
                 onClick={() => {
-                  if (!caseEditable) return;
+                  if (!mayEditCaseStageNow()) return;
                   const admission = captureSelectionAdmission();
                   if (!admission) return;
                   caseStageOwnerRef.current = ownerFor(admission);
@@ -2197,9 +2355,9 @@ export function ExamplesPage({
               </button>
               <button
                 type="button"
-                disabled={!caseEditable || !!committedRefresh}
+                disabled={!caseEditable || busy || !!committedRefresh}
                 onClick={() => {
-                  if (!committedRefreshRef.current && caseEditable)
+                  if (mayEditCaseStageNow())
                     setDeleteCaseOpen(true);
                 }}
               >
@@ -2241,7 +2399,7 @@ export function ExamplesPage({
                   options={optionRows}
                   selected={stagedAnswers}
                   onChange={(answers) => {
-                    if (!labelEditable) return;
+                    if (!mayEditLabelStageNow()) return;
                     labelEditGeneration.current += 1;
                     setStagedAnswers(answers);
                     setEditorDirty(true);
@@ -2342,7 +2500,7 @@ export function ExamplesPage({
                     pendingLabel?.uncertain
                   }
                   onChange={(event) => {
-                    if (!labelEditable) return;
+                    if (!mayEditLabelStageNow()) return;
                     labelEditGeneration.current += 1;
                     setNote(event.target.value);
                     setEditorDirty(true);
@@ -2367,7 +2525,12 @@ export function ExamplesPage({
           <Modal
             title={`Edit ${currentCase.id}`}
             onDismiss={() => {
-              if (!busy && !committedRefresh && !pendingCase?.uncertain)
+              if (
+                !busyRef.current &&
+                !committedRefreshRef.current &&
+                !pendingCaseRef.current?.uncertain &&
+                !mutationLockRef.current
+              )
                 setEditCase(false);
             }}
           >
@@ -2444,7 +2607,7 @@ export function ExamplesPage({
                         pendingCase?.uncertain
                       }
                       onChange={() => {
-                        if (!caseEditable) return;
+                        if (!mayEditCaseStageNow()) return;
                         caseEditGeneration.current += 1;
                         setInputKind(kind);
                         setEditorDirty(true);
@@ -2464,7 +2627,7 @@ export function ExamplesPage({
                   pendingCase?.uncertain
                 }
                 onChange={(value) => {
-                  if (!caseEditable) return;
+                  if (!mayEditCaseStageNow()) return;
                   caseEditGeneration.current += 1;
                   setInputSource(value);
                   setEditorDirty(true);
@@ -2480,7 +2643,7 @@ export function ExamplesPage({
                   pendingCase?.uncertain
                 }
                 onChange={(value) => {
-                  if (!caseEditable) return;
+                  if (!mayEditCaseStageNow()) return;
                   caseEditGeneration.current += 1;
                   setMetadataSource(value);
                   setEditorDirty(true);
@@ -2512,7 +2675,15 @@ export function ExamplesPage({
                     !!committedRefresh ||
                     pendingCase?.uncertain
                   }
-                  onClick={() => setEditCase(false)}
+                  onClick={() => {
+                    if (
+                      !busyRef.current &&
+                      !committedRefreshRef.current &&
+                      !pendingCaseRef.current?.uncertain &&
+                      !mutationLockRef.current
+                    )
+                      setEditCase(false);
+                  }}
                 >
                   Cancel
                 </button>
@@ -2524,7 +2695,12 @@ export function ExamplesPage({
           <Modal
             title="Add example"
             onDismiss={() => {
-              if (!busy && !committedRefresh && !pendingAdd?.uncertain)
+              if (
+                !busyRef.current &&
+                !committedRefreshRef.current &&
+                !pendingAddRef.current?.uncertain &&
+                !mutationLockRef.current
+              )
                 setAddCaseOpen(false);
             }}
           >
@@ -2584,7 +2760,7 @@ export function ExamplesPage({
                         pendingAdd?.uncertain
                       }
                       onChange={() => {
-                        if (!captureDatasetAdmission()) return;
+                        if (!mayEditDatasetStageNow()) return;
                         setNewInputKind(kind);
                         setEditorDirty(true);
                       }}
@@ -2603,7 +2779,7 @@ export function ExamplesPage({
                   pendingAdd?.uncertain
                 }
                 onChange={(value) => {
-                  if (!captureDatasetAdmission()) return;
+                  if (!mayEditDatasetStageNow()) return;
                   setNewInputSource(value);
                   setEditorDirty(true);
                 }}
@@ -2618,7 +2794,7 @@ export function ExamplesPage({
                   pendingAdd?.uncertain
                 }
                 onChange={(value) => {
-                  if (!captureDatasetAdmission()) return;
+                  if (!mayEditDatasetStageNow()) return;
                   setNewMetadataSource(value);
                   setEditorDirty(true);
                 }}
@@ -2645,7 +2821,13 @@ export function ExamplesPage({
                   type="button"
                   disabled={busy || !!committedRefresh || pendingAdd?.uncertain}
                   onClick={() => {
-                    if (pendingAdd?.uncertain) return;
+                    if (
+                      pendingAddRef.current?.uncertain ||
+                      busyRef.current ||
+                      committedRefreshRef.current ||
+                      mutationLockRef.current
+                    )
+                      return;
                     setAddCaseOpen(false);
                   }}
                 >
@@ -2659,7 +2841,12 @@ export function ExamplesPage({
           <Modal
             title={`Remove ${currentCase.id}?`}
             onDismiss={() => {
-              if (!busy && !committedRefresh && !pendingRemove?.uncertain)
+              if (
+                !busyRef.current &&
+                !committedRefreshRef.current &&
+                !pendingRemoveRef.current?.uncertain &&
+                !mutationLockRef.current
+              )
                 setDeleteCaseOpen(false);
             }}
           >
@@ -2736,7 +2923,15 @@ export function ExamplesPage({
                   disabled={
                     busy || !!committedRefresh || pendingRemove?.uncertain
                   }
-                  onClick={() => setDeleteCaseOpen(false)}
+                  onClick={() => {
+                    if (
+                      !busyRef.current &&
+                      !committedRefreshRef.current &&
+                      !pendingRemoveRef.current?.uncertain &&
+                      !mutationLockRef.current
+                    )
+                      setDeleteCaseOpen(false);
+                  }}
                 >
                   Cancel
                 </button>

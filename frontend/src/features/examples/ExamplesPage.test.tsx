@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
-import type { ApiOperationData } from "../../api/client";
+import type { ApiOperationBody, ApiOperationData } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
 import type {
   DatasetAuthoringOperations,
@@ -15,6 +15,12 @@ import { ExamplesPage } from "./ExamplesPage";
 
 type CasePage =
   ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">;
+type CaseEditReceipt =
+  ApiOperationData<"edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put">;
+type LabelBatchBody =
+  ApiOperationBody<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
+type LabelBatchReceipt =
+  ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
 
 const sourceA = '{"case":"old"}';
 const sourceB = '{"case":"target","n":9007199254740993}';
@@ -94,6 +100,41 @@ function labelView(read: CaseRead): LabelView {
   };
 }
 
+function labelReceipt(body: LabelBatchBody): LabelBatchReceipt {
+  const edit = body.edits[0];
+  if (!edit) throw new Error("Expected one staged label edit.");
+  const label: NonNullable<LabelView["label"]> = {
+    schema_version: 1,
+    id: "label-a",
+    case_id: "case-a",
+    dataset_id: "dataset-1",
+    decision_id: decision.id,
+    question_id: "question-1",
+    input_hash: "hash-case-a",
+    acceptable_option_ids: edit.acceptable_option_ids ?? [],
+    provenance: "human",
+    updated_at: "2026-01-01T00:00:00Z",
+    status: "active",
+  };
+  return {
+    schema_version: 1,
+    replayed: false,
+    changes: [
+      {
+        schema_version: 1,
+        id: "change-a",
+        operation_id: body.operation_id,
+        action: edit.action,
+        case_id: "case-a",
+        dataset_id: "dataset-1",
+        decision_id: decision.id,
+        question_id: "question-1",
+        label: edit.action === "clear" ? null : label,
+      },
+    ],
+  };
+}
+
 const listCases: CasePage = {
   schema_version: 1,
   dataset_etag: dataset.etag,
@@ -116,6 +157,76 @@ afterEach(() => {
   window.history.replaceState(null, "", "#/");
   vi.restoreAllMocks();
 });
+
+function mountExamples(
+  overrides: Partial<ExampleAuthoringOperations> = {},
+  datasetOverrides: Partial<DatasetAuthoringOperations> = {},
+) {
+  window.history.replaceState(
+    null,
+    "",
+    "#/p/registration-1/d/decision-1/examples?dataset=dataset-1&case=case-a",
+  );
+  navigation = new WorkspaceNavigation(window);
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async () => {
+      throw new ApiError("preflight_failed", "Synthetic rejection.", 422);
+    },
+  );
+  const operations: ExampleAuthoringOperations = {
+    ...disconnectedWorkspace.authoring.examples,
+    listCases: async () => ({ data: listCases, warnings: [] }),
+    readCase: async ({ caseId }) => ({
+      data: caseId === "case-b" ? caseB : caseA,
+      warnings: [],
+    }),
+    listLabels: async () => ({ data: emptyLabelPage, warnings: [] }),
+    readLabel: async ({ caseId }) => ({
+      data: labelView(caseId === "case-b" ? caseB : caseA),
+      warnings: [],
+    }),
+    saveLabels,
+    ...overrides,
+  };
+  const datasetOperations: DatasetAuthoringOperations = {
+    ...disconnectedWorkspace.authoring.datasets,
+    read: async () => ({ data: dataset, warnings: [] }),
+    ...datasetOverrides,
+  };
+  const user = userEvent.setup();
+  render(
+    <ExamplesPage
+      project={project}
+      decision={decision}
+      operations={operations}
+      datasetOperations={datasetOperations}
+      navigation={navigation}
+      datasetFromRoute="dataset-1"
+      caseFromRoute="case-a"
+      refreshToken={0}
+      onDatasetChange={(_, caseId) =>
+        navigation!.navigate({
+          kind: "examples",
+          registrationId: project.id,
+          decisionId: decision.id,
+          datasetId: "dataset-1",
+          caseId,
+        })
+      }
+      onImport={() => undefined}
+      onSplit={() => undefined}
+    />,
+  );
+  return { user, operations, saveLabels: operations.saveLabels };
+}
+
+async function waitForSelectedSource(expected: string) {
+  await waitFor(() => {
+    expect(
+      screen.getByLabelText("Complete example input source").textContent,
+    ).toBe(expected);
+  });
+}
 
 it("keeps the old display read-only until the selected case and label pair is admitted", async () => {
   window.history.replaceState(
@@ -181,7 +292,7 @@ it("keeps the old display read-only until the selected case and label pair is ad
     />,
   );
 
-  await screen.findByText(sourceA);
+  await waitForSelectedSource(sourceA);
   await user.click(screen.getByRole("button", { name: "case-b" }));
   await screen.findByRole("region", { name: "Selected review status" });
   expect(
@@ -207,4 +318,288 @@ it("keeps the old display read-only until the selected case and label pair is ad
   expect(request?.decisionId).toBe(decision.id);
   expect(request?.datasetId).toBe("dataset-1");
   expect(request?.body.edits[0]?.review.case_id).toBe("case-b");
+});
+
+it("keeps the last admitted pair read-only after the selected label read fails", async () => {
+  let failedTargetRead = false;
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    async ({ caseId }) => {
+      if (caseId === "case-b" && !failedTargetRead) {
+        failedTargetRead = true;
+        throw new ApiError("source_busy", "Read failed.", 503);
+      }
+      return {
+        data: labelView(caseId === "case-b" ? caseB : caseA),
+        warnings: [],
+      };
+    },
+  );
+  const { user, saveLabels } = mountExamples({ readLabel });
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await screen.findByText("The selected example is not ready for changes. Reload its current review.");
+  expect(screen.getByLabelText("Complete example input source").textContent).toBe(
+    sourceA,
+  );
+  expect(screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled")).toBe(
+    true,
+  );
+  expect(
+    screen.getByRole("button", { name: "Reload selected review" }).matches(":disabled"),
+  ).toBe(false);
+  expect(saveLabels).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: "Reload selected review" }));
+  await waitFor(() => {
+    expect(screen.getByLabelText("Complete example input source").textContent).toBe(
+      sourceB,
+    );
+  });
+  expect(readLabel.mock.calls.filter(([args]) => args.caseId === "case-b")).toHaveLength(
+    2,
+  );
+  expect(saveLabels).not.toHaveBeenCalled();
+});
+
+it("does not publish an old A-to-B read after a rapid return to A", async () => {
+  const refreshedA = caseRead("case-a", '{"case":"returned-a"}');
+  let releaseB!: () => void;
+  const heldB = new Promise<{ data: CaseRead; warnings: [] }>((resolve) => {
+    releaseB = () => {
+      resolve({ data: caseB, warnings: [] });
+    };
+  });
+  let aReads = 0;
+  const readCase = vi.fn<ExampleAuthoringOperations["readCase"]>(
+    ({ caseId }) => {
+      if (caseId === "case-b") return heldB;
+      aReads += 1;
+      return Promise.resolve({
+        data: aReads === 1 ? caseA : refreshedA,
+        warnings: [],
+      });
+    },
+  );
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    async ({ caseId }) => ({
+      data: labelView(caseId === "case-b" ? caseB : refreshedA),
+      warnings: [],
+    }),
+  );
+  const { user } = mountExamples({ readCase, readLabel });
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await waitFor(() => {
+    expect(readCase.mock.calls.some(([args]) => args.caseId === "case-b")).toBe(
+      true,
+    );
+  });
+  await user.click(screen.getByRole("button", { name: "case-a" }));
+  await waitFor(() => {
+    expect(
+      screen.getByLabelText("Complete example input source").textContent,
+    ).toBe(refreshedA.case.record.input_source);
+  });
+
+  await act(async () => {
+    releaseB();
+    await heldB;
+  });
+  expect(
+    screen.getByLabelText("Complete example input source").textContent,
+  ).toBe(refreshedA.case.record.input_source);
+  expect(readLabel.mock.calls.some(([args]) => args.caseId === "case-b")).toBe(
+    false,
+  );
+});
+
+it("saves the old admitted case before completing a dirty navigation", async () => {
+  let currentDataset: DatasetRead = dataset;
+  let currentCase = caseA;
+  let routeAtWrite: string | undefined;
+  const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(
+    async ({ caseId, body }) => {
+      routeAtWrite = navigation?.current.kind === "examples"
+        ? navigation.current.caseId
+        : undefined;
+      const updated = caseRead(caseId, body.input_source);
+      currentDataset = {
+        ...dataset,
+        etag: "dataset-etag-saved",
+      };
+      currentCase = {
+        ...updated,
+        dataset_etag: currentDataset.etag,
+        case: { ...updated.case, etag: "etag-case-a-saved" },
+      };
+      const receipt: CaseEditReceipt = {
+        schema_version: 1,
+        case: currentCase.case,
+        dataset: currentDataset,
+        cleared_label_ids: [],
+        replayed: false,
+      };
+      return { data: receipt, warnings: [] };
+    },
+  );
+  const readCase = vi.fn<ExampleAuthoringOperations["readCase"]>(
+    async ({ caseId }) => ({
+      data:
+        caseId === "case-a"
+          ? currentCase
+          : { ...caseB, dataset_etag: currentDataset.etag },
+      warnings: [],
+    }),
+  );
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    async ({ caseId }) => ({
+      data: labelView(
+        caseId === "case-a"
+          ? currentCase
+          : { ...caseB, dataset_etag: currentDataset.etag },
+      ),
+      warnings: [],
+    }),
+  );
+  const { user } = mountExamples(
+    { editCase, readCase, readLabel },
+    { read: async () => ({ data: currentDataset, warnings: [] }) },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "Edit input" }));
+  const savedSource = '{"case":"saved-before-leaving"}';
+  await user.fill(screen.getByRole("textbox", { name: "Input source" }), savedSource);
+  await user.click(screen.getByRole("button", { name: "case-b" }));
+  await screen.findByRole("button", { name: "Save and leave" });
+  await user.click(screen.getByRole("button", { name: "Save and leave" }));
+
+  await waitForSelectedSource(sourceB);
+  expect(editCase).toHaveBeenCalledTimes(1);
+  expect(editCase.mock.calls[0]?.[0].caseId).toBe("case-a");
+  expect(editCase.mock.calls[0]?.[0].body.input_source).toBe(savedSource);
+  expect(routeAtWrite).toBe("case-a");
+  expect(navigation?.current.kind).toBe("examples");
+  if (navigation?.current.kind === "examples")
+    expect(navigation.current.caseId).toBe("case-b");
+});
+
+it("rejects a stale expected-answer callback after live navigation publishes before render", async () => {
+  const { user, saveLabels } = mountExamples();
+  await waitForSelectedSource(sourceA);
+  const answer = screen.getByRole("checkbox", { name: "Option A" });
+  await act(async () => {
+    await navigation!.navigate({
+      kind: "examples",
+      registrationId: project.id,
+      decisionId: "decision-2",
+      datasetId: "dataset-1",
+      caseId: "case-a",
+    });
+    expect(answer.matches(":disabled")).toBe(false);
+    fireEvent.click(answer);
+  });
+
+  expect(answer.matches(":checked")).toBe(false);
+  expect(saveLabels).not.toHaveBeenCalled();
+});
+
+it("rejects a stale source callback after live navigation publishes before render", async () => {
+  const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(async () => {
+    throw new ApiError("preflight_failed", "Should not write.", 422);
+  });
+  const { user } = mountExamples({ editCase });
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "Edit input" }));
+  const sourceEditor = screen.getByRole("textbox", { name: "Input source" });
+  await act(async () => {
+    await navigation!.navigate({
+      kind: "examples",
+      registrationId: project.id,
+      decisionId: "decision-2",
+      datasetId: "dataset-1",
+      caseId: "case-a",
+    });
+    expect(sourceEditor.readOnly).toBe(false);
+    fireEvent.change(sourceEditor, { target: { value: sourceB } });
+  });
+
+  expect(sourceEditor).toHaveValue(sourceA);
+  expect(editCase).not.toHaveBeenCalled();
+});
+
+it("admits one same-turn label write and releases the lock after its refresh", async () => {
+  type LabelSaveResult = Awaited<
+    ReturnType<ExampleAuthoringOperations["saveLabels"]>
+  >;
+  let resolveFirst!: (result: LabelSaveResult) => void;
+  let firstBody: LabelBatchBody | undefined;
+  let currentLabel: LabelView["label"] = null;
+  const firstRequest = new Promise<LabelSaveResult>((resolve) => {
+    resolveFirst = resolve;
+  });
+  const saveLabels = vi
+    .fn<ExampleAuthoringOperations["saveLabels"]>()
+    .mockImplementationOnce(({ body }) => {
+      firstBody = body;
+      return firstRequest;
+    })
+    .mockRejectedValue(new ApiError("validation_failed", "Rejected.", 422));
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    async () => {
+      const view = labelView(caseA);
+      return {
+        data: {
+          ...view,
+          status: currentLabel ? "applicable" : "unlabelled",
+          label: currentLabel,
+          review: {
+            ...view.review,
+            label_etag: currentLabel ? "label-etag-a" : null,
+          },
+        },
+        warnings: [],
+      };
+    },
+  );
+  const { user } = mountExamples({ saveLabels, readLabel });
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("checkbox", { name: "Option A" }));
+  const save = screen.getByRole("button", { name: "Save expected answer" });
+  await act(async () => {
+    fireEvent.click(save);
+    fireEvent.click(save);
+  });
+  expect(saveLabels).toHaveBeenCalledTimes(1);
+  const firstOperationId = saveLabels.mock.calls[0]?.[0].body.operation_id;
+  if (!firstBody) throw new Error("The first label body was not captured.");
+  const firstLabelReceipt = labelReceipt(firstBody);
+  currentLabel = firstLabelReceipt.changes[0]?.label ?? null;
+  resolveFirst({ data: firstLabelReceipt, warnings: [] });
+  await screen.findByText("Applicable · human");
+  await waitFor(() => {
+    expect(
+      screen
+        .getByRole("button", { name: "Save expected answer" })
+        .matches(":disabled"),
+    ).toBe(false);
+  });
+
+  await user.click(screen.getByRole("checkbox", { name: "Option B" }));
+  await user.click(screen.getByRole("button", { name: "Save expected answer" }));
+  expect(saveLabels).toHaveBeenCalledTimes(2);
+  expect(firstOperationId).toBeDefined();
+  expect(saveLabels.mock.calls[1]?.[0].body.operation_id).not.toBe(
+    firstOperationId,
+  );
+  await waitFor(() => {
+    expect(
+      screen
+        .getByRole("button", { name: "Save expected answer" })
+        .matches(":disabled"),
+    ).toBe(false);
+  });
 });
