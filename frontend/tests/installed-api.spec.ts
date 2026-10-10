@@ -1613,7 +1613,7 @@ test("installed browser authors exact decision source and previews imports throu
   const postVersionDraftEtag = heldSourceDraftData.etag as string;
   page.off("request", captureHeldRefreshDraftWrite);
   await page.unroute(`**/decisions/${decisionId}`);
-  await page.clock.uninstall();
+  await page.clock.resume();
   await page.unroute(`**/decisions/${decisionId}/revisions`);
 
   await page
