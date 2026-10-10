@@ -147,9 +147,9 @@ def provider_list(
 ) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
-            page = create_provider_operations(
-                source, os_store_factory=os_secret_store
-            ).list(cursor=cursor, limit=limit)
+            page = create_provider_operations(source, os_store_factory=os_secret_store).list(
+                cursor=cursor, limit=limit
+            )
             return ProfilePage(
                 tuple(item.view for item in page.items), page.total, page.next_cursor
             )
@@ -163,9 +163,9 @@ def provider_show(ctx: typer.Context, profile_id: str) -> None:
         with cli.source() as source:
             with selection_context(source, (selector_hint("provider", profile_id, ()),)):
                 return _configured(
-                    create_provider_operations(
-                        source, os_store_factory=os_secret_store
-                    ).describe(profile_id)
+                    create_provider_operations(source, os_store_factory=os_secret_store).describe(
+                        profile_id
+                    )
                 )
 
     execute(ctx, work)
@@ -197,9 +197,7 @@ def provider_configure(
         with cli.source() as source:
             with selection_context(source, (selector_hint("provider", profile_id, ()),)):
                 profiles = ProviderProfiles(source)
-                operations = create_provider_operations(
-                    source, os_store_factory=os_secret_store
-                )
+                operations = create_provider_operations(source, os_store_factory=os_secret_store)
                 mutation = operations.configure(
                     candidate,
                     expected_etag=_etag(profiles, profile_id, if_hash),

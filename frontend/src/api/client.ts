@@ -3,7 +3,7 @@ export interface JsonSource {
   source_text: string;
 }
 export type Decoder<T> = (value: unknown) => T;
-import validators from "./generated/validators.cjs";
+import validators from "@deykit/api-validators";
 import type { components } from "./generated/openapi";
 import {
   operationMetadata,

@@ -198,6 +198,7 @@ def test_m09_dispatch_contention_stops_at_original_deadline_without_transport(se
     assert final_attempt.outcome.error is not None
     assert final_attempt.outcome.error.reason == "segment_deadline"
     assert service.preview_resume(result.run_id).planned_case_ids == (
+        "case-00",
         "case-01",
         "case-02",
     )

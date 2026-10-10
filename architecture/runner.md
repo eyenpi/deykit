@@ -53,6 +53,10 @@ active just because another run holds the project's execution lock.
 Every attempt atomically reserves lifetime capacity and writes durable intent before
 its dispatch event. The sequence is `reserved → dispatched → known|unknown|not_sent`;
 a cancellation discovered before dispatch can settle directly as `not_sent`.
+Pre-dispatch cancellation, deadline expiry, or exhausted source-lock acquisition
+retains the prior case result, including pending or unknown. Pending cases remain
+eligible for explicit resume; unknown outcomes still require `retry_unknown=True`.
+The reserved attempt still consumes lifetime capacity.
 Process death after durable intent, dispatch, or a received but unsaved response
 leaves an unknown outcome that consumes capacity. Recovery does not guess whether a
 remote call happened. Failed persistence stops new dispatches; surviving in-flight

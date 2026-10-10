@@ -122,6 +122,65 @@ def test_deadline_rechecked_after_durable_reservation(setup):
     )
     assert result.state == "budget_exhausted" and result.attempts_used == 1
     assert result.cases[0].status == "pending" and factory.calls == []
+    assert service.preview_resume(result.run_id).planned_case_ids == ("case-00",)
+    service.scheduler.hook = lambda _stage, _attempt: None
+    resumed = asyncio.run(service.resume(result.run_id, operation_id="resume"))
+    assert resumed.state == "completed" and resumed.attempts_used == 2
+    assert len(factory.calls) == 1 and resumed.cases[0].status == "valid"
+
+
+@pytest.mark.parametrize("prior_unknown", [False, True])
+def test_pre_dispatch_source_contention_preserves_prior_result_for_explicit_resume(
+    setup, monkeypatch, prior_unknown
+):
+    from deykit.contracts.errors import ServiceError
+    from deykit.contracts.records import DispatchOutcome
+    from deykit.runner.scheduler import _SourceContentionExhausted
+
+    _, service, factory, _ = setup(1)
+    if prior_unknown:
+        factory.responses["case-00"] = [
+            DispatchOutcome(
+                state="unknown", error=ServiceError(code="provider_rejected", reason="timeout")
+            )
+        ]
+        initial = asyncio.run(service.start(request(), operation_id="initial-unknown"))
+    original = service.scheduler._source_call
+    blocked = False
+
+    async def source_call(run_id, stage, operation, *, deadline=None):
+        nonlocal blocked
+        if stage == "dispatch_transition" and not blocked:
+            blocked = True
+            raise _SourceContentionExhausted(run_id, stage)
+        return await original(run_id, stage, operation, deadline=deadline)
+
+    monkeypatch.setattr(service.scheduler, "_source_call", source_call)
+    with pytest.raises(ServiceFailure) as caught:
+        if prior_unknown:
+            asyncio.run(
+                service.resume(
+                    initial.run_id, operation_id="blocked-unknown-retry", retry_unknown=True
+                )
+            )
+        else:
+            asyncio.run(service.start(request(), operation_id="start-contention"))
+    assert caught.value.error.reason == "source_contention_exhausted"
+    result = service.show(caught.value.error.resource_id)
+    assert result.state == "interrupted" and result.attempts_used == 1 + int(prior_unknown)
+    assert result.cases[0].status == ("unknown" if prior_unknown else "pending")
+    assert len(factory.calls) == int(prior_unknown)
+    assert service.preview_resume(result.run_id).planned_case_ids == (
+        () if prior_unknown else ("case-00",)
+    )
+    assert service.preview_resume(result.run_id, retry_unknown=prior_unknown).planned_case_ids == (
+        "case-00",
+    )
+    resumed = asyncio.run(
+        service.resume(result.run_id, operation_id="resume-contention", retry_unknown=prior_unknown)
+    )
+    assert resumed.state == "completed" and resumed.attempts_used == 2 + int(prior_unknown)
+    assert len(factory.calls) == 1 + int(prior_unknown)
 
 
 def test_terminal_cancel_and_project_owner_do_not_change_completed_status(setup):

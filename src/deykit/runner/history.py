@@ -121,7 +121,12 @@ class RunHistory:
                     outcome is not None
                     and outcome.state == "not_sent"
                     and outcome.error
-                    and outcome.error.reason == "cancelled_before_dispatch"
+                    and outcome.error.reason
+                    in {
+                        "cancelled_before_dispatch",
+                        "segment_deadline",
+                        "source_contention_exhausted",
+                    }
                 ):
                     continue  # Keep the prior unknown/error; a proven non-call is not new evidence.
                 elif outcome is None or outcome.state == "unknown":

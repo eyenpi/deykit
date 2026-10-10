@@ -46,9 +46,7 @@ class _CredentialReferences:
 
 
 class _ProviderDescriptor:
-    def describe(
-        self, profile: ProviderProfile
-    ) -> tuple[CompilerInfo, ProviderCapabilities]:
+    def describe(self, profile: ProviderProfile) -> tuple[CompilerInfo, ProviderCapabilities]:
         return (
             CompilerInfo(COMPILER_ID, COMPILER_VERSION),
             ProviderCapabilities(
