@@ -4120,7 +4120,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Retry the same credential request" }),
   ).toBeVisible();
-  await expect(secretInput).toHaveValue("");
+  await expect
+    .poll(async () => (await secretInput.inputValue()) === "")
+    .toBe(true);
   await expect(secretInput).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Store credential" }),
