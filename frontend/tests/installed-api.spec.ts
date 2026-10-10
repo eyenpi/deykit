@@ -314,6 +314,18 @@ test("installed browser authors exact decision source and previews imports throu
   const sourceReadEventWaiters = new Set<() => void>();
   let pendingSourceReadCategories: string[] = [];
   let recordLateSourceReadProgress = false;
+  let splitReadinessFacts:
+    | {
+        edit_enabled: boolean;
+        option_a_enabled: boolean;
+        selected_loading: boolean;
+        labels_loading: boolean;
+        selection_review_notice_present: boolean;
+        error_present: boolean;
+        saved_refresh_present: boolean;
+        pending_route_categories: string[];
+      }
+    | undefined;
   let activeSplitReadEvents:
     | Array<{
         event: "body" | "body_error" | "cancelled";
@@ -352,7 +364,9 @@ test("installed browser authors exact decision source and previews imports throu
       )
       .map(({ path }) => path.replace(/\{([a-z_]+)\}/g, ":$1")),
   );
-  async function recordProgress() {
+  let progressWriteQueue: Promise<void> = Promise.resolve();
+  let progressSequence = 0;
+  function recordProgress(): Promise<void> {
     const body = JSON.stringify({
       active_phase: activePhase,
       completed_phases: completedPhases,
@@ -363,13 +377,18 @@ test("installed browser authors exact decision source and previews imports throu
       api_failures: apiFailures,
       source_read_events: sourceReadEvents,
       pending_source_read_categories: pendingSourceReadCategories,
+      split_readiness_facts: splitReadinessFacts,
     });
-    await writeFile(progressPath, `${body}\n`, "utf8");
-    progressSequence += 1;
-    await testInfo.attach(`authoring-progress-${progressSequence}`, {
-      body: `${body}\n`,
-      contentType: "application/json",
+    const sequence = ++progressSequence;
+    const write = progressWriteQueue.then(async () => {
+      await writeFile(progressPath, `${body}\n`, "utf8");
+      await testInfo.attach(`authoring-progress-${sequence}`, {
+        body: `${body}\n`,
+        contentType: "application/json",
+      });
     });
+    progressWriteQueue = write.catch(() => undefined);
+    return write;
   }
   async function recordDirectApiFailure(response: APIResponse, path: string) {
     if (response.status() < 400) return;
@@ -4598,10 +4617,69 @@ test("installed browser authors exact decision source and previews imports throu
   });
   let refreshReadinessTimer: ReturnType<typeof setTimeout> | undefined;
   const boundedSplitReadiness = new Promise<never>((_, reject) => {
-    refreshReadinessTimer = setTimeout(
-      () => reject(new Error("Split refresh did not reach a settled ready state.")),
-      15_000,
-    );
+    refreshReadinessTimer = setTimeout(() => {
+      void (async () => {
+        const [
+          editEnabled,
+          optionAEnabled,
+          selectedLoading,
+          labelsLoading,
+          selectionReviewNoticePresent,
+          errorPresent,
+          savedRefreshPresent,
+        ] = await Promise.all([
+          page
+            .getByRole("button", { name: "Edit input" })
+            .isEnabled()
+            .catch(() => false),
+          page
+            .getByRole("checkbox", { name: "Option A" })
+            .isEnabled()
+            .catch(() => false),
+          page
+            .getByText("Loading selected example…", { exact: true })
+            .count()
+            .then((count) => count > 0)
+            .catch(() => false),
+          page
+            .getByText("Loading labels…", { exact: true })
+            .count()
+            .then((count) => count > 0)
+            .catch(() => false),
+          page
+            .getByRole("region", { name: "Review selected context" })
+            .count()
+            .then((count) => count > 0)
+            .catch(() => false),
+          page
+            .getByRole("alert")
+            .count()
+            .then((count) => count > 0)
+            .catch(() => false),
+          page
+            .getByRole("region", { name: "Saved changes awaiting refresh" })
+            .count()
+            .then((count) => count > 0)
+            .catch(() => false),
+        ]);
+        splitReadinessFacts = {
+          edit_enabled: editEnabled,
+          option_a_enabled: optionAEnabled,
+          selected_loading: selectedLoading,
+          labels_loading: labelsLoading,
+          selection_review_notice_present: selectionReviewNoticePresent,
+          error_present: errorPresent,
+          saved_refresh_present: savedRefreshPresent,
+          pending_route_categories: [...pendingSourceReadCategories],
+        };
+        await recordProgress();
+        reject(
+          new Error("Split refresh did not reach a settled ready state."),
+        );
+      })().catch(() => {
+        reject(new Error("Split refresh did not reach a settled ready state."));
+      });
+    }, 15_000);
   });
   void boundedSplitReadiness.catch(() => undefined);
   await expect
@@ -4722,7 +4800,44 @@ test("installed browser authors exact decision source and previews imports throu
   const caseOneLabelBeforeSeedSave: ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"> =
     (await caseOneLabelBeforeSeedSaveResponse.json()).data;
 
+  const seedSelectionResponses = [
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/seed-1` &&
+        response.request().method() === "GET",
+      { timeout: 0 },
+    ),
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/seed-1` &&
+        response.request().method() === "GET",
+      { timeout: 0 },
+    ),
+  ];
+  for (const response of seedSelectionResponses)
+    void response.catch(() => undefined);
   await caseButton("seed-1").click();
+  const [seedCaseResponse, seedLabelResponse] = await Promise.all(
+    seedSelectionResponses,
+  );
+  for (const response of [seedCaseResponse, seedLabelResponse]) {
+    expect(response.status()).toBe(200);
+    await response.body();
+  }
+  const selectedSeedCase: ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"> =
+    (await seedCaseResponse.json()).data;
+  await expect(
+    page.getByRole("heading", { name: "seed-1", exact: true }),
+  ).toBeVisible();
+  expect(
+    (await page
+      .getByLabel("Complete example input source", { exact: true })
+      .textContent()) === selectedSeedCase.case.record.input_source,
+  ).toBe(true);
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
+  await expect(page.getByRole("checkbox", { name: "Option B" })).toBeEnabled();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
   const applicableLabelSave = page.waitForResponse(
