@@ -1,19 +1,19 @@
 {
   "assets": [
     {
-      "content_type": "text/javascript; charset=utf-8",
-      "name": "assets/index-B81ZMlDT.js",
-      "sha256": "ff984d2d8bfd0fb9b50f1b30abfc03fc3df29e2cf85116da4c567247f16dbfcd"
-    },
-    {
       "content_type": "text/css; charset=utf-8",
       "name": "assets/index-CfK2XFqi.css",
       "sha256": "bc25e2c45b7f59c5b1f18a09895834c7ba392b5d14069cf61f2a0f6c2d1d8a2e"
     },
     {
+      "content_type": "text/javascript; charset=utf-8",
+      "name": "assets/index-DtO82HCe.js",
+      "sha256": "4b941e91addbb8e3733ce868e9a781939e7a4c7eba6bf120f7d6570c593b096d"
+    },
+    {
       "content_type": "text/html; charset=utf-8",
       "name": "index.html",
-      "sha256": "d66804c39905c61a569cb543b06a9a0bf0568bf82d00ddb48145ca3a6a610a01"
+      "sha256": "f1deff498b7c08cb12a31f49ab72e91b73ff0c9e66c1cd166f761bf540706251"
     }
   ],
   "schema_version": 1
