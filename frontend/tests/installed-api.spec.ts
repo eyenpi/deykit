@@ -3719,6 +3719,12 @@ test("installed browser authors exact decision source and previews imports throu
         `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels`,
     { timeout: 0 },
   );
+  const refreshedReadResponsesPromise = Promise.all([
+    selectedCaseReadResponse,
+    selectedLabelReadResponse,
+    labelListReadResponse,
+  ]);
+  void refreshedReadResponsesPromise.catch(() => undefined);
   const reapplyAddResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/cases") &&
@@ -3729,33 +3735,58 @@ test("installed browser authors exact decision source and previews imports throu
   const reapplyAddReceipt = await reapplyAddResponse;
   expect(reapplyAddReceipt.status()).toBe(200);
   const reapplyAddReceiptData = (await reapplyAddReceipt.json()).data;
+  const reapplyAddReceiptElapsed = Math.max(
+    0,
+    Date.now() - reapplyAddStartedAt,
+  );
   actionTimings.push({
     action: "reapply_add",
     stage: "receipt",
-    elapsed_ms: Math.max(0, Date.now() - reapplyAddStartedAt),
+    elapsed_ms: reapplyAddReceiptElapsed,
   });
-  await recordProgress();
   const refreshReadinessStartedAt = Date.now();
   let refreshReadinessTimer: ReturnType<typeof setTimeout> | undefined;
-  const refreshedReadResponses = await Promise.race([
-    Promise.all([
-      selectedCaseReadResponse,
-      selectedLabelReadResponse,
-      labelListReadResponse,
-    ]),
+  const refreshReadinessTask = async () => {
+    const responses = await refreshedReadResponsesPromise;
+    for (const response of responses) {
+      expect(response.status()).toBe(200);
+      await response.body();
+    }
+    await Promise.all([
+      expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled({
+        timeout: 9_000,
+      }),
+      expect(
+        page.getByText("Loading selected example…", { exact: true }),
+      ).toHaveCount(0, { timeout: 9_000 }),
+      expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(
+        0,
+        { timeout: 9_000 },
+      ),
+    ]);
+  };
+  const boundedRefreshReadiness = Promise.race([
+    refreshReadinessTask(),
     new Promise<never>((_resolve, reject) => {
       refreshReadinessTimer = setTimeout(
         () => reject(new Error("Example refresh did not settle after reapply.")),
         10_000,
       );
     }),
-  ]).finally(() => {
+  });
+  void boundedRefreshReadiness.catch(() => undefined);
+  try {
+    await recordProgress();
+    await boundedRefreshReadiness;
+  } finally {
     if (refreshReadinessTimer !== undefined)
       clearTimeout(refreshReadinessTimer);
-  });
-  for (const response of refreshedReadResponses) {
-    expect(response.status()).toBe(200);
-    await response.body();
+    actionTimings.push({
+      action: "reapply_add",
+      stage: "readiness",
+      elapsed_ms: Math.max(0, Date.now() - refreshReadinessStartedAt),
+    });
+    await recordProgress();
   }
   const reapplyAddData = reapplyAddReceiptData;
   expect(addBodies).toHaveLength(2);
@@ -3772,23 +3803,6 @@ test("installed browser authors exact decision source and previews imports throu
     0,
   );
   await expect(caseButton(reapplyAddedCaseId)).toBeVisible();
-  await Promise.all([
-    expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled({
-      timeout: 10_000,
-    }),
-    expect(
-      page.getByText("Loading selected example…", { exact: true }),
-    ).toHaveCount(0, { timeout: 10_000 }),
-    expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(0, {
-      timeout: 10_000,
-    }),
-  ]);
-  actionTimings.push({
-    action: "reapply_add",
-    stage: "readiness",
-    elapsed_ms: Math.max(0, Date.now() - refreshReadinessStartedAt),
-  });
-  await recordProgress();
 
   await enterPhase("Case source preservation and stale-label applicability");
   await page.reload();
