@@ -4152,7 +4152,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
-  ).toHaveText(staleCaseSource);
+  ).toHaveText('{"case":1,"changed":true}');
   await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
   await expect(
     page.getByText("Loading selected example…", { exact: true }),
@@ -4342,7 +4342,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
-  ).toHaveText(staleCaseSource);
+  ).toHaveText('{"case":1,"changed":true}');
   await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
   await expect(
     page.getByText("Loading selected example…", { exact: true }),
