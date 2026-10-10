@@ -187,6 +187,45 @@ class OfflineBackendFactory:
         return NoDispatchBackend(backend, self._dispatch)
 
 
+class LifespanWitness:
+    """Observe the ASGI lifespan protocol without changing its behavior."""
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+        self.startup_completed = False
+        self.startup_error: str | None = None
+        self.shutdown_completed = False
+        self.shutdown_error: str | None = None
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "lifespan":
+            await self._app(scope, receive, send)
+            return
+
+        async def observe(message: dict[str, Any]) -> None:
+            message_type = message.get("type")
+            if message_type == "lifespan.startup.complete":
+                self.startup_completed = True
+            elif message_type == "lifespan.startup.failed":
+                self.startup_error = str(message.get("message", "lifespan.startup.failed"))
+            elif message_type == "lifespan.shutdown.complete":
+                self.shutdown_completed = True
+            elif message_type == "lifespan.shutdown.failed":
+                self.shutdown_error = str(message.get("message", "lifespan.shutdown.failed"))
+            await send(message)
+
+        try:
+            await self._app(scope, receive, observe)
+        except BaseException as error:
+            phase = "shutdown" if self.startup_completed else "startup"
+            error_text = f"{type(error).__name__}: {error}"
+            if phase == "startup":
+                self.startup_error = error_text
+            else:
+                self.shutdown_error = error_text
+            raise
+
+
 class QualificationServer(uvicorn.Server):
     """Own one socket and publish lifecycle evidence after the app has shut down."""
 
@@ -198,6 +237,7 @@ class QualificationServer(uvicorn.Server):
         ready_file: Path,
         origin: str,
         boundary: Any,
+        lifespan: LifespanWitness,
         secret_store: FakeSecretStore,
         model_lister: FakeModelLister,
         backends: list[OfflineBackendFactory],
@@ -207,10 +247,10 @@ class QualificationServer(uvicorn.Server):
         self._ready_file = ready_file
         self._origin = origin
         self._boundary = boundary
+        self._lifespan = lifespan
         self._secret_store = secret_store
         self._model_lister = model_lister
         self._backends = backends
-        self._lifespan_completed = False
 
     def install_signal_handlers(self) -> None:
         # SIGTERM is handled explicitly below, keeping Uvicorn from replacing it.
@@ -223,16 +263,33 @@ class QualificationServer(uvicorn.Server):
 
     async def shutdown(self, sockets: list[socket.socket] | None = None) -> None:
         await super().shutdown(sockets=sockets)
-        self._lifespan_completed = True
         inner = self._boundary.app
         registry = inner.state.project_registry
         workers = inner.state.workers
+        supervisor = inner.state.execution_supervisor
+        pending = getattr(registry, "_pending", None)
+        supervisor_sets = {
+            "supervisor_tasks_empty": not supervisor._tasks,
+            "supervisor_preparing_empty": not supervisor._preparing,
+            "supervisor_runs_empty": not supervisor._runs,
+            "supervisor_groups_empty": not supervisor._groups,
+            "supervisor_run_tasks_empty": not supervisor._run_tasks,
+            "supervisor_group_tasks_empty": not supervisor._group_tasks,
+        }
         witness = {
-            "lifespan_shutdown_completed": self._lifespan_completed,
+            "lifespan_startup_completed": self._lifespan.startup_completed,
+            "lifespan_startup_error": self._lifespan.startup_error,
+            "lifespan_shutdown_completed": self._lifespan.shutdown_completed,
+            "lifespan_shutdown_error": self._lifespan.shutdown_error,
             "capability_active": self._boundary.session.active,
             "registry_empty": len(registry.list()) == 0,
+            "registry_pending_empty": None if pending is None else len(pending) == 0,
             "workers_idle": len(workers._tasks) == 0,
-            "lifespan_completed": self._lifespan_completed,
+            "supervisor_idle": all(supervisor_sets.values()) and not supervisor._admitting,
+            **supervisor_sets,
+            "supervisor_admitting": supervisor._admitting,
+            "supervisor_admission_closed": not supervisor._admitting,
+            "lifespan_completed": self._lifespan.shutdown_completed,
             "capability_revoked": not self._boundary.session.active,
             "root_registry_empty": len(registry.list()) == 0,
             "root_registry_count": len(registry.list()),
@@ -308,8 +365,9 @@ def serve_installed_api(workspace: Path, ready_file: Path) -> None:
     boundary = create_app(
         LocalServerConfig(authority, origin, AssetCatalog.from_package()), dependencies
     )
+    lifespan = LifespanWitness(boundary)
     config = uvicorn.Config(
-        boundary,
+        lifespan,
         host=host,
         port=port,
         workers=1,
@@ -329,6 +387,7 @@ def serve_installed_api(workspace: Path, ready_file: Path) -> None:
         ready_file=ready_file,
         origin=origin,
         boundary=boundary,
+        lifespan=lifespan,
         secret_store=secret_store,
         model_lister=model_lister,
         backends=backend_factories,
