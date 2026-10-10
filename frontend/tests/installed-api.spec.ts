@@ -2864,7 +2864,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "seed-1", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Expected answers" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Expected answers" }),
+  ).toBeVisible();
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
   ).toHaveText(/\S/);
