@@ -314,7 +314,7 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("heading", { name: "Welcome to deykit." }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Create project", exact: true })
+    .getByRole("button", { name: "Create project" })
     .click();
   await page.getByLabel("Project name").fill(projectName);
   await page.getByLabel("Project folder path").fill(projectPath);
