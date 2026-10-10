@@ -3773,7 +3773,7 @@ test("installed browser authors exact decision source and previews imports throu
         10_000,
       );
     }),
-  });
+  ]);
   void boundedRefreshReadiness.catch(() => undefined);
   try {
     await recordProgress();
