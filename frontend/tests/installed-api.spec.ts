@@ -2468,8 +2468,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
   await page.getByRole("button", { name: "Save input" }).click();
   await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
-  const readSeedLabel = () =>
-    page.request.get(
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
+  const readSeedLabel = async () => {
+    const response = await page.request.get(
       `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/seed-1`,
       {
         headers: {
@@ -2478,6 +2479,9 @@ test("installed browser authors exact decision source and previews imports throu
         },
       },
     );
+    expect(response.status()).toBe(200);
+    return response;
+  };
   const emptySeedLabel = await readSeedLabel();
   expect((await emptySeedLabel.json()).data.label).toBeNull();
   await page.getByRole("checkbox", { name: "Option A" }).check();
@@ -2585,7 +2589,7 @@ test("installed browser authors exact decision source and previews imports throu
   releaseLabelSave();
   await expect(
     page.getByRole("button", { name: "Review current label" }),
-  ).toBeVisible();
+  ).toBeEnabled();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   expect(
@@ -2606,6 +2610,7 @@ test("installed browser authors exact decision source and previews imports throu
   const expectedLabelReceipt = await expectedLabelSaveResponse;
   expect(expectedLabelReceipt.status()).toBe(200);
   await expectedLabelReceipt.body();
+  await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled();
   let savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label).toMatchObject({
     acceptable_option_ids: ["option-a", "option-b"],
@@ -2653,6 +2658,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(disputeBodies).toHaveLength(2);
   expect(disputeBodies[1]).toEqual(disputeBodies[0]);
+  await expect(
+    page.getByRole("button", { name: "Resolve dispute with staged set" }),
+  ).toBeEnabled();
   savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label.status).toBe("disputed");
   const resolveLabelResponse = page.waitForResponse(
@@ -2666,6 +2674,7 @@ test("installed browser authors exact decision source and previews imports throu
   const resolvedLabelReceipt = await resolveLabelResponse;
   expect(resolvedLabelReceipt.status()).toBe(200);
   await resolvedLabelReceipt.body();
+  await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled();
   savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label).toMatchObject({
     status: "active",
@@ -2680,6 +2689,8 @@ test("installed browser authors exact decision source and previews imports throu
   const clearedLabelReceipt = await clearLabelResponse;
   expect(clearedLabelReceipt.status()).toBe(200);
   await clearedLabelReceipt.body();
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Clear label" })).toHaveCount(0);
   const clearedLabel = await readSeedLabel();
   expect((await clearedLabel.json()).data.label).toBeNull();
 
