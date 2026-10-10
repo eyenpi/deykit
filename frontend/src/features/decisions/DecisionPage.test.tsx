@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import type { ApiOperationData, ApiResult } from "../../api/client";
@@ -74,7 +80,10 @@ function editorForm(instructions: string) {
   } as const;
 }
 
-function projection(editorSource: string, instructions: string): EditorProjection {
+function projection(
+  editorSource: string,
+  instructions: string,
+): EditorProjection {
   return {
     schema_version: 1,
     editor_source: editorSource,
@@ -158,9 +167,7 @@ function revisionReceipt(
   };
 }
 
-function mountDecision(
-  overrides: Partial<DecisionAuthoringOperations> = {},
-) {
+function mountDecision(overrides: Partial<DecisionAuthoringOperations> = {}) {
   const base = {
     ...disconnectedWorkspace.authoring.decisions,
     read: async ({ decisionId: targetDecisionId }) =>
@@ -293,7 +300,9 @@ it("flushes the represented draft before transforming and saving a version", asy
     expected_draft_etag: "draft-1",
     edit: { kind: "set_instructions", value: "Second queued" },
   });
-  expect(updateBodies.map((body) => [body.editor_source, body.expected_etag])).toEqual([
+  expect(
+    updateBodies.map((body) => [body.editor_source, body.expected_etag]),
+  ).toEqual([
     [source1, "draft-0"],
     [source2, "draft-1"],
   ]);
@@ -317,7 +326,9 @@ it("pauses queued transforms while the represented draft acknowledgement overlap
     updateDraft: async ({ body }) => {
       updateCount += 1;
       if (updateCount === 1) return priorDraftAck;
-      return apiResult(draftReceipt(body.editor_source, `draft-${updateCount}`));
+      return apiResult(
+        draftReceipt(body.editor_source, `draft-${updateCount}`),
+      );
     },
     transformEditor: async ({ body }) => {
       transformBodies.push(body);
@@ -384,9 +395,7 @@ it.each([
     const transformEditor = vi.fn(async () =>
       apiResult(transformReview(source1, "First represented")),
     );
-    const saveRevision = vi.fn(async () =>
-      apiResult(revisionReceipt(source2)),
-    );
+    const saveRevision = vi.fn(async () => apiResult(revisionReceipt(source2)));
     mountDecision({ updateDraft, transformEditor, saveRevision });
 
     await screen.findByRole("textbox", { name: "Question" });
@@ -400,12 +409,15 @@ it.each([
     expect(transformEditor).toHaveBeenCalledTimes(1);
     expect(updateDraft).toHaveBeenCalledTimes(1);
     expect(saveRevision).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole("textbox", { name: "Question" }),
-    ).toHaveValue("Second queued");
+    expect(screen.getByRole("textbox", { name: "Question" })).toHaveValue(
+      "Second queued",
+    );
     expect(
       screen.queryByRole("button", {
-        name: state === "unknown" ? "Retry unchanged save" : "Review current and reapply my source",
+        name:
+          state === "unknown"
+            ? "Retry unchanged save"
+            : "Review current and reapply my source",
       }),
     ).not.toBeNull();
   },
@@ -422,14 +434,17 @@ it("drops an obsolete queued form edit when exact raw source replaces its sequen
   const transformBodies: Array<
     Parameters<DecisionAuthoringOperations["transformEditor"]>[0]["body"]
   > = [];
-  const rawSource = '{ "raw": 9007199254740993, "fraction": 0.1234567890123456789 }';
+  const rawSource =
+    '{ "raw": 9007199254740993, "fraction": 0.1234567890123456789 }';
   let updateCount = 0;
   mountDecision({
     updateDraft: async ({ body }) => {
       updateBodies.push(body);
       updateCount += 1;
       if (updateCount === 1) return priorDraftAck;
-      return apiResult(draftReceipt(body.editor_source, `draft-${updateCount}`));
+      return apiResult(
+        draftReceipt(body.editor_source, `draft-${updateCount}`),
+      );
     },
     transformEditor: async ({ body }) => {
       transformBodies.push(body);
@@ -460,9 +475,9 @@ it("drops an obsolete queued form edit when exact raw source replaces its sequen
     source1,
     rawSource,
   ]);
-  expect(
-    screen.getByRole("textbox", { name: "Decision source" }),
-  ).toHaveValue(rawSource);
+  expect(screen.getByRole("textbox", { name: "Decision source" })).toHaveValue(
+    rawSource,
+  );
   expect(transformBodies).toHaveLength(1);
 });
 
@@ -475,9 +490,7 @@ it("does not continue an old drain after the same page is reused for another dec
   const transformEditor = vi.fn(async () =>
     apiResult(transformReview(source1, "First represented")),
   );
-  const saveRevision = vi.fn(async () =>
-    apiResult(revisionReceipt(source2)),
-  );
+  const saveRevision = vi.fn(async () => apiResult(revisionReceipt(source2)));
   const mounted = mountDecision({
     read: async ({ decisionId: targetDecisionId }) =>
       apiResult(
