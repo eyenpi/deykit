@@ -3963,7 +3963,10 @@ test("installed browser authors exact decision source and previews imports throu
   type ObservedProjectRead = {
     startedAt: number;
     settled: Promise<void>;
-    finish: (terminal: "body" | "body_error" | "cancelled", status?: number) => void;
+    finish: (
+      terminal: "body" | "body_error" | "cancelled",
+      status?: number,
+    ) => void;
   };
   const pendingProjectReads = new Map<Request, ObservedProjectRead>();
   let observeProjectReads = true;
@@ -3992,8 +3995,7 @@ test("installed browser authors exact decision source and previews imports throu
           event: terminal,
           route_pattern: routePattern,
           method: "GET",
-          elapsed_ms:
-            startedAt === undefined ? 0 : Date.now() - startedAt,
+          elapsed_ms: startedAt === undefined ? 0 : Date.now() - startedAt,
           ...(status === undefined ? {} : { status }),
         });
         if (sourceReadEvents.length > 160) sourceReadEvents.shift();
@@ -4025,8 +4027,12 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("heading", { name: "case-2", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
-  await expect(page.getByText("Loading selected example…", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(
+    0,
+  );
   await settleProjectReads();
   await page.getByRole("button", { name: "Remove case" }).click();
   let releaseRemove!: () => void;
@@ -4134,9 +4140,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("region", { name: /^Cases in / })).toBeVisible();
   await expect(caseButton("case-2")).toHaveCount(0);
   await expect(caseButton("case-1")).toBeVisible();
-  await expect(
-    page.getByText("Loading labels…", { exact: true }),
-  ).toHaveCount(0);
+  await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(
+    0,
+  );
   await expect(
     page.getByText("Loading selected example…", { exact: true }),
   ).toHaveCount(0);
@@ -4151,9 +4157,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByText("Loading selected example…", { exact: true }),
   ).toHaveCount(0);
-  await expect(
-    page.getByText("Loading labels…", { exact: true }),
-  ).toHaveCount(0);
+  await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(
+    0,
+  );
   await settleProjectReads();
   const readdCaseTwo = await page.request.post(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
@@ -4291,7 +4297,9 @@ test("installed browser authors exact decision source and previews imports throu
         response.request().method() === "GET",
     ),
   ];
-  await labelsUnavailable.getByRole("button", { name: "Reload labels" }).click();
+  await labelsUnavailable
+    .getByRole("button", { name: "Reload labels" })
+    .click();
   const refreshedDatasetReads = await Promise.all(
     refreshedDatasetReadResponses,
   );
@@ -4299,9 +4307,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("table", { name: "Expected answers for Imported" }),
   ).toBeVisible();
-  await expect(
-    page.getByText("Loading labels…", { exact: true }),
-  ).toHaveCount(0);
+  await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(
+    0,
+  );
   await settleProjectReads();
   expect(refreshedDatasetReads).toHaveLength(3);
   for (const response of refreshedDatasetReads) {
@@ -4339,9 +4347,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByText("Loading selected example…", { exact: true }),
   ).toHaveCount(0);
-  await expect(
-    page.getByText("Loading labels…", { exact: true }),
-  ).toHaveCount(0);
+  await expect(page.getByText("Loading labels…", { exact: true })).toHaveCount(
+    0,
+  );
   await settleProjectReads();
   observeProjectReads = false;
 
