@@ -4091,7 +4091,7 @@ test("installed browser authors exact decision source and previews imports throu
         expected_dataset_etag: caseTwo.dataset_etag,
         input_kind: caseTwo.case.record.input_kind,
         input_source: caseTwo.case.record.input_source,
-        tags: [...caseTwo.case.record.tags, "remove-conflict-winner"],
+        tags: [...(caseTwo.case.record.tags ?? []), "remove-conflict-winner"],
         split: caseTwo.case.record.split,
         group_id: caseTwo.case.record.group_id,
         derived_from: caseTwo.case.record.derived_from,
