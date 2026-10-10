@@ -125,9 +125,7 @@ def test_capture_list_matches_legacy_on_nine_real_cases_and_label_history(projec
         assert optimized.list("decision", "data", status=status) == legacy.list(
             "decision", "data", status=status
         )
-    assert optimized.list("decision", "data", limit=3) == legacy.list(
-        "decision", "data", limit=3
-    )
+    assert optimized.list("decision", "data", limit=3) == legacy.list("decision", "data", limit=3)
     cursor_item = expected.items[2]
     cursor_id = label_id(cursor_item.review.case_id, cursor_item.review.question_id)
     assert optimized.list("decision", "data", cursor=cursor_id, limit=2) == legacy.list(
@@ -174,8 +172,7 @@ def test_capture_retains_removed_question_labels_as_incompatible_and_clearable(p
     assert old.reasons
     captured.clear(old.review, operation_id="clear-removed-question")
     assert all(
-        item.review.question_id != "category"
-        for item in captured.list("decision", "data").items
+        item.review.question_id != "category" for item in captured.list("decision", "data").items
     )
 
 

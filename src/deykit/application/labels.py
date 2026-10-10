@@ -278,7 +278,9 @@ class LabelService:
             def snapshot_required(key: ResourceKey) -> StoredRecord:
                 record = index.get(key)
                 if record is None:
-                    raise ServiceFailure(ServiceError(code="not_found", resource_id=key.resource_id))
+                    raise ServiceFailure(
+                        ServiceError(code="not_found", resource_id=key.resource_id)
+                    )
                 return record
 
             definition, decision_etag, draft_etag = self._context_from_records(
