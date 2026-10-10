@@ -277,12 +277,14 @@ def test_capture_invalid_draft_fails_before_constructing_a_partial_page(project)
 
     def invalid_draft():
         records = original_capture()
-        return tuple(
-            StoredRecord(record.key, b"{}", record.etag)
-            if record.key == ResourceKey("drafts", "decision")
-            else record
-            for record in records
-        )
+        updated = []
+        for record in records:
+            if record.key == ResourceKey("drafts", "decision"):
+                draft = load_record(DecisionDraft, record.body)
+                malformed_definition = draft.model_copy(update={"editor_source": "not-json"})
+                record = StoredRecord(record.key, dump_record(malformed_definition), record.etag)
+            updated.append(record)
+        return tuple(updated)
 
     service = LabelService(
         counted, datasets.clock, datasets.id_factory, capture_snapshot=invalid_draft
