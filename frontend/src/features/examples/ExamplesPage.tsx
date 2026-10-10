@@ -3093,7 +3093,11 @@ export function ExamplesPage({
                     Loading labels…
                   </p>
                 ) : labelsError ? (
-                  <div className="warning-summary" role="region" aria-label="Labels unavailable">
+                  <div
+                    className="warning-summary"
+                    role="region"
+                    aria-label="Labels unavailable"
+                  >
                     <p role="status">{labelsError}</p>
                     <button
                       type="button"

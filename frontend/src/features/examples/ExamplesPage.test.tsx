@@ -264,8 +264,7 @@ it("publishes the matching case page while the label list is still loading", asy
   let releaseLabelList!: () => void;
   const pendingLabelList = new Promise<{ data: LabelPage; warnings: [] }>(
     (resolve) => {
-      releaseLabelList = () =>
-        resolve({ data: emptyLabelPage, warnings: [] });
+      releaseLabelList = () => resolve({ data: emptyLabelPage, warnings: [] });
     },
   );
   const listLabels = vi.fn<ExampleAuthoringOperations["listLabels"]>(
@@ -276,7 +275,9 @@ it("publishes the matching case page while the label list is still loading", asy
   const casesRegion = await screen.findByRole("region", {
     name: "Cases in Examples",
   });
-  expect(within(casesRegion).getByRole("button", { name: "case-a" })).toBeTruthy();
+  expect(
+    within(casesRegion).getByRole("button", { name: "case-a" }),
+  ).toBeTruthy();
   expect(screen.getByText("Loading labels…")).toBeTruthy();
   expect(
     screen.queryByText("No labels are recorded for this decision and dataset."),
@@ -308,9 +309,9 @@ it("keeps a failed label list distinct from a successful empty list", async () =
     screen.queryByText("No labels are recorded for this decision and dataset."),
   ).toBeNull();
   expect(
-    within(unavailable).getByRole("button", { name: "Reload labels" }).matches(
-      ":disabled",
-    ),
+    within(unavailable)
+      .getByRole("button", { name: "Reload labels" })
+      .matches(":disabled"),
   ).toBe(false);
 });
 
