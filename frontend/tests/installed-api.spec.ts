@@ -3769,7 +3769,8 @@ test("installed browser authors exact decision source and previews imports throu
     refreshReadinessTask(),
     new Promise<never>((_resolve, reject) => {
       refreshReadinessTimer = setTimeout(
-        () => reject(new Error("Example refresh did not settle after reapply.")),
+        () =>
+          reject(new Error("Example refresh did not settle after reapply.")),
         10_000,
       );
     }),
