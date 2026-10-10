@@ -118,7 +118,9 @@ def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsi
                 except asyncio.CancelledError:
                     pass
                 except TimeoutError:
-                    raise AssertionError("native contention task did not drain after cancellation")
+                    raise AssertionError(
+                        "native contention task did not drain after cancellation"
+                    ) from None
                 raise AssertionError("native source contention scenario did not finish")
             return task.result()
         finally:
