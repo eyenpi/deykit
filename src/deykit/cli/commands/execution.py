@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
-from time import monotonic as _monotonic, sleep as _sleep
+from time import monotonic as _monotonic
+from time import sleep as _sleep
 from typing import Annotated, Literal, cast
 
 import typer
 
-from deykit.application.evaluations import EvaluationService
 from deykit.application.errors import ServiceFailure
+from deykit.application.evaluations import EvaluationService
 from deykit.application.execution import ExecutionService
 from deykit.application.execution_actions import settle_execution
 from deykit.cli.context import CliState, SystemClock, new_operation_id
@@ -19,8 +20,8 @@ from deykit.cli.output import CommandOutcome, execute, execute_outcome
 from deykit.cli.selection import selection_context, selector_hint
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.backends import ProviderBackends
-from deykit.runner.planner import RunRequest
 from deykit.runner.history import RunHistory
+from deykit.runner.planner import RunRequest
 from deykit.runner.views import RunCreated, RunProgress, RunResumed, progress_view
 from deykit.storage import FileProjectSource
 
@@ -225,9 +226,7 @@ def cancel_run(
             runner = service(source)
             with selection_context(source, (selector_hint("run", run_id, ()),)):
                 history = _cancel_history_once(source, runner, run_id, actual)
-                projected = progress_view(
-                    history, active=runner.execution.execution_active()
-                )
+                projected = progress_view(history, active=runner.execution.execution_active())
                 return {
                     "operation_id": actual,
                     "run": projected,
