@@ -323,6 +323,13 @@ test("installed browser authors exact decision source and previews imports throu
     screenshots.push(name);
     await recordProgress();
   }
+  async function openDecisionSourceEditor() {
+    const editor = page.getByLabel("Decision source");
+    if (!(await editor.isVisible()))
+      await page.getByText("Advanced editor source", { exact: true }).click();
+    await expect(editor).toBeVisible();
+    return editor;
+  }
   await recordProgress();
 
   const projectName = "M10 authoring acceptance";
@@ -958,8 +965,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByLabel("Question").fill("Question from obsolete transform");
   await page.getByLabel("Question").press("Tab");
   await obsoleteTransformStarted;
-  await page.getByText("Advanced editor source", { exact: true }).click();
-  const obsoleteRawEditor = page.getByLabel("Decision source");
+  const obsoleteRawEditor = await openDecisionSourceEditor();
   const sourceBeforeReplacement = await obsoleteRawEditor.inputValue();
   const rawReplacementSource = sourceBeforeReplacement.replace(
     '"Retained during composition failure"',
@@ -1048,10 +1054,8 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
     .click();
-  await page.getByText("Advanced editor source", { exact: true }).click();
-  await expect(page.getByLabel("Decision source")).toHaveValue(
-    rawReplacementSource,
-  );
+  const reopenedRawEditor = await openDecisionSourceEditor();
+  await expect(reopenedRawEditor).toHaveValue(rawReplacementSource);
 
   await enterPhase("In-flight transform held across committed IME source");
   const inFlightCompositionSource =
@@ -1255,8 +1259,7 @@ test("installed browser authors exact decision source and previews imports throu
   await captureScreenshot("decision-ime-delayed-ack.png");
 
   await enterPhase("Delayed save-and-leave flush locks the editor");
-  await page.getByText("Advanced editor source", { exact: true }).click();
-  const saveAndLeaveEditor = page.getByLabel("Decision source");
+  const saveAndLeaveEditor = await openDecisionSourceEditor();
   const saveAndLeaveSource = postAcknowledgementSource.replace(
     '"Question before delayed acknowledgement"',
     '"Question saved before leave"',
@@ -1305,10 +1308,8 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByLabel("Question")).toHaveValue(
     "Question saved before leave",
   );
-  await page.getByText("Advanced editor source", { exact: true }).click();
-  await expect(page.getByLabel("Decision source")).toHaveValue(
-    saveAndLeaveSource,
-  );
+  const reopenedSaveAndLeaveEditor = await openDecisionSourceEditor();
+  await expect(reopenedSaveAndLeaveEditor).toHaveValue(saveAndLeaveSource);
   await captureScreenshot("decision-save-and-leave-locked.png");
 
   const latestBeforeCliResponse = await page.request.get(
@@ -1345,8 +1346,7 @@ test("installed browser authors exact decision source and previews imports throu
     }
     await route.continue();
   });
-  await page.getByText("Advanced editor source", { exact: true }).click();
-  const sourceEditor = page.getByLabel("Decision source");
+  const sourceEditor = await openDecisionSourceEditor();
   await sourceEditor.fill(browserSource);
   await browserSaveStarted;
   const cliResult = execFileSync(
@@ -1825,10 +1825,8 @@ test("installed browser authors exact decision source and previews imports throu
   expect(
     (await restoreConflictWinner.json()).data.draft.record.editor_source,
   ).toBe(restoreRaceWinnerSource);
-  await page.getByText("Advanced editor source", { exact: true }).click();
-  await expect(page.getByLabel("Decision source")).toHaveValue(
-    restoreRaceWinnerSource,
-  );
+  const restoredSourceEditor = await openDecisionSourceEditor();
+  await expect(restoredSourceEditor).toHaveValue(restoreRaceWinnerSource);
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
 
   await enterPhase("Label staging, review, provenance and write races");
