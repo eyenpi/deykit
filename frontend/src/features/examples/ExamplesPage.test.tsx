@@ -484,7 +484,19 @@ it("saves the old admitted case before completing a dirty navigation", async () 
     }),
   );
   const { user } = mountExamples(
-    { editCase, readCase, readLabel },
+    {
+      editCase,
+      readCase,
+      readLabel,
+      listCases: async () => ({
+        data: {
+          ...listCases,
+          dataset_etag: currentDataset.etag,
+          items: [currentCase.case, caseB.case],
+        },
+        warnings: [],
+      }),
+    },
     { read: async () => ({ data: currentDataset, warnings: [] }) },
   );
 
@@ -585,7 +597,20 @@ it("recaptures the acknowledged same-scope label after a guard saves the case", 
     },
   );
   const { user } = mountExamples(
-    { editCase, readCase, readLabel, saveLabels },
+    {
+      editCase,
+      readCase,
+      readLabel,
+      saveLabels,
+      listCases: async () => ({
+        data: {
+          ...listCases,
+          dataset_etag: currentDataset.etag,
+          items: [currentCase.case, caseB.case],
+        },
+        warnings: [],
+      }),
+    },
     { read: async () => ({ data: currentDataset, warnings: [] }) },
   );
 
