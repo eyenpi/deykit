@@ -176,6 +176,8 @@ export function ExamplesPage({
   const [caseCursor, setCaseCursor] = useState<string>();
   const [labels, setLabels] = useState<LabelPage>();
   const [labelCursor, setLabelCursor] = useState<string>();
+  const [labelsLoading, setLabelsLoading] = useState(Boolean(decision?.id));
+  const [labelsError, setLabelsError] = useState<string>();
   const [selectedCaseId, setSelectedCaseId] = useState(caseFromRoute);
   const [caseRead, setCaseRead] = useState<CaseRead>();
   const [labelView, setLabelView] = useState<LabelView>();
@@ -233,6 +235,7 @@ export function ExamplesPage({
     undefined,
   );
   const datasetReadEpochRef = useRef(0);
+  const labelListReadEpochRef = useRef<number | undefined>(undefined);
   const selectionReadEpochRef = useRef(0);
   const navigationEpochRef = useRef(0);
   const caseEditGeneration = useRef(0);
@@ -359,6 +362,17 @@ export function ExamplesPage({
     )
       return undefined;
     return admission;
+  }
+  function markLabelListUnavailable(message: string) {
+    labelListReadEpochRef.current = undefined;
+    setLabels(undefined);
+    setLabelCursor(undefined);
+    setLabelsLoading(false);
+    setLabelsError(message);
+  }
+  function revokePendingLabelList(epoch: number, message: string) {
+    if (labelListReadEpochRef.current !== epoch) return;
+    markLabelListUnavailable(message);
   }
   const datasetScopeReady = currentDatasetAdmission() !== undefined;
   function currentSelectionAdmission(): SelectionAdmission | undefined {
@@ -743,6 +757,8 @@ export function ExamplesPage({
     )
       return undefined;
 
+    const supersededDatasetEpoch = datasetReadEpochRef.current;
+    const priorDatasetAdmission = datasetAdmissionRef.current;
     const datasetAdmission: DatasetAdmission = Object.freeze({
       registrationId: context.registrationId,
       datasetId: context.datasetId,
@@ -751,6 +767,13 @@ export function ExamplesPage({
       epoch: ++datasetReadEpochRef.current,
       read: datasetRead,
     });
+    if (
+      priorDatasetAdmission?.read.etag !== datasetRead.etag ||
+      labelListReadEpochRef.current === supersededDatasetEpoch
+    )
+      markLabelListUnavailable(
+        "The label list is out of date. Reload examples to refresh it.",
+      );
     const admission: SelectionAdmission = Object.freeze({
       registrationId: context.registrationId,
       datasetId: context.datasetId,
@@ -898,6 +921,9 @@ export function ExamplesPage({
           throw new Error("The refreshed label belongs to a different review.");
         setLabels(page.data);
         setLabelCursor(page.data.next_cursor ?? undefined);
+        setLabelsLoading(false);
+        setLabelsError(undefined);
+        labelListReadEpochRef.current = undefined;
         if (reviewChanged) {
           updatePendingLabel({
             body: pending.body,
@@ -1102,6 +1128,7 @@ export function ExamplesPage({
   useEffect(() => {
     if (!datasetId) {
       datasetReadEpochRef.current += 1;
+      labelListReadEpochRef.current = undefined;
       selectionReadEpochRef.current += 1;
       datasetAdmissionRef.current = undefined;
       previousSelectionAdmissionRef.current =
@@ -1110,6 +1137,9 @@ export function ExamplesPage({
       setDataset(undefined);
       setCases(undefined);
       setLabels(undefined);
+      setLabelCursor(undefined);
+      setLabelsLoading(false);
+      setLabelsError(undefined);
       setCaseRead(undefined);
       setLabelView(undefined);
       return;
@@ -1120,6 +1150,7 @@ export function ExamplesPage({
     const capturedDatasetId = datasetId;
     const capturedRefreshGeneration = refreshGeneration;
     const capturedRefreshToken = refreshToken;
+    const capturedDecisionId = decision?.id;
     previousSelectionAdmissionRef.current =
       selectionAdmissionRef.current ?? previousSelectionAdmissionRef.current;
     datasetAdmissionRef.current = undefined;
@@ -1129,6 +1160,12 @@ export function ExamplesPage({
     setError(undefined);
     setCases(undefined);
     setLabels(undefined);
+    setCaseCursor(undefined);
+    setLabelCursor(undefined);
+    setLabelsLoading(Boolean(capturedDecisionId));
+    setLabelsError(undefined);
+    labelListReadEpochRef.current = capturedDecisionId ? readEpoch : undefined;
+    let casePagePublished = false;
     const isCurrentDatasetRead = () => {
       const current = currentReadContext.current;
       return (
@@ -1190,7 +1227,14 @@ export function ExamplesPage({
         signal: controller.signal,
       });
       if (!isCurrentDatasetRead()) return;
-      const capturedDecisionId = decision?.id;
+      if (casePage.data.dataset_etag !== datasetResult.data.etag)
+        throw new Error(
+          "The examples changed while loading. Reload the current review.",
+        );
+      setCases(casePage.data);
+      setCaseCursor(casePage.data.next_cursor ?? undefined);
+      setLoading(false);
+      casePagePublished = true;
       const labelPage = capturedDecisionId
         ? await operations.listLabels({
             registrationId: capturedRegistrationId,
@@ -1201,10 +1245,9 @@ export function ExamplesPage({
           })
         : undefined;
       if (!isCurrentDatasetRead()) return;
-      setCases(casePage.data);
-      setCaseCursor(casePage.data.next_cursor ?? undefined);
       if (
         labelPage &&
+        labelListReadEpochRef.current === readEpoch &&
         currentReadContext.current.decisionId === capturedDecisionId &&
         navigation.current.kind === "examples" &&
         navigation.current.registrationId === capturedRegistrationId &&
@@ -1214,11 +1257,24 @@ export function ExamplesPage({
       ) {
         setLabels(labelPage.data);
         setLabelCursor(labelPage.data.next_cursor ?? undefined);
+        setLabelsError(undefined);
+        setLabelsLoading(false);
+        if (labelListReadEpochRef.current === readEpoch)
+          labelListReadEpochRef.current = undefined;
+      } else if (!capturedDecisionId) {
+        setLabels(undefined);
+        setLabelCursor(undefined);
+        setLabelsError(undefined);
+        setLabelsLoading(false);
       }
     }
     void loadExamples()
       .catch((cause: unknown) => {
-        if (isCurrentDatasetRead()) setError(safeMessage(cause));
+        if (isCurrentDatasetRead()) {
+          const message = safeMessage(cause);
+          if (!casePagePublished) setError(message);
+          revokePendingLabelList(readEpoch, message);
+        }
       })
       .finally(() => {
         if (isCurrentDatasetRead()) setLoading(false);
@@ -1396,6 +1452,9 @@ export function ExamplesPage({
         datasetAdmissionRef.current = pairedDatasetAdmission;
       }
       if (selectedCasePage) {
+        markLabelListUnavailable(
+          "The label list is out of date. Reload examples to refresh it.",
+        );
         setDataset(selectedDatasetRead);
         setCases(selectedCasePage);
         setCaseCursor(selectedCasePage.next_cursor ?? undefined);
@@ -2294,11 +2353,23 @@ export function ExamplesPage({
       });
       if (!isCurrentContext(context) || currentDatasetAdmission() !== admission)
         return;
+      if (currentCases.data.dataset_etag !== currentDataset.data.etag)
+        throw new Error(
+          "The examples changed while loading. Reload the current review.",
+        );
+      const previousDatasetEpoch = datasetReadEpochRef.current;
       const reviewedDataset: DatasetAdmission = Object.freeze({
         ...admission,
         epoch: ++datasetReadEpochRef.current,
         read: currentDataset.data,
       });
+      if (
+        admission.read.etag !== currentDataset.data.etag ||
+        labelListReadEpochRef.current === previousDatasetEpoch
+      )
+        markLabelListUnavailable(
+          "The label list is out of date. Reload examples to refresh it.",
+        );
       datasetAdmissionRef.current = reviewedDataset;
       if (datasetStageRef.current)
         datasetStageRef.current = {
@@ -3017,7 +3088,22 @@ export function ExamplesPage({
             {decision && (
               <section aria-labelledby="label-list-heading">
                 <h2 id="label-list-heading">Labels for {decision.name}</h2>
-                {labels?.items.length ? (
+                {labelsLoading ? (
+                  <p role="status" className="muted">
+                    Loading labels…
+                  </p>
+                ) : labelsError ? (
+                  <div className="warning-summary" role="region" aria-label="Labels unavailable">
+                    <p role="status">{labelsError}</p>
+                    <button
+                      type="button"
+                      disabled={!datasetReady || busy || !!committedRefresh}
+                      onClick={() => reloadExamples(renderedReadScope)}
+                    >
+                      Reload labels
+                    </button>
+                  </div>
+                ) : labels?.items.length ? (
                   <DataTable
                     caption={`Expected answers for ${decision.name}`}
                     rows={labels.items}
@@ -3064,11 +3150,11 @@ export function ExamplesPage({
                       },
                     ]}
                   />
-                ) : (
+                ) : labels ? (
                   <p className="muted">
                     No labels are recorded for this decision and dataset.
                   </p>
-                )}
+                ) : null}
                 {labelCursor && (
                   <button
                     type="button"

@@ -23,6 +23,8 @@ import { ExamplesPage } from "./ExamplesPage";
 
 type CasePage =
   ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">;
+type LabelPage =
+  ApiOperationData<"list_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_get">;
 type CaseEditReceipt =
   ApiOperationData<"edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put">;
 type LabelBatchBody =
@@ -257,6 +259,79 @@ async function waitForSelectedSource(expected: string) {
     ).toBe(expected);
   });
 }
+
+it("publishes the matching case page while the label list is still loading", async () => {
+  let releaseLabelList!: () => void;
+  const pendingLabelList = new Promise<{ data: LabelPage; warnings: [] }>(
+    (resolve) => {
+      releaseLabelList = () =>
+        resolve({ data: emptyLabelPage, warnings: [] });
+    },
+  );
+  const listLabels = vi.fn<ExampleAuthoringOperations["listLabels"]>(
+    () => pendingLabelList,
+  );
+  mountExamples({ listLabels }, {}, null);
+
+  const casesRegion = await screen.findByRole("region", {
+    name: "Cases in Examples",
+  });
+  expect(within(casesRegion).getByRole("button", { name: "case-a" })).toBeTruthy();
+  expect(screen.getByText("Loading labels…")).toBeTruthy();
+  expect(
+    screen.queryByText("No labels are recorded for this decision and dataset."),
+  ).toBeNull();
+
+  releaseLabelList();
+  await screen.findByText(
+    "No labels are recorded for this decision and dataset.",
+  );
+  expect(listLabels).toHaveBeenCalledTimes(1);
+});
+
+it("keeps a failed label list distinct from a successful empty list", async () => {
+  const listLabels = vi.fn<ExampleAuthoringOperations["listLabels"]>(
+    async () => {
+      throw new ApiError("source_busy", "Label list unavailable.", 503);
+    },
+  );
+  mountExamples({ listLabels }, {}, null);
+
+  await screen.findByRole("region", { name: "Cases in Examples" });
+  const unavailable = await screen.findByRole("region", {
+    name: "Labels unavailable",
+  });
+  expect(within(unavailable).getByRole("status").textContent).toContain(
+    "Label list unavailable.",
+  );
+  expect(
+    screen.queryByText("No labels are recorded for this decision and dataset."),
+  ).toBeNull();
+  expect(
+    within(unavailable).getByRole("button", { name: "Reload labels" }).matches(
+      ":disabled",
+    ),
+  ).toBe(false);
+});
+
+it("does not publish a case page from a different dataset version", async () => {
+  const mismatchedCases: CasePage = {
+    ...listCases,
+    dataset_etag: "dataset-etag-stale",
+  };
+  mountExamples(
+    { listCases: async () => ({ data: mismatchedCases, warnings: [] }) },
+    {},
+    null,
+  );
+
+  await screen.findByText(
+    "The examples changed while loading. Reload the current review.",
+  );
+  expect(
+    screen.queryByRole("region", { name: "Cases in Examples" }),
+  ).toBeNull();
+});
 
 it("keeps the old display read-only until the selected case and label pair is admitted", async () => {
   window.history.replaceState(
