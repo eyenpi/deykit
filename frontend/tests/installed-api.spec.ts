@@ -3331,8 +3331,12 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
   ).toHaveText(staleCaseSource);
-  await expect(page.getByRole("heading", { name: "Expected answers" })).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "Excluded: stale" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Expected answers" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Excluded: stale" }),
+  ).toBeVisible();
   const staleCaseOneLabelResponse = await readCaseOneLabel();
   expect(staleCaseOneLabelResponse.status()).toBe(200);
   const staleCaseOneLabel = (await staleCaseOneLabelResponse.json()).data;
@@ -3356,19 +3360,19 @@ test("installed browser authors exact decision source and previews imports throu
   const reactivatedLabelReceipt = await reactivatedLabelResponse;
   expect(reactivatedLabelReceipt.status()).toBe(200);
   await reactivatedLabelReceipt.body();
-  await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Dispute label" }),
+  ).toBeEnabled();
   await expect(
     page.getByRole("status").filter({ hasText: /^Applicable/ }),
   ).toBeVisible();
   const applicableCaseOneLabelResponse = await readCaseOneLabel();
   expect(applicableCaseOneLabelResponse.status()).toBe(200);
-  const applicableCaseOneLabel =
-    (await applicableCaseOneLabelResponse.json()).data;
+  const applicableCaseOneLabel = (await applicableCaseOneLabelResponse.json())
+    .data;
   expect(applicableCaseOneLabel.status).toBe("applicable");
   expect(applicableCaseOneLabel.reasons).toEqual([]);
-  expect(applicableCaseOneLabel.review.input_hash).toBe(
-    staleCaseOneSourceHash,
-  );
+  expect(applicableCaseOneLabel.review.input_hash).toBe(staleCaseOneSourceHash);
   expect(applicableCaseOneLabel.label.input_hash).toBe(
     applicableCaseOneLabel.review.input_hash,
   );
@@ -3406,7 +3410,9 @@ test("installed browser authors exact decision source and previews imports throu
   expect(caseOneLabelAfterTagResponse.status()).toBe(200);
   const caseOneLabelAfterTag = (await caseOneLabelAfterTagResponse.json()).data;
   expect(caseOneLabelAfterTag.status).toBe("applicable");
-  expect(caseOneLabelAfterTag.review.input_hash).toBe(caseOneInputHashBeforeTag);
+  expect(caseOneLabelAfterTag.review.input_hash).toBe(
+    caseOneInputHashBeforeTag,
+  );
   expect(caseOneLabelAfterTag.label).toEqual(applicableCaseOneLabel.label);
 
   await page.reload();
