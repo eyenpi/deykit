@@ -152,6 +152,10 @@ export function DecisionPage({
     setSourceControlsLocked(locked);
   }
 
+  function publishCompositionBoundary() {
+    setCompositionBoundary((revision) => revision + 1);
+  }
+
   function hasPendingEditorWork() {
     return (
       composingSource.current ||
@@ -501,6 +505,7 @@ export function DecisionPage({
       compositionEditor.current = undefined;
       compositionCommitPending.current = false;
       emptyCompositionGeneration.current = undefined;
+      publishCompositionBoundary();
     },
   });
   useEffect(
@@ -627,6 +632,7 @@ export function DecisionPage({
     draftDirtyRef.current = true;
     setDraftDirty(true);
     if (transformState.current !== "failed") transformState.current = "paused";
+    publishCompositionBoundary();
   }
 
   function endSourceComposition(
@@ -637,11 +643,12 @@ export function DecisionPage({
     composingSource.current = false;
     compositionEditor.current = undefined;
     compositionCommitPending.current = true;
+    publishCompositionBoundary();
     const baseline = compositionBaseline.current ?? element.value;
     setTimeout(() => {
       if (sourceControlsLockedRef.current) {
         compositionCommitPending.current = false;
-        setCompositionBoundary((revision) => revision + 1);
+        publishCompositionBoundary();
         return;
       }
       const committed = element.value;
@@ -678,7 +685,7 @@ export function DecisionPage({
         emptyCompositionGeneration.current = editGeneration.current;
       compositionBaseline.current = undefined;
       compositionCommitPending.current = false;
-      setCompositionBoundary((revision) => revision + 1);
+      publishCompositionBoundary();
       scheduleTransformDrain();
       if (
         committed === baseline &&
