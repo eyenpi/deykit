@@ -245,11 +245,14 @@ export function Overview({
     try {
       const result = await operationsRef.current.list({
         registrationId: requestOwner.registrationId,
-        query: { include_archived: "true", ...(cursor ? { cursor } : {}), limit: "50" },
+        query: {
+          include_archived: "true",
+          ...(cursor ? { cursor } : {}),
+          limit: "50",
+        },
         signal: controller.signal,
       });
-      if (!isLiveOwner(requestOwner) || readEpochRef.current !== epoch)
-        return;
+      if (!isLiveOwner(requestOwner) || readEpochRef.current !== epoch) return;
       setArchive({
         owner: requestOwner,
         data:
@@ -321,7 +324,9 @@ export function Overview({
       return;
 
     setArchive((current) =>
-      current?.owner === requestOwner ? { ...current, error: undefined } : current,
+      current?.owner === requestOwner
+        ? { ...current, error: undefined }
+        : current,
     );
     let result: RestoreData | undefined;
     if (state.kind === "outcome-unknown") {
@@ -351,7 +356,8 @@ export function Overview({
         current?.owner === requestOwner
           ? {
               ...current,
-              error: "The restore response did not match the requested decision. Review the archive before continuing.",
+              error:
+                "The restore response did not match the requested decision. Review the archive before continuing.",
             }
           : current,
       );
@@ -396,8 +402,7 @@ export function Overview({
       : mutationState.kind === "conflict" || mutationState.kind === "failed"
         ? mutationState.message
         : undefined;
-  const currentDecisionId =
-    mutation.originalRequest?.decisionId ?? undefined;
+  const currentDecisionId = mutation.originalRequest?.decisionId ?? undefined;
 
   return (
     <article className="document">
@@ -465,7 +470,9 @@ export function Overview({
       </section>
       <section className="section">
         <h2>Archived decisions</h2>
-        {currentArchive?.error && <ErrorSummary message={currentArchive.error} />}
+        {currentArchive?.error && (
+          <ErrorSummary message={currentArchive.error} />
+        )}
         {stateMessage && <ErrorSummary message={stateMessage} />}
         {(!currentArchive ||
           (currentArchive.loading && !currentArchive.data)) && (
@@ -474,9 +481,11 @@ export function Overview({
         {currentArchive?.loading && currentArchive.data && (
           <LoadingState>Refreshing decision archive…</LoadingState>
         )}
-        {currentArchive?.data && archived.length === 0 && !currentArchive.loading && (
-          <p className="muted">No archived decisions.</p>
-        )}
+        {currentArchive?.data &&
+          archived.length === 0 &&
+          !currentArchive.loading && (
+            <p className="muted">No archived decisions.</p>
+          )}
         {archived.length > 0 && (
           <DataTable
             caption="Archived decisions"
@@ -500,18 +509,23 @@ export function Overview({
                   <button
                     disabled={
                       (mutationBlocksActions &&
-                        !(mutationState.kind === "outcome-unknown" &&
-                          currentDecisionId === row.decision.record.id)) ||
+                        !(
+                          mutationState.kind === "outcome-unknown" &&
+                          currentDecisionId === row.decision.record.id
+                        )) ||
                       reviewRequired ||
                       readBusy ||
                       currentArchive?.loading ||
-                      (mutationState.kind === "submitting" && currentDecisionId === row.decision.record.id)
+                      (mutationState.kind === "submitting" &&
+                        currentDecisionId === row.decision.record.id)
                     }
                     onClick={() => void restore(row)}
                   >
-                    {mutationState.kind === "submitting" && currentDecisionId === row.decision.record.id
+                    {mutationState.kind === "submitting" &&
+                    currentDecisionId === row.decision.record.id
                       ? "Restoring…"
-                      : mutationState.kind === "outcome-unknown" && currentDecisionId === row.decision.record.id
+                      : mutationState.kind === "outcome-unknown" &&
+                          currentDecisionId === row.decision.record.id
                         ? "Retry same restore action"
                         : "Restore"}
                   </button>
@@ -541,7 +555,9 @@ export function Overview({
           <button
             type="button"
             disabled={readBusy || mutationBlocksActions || reviewRequired}
-            onClick={() => void readArchive(currentArchive.data?.next_cursor ?? undefined)}
+            onClick={() =>
+              void readArchive(currentArchive.data?.next_cursor ?? undefined)
+            }
           >
             Load more decisions
           </button>

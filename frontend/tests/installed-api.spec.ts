@@ -5111,8 +5111,7 @@ test("installed browser authors exact decision source and previews imports throu
     (response) => {
       const url = new URL(response.url());
       return (
-        url.pathname ===
-          `/api/v1/projects/${registrationId}/decisions` &&
+        url.pathname === `/api/v1/projects/${registrationId}/decisions` &&
         url.searchParams.get("include_archived") === "true" &&
         url.searchParams.get("limit") === "50" &&
         response.request().method() === "GET"
@@ -5164,7 +5163,9 @@ test("installed browser authors exact decision source and previews imports throu
       archived: true,
     });
     await expect(archivedRow).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: projectName }),
+    ).toBeVisible();
     await settleProjectReads();
   })();
   void archiveListReadiness.catch(() => undefined);
@@ -5339,10 +5340,7 @@ test("installed browser authors exact decision source and previews imports throu
     );
   });
   try {
-    await Promise.race([
-      restoreProjectionReadiness,
-      restoreProjectionDeadline,
-    ]);
+    await Promise.race([restoreProjectionReadiness, restoreProjectionDeadline]);
   } catch (error) {
     try {
       const [archivedCount, activeCount, retryCount] = await Promise.all([
@@ -5371,7 +5369,8 @@ test("installed browser authors exact decision source and previews imports throu
   restoreReplayFacts = {
     first_status: firstDecisionRestoreStatus ?? 0,
     retry_status: restoreReceipt.status(),
-    requests_identical: restoreBodies[1]?.operation_id === restoreBodies[0]?.operation_id &&
+    requests_identical:
+      restoreBodies[1]?.operation_id === restoreBodies[0]?.operation_id &&
       JSON.stringify(restoreBodies[1]) === JSON.stringify(restoreBodies[0]),
     committed_receipts_identical:
       JSON.stringify(restoreEnvelope.data) ===

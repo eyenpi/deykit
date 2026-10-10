@@ -28,7 +28,11 @@ const projectA: ProjectOverview = {
   warnings: [],
 };
 
-function listedDecision(id: string, name: string, archived: boolean): DecisionItem {
+function listedDecision(
+  id: string,
+  name: string,
+  archived: boolean,
+): DecisionItem {
   return {
     decision: {
       etag: `etag-${id}`,
@@ -60,7 +64,8 @@ function makeOperations(
   list: DecisionAuthoringOperations["list"],
   restore: DecisionAuthoringOperations["restore"],
 ): DecisionAuthoringOperations {
-  const unavailable = () => Promise.reject(new ApiError("internal_error", "Unused operation."));
+  const unavailable = () =>
+    Promise.reject(new ApiError("internal_error", "Unused operation."));
   return {
     list,
     create: vi.fn(unavailable),
@@ -110,14 +115,18 @@ afterEach(() => {
 });
 
 it("adopts a successful restore receipt into the current archive page", async () => {
-  const restore = vi.fn<DecisionAuthoringOperations["restore"]>().mockResolvedValue({
-    data: restored(archivedId, "Archived decision"),
-    warnings: [],
-  });
+  const restore = vi
+    .fn<DecisionAuthoringOperations["restore"]>()
+    .mockResolvedValue({
+      data: restored(archivedId, "Archived decision"),
+      warnings: [],
+    });
   const operations = makeOperations(
-    vi.fn<DecisionAuthoringOperations["list"]>().mockImplementation(() =>
-      response(page([listedDecision(archivedId, "Archived decision", true)])),
-    ),
+    vi
+      .fn<DecisionAuthoringOperations["list"]>()
+      .mockImplementation(() =>
+        response(page([listedDecision(archivedId, "Archived decision", true)])),
+      ),
     restore,
   );
   const { navigation, onDecisionsChanged } = setup(operations);
@@ -146,9 +155,11 @@ it("retains an unknown restore and blocks navigation until the exact retry succe
       warnings: [],
     });
   const operations = makeOperations(
-    vi.fn<DecisionAuthoringOperations["list"]>().mockImplementation(() =>
-      response(page([listedDecision(archivedId, "Archived decision", true)])),
-    ),
+    vi
+      .fn<DecisionAuthoringOperations["list"]>()
+      .mockImplementation(() =>
+        response(page([listedDecision(archivedId, "Archived decision", true)])),
+      ),
     restore,
   );
   const { navigation, onDecisionsChanged } = setup(operations);
@@ -168,31 +179,46 @@ it("retains an unknown restore and blocks navigation until the exact retry succe
 
   let navigationResult: Promise<boolean> | undefined;
   act(() => {
-    navigationResult = navigation.navigate({ kind: "providers", registrationId: projectA.id });
+    navigationResult = navigation.navigate({
+      kind: "providers",
+      registrationId: projectA.id,
+    });
   });
   const prompt = await screen.findByRole("dialog", { name: "Unsaved changes" });
   expect(
-    (within(prompt).getByRole("button", { name: "Save and leave" }) as HTMLButtonElement)
-      .disabled,
+    (
+      within(prompt).getByRole("button", {
+        name: "Save and leave",
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
   expect(
-    (within(prompt).getByRole("button", { name: "Discard changes" }) as HTMLButtonElement)
-      .disabled,
+    (
+      within(prompt).getByRole("button", {
+        name: "Discard changes",
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
-  await user.click(within(prompt).getByRole("button", { name: "Keep editing" }));
+  await user.click(
+    within(prompt).getByRole("button", { name: "Keep editing" }),
+  );
   await expectNavigationResult(navigationResult);
 
   await user.click(retry);
   await waitFor(() => expect(restore).toHaveBeenCalledTimes(2));
   expect(restore.mock.calls[1]?.[0]).toEqual(originalRequest);
-  await waitFor(() => expect(screen.queryByRole("row", { name: /Archived decision/ })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("row", { name: /Archived decision/ })).toBeNull(),
+  );
   expect(onDecisionsChanged).toHaveBeenCalledTimes(1);
 });
 
 it("requires an explicit archive review after a known restore rejection", async () => {
   const restore = vi
     .fn<DecisionAuthoringOperations["restore"]>()
-    .mockRejectedValueOnce(new ApiError("conflict", "The decision changed.", 409))
+    .mockRejectedValueOnce(
+      new ApiError("conflict", "The decision changed.", 409),
+    )
     .mockResolvedValueOnce({
       data: restored(archivedId, "Archived decision"),
       warnings: [],
@@ -213,10 +239,11 @@ it("requires an explicit archive review after a known restore rejection", async 
   );
   await waitFor(() => {
     expect(
-      (within(screen.getByRole("row", { name: /Archived decision/ })).getByRole(
-        "button",
-        { name: "Restore" },
-      ) as HTMLButtonElement).disabled,
+      (
+        within(
+          screen.getByRole("row", { name: /Archived decision/ }),
+        ).getByRole("button", { name: "Restore" }) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
   });
   expect(restore).toHaveBeenCalledTimes(1);
@@ -232,19 +259,31 @@ it("requires an explicit archive review after a known restore rejection", async 
 });
 
 it("hides a replaced project's old archive and ignores its late read and restore callback", async () => {
-  let resolveOldList: ((value: Awaited<ReturnType<DecisionAuthoringOperations["list"]>>) => void) | undefined;
-  const oldList = new Promise<Awaited<ReturnType<DecisionAuthoringOperations["list"]>>>((resolve) => {
+  let resolveOldList:
+    | ((
+        value: Awaited<ReturnType<DecisionAuthoringOperations["list"]>>,
+      ) => void)
+    | undefined;
+  const oldList = new Promise<
+    Awaited<ReturnType<DecisionAuthoringOperations["list"]>>
+  >((resolve) => {
     resolveOldList = resolve;
   });
-  const list = vi.fn<DecisionAuthoringOperations["list"]>().mockImplementation((request) =>
-    request.registrationId === projectA.id
-      ? oldList
-      : response(page([listedDecision(archivedId, "Project B decision", true)])),
-  );
-  const restore = vi.fn<DecisionAuthoringOperations["restore"]>().mockResolvedValue({
-    data: restored(archivedId, "Project B decision"),
-    warnings: [],
-  });
+  const list = vi
+    .fn<DecisionAuthoringOperations["list"]>()
+    .mockImplementation((request) =>
+      request.registrationId === projectA.id
+        ? oldList
+        : response(
+            page([listedDecision(archivedId, "Project B decision", true)]),
+          ),
+    );
+  const restore = vi
+    .fn<DecisionAuthoringOperations["restore"]>()
+    .mockResolvedValue({
+      data: restored(archivedId, "Project B decision"),
+      warnings: [],
+    });
   const operations = makeOperations(list, restore);
   const { navigation, rerender } = setup(operations);
   navigations.push(navigation);
@@ -266,9 +305,14 @@ it("hides a replaced project's old archive and ignores its late read and restore
     />,
   );
   expect(screen.queryByRole("row", { name: /Project A decision/ })).toBeNull();
-  const projectBRow = await screen.findByRole("row", { name: /Project B decision/ });
+  const projectBRow = await screen.findByRole("row", {
+    name: /Project B decision/,
+  });
   await act(async () => {
-    resolveOldList?.({ data: page([listedDecision(archivedId, "Project A decision", true)]), warnings: [] });
+    resolveOldList?.({
+      data: page([listedDecision(archivedId, "Project A decision", true)]),
+      warnings: [],
+    });
   });
   expect(screen.queryByRole("row", { name: /Project A decision/ })).toBeNull();
   expect(projectBRow.isConnected).toBe(true);
@@ -278,7 +322,9 @@ it("hides a replaced project's old archive and ignores its late read and restore
 
 it("does not append a delayed pagination page to a replacement project", async () => {
   let resolveOldPage:
-    | ((value: Awaited<ReturnType<DecisionAuthoringOperations["list"]>>) => void)
+    | ((
+        value: Awaited<ReturnType<DecisionAuthoringOperations["list"]>>,
+      ) => void)
     | undefined;
   const oldPage = new Promise<
     Awaited<ReturnType<DecisionAuthoringOperations["list"]>>
@@ -289,10 +335,12 @@ it("does not append a delayed pagination page to a replacement project", async (
     .fn<DecisionAuthoringOperations["list"]>()
     .mockImplementation((request) => {
       if (request.registrationId === projectA.id) {
-        if (request.query?.cursor)
-          return oldPage;
+        if (request.query?.cursor) return oldPage;
         return response(
-          page([listedDecision("decision-a", "Project A archived", true)], "next-a"),
+          page(
+            [listedDecision("decision-a", "Project A archived", true)],
+            "next-a",
+          ),
         );
       }
       return response(
@@ -326,24 +374,38 @@ it("does not append a delayed pagination page to a replacement project", async (
   await screen.findByRole("row", { name: /Project B archived/ });
   await act(async () => {
     resolveOldPage?.({
-      data: page([listedDecision("decision-a-late", "Late Project A archived", true)]),
+      data: page([
+        listedDecision("decision-a-late", "Late Project A archived", true),
+      ]),
       warnings: [],
     });
   });
-  expect(screen.queryByRole("row", { name: /Late Project A archived/ })).toBeNull();
+  expect(
+    screen.queryByRole("row", { name: /Late Project A archived/ }),
+  ).toBeNull();
   expect(screen.getByRole("row", { name: /Project B archived/ })).toBeTruthy();
 });
 
 it("does not notify a replaced project when its admitted restore later settles", async () => {
-  let resolveRestore: ((value: Awaited<ReturnType<DecisionAuthoringOperations["restore"]>>) => void) | undefined;
-  const restoreResponse = new Promise<Awaited<ReturnType<DecisionAuthoringOperations["restore"]>>>((resolve) => {
+  let resolveRestore:
+    | ((
+        value: Awaited<ReturnType<DecisionAuthoringOperations["restore"]>>,
+      ) => void)
+    | undefined;
+  const restoreResponse = new Promise<
+    Awaited<ReturnType<DecisionAuthoringOperations["restore"]>>
+  >((resolve) => {
     resolveRestore = resolve;
   });
-  const restore = vi.fn<DecisionAuthoringOperations["restore"]>().mockReturnValue(restoreResponse);
+  const restore = vi
+    .fn<DecisionAuthoringOperations["restore"]>()
+    .mockReturnValue(restoreResponse);
   const operations = makeOperations(
-    vi.fn<DecisionAuthoringOperations["list"]>().mockImplementation(() =>
-      response(page([listedDecision(archivedId, "Archived decision", true)])),
-    ),
+    vi
+      .fn<DecisionAuthoringOperations["list"]>()
+      .mockImplementation(() =>
+        response(page([listedDecision(archivedId, "Archived decision", true)])),
+      ),
     restore,
   );
   const { navigation, rerender, onDecisionsChanged } = setup(operations);
@@ -369,7 +431,10 @@ it("does not notify a replaced project when its admitted restore later settles",
   );
   await screen.findByRole("heading", { name: "Project B" });
   await act(async () => {
-    resolveRestore?.({ data: restored(archivedId, "Archived decision"), warnings: [] });
+    resolveRestore?.({
+      data: restored(archivedId, "Archived decision"),
+      warnings: [],
+    });
   });
   expect(onDecisionsChanged).not.toHaveBeenCalled();
   const projectBRow = screen.getByRole("row", { name: /Archived decision/ });
@@ -383,7 +448,9 @@ it("does not notify a replaced project when its admitted restore later settles",
 
 it("does not publish or notify after the overview is unmounted", async () => {
   let resolveRestore:
-    | ((value: Awaited<ReturnType<DecisionAuthoringOperations["restore"]>>) => void)
+    | ((
+        value: Awaited<ReturnType<DecisionAuthoringOperations["restore"]>>,
+      ) => void)
     | undefined;
   const restoreResponse = new Promise<
     Awaited<ReturnType<DecisionAuthoringOperations["restore"]>>
@@ -394,9 +461,11 @@ it("does not publish or notify after the overview is unmounted", async () => {
     .fn<DecisionAuthoringOperations["restore"]>()
     .mockReturnValue(restoreResponse);
   const operations = makeOperations(
-    vi.fn<DecisionAuthoringOperations["list"]>().mockImplementation(() =>
-      response(page([listedDecision(archivedId, "Archived decision", true)])),
-    ),
+    vi
+      .fn<DecisionAuthoringOperations["list"]>()
+      .mockImplementation(() =>
+        response(page([listedDecision(archivedId, "Archived decision", true)])),
+      ),
     restore,
   );
   const { navigation, unmount, onDecisionsChanged } = setup(operations);
