@@ -152,8 +152,7 @@ export function ExamplesPage({
     uncertain: boolean;
     conflict: boolean;
   }>();
-  const [committedRefresh, setCommittedRefresh] =
-    useState<CommittedRefresh>();
+  const [committedRefresh, setCommittedRefresh] = useState<CommittedRefresh>();
   const committedRefreshRef = useRef<CommittedRefresh>();
   const caseEditGeneration = useRef(0);
   const labelEditGeneration = useRef(0);
@@ -203,13 +202,16 @@ export function ExamplesPage({
     pending: CommittedRefresh,
   ): Promise<boolean> {
     if (!isCommittedRefreshCurrent(pending)) {
-      setError("The saved item belongs to a different selection. Reload it before editing.");
+      setError(
+        "The saved item belongs to a different selection. Reload it before editing.",
+      );
       return false;
     }
     try {
       if (pending.kind === "label") {
         const submitted = pending.body.edits[0];
-        if (!submitted) throw new Error("The saved label request is unavailable.");
+        if (!submitted)
+          throw new Error("The saved label request is unavailable.");
         const receiptMatches = pending.receipt.changes.some(
           (change) =>
             change.operation_id === pending.body.operation_id &&
@@ -307,11 +309,13 @@ export function ExamplesPage({
       if (!isCommittedRefreshCurrent(pending)) return false;
       if (
         refreshedCase.data.case.record.id !== pending.caseId ||
-        refreshedCase.data.case.record.dataset_id !== pending.context.datasetId ||
+        refreshedCase.data.case.record.dataset_id !==
+          pending.context.datasetId ||
         refreshedDataset.data.record.id !== pending.context.datasetId ||
         (refreshedLabel &&
           (refreshedLabel.data.review.case_id !== pending.caseId ||
-            refreshedLabel.data.review.dataset_id !== pending.context.datasetId ||
+            refreshedLabel.data.review.dataset_id !==
+              pending.context.datasetId ||
             refreshedLabel.data.review.decision_id !== pending.decisionId))
       )
         throw new Error("The refreshed case belongs to a different review.");
@@ -660,12 +664,7 @@ export function ExamplesPage({
   }
 
   async function saveCase(): Promise<boolean> {
-    if (
-      committedRefreshRef.current ||
-      !dataset ||
-      !caseRead ||
-      !selectedCaseId
-    )
+    if (committedRefreshRef.current || !dataset || !caseRead || !selectedCaseId)
       return false;
     if (pendingCase?.conflict) return false;
     setBusy(true);
@@ -1116,7 +1115,10 @@ export function ExamplesPage({
           </p>
         )}
         {committedRefresh?.kind === "label" && (
-          <section className="warning-summary" aria-label="Saved changes awaiting refresh">
+          <section
+            className="warning-summary"
+            aria-label="Saved changes awaiting refresh"
+          >
             <p role="status">
               Label saved; refresh its current review before another change.
             </p>
@@ -1393,7 +1395,9 @@ export function ExamplesPage({
                 )}
                 {currentLabel?.status === "disputed" && (
                   <button
-                    disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
+                    disabled={
+                      busy || !!committedRefresh || pendingLabel?.uncertain
+                    }
                     onClick={() => void saveLabel("resolve")}
                   >
                     Resolve dispute with staged set
@@ -1401,7 +1405,9 @@ export function ExamplesPage({
                 )}
                 {currentLabel && currentLabel.status !== "disputed" && (
                   <button
-                    disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
+                    disabled={
+                      busy || !!committedRefresh || pendingLabel?.uncertain
+                    }
                     onClick={() => void saveLabel("dispute")}
                   >
                     Dispute label
@@ -1409,7 +1415,9 @@ export function ExamplesPage({
                 )}
                 {currentLabel && (
                   <button
-                    disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
+                    disabled={
+                      busy || !!committedRefresh || pendingLabel?.uncertain
+                    }
                     onClick={() => void saveLabel("clear")}
                   >
                     Clear label
@@ -1419,7 +1427,9 @@ export function ExamplesPage({
                 <input
                   id="label-note"
                   value={note}
-                  disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
+                  disabled={
+                    busy || !!committedRefresh || pendingLabel?.uncertain
+                  }
                   onChange={(event) => {
                     labelEditGeneration.current += 1;
                     setNote(event.target.value);
@@ -1510,7 +1520,9 @@ export function ExamplesPage({
                     <input
                       type="radio"
                       checked={inputKind === kind}
-                      disabled={busy || !!committedRefresh || pendingCase?.uncertain}
+                      disabled={
+                        busy || !!committedRefresh || pendingCase?.uncertain
+                      }
                       onChange={() => {
                         caseEditGeneration.current += 1;
                         setInputKind(kind);
@@ -1545,7 +1557,9 @@ export function ExamplesPage({
                 <button
                   type="button"
                   className="primary"
-                  disabled={busy || !!committedRefresh || !!pendingCase?.conflict}
+                  disabled={
+                    busy || !!committedRefresh || !!pendingCase?.conflict
+                  }
                   onClick={() => void saveCase()}
                 >
                   {busy
@@ -1556,7 +1570,9 @@ export function ExamplesPage({
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !!committedRefresh || pendingCase?.uncertain}
+                  disabled={
+                    busy || !!committedRefresh || pendingCase?.uncertain
+                  }
                   onClick={() => setEditCase(false)}
                 >
                   Cancel

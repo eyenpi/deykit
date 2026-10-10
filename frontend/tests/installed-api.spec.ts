@@ -2534,10 +2534,16 @@ test("installed browser authors exact decision source and previews imports throu
     "The case was saved. Refresh its current review before leaving this examples page.",
   );
   await expect(
-    committedCaseGuard.getByRole("button", { name: "Save and leave", exact: true }),
+    committedCaseGuard.getByRole("button", {
+      name: "Save and leave",
+      exact: true,
+    }),
   ).toBeDisabled();
   await expect(
-    committedCaseGuard.getByRole("button", { name: "Discard changes", exact: true }),
+    committedCaseGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
   ).toBeEnabled();
   await committedCaseGuard
     .getByRole("button", { name: "Keep editing", exact: true })
@@ -2552,7 +2558,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.getByRole("button", { name: "Refresh saved case" }).click();
   await (await failedCaseRecovery).body();
-  await expect(page.getByText("The local service could not complete the request.")).toBeVisible();
+  await expect(
+    page.getByText("The local service could not complete the request."),
+  ).toBeVisible();
   await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
   expect(committedCaseBodies).toHaveLength(1);
   const recoveredCaseRead = page.waitForResponse(
@@ -2581,7 +2589,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.unroute("**/cases/seed-1");
   await page.getByRole("button", { name: "case-1", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "case-1", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "case-1", exact: true }),
+  ).toBeVisible();
   const caseOneBefore = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
     {
@@ -2671,7 +2681,10 @@ test("installed browser authors exact decision source and previews imports throu
   await discardStaleCaseRead
     .getByRole("button", { name: "Discard changes", exact: true })
     .click();
-  const staleCaseTargetUrl = new URL(staleCaseTargetHash, page.url()).toString();
+  const staleCaseTargetUrl = new URL(
+    staleCaseTargetHash,
+    page.url(),
+  ).toString();
   await expect(page).toHaveURL(staleCaseTargetUrl);
   releaseStaleCaseRead();
   await (await staleCaseReadResponse).body();
@@ -2683,19 +2696,27 @@ test("installed browser authors exact decision source and previews imports throu
   );
   releaseCaseTwoRead();
   await (await caseTwoReadResponse).body();
-  await expect(page.getByRole("heading", { name: "case-2", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "case-2", exact: true }),
+  ).toBeVisible();
   await expect(page.getByLabel("Complete example input source")).toHaveText(
     caseTwoOriginalSource,
   );
-  await expect(page.getByRole("button", { name: "Refresh saved case" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Refresh saved case" }),
+  ).toHaveCount(0);
   await page.unroute("**/cases/case-1");
   await page.unroute("**/cases/case-2");
   const caseOneExamplesHash = `#/p/${registrationId}/d/${decisionId}/examples?dataset=${encodeURIComponent(datasetId)}&case=case-1`;
   await page.evaluate((hash) => {
     window.location.hash = hash;
   }, caseOneExamplesHash);
-  await expect(page).toHaveURL(new URL(caseOneExamplesHash, page.url()).toString());
-  await expect(page.getByRole("button", { name: "seed-1", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(
+    new URL(caseOneExamplesHash, page.url()).toString(),
+  );
+  await expect(
+    page.getByRole("button", { name: "seed-1", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
   const readSeedLabel = async () => {
     const response = await page.request.get(
@@ -2873,7 +2894,9 @@ test("installed browser authors exact decision source and previews imports throu
   await captureScreenshot("label-saved-refresh-pending.png");
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
-  await expect(page.getByRole("button", { name: "Dispute label" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Dispute label" }),
+  ).toBeDisabled();
   expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
   const committedLabelHash = page.url();
   await page.evaluate((hash) => {
@@ -2887,10 +2910,16 @@ test("installed browser authors exact decision source and previews imports throu
     "The label was saved. Refresh its current review before leaving this examples page.",
   );
   await expect(
-    committedLabelGuard.getByRole("button", { name: "Save and leave", exact: true }),
+    committedLabelGuard.getByRole("button", {
+      name: "Save and leave",
+      exact: true,
+    }),
   ).toBeDisabled();
   await expect(
-    committedLabelGuard.getByRole("button", { name: "Discard changes", exact: true }),
+    committedLabelGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
   ).toBeEnabled();
   await committedLabelGuard
     .getByRole("button", { name: "Keep editing", exact: true })
@@ -2905,7 +2934,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.getByRole("button", { name: "Refresh saved label" }).click();
   await (await failedLabelRecovery).body();
-  await expect(page.getByText("The local service could not complete the request.")).toBeVisible();
+  await expect(
+    page.getByText("The local service could not complete the request."),
+  ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
@@ -2917,7 +2948,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.getByRole("button", { name: "Refresh saved label" }).click();
   await (await recoveredLabelRead).body();
-  await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Dispute label" }),
+  ).toBeEnabled();
   expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
   await page.unroute("**/labels/seed-1");
   let savedLabel = await readSeedLabel();
@@ -2983,7 +3016,9 @@ test("installed browser authors exact decision source and previews imports throu
   const resolvedLabelReceipt = await resolveLabelResponse;
   expect(resolvedLabelReceipt.status()).toBe(200);
   await resolvedLabelReceipt.body();
-  await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Dispute label" }),
+  ).toBeEnabled();
   savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label).toMatchObject({
     status: "active",
@@ -2999,7 +3034,9 @@ test("installed browser authors exact decision source and previews imports throu
   expect(clearedLabelReceipt.status()).toBe(200);
   await clearedLabelReceipt.body();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Clear label" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Clear label" })).toHaveCount(
+    0,
+  );
   const clearedLabel = await readSeedLabel();
   expect((await clearedLabel.json()).data.label).toBeNull();
 

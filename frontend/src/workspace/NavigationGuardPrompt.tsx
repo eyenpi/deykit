@@ -117,7 +117,9 @@ export function useDirtyNavigationGuard({
             </button>
             <button
               type="button"
-              disabled={saving || (!!blockedMessage && !allowDiscardWhenBlocked)}
+              disabled={
+                saving || (!!blockedMessage && !allowDiscardWhenBlocked)
+              }
               onClick={discardAndLeave}
             >
               Discard changes
