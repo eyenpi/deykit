@@ -149,6 +149,11 @@ def _decoded(record_type: type[R], stored: StoredRecord) -> R:
         raise _failure("validation_error", stored.key.resource_id, error.code) from None
 
 
+def revision_editor_source(revision: DecisionRevision) -> str:
+    """Return the canonical editable source for an admitted saved revision."""
+    return dump_record(revision.definition).decode("utf-8")
+
+
 def _required(source: ProjectSource, record_type: type[R], key: ResourceKey) -> tuple[R, str]:
     stored = source.read(key)
     if stored is None:
@@ -464,7 +469,7 @@ class DecisionService:
             saved = self._versioned_revision(source, decision_id, revision_id).record
             restored = DecisionDraft(
                 decision_id=decision_id,
-                editor_source=dump_record(saved.definition).decode("utf-8"),
+                editor_source=revision_editor_source(saved),
                 updated_at=self.clock.utc_now(),
                 base_revision_id=revision_id,
             )

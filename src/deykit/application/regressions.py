@@ -142,17 +142,26 @@ class RegressionService:
     ) -> None:
         self.source, self.clock, self.id_factory = source, clock, id_factory
 
-    def add(self, request: RegressionAdd, *, operation_id: str) -> RegressionView:
+    def add(
+        self,
+        request: RegressionAdd,
+        *,
+        operation_id: str,
+        expected_decision_id: str | None = None,
+    ) -> RegressionView:
         request = validated_model(RegressionAdd, request, "invalid_regression_request")
         identifier(operation_id)
+        if expected_decision_id is not None:
+            expected_decision_id = identifier(expected_decision_id)
         if len(set(request.acceptable_option_ids)) != len(request.acceptable_option_ids):
             fail("duplicate_expected_option")
-        digest = safe_hash(
-            {
-                "command": "regression.add",
-                "request": cast(JsonValue, request.model_dump(mode="json")),
-            }
-        )
+        intent: dict[str, JsonValue] = {
+            "command": "regression.add",
+            "request": cast(JsonValue, request.model_dump(mode="json")),
+        }
+        if expected_decision_id is not None:
+            intent["expected_decision_id"] = expected_decision_id
+        digest = safe_hash(intent)
         with self.source.consistent_read():
             receipt = self.source.operation_receipt(operation_id, intent_hash=digest)
             if receipt is not None:
@@ -161,13 +170,24 @@ class RegressionService:
                 )
                 if saved is None:
                     fail("incomplete_regression_receipt", "incompatible_data")
-                return regression_view(decoded(RegressionRecord, saved))
+                replayed = decoded(RegressionRecord, saved)
+                if (
+                    expected_decision_id is not None
+                    and replayed.decision_id != expected_decision_id
+                ):
+                    fail("regression_decision_mismatch")
+                return regression_view(replayed)
             records = self.source.capture_snapshot()
             history = history_from_records(records, request.run_id)
             snapshot_id = request.result_snapshot_id or history.snapshots[-1].id
             frozen = frozen_evaluation_from_records(
                 records, request.run_id, snapshot_id, None, "original"
             )
+            if (
+                expected_decision_id is not None
+                and frozen.manifest.decision_id != expected_decision_id
+            ):
+                fail("regression_decision_mismatch")
             question = frozen.revision.definition.questions[0]
             if not set(request.acceptable_option_ids).issubset(
                 option.id for option in question.options

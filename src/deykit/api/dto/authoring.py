@@ -34,6 +34,7 @@ class DecisionPageDTO(ResponseRecord):
 
 class RevisionDTO(ResponseRecord):
     revision: Versioned[DecisionRevision]
+    editor_source: str
 
 
 class RevisionPageDTO(ResponseRecord):

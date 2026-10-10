@@ -1,5 +1,6 @@
 """Frozen regression checks, with explicit expectation failures separate from run errors."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Self, cast
 
@@ -19,7 +20,13 @@ from deykit.contracts.records import ExecutionSettings, RegressionRecord
 from deykit.contracts.redaction import Sanitizer
 from deykit.regressions.evidence import admit_regression_origin, frozen_case
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
-from deykit.runner.group_models import GroupPlan, GroupPreview, GroupProgress
+from deykit.runner.group_models import (
+    GroupAcknowledged,
+    GroupPlan,
+    GroupPreview,
+    GroupProgress,
+    GroupResumePreview,
+)
 from deykit.runner.planner import RunRequest
 from deykit.runner.review import regression_membership_records
 
@@ -150,6 +157,7 @@ class CheckService:
         *,
         operation_id: str,
         expected_review_context_hash: str | None = None,
+        on_created: Callable[[GroupAcknowledged], None] | None = None,
     ) -> CheckView:
         request = validated_model(CheckRequest, request, "invalid_check_request")
         progress = await self.groups.start(
@@ -157,18 +165,36 @@ class CheckService:
             prepare=lambda: self._plan(request),
             operation_id=operation_id,
             expected_review_context_hash=expected_review_context_hash,
+            on_created=on_created,
         )
         return self._view(progress)
 
     async def resume(
-        self, group_id: str, *, operation_id: str, retry_unknown: bool = False
+        self,
+        group_id: str,
+        *,
+        operation_id: str,
+        retry_unknown: bool = False,
+        on_resumed: Callable[[GroupAcknowledged], None] | None = None,
     ) -> CheckView:
-        if self.groups.show(group_id).kind != "regression_check":
-            fail("regression_check_group_required")
         return self._view(
             await self.groups.resume(
-                group_id, operation_id=operation_id, retry_unknown=retry_unknown
+                group_id,
+                operation_id=operation_id,
+                retry_unknown=retry_unknown,
+                expected_kind="regression_check",
+                on_resumed=on_resumed,
             )
+        )
+
+    def preview_resume(self, group_id: str, *, retry_unknown: bool = False) -> GroupResumePreview:
+        return self.groups.preview_resume(
+            group_id, retry_unknown=retry_unknown, expected_kind="regression_check"
+        )
+
+    def cancel(self, group_id: str, *, operation_id: str) -> GroupProgress:
+        return self.groups.cancel(
+            group_id, operation_id=operation_id, expected_kind="regression_check"
         )
 
     def read(self, group_id: str) -> CheckView:

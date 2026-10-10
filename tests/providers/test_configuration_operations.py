@@ -1,9 +1,12 @@
 import asyncio
+from collections.abc import Callable
 
 import pytest
 
 from deykit.application.errors import ServiceFailure
 from deykit.application.provider_operations import ProviderOperations
+from deykit.contracts.codec import dump_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.ports import CommitReceipt
 from deykit.contracts.provider_configuration import (
     CompilerInfo,
@@ -20,6 +23,7 @@ from deykit.providers.credentials import CredentialReference as LegacyCredential
 from deykit.providers.credentials import CredentialUnavailable as LegacyCredentialUnavailable
 from deykit.providers.profiles import ProfilePage as LegacyProfilePage
 from deykit.providers.profiles import ProfileView as LegacyProfileView
+from deykit.providers.profiles import validate_provider_profile
 
 
 class References:
@@ -56,9 +60,42 @@ class Writer:
     def credential_replay(self, profile_id, reference, *, expected_etag, operation_id):
         return self.replay
 
-    def set_credential_ref(self, profile_id, reference, *, expected_etag, operation_id):
+    def set_credential_ref(
+        self,
+        profile_id,
+        reference,
+        *,
+        expected_etag,
+        operation_id,
+        before_commit: Callable[[], None] | None = None,
+    ):
+        if self.replay is not None:
+            return self.replay
+        current = self.reader.view(profile_id)
+        if current.etag != expected_etag:
+            raise ServiceFailure(
+                ServiceError(
+                    code="conflict",
+                    reason="provider_profile_changed",
+                    resource_id=profile_id,
+                )
+            )
+        if current.profile.adapter != "jev":
+            raise ServiceFailure(
+                ServiceError(
+                    code="validation_error",
+                    reason="fixture_has_no_credential",
+                    resource_id=profile_id,
+                )
+            )
+        candidate = validate_provider_profile(
+            current.profile.model_copy(update={"credential_ref": reference})
+        )
+        dump_record(candidate)
+        if before_commit is not None:
+            before_commit()
         self.set_calls.append((profile_id, reference, expected_etag, operation_id))
-        self.reader.profile = self.reader.profile.model_copy(update={"credential_ref": reference})
+        self.reader.profile = candidate
         self.reader.etag = "new"
         return CommitReceipt(operation_id, ())
 
@@ -175,7 +212,7 @@ def test_environment_attachment_uses_neither_secret_input_nor_os_store():
     assert writer.set_calls == [("profile", "env:JEV_KEY", "old", "attach")]
 
 
-def test_os_store_failure_leaves_profile_reference_unmodified():
+def test_os_store_mutator_failure_has_unknown_outcome_and_leaves_profile_reference_unmodified():
     reader = Reader(live_profile())
     writer = Writer(reader)
 
@@ -199,9 +236,40 @@ def test_os_store_failure_leaves_profile_reference_unmodified():
             operation_id="set",
         )
 
-    assert failure.value.error.reason == "credential_store_unavailable"
+    assert failure.value.error.code == "internal_error"
+    assert failure.value.error.reason == "credential_update_outcome_unknown"
+    assert failure.value.error.resource_id == "profile"
     assert reader.profile.credential_ref is None
     assert writer.set_calls == []
+    assert "SECRET_SENTINEL" not in str(failure.value)
+
+
+def test_os_store_factory_failure_remains_safe_preflight_failure():
+    reader = Reader(live_profile())
+    writer = Writer(reader)
+    factory_calls = []
+
+    def unavailable_factory():
+        factory_calls.append("open")
+        raise CredentialUnavailable()
+
+    service = operations(reader, writer, os_factory=unavailable_factory)
+
+    with pytest.raises(ServiceFailure) as failure:
+        service.set_os_credential(
+            "profile",
+            value_factory=lambda: "SECRET_SENTINEL",
+            expected_etag="old",
+            operation_id="set-store-unavailable",
+        )
+
+    assert failure.value.error.code == "preflight_failed"
+    assert failure.value.error.reason == "credential_store_unavailable"
+    assert failure.value.error.resource_id == "profile"
+    assert factory_calls == ["open"]
+    assert writer.set_calls == []
+    assert reader.profile.credential_ref is None
+    assert "SECRET_SENTINEL" not in str(failure.value)
 
 
 def test_model_listing_uses_only_the_explicit_async_port():

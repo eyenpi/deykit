@@ -98,7 +98,7 @@ test("operation metadata is derived only from registered OpenAPI operations", as
         { name: "cursor", in: "query", schema: { type: "string" } },
       ],
       responses: {
-        "200": {
+        200: {
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/Source" },
@@ -113,7 +113,7 @@ test("operation metadata is derived only from registered OpenAPI operations", as
       operationId: "bootstrapSession",
       "x-deykit-client-internal": true,
       responses: {
-        "200": {
+        200: {
           content: {
             "application/json": {
               schema: { $ref: "#/components/schemas/Source" },
@@ -134,8 +134,258 @@ test("operation metadata is derived only from registered OpenAPI operations", as
   assert.match(declarations, /method:\s*"GET"/);
   assert.match(declarations, /pathParams:\s*\[\s*"registration_id"\s*\]/);
   assert.match(declarations, /queryParams:\s*\[\s*"cursor"\s*\]/);
-  assert.match(declarations, /successValidator:\s*"validateSource"/);
+  assert.match(declarations, /kind:\s*"json"/);
+  assert.match(declarations, /validators:\s*\{\s*"200":\s*"validateSource"/);
+  assert.match(declarations, /ApiJsonOperationId/);
   assert.match(artifacts.get("openapi.d.ts"), /bootstrapSession/);
+});
+
+test("JSON operation metadata preserves each declared 200 and 202 schema", async () => {
+  const sample = inputs();
+  sample.openapi.components.schemas.Source = structuredClone(localSchema);
+  sample.openapi.paths["/api/v1/runs"] = {
+    post: {
+      operationId: "startRun",
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Source" },
+            },
+          },
+        },
+      },
+    },
+  };
+  sample.openapi.paths["/api/v1/mixed"] = {
+    get: {
+      operationId: "mixedResult",
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Request" },
+            },
+          },
+        },
+        202: {
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/Source" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const generated = await generateArtifacts(
+    sample.openapi,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  const metadata = generated.get("operations.ts");
+  assert.match(
+    metadata,
+    /(?:startRun|"startRun")\s*:[\s\S]*?"202":\s*"validateSource"/,
+  );
+  assert.match(
+    metadata,
+    /(?:mixedResult|"mixedResult")\s*:[\s\S]*?"200":\s*"validateRequest"[\s\S]*?"202":\s*"validateSource"/,
+  );
+  assert.match(metadata, /ApiDownloadOperationId/);
+
+  const unsupported = structuredClone(sample.openapi);
+  unsupported.paths["/api/v1/mixed"].get.responses["201"] = {
+    content: {
+      "application/json": { schema: { $ref: "#/components/schemas/Source" } },
+    },
+  };
+  await assert.rejects(
+    generateArtifacts(unsupported, sample.schemas, sample.inputHashes),
+    /only declare 200 or 202/,
+  );
+});
+
+test("report download metadata is admitted only for the exact annotated binary contract", async () => {
+  const sample = inputs();
+  const policy = {
+    formatParameter: "format",
+    reportIdParameter: "report_id",
+    maxBytes: 8388608,
+    formats: {
+      json: { contentType: "application/octet-stream", extension: "json" },
+      markdown: { contentType: "text/plain; charset=utf-8", extension: "md" },
+    },
+  };
+  const download = {
+    operationId: "downloadReport",
+    "x-deykit-report-download-v1": policy,
+    parameters: [
+      {
+        name: "registration_id",
+        in: "path",
+        required: true,
+        schema: { type: "string" },
+      },
+      {
+        name: "report_id",
+        in: "path",
+        required: true,
+        schema: { type: "string" },
+      },
+      {
+        name: "format",
+        in: "query",
+        required: true,
+        schema: { type: "string", enum: ["json", "markdown"], title: "Format" },
+      },
+    ],
+    responses: {
+      200: {
+        content: {
+          "application/octet-stream": {
+            schema: { type: "string", format: "binary" },
+          },
+          "text/plain; charset=utf-8": {
+            schema: { type: "string", format: "binary" },
+          },
+        },
+        headers: {
+          "Content-Disposition": {
+            schema: { type: "string" },
+            description: "fixed filename",
+          },
+          "Cache-Control": { schema: { type: "string", const: "no-store" } },
+          "X-Content-Type-Options": {
+            schema: { type: "string", const: "nosniff" },
+          },
+        },
+      },
+    },
+  };
+  sample.openapi.paths[
+    "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+  ] = {
+    get: structuredClone(download),
+  };
+  const generated = await generateArtifacts(
+    sample.openapi,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  assert.match(generated.get("operations.ts"), /kind:\s*"report-download"/);
+  assert.match(
+    generated.get("operations.ts"),
+    /(?:downloadReport|"downloadReport")\s*:/,
+  );
+  assert.doesNotMatch(generated.get("operations.ts"), /binary/);
+  const revisedDescription = structuredClone(sample.openapi);
+  revisedDescription.paths[
+    "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+  ].get.responses["200"].headers["Content-Disposition"].description =
+    "Descriptive wording may evolve without changing download policy.";
+  const revisedArtifacts = await generateArtifacts(
+    revisedDescription,
+    sample.schemas,
+    sample.inputHashes,
+  );
+  assert.equal(
+    revisedArtifacts.get("operations.ts"),
+    generated.get("operations.ts"),
+  );
+  const withoutTitle = structuredClone(sample.openapi);
+  delete withoutTitle.paths[
+    "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+  ].get.parameters[2].schema.title;
+  await generateArtifacts(withoutTitle, sample.schemas, sample.inputHashes);
+
+  for (const mutate of [
+    (operation) => {
+      delete operation["x-deykit-report-download-v1"];
+    },
+    (operation) => {
+      operation["x-deykit-report-download-v1"].maxBytes += 1;
+    },
+    (operation) => {
+      operation["x-deykit-report-download-v1"].formats.json.extension = "txt";
+    },
+    (operation) => {
+      operation.parameters[2].schema.enum = ["json", "html"];
+    },
+    (operation) => {
+      operation.parameters[2].schema.title = 7;
+    },
+    (operation) => {
+      operation.parameters[2].schema.default = "json";
+    },
+    (operation) => {
+      operation.parameters[2].schema.minLength = 1;
+    },
+    (operation) => {
+      operation.parameters.push({
+        name: "token",
+        in: "query",
+        schema: { type: "string" },
+      });
+    },
+    (operation) => {
+      operation.requestBody = { required: true };
+    },
+    (operation) => {
+      operation.responses["200"].content["application/octet-stream"].schema = {
+        $ref: "#/components/schemas/Source",
+      };
+    },
+    (operation) => {
+      operation.responses["200"].content["text/html"] = {
+        schema: { type: "string", format: "binary" },
+      };
+    },
+    (operation) => {
+      operation.responses["200"].headers["Cache-Control"].schema.const =
+        "private";
+    },
+    (operation) => {
+      operation.responses["200"].headers[
+        "X-Content-Type-Options"
+      ].schema.const = "sniff";
+    },
+  ]) {
+    const invalid = structuredClone(sample.openapi);
+    mutate(
+      invalid.paths[
+        "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+      ].get,
+    );
+    await assert.rejects(
+      generateArtifacts(invalid, sample.schemas, sample.inputHashes),
+    );
+  }
+  const wrongPath = structuredClone(sample.openapi);
+  const admitted =
+    wrongPath.paths[
+      "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+    ];
+  delete wrongPath.paths[
+    "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+  ];
+  wrongPath.paths["/api/v1/projects/{registration_id}/other/{report_id}"] =
+    admitted;
+  await assert.rejects(
+    generateArtifacts(wrongPath, sample.schemas, sample.inputHashes),
+  );
+  const extraSuccess = structuredClone(sample.openapi);
+  extraSuccess.paths[
+    "/api/v1/projects/{registration_id}/reports/{report_id}/download"
+  ].get.responses["202"] = {
+    content: {
+      "application/json": { schema: { $ref: "#/components/schemas/Request" } },
+    },
+  };
+  await assert.rejects(
+    generateArtifacts(extraSuccess, sample.schemas, sample.inputHashes),
+    /only a 200 success/,
+  );
 });
 
 test("OpenAPI discriminators retain oneOf validation in generated validators", async () => {
@@ -185,10 +435,9 @@ test("OpenAPI discriminators retain oneOf validation in generated validators", a
     }),
     true,
   );
-  assert.deepEqual(
-    sample.schemas.Tagged.properties.discriminator.default,
-    { discriminator: "default-value" },
-  );
+  assert.deepEqual(sample.schemas.Tagged.properties.discriminator.default, {
+    discriminator: "default-value",
+  });
   assert.equal(
     validators.validateTagged({
       discriminator: { label: "literal", discriminator: "preserved" },

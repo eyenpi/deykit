@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from deykit.application.authoring_views import RemoveOption
-from deykit.application.definitions import DecisionService
+from deykit.application.definitions import DecisionService, revision_editor_source
 from deykit.application.errors import ServiceFailure
 from deykit.contracts.codec import dump_record
 from deykit.contracts.json_value import bytes_hash
@@ -374,6 +374,7 @@ def test_restore_saved_revision_copies_draft_without_mutating_history(authoring)
         "d", saved.record.id, expected_draft_etag=updated.etag, operation_id="copy"
     )
     assert restored.record.base_revision_id == saved.record.id
+    assert revision_editor_source(saved.record) == restored.record.editor_source
     assert service.validate("d") == saved.record.definition
     assert service.revision("d", saved.record.id).record == saved.record
     assert (

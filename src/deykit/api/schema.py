@@ -84,7 +84,20 @@ def contract_documents() -> dict[str, bytes]:
     openapi["components"]["schemas"].pop("ValidationError", None)
     for path in openapi["paths"].values():
         for operation in path.values():
-            for status in ("400", "403", "404", "405", "413", "414", "415", "422", "431", "500"):
+            for status in (
+                "400",
+                "403",
+                "404",
+                "405",
+                "409",
+                "413",
+                "414",
+                "415",
+                "422",
+                "431",
+                "500",
+                "502",
+            ):
                 operation["responses"][status] = {
                     "description": "Safe structured failure",
                     "content": {

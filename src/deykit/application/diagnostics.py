@@ -1,5 +1,6 @@
 """Choice-order diagnostics preserve original-case denominators and exact ordered plans."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Annotated, cast
 
@@ -19,7 +20,13 @@ from deykit.contracts.json_value import JsonValue, dump_json
 from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.diagnostics.summary import OrderSummary, summarize_orders
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
-from deykit.runner.group_models import GroupPlan, GroupPreview, GroupProgress
+from deykit.runner.group_models import (
+    GroupAcknowledged,
+    GroupPlan,
+    GroupPreview,
+    GroupProgress,
+    GroupResumePreview,
+)
 from deykit.runner.planner import RunRequest
 
 
@@ -81,6 +88,7 @@ class DiagnosticService:
         *,
         operation_id: str,
         expected_review_context_hash: str | None = None,
+        on_created: Callable[[GroupAcknowledged], None] | None = None,
     ) -> DiagnosticView:
         request = validated_model(ChoiceOrderRequest, request, "invalid_diagnostic_request")
         result = await self.groups.start(
@@ -88,19 +96,35 @@ class DiagnosticService:
             prepare=lambda: self._plan(request),
             operation_id=operation_id,
             expected_review_context_hash=expected_review_context_hash,
+            on_created=on_created,
         )
         return self._view(result)
 
     async def resume(
-        self, group_id: str, *, operation_id: str, retry_unknown: bool = False
+        self,
+        group_id: str,
+        *,
+        operation_id: str,
+        retry_unknown: bool = False,
+        on_resumed: Callable[[GroupAcknowledged], None] | None = None,
     ) -> DiagnosticView:
-        if self.groups.show(group_id).kind != "choice_order":
-            fail("diagnostic_group_required")
         return self._view(
             await self.groups.resume(
-                group_id, operation_id=operation_id, retry_unknown=retry_unknown
+                group_id,
+                operation_id=operation_id,
+                retry_unknown=retry_unknown,
+                expected_kind="choice_order",
+                on_resumed=on_resumed,
             )
         )
+
+    def preview_resume(self, group_id: str, *, retry_unknown: bool = False) -> GroupResumePreview:
+        return self.groups.preview_resume(
+            group_id, retry_unknown=retry_unknown, expected_kind="choice_order"
+        )
+
+    def cancel(self, group_id: str, *, operation_id: str) -> GroupProgress:
+        return self.groups.cancel(group_id, operation_id=operation_id, expected_kind="choice_order")
 
     def read(self, group_id: str) -> DiagnosticView:
         return self._view(self.groups.show(group_id))

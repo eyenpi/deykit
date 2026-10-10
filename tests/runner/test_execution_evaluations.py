@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import EvaluationService, evaluation_hash
+from deykit.application.execution_actions import settle_execution
 from deykit.application.labels import LabelService
 from deykit.cli.commands import execution
 from deykit.cli.main import app
@@ -151,6 +152,78 @@ def test_duplicate_execution_associations_are_incompatible(setup):
             run.run_id, run.latest_result_snapshot_id, execution_operation_id="start"
         )
     assert raised.value.error.reason == "execution_evaluation_conflict"
+
+
+@pytest.mark.parametrize("state,expected", [("unknown", 4), ("known", 3)])
+def test_shared_settlement_keeps_failed_run_and_sanitizes_unknown_scoring_error(
+    setup, monkeypatch, state, expected
+):
+    source, runner, factory, clock = setup(1)
+    if state == "unknown":
+        factory.responses = {
+            "case-00": [
+                DispatchOutcome(
+                    state="unknown", error=ServiceError(code="provider_rejected", reason="timeout")
+                )
+            ]
+        }
+    else:
+        # A known provider failure becomes a settled response-error case.
+        factory.responses = {
+            "case-00": [
+                DispatchOutcome(
+                    state="known",
+                    error=ServiceError(code="provider_rejected", reason="bad_response"),
+                )
+            ]
+        }
+    run = asyncio.run(
+        runner.start(
+            RunRequest(
+                decision_id="decision", dataset_id="data", mode="fixture", fixture_set_id="set"
+            ),
+            operation_id="shared-settlement",
+        )
+    )
+    assert run.exit_code == expected
+
+    def unsafe_failure(*args, **kwargs):
+        raise RuntimeError("PRIVATE_EVALUATION_SENTINEL")
+
+    monkeypatch.setattr(EvaluationService, "evaluate_execution", unsafe_failure)
+    settled = settle_execution(EvaluationService(source, clock), run, "shared-settlement")
+    assert settled.run.run_id == run.run_id
+    assert settled.exit_code == expected
+    assert settled.evaluation_error == ServiceError(
+        code="internal_error", reason="evaluation_failed", resource_id=run.run_id
+    )
+    assert settled.warnings == (settled.evaluation_error,)
+    assert settled.evaluation_id is None
+    assert "PRIVATE_EVALUATION_SENTINEL" not in repr(settled)
+
+
+def test_shared_settlement_success_failure_raises_safe_service_failure(setup, monkeypatch):
+    source, runner, _, clock = setup(1)
+    run = asyncio.run(
+        runner.start(
+            RunRequest(
+                decision_id="decision", dataset_id="data", mode="fixture", fixture_set_id="set"
+            ),
+            operation_id="shared-success",
+        )
+    )
+    assert run.exit_code == 0
+
+    def unsafe_failure(*args, **kwargs):
+        raise RuntimeError("PRIVATE_EVALUATION_SENTINEL")
+
+    monkeypatch.setattr(EvaluationService, "evaluate_execution", unsafe_failure)
+    with pytest.raises(ServiceFailure) as raised:
+        settle_execution(EvaluationService(source, clock), run, "shared-success")
+    assert raised.value.error == ServiceError(
+        code="internal_error", reason="evaluation_failed", resource_id=run.run_id
+    )
+    assert "PRIVATE_EVALUATION_SENTINEL" not in str(raised.value)
 
 
 def test_active_action_replay_defers_new_evaluation_but_retains_existing_binding(setup):

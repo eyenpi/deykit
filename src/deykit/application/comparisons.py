@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import cast
 
-from deykit.application.dataset_support import fail, identifier
+from deykit.application.dataset_support import fail, identifier, page
 from deykit.application.evaluations import (
     EvaluationView,
     FrozenEvaluation,
@@ -34,6 +34,13 @@ class ComparisonView:
     etag: str
     outcomes: ComparisonOutcomes
     replayed: bool = False
+
+
+@dataclass(frozen=True)
+class ComparisonPage:
+    items: tuple[ComparisonView, ...]
+    total: int
+    next_cursor: str | None
 
 
 def comparison_hash(record: ComparisonRecord) -> str:
@@ -272,6 +279,21 @@ class ComparisonService:
             if saved is None:
                 fail("comparison_missing", "not_found")
             return self._bound_view(saved, records)
+
+    def list(self, *, cursor: str | None = None, limit: int = 50) -> ComparisonPage:
+        with self.source.consistent_read() as source:
+            records = cast(SnapshotSource, source).capture_snapshot()
+            stored_by_id = {
+                item.key.resource_id: item
+                for item in records
+                if item.key.collection == "comparisons" and not item.key.scope
+            }
+            selected, next_cursor = page(tuple(stored_by_id), cursor, limit)
+            return ComparisonPage(
+                tuple(self._bound_view(stored_by_id[item], records) for item in selected),
+                len(stored_by_id),
+                next_cursor,
+            )
 
 
 def admit_comparison_from_records(

@@ -17,7 +17,12 @@ from deykit.application.authoring_views import (
     project_schema,
     transform_import_mapping,
 )
-from deykit.application.definitions import DecisionService, DecisionView, Versioned
+from deykit.application.definitions import (
+    DecisionService,
+    DecisionView,
+    Versioned,
+    revision_editor_source,
+)
 from deykit.application.projects import ProjectBackend
 from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.records import DecisionDraft, DecisionRecord, DecisionRevision
@@ -74,7 +79,10 @@ def _record(value: Versioned[DecisionRecord]) -> VersionedDTO[DecisionRecord]:
 
 
 def _revision(value: Versioned[DecisionRevision]) -> RevisionDTO:
-    return RevisionDTO(revision=VersionedDTO(record=value.record, etag=value.etag))
+    return RevisionDTO(
+        revision=VersionedDTO(record=value.record, etag=value.etag),
+        editor_source=revision_editor_source(value.record),
+    )
 
 
 def register(

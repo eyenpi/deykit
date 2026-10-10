@@ -16,6 +16,23 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/v1/projects/{registration_id}/annotations/{annotation_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Annotation */
+    readonly get: operations["readAnnotation"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/v1/projects/{registration_id}/authoring/case-input-projection": {
     readonly parameters: {
       readonly query?: never;
@@ -101,6 +118,91 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/v1/projects/{registration_id}/checks": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Start Check */
+    readonly post: operations["startRegressionCheck"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/checks/{group_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Check */
+    readonly get: operations["readCheck"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/checks/{group_id}/cancel": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Cancel Check */
+    readonly post: operations["cancelCheck"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/checks/{group_id}/resume": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Resume Check */
+    readonly post: operations["resumeCheck"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/checks/{group_id}/resume-preview": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Preview Check Resume */
+    readonly post: operations["previewCheckResume"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/v1/projects/{registration_id}/checks/preview": {
     readonly parameters: {
       readonly query?: never;
@@ -112,6 +214,41 @@ export interface paths {
     readonly put?: never;
     /** Check Preview */
     readonly post: operations["previewRegressionCheck"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/comparisons": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Comparisons */
+    readonly get: operations["listComparisons"];
+    readonly put?: never;
+    /** Create Comparison */
+    readonly post: operations["createComparison"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/comparisons/{comparison_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Comparison */
+    readonly get: operations["readComparison"];
+    readonly put?: never;
+    readonly post?: never;
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
@@ -498,6 +635,41 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/v1/projects/{registration_id}/decisions/{decision_id}/regressions": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Regressions */
+    readonly get: operations["listRegressions"];
+    readonly put?: never;
+    /** Add Regression */
+    readonly post: operations["addRegression"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/decisions/{decision_id}/regressions/{regression_id}/remove": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Remove Regression */
+    readonly post: operations["removeRegression"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/v1/projects/{registration_id}/decisions/{decision_id}/rename": {
     readonly parameters: {
       readonly query?: never;
@@ -618,6 +790,91 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/v1/projects/{registration_id}/diagnostics/{group_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Choice Order */
+    readonly get: operations["readChoiceOrder"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/diagnostics/{group_id}/cancel": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Cancel Choice Order */
+    readonly post: operations["cancelChoiceOrder"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/diagnostics/{group_id}/resume": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Resume Choice Order */
+    readonly post: operations["resumeChoiceOrder"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/diagnostics/{group_id}/resume-preview": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Preview Choice Order Resume */
+    readonly post: operations["previewChoiceOrderResume"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/diagnostics/choice-order": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Start Choice Order */
+    readonly post: operations["startChoiceOrder"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/v1/projects/{registration_id}/diagnostics/choice-order/preview": {
     readonly parameters: {
       readonly query?: never;
@@ -629,6 +886,23 @@ export interface paths {
     readonly put?: never;
     /** Choice Order Preview */
     readonly post: operations["previewChoiceOrder"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/evaluations/{evaluation_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Evaluation */
+    readonly get: operations["readEvaluation"];
+    readonly put?: never;
+    readonly post?: never;
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
@@ -824,6 +1098,231 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/v1/projects/{registration_id}/reports": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Reports */
+    readonly get: operations["listReports"];
+    readonly put?: never;
+    /** Create Report */
+    readonly post: operations["createReport"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/reports/{report_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Report */
+    readonly get: operations["readReport"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/reports/{report_id}/download": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Download Report */
+    readonly get: operations["downloadReport"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Runs */
+    readonly get: operations["listRuns"];
+    readonly put?: never;
+    /** Start Run */
+    readonly post: operations["startRun"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Run */
+    readonly get: operations["readRun"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/annotations": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Annotations */
+    readonly get: operations["listAnnotations"];
+    readonly put?: never;
+    /** Add Annotation */
+    readonly post: operations["addAnnotation"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/cancel": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Cancel Run */
+    readonly post: operations["cancelRun"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/evaluations": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Evaluations */
+    readonly get: operations["listEvaluations"];
+    readonly put?: never;
+    /** Evaluate */
+    readonly post: operations["createEvaluation"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/reevaluations": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Reevaluate */
+    readonly post: operations["reevaluateRun"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/results": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Results */
+    readonly get: operations["listResults"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/results/{case_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Result */
+    readonly get: operations["readResult"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/resume": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Resume Run */
+    readonly post: operations["resumeRun"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/runs/{run_id}/resume-preview": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    readonly get?: never;
+    readonly put?: never;
+    /** Preview Run Resume */
+    readonly post: operations["previewRunResume"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/v1/projects/{registration_id}/runs/preview": {
     readonly parameters: {
       readonly query?: never;
@@ -930,6 +1429,20 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** AddAnnotationRequest */
+    readonly AddAnnotationRequest: {
+      /** Case Id */
+      readonly case_id: string;
+      /** Note */
+      readonly note: string;
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
     /** AddOption */
     readonly AddOption: {
       /** Description */
@@ -943,6 +1456,65 @@ export interface components {
       readonly kind: "add_option";
       /** Name */
       readonly name: string;
+    };
+    /** AddRegressionRequest */
+    readonly AddRegressionRequest: {
+      /** Acceptable Option Ids */
+      readonly acceptable_option_ids: readonly string[];
+      /** Case Id */
+      readonly case_id: string;
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * Provenance
+       * @default human
+       * @enum {string}
+       */
+      readonly provenance?:
+        "human" | "authored_fixture" | "imported_unknown" | "model_generated";
+      /** Reason */
+      readonly reason: string;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id?: string | null;
+      /** Run Id */
+      readonly run_id: string;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** AnnotationDTO */
+    readonly AnnotationDTO: {
+      /** Annotation Id */
+      readonly annotation_id: string;
+      /** Case Id */
+      readonly case_id: string;
+      /** Content Hash */
+      readonly content_hash: string;
+      /** Created At */
+      readonly created_at: string;
+      /** Note */
+      readonly note: string;
+      /** Replayed */
+      readonly replayed: boolean;
+      /** Run Id */
+      readonly run_id: string;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** AnnotationPageDTO */
+    readonly AnnotationPageDTO: {
+      /** Items */
+      readonly items: readonly components["schemas"]["AnnotationDTO"][];
+      /** Next Cursor */
+      readonly next_cursor: string | null;
+      /** Total */
+      readonly total: string;
     };
     /** BootstrapReply */
     readonly BootstrapReply: {
@@ -978,6 +1550,19 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+    };
+    /** CaseDetailDTO */
+    readonly CaseDetailDTO: {
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Source */
+      readonly source: {
+        readonly [key: string]: unknown;
+      };
     };
     /** CaseDTO */
     readonly CaseDTO: {
@@ -1246,7 +1831,27 @@ export interface components {
        *       "timeout_seconds": 60
        *     }
        */
-      readonly settings?: components["schemas"]["ExecutionSettings"];
+      readonly settings?: components["schemas"]["ExecutionSettingsRequestDTO"];
+    };
+    /** CheckViewDTO */
+    readonly CheckViewDTO: {
+      /**
+       * Baseline Unavailable
+       * @constant
+       */
+      readonly baseline_unavailable: "frozen_regression_selection";
+      /** Cases */
+      readonly cases: readonly {
+        readonly [key: string]: unknown;
+      }[];
+      /**
+       * Exit Code
+       * @enum {integer}
+       */
+      readonly exit_code: 0 | 3 | 4 | 5;
+      /** Expectation Failures */
+      readonly expectation_failures: string;
+      readonly group: components["schemas"]["GroupProgressDTO"];
     };
     /** ChoiceDefinition */
     readonly ChoiceDefinition: {
@@ -1317,6 +1922,87 @@ export interface components {
       readonly kind?: "choice";
       /** Options */
       readonly options: readonly components["schemas"]["ChoiceOption"][];
+    };
+    /** ComparisonDTO */
+    readonly ComparisonDTO: {
+      /** Comparison Id */
+      readonly comparison_id: string;
+      /** Content Hash */
+      readonly content_hash: string;
+      /** Created At */
+      readonly created_at: string;
+      /** Left Evaluation Id */
+      readonly left_evaluation_id: string;
+      /** Left Result Snapshot Id */
+      readonly left_result_snapshot_id: string;
+      /** Outcomes */
+      readonly outcomes: {
+        readonly [key: string]: unknown;
+      };
+      /** Replayed */
+      readonly replayed: boolean;
+      /** Right Evaluation Id */
+      readonly right_evaluation_id: string;
+      /** Right Result Snapshot Id */
+      readonly right_result_snapshot_id: string;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** ComparisonPageDTO */
+    readonly ComparisonPageDTO: {
+      /** Items */
+      readonly items: readonly components["schemas"]["ComparisonDTO"][];
+      /** Next Cursor */
+      readonly next_cursor: string | null;
+      /** Total */
+      readonly total: string;
+    };
+    /** CreateComparisonRequest */
+    readonly CreateComparisonRequest: {
+      /** Left Evaluation Id */
+      readonly left_evaluation_id: string;
+      /** Operation Id */
+      readonly operation_id: string;
+      /** Right Evaluation Id */
+      readonly right_evaluation_id: string;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** CreateReportRequest */
+    readonly CreateReportRequest: {
+      /** Evaluation Id */
+      readonly evaluation_id?: string | null;
+      /** Group Snapshot Id */
+      readonly group_snapshot_id?: string | null;
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * @default {
+       *       "inputs": false,
+       *       "requests": false,
+       *       "responses": false
+       *     }
+       */
+      readonly raw?: components["schemas"]["RawChoices"];
+      /** Result Snapshot Id */
+      readonly result_snapshot_id?: string | null;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Target Id */
+      readonly target_id: string;
+      /** Target Kind */
+      readonly target_kind?:
+        ("run" | "evaluation" | "comparison" | "diagnostic" | "check") | null;
     };
     /** CredentialStatusDTO */
     readonly CredentialStatusDTO: {
@@ -1687,6 +2373,19 @@ export interface components {
        */
       readonly kind: "describe_option";
     };
+    /** DiagnosticViewDTO */
+    readonly DiagnosticViewDTO: {
+      /**
+       * Exit Code
+       * @enum {integer}
+       */
+      readonly exit_code: 0 | 3 | 4;
+      readonly group: components["schemas"]["GroupProgressDTO"];
+      /** Summary */
+      readonly summary: {
+        readonly [key: string]: unknown;
+      } | null;
+    };
     /** DraftRequest */
     readonly DraftRequest: {
       /** Editor Source */
@@ -1869,8 +2568,73 @@ export interface components {
        */
       readonly schema_version: 1;
     };
-    /** ExecutionSettings */
-    readonly ExecutionSettings: {
+    /** EvaluateRequest */
+    readonly EvaluateRequest: {
+      /** Label Snapshot Id */
+      readonly label_snapshot_id?: string | null;
+      /**
+       * Mode
+       * @default original
+       * @enum {string}
+       */
+      readonly mode?: "original" | "saved_answer_reevaluation";
+      /** Operation Id */
+      readonly operation_id: string;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** EvaluationDTO */
+    readonly EvaluationDTO: {
+      /** Content Hash */
+      readonly content_hash: string;
+      /** Created At */
+      readonly created_at: string;
+      /** Evaluation Id */
+      readonly evaluation_id: string;
+      /** Execution Operation Id */
+      readonly execution_operation_id: string | null;
+      /** Label Snapshot Id */
+      readonly label_snapshot_id: string;
+      /** Metrics */
+      readonly metrics: {
+        readonly [key: string]: unknown;
+      };
+      /** Metrics Source */
+      readonly metrics_source: string;
+      /**
+       * Mode
+       * @enum {string}
+       */
+      readonly mode: "original" | "saved_answer_reevaluation";
+      /** Replayed */
+      readonly replayed: boolean;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /** Run Id */
+      readonly run_id: string;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** EvaluationPageDTO */
+    readonly EvaluationPageDTO: {
+      /** Items */
+      readonly items: readonly components["schemas"]["EvaluationDTO"][];
+      /** Next Cursor */
+      readonly next_cursor: string | null;
+      /** Total */
+      readonly total: string;
+    };
+    /** ExecutionSettingsRequestDTO */
+    readonly ExecutionSettingsRequestDTO: {
       /**
        * Concurrency
        * @default 2
@@ -1896,6 +2660,19 @@ export interface components {
        * @default 60
        */
       readonly timeout_seconds?: number;
+    };
+    /** ExecutionSettingsViewDTO */
+    readonly ExecutionSettingsViewDTO: {
+      /** Concurrency */
+      readonly concurrency: string;
+      /** Deadline Seconds */
+      readonly deadline_seconds: string;
+      /** Max Attempts */
+      readonly max_attempts: string;
+      /** Max Retries Per Case */
+      readonly max_retries_per_case: string;
+      /** Timeout Seconds */
+      readonly timeout_seconds: string;
     };
     /** Failure */
     readonly Failure: {
@@ -2025,6 +2802,47 @@ export interface components {
        */
       readonly schema_version: 1;
     };
+    /** GroupAcceptedDTO */
+    readonly GroupAcceptedDTO: {
+      /** Group Id */
+      readonly group_id: string;
+      /**
+       * Kind
+       * @enum {string}
+       */
+      readonly kind: "choice_order" | "regression_check";
+      /** Member Run Ids */
+      readonly member_run_ids: readonly string[];
+      /**
+       * Mode
+       * @enum {string}
+       */
+      readonly mode: "fixture" | "live";
+      /** Operation Id */
+      readonly operation_id: string;
+      /** Progress Path */
+      readonly progress_path: string;
+      /** Replayed */
+      readonly replayed: boolean;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Segment Id */
+      readonly segment_id: string;
+    };
+    /** GroupCancelRequest */
+    readonly GroupCancelRequest: {
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
     /** GroupMemberPreviewDTO */
     readonly GroupMemberPreviewDTO: {
       readonly identity: components["schemas"]["MemberIdentityDTO"];
@@ -2035,6 +2853,13 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+    };
+    /** GroupMemberResumePreviewDTO */
+    readonly GroupMemberResumePreviewDTO: {
+      /** Planned Case Ids */
+      readonly planned_case_ids: readonly string[];
+      /** Run Id */
+      readonly run_id: string;
     };
     /** GroupPreviewDTO */
     readonly GroupPreviewDTO: {
@@ -2067,6 +2892,77 @@ export interface components {
       readonly schema_version: 1;
       /** Seed */
       readonly seed: string | null;
+    };
+    /** GroupProgressDTO */
+    readonly GroupProgressDTO: {
+      /** Algorithm */
+      readonly algorithm: string | null;
+      /** Attempt Limit */
+      readonly attempt_limit: string;
+      /** Attempts Remaining */
+      readonly attempts_remaining: string;
+      /** Attempts Used */
+      readonly attempts_used: string;
+      /** Group Id */
+      readonly group_id: string;
+      /** Independent Case Count */
+      readonly independent_case_count: string;
+      /** Initial Requests */
+      readonly initial_requests: string;
+      /**
+       * Kind
+       * @enum {string}
+       */
+      readonly kind: "choice_order" | "regression_check";
+      /** Members */
+      readonly members: readonly components["schemas"]["RunProgressDTO"][];
+      /** Replayed */
+      readonly replayed: boolean;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Seed */
+      readonly seed: string | null;
+      /** Snapshot Id */
+      readonly snapshot_id: string | null;
+    };
+    /** GroupResumePreviewDTO */
+    readonly GroupResumePreviewDTO: {
+      /** Dry Run */
+      readonly dry_run: boolean;
+      readonly group: components["schemas"]["GroupProgressDTO"];
+      /** Members */
+      readonly members: readonly components["schemas"]["GroupMemberResumePreviewDTO"][];
+      /** Proposed Attempt Limit */
+      readonly proposed_attempt_limit: string;
+      /** Retry Unknown */
+      readonly retry_unknown: boolean;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Segment Ids */
+      readonly segment_ids: readonly string[];
+    };
+    /** GroupResumeRequest */
+    readonly GroupResumeRequest: {
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * Retry Unknown
+       * @default false
+       */
+      readonly retry_unknown?: boolean;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
     };
     /** ImportCommitDTO */
     readonly ImportCommitDTO: {
@@ -2802,6 +3698,24 @@ export interface components {
        */
       readonly schema_version: 1;
     };
+    /** RawChoices */
+    readonly RawChoices: {
+      /**
+       * Inputs
+       * @default false
+       */
+      readonly inputs?: boolean;
+      /**
+       * Requests
+       * @default false
+       */
+      readonly requests?: boolean;
+      /**
+       * Responses
+       * @default false
+       */
+      readonly responses?: boolean;
+    };
     /** RebuildIndexDTO */
     readonly RebuildIndexDTO: {
       /** Record Count */
@@ -2839,6 +3753,18 @@ export interface components {
       /**
        * Schema Version
        * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** ReevaluateRequest */
+    readonly ReevaluateRequest: {
+      /** Operation Id */
+      readonly operation_id: string;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /**
+       * Schema Version
        * @constant
        */
       readonly schema_version: 1;
@@ -2884,6 +3810,54 @@ export interface components {
        */
       readonly schema_version: 1;
     };
+    /** RegressionDTO */
+    readonly RegressionDTO: {
+      /** Acceptable Option Ids */
+      readonly acceptable_option_ids: readonly string[];
+      /** Case Id */
+      readonly case_id: string;
+      /** Dataset Id */
+      readonly dataset_id: string;
+      /** Decision Id */
+      readonly decision_id: string;
+      /** Executable */
+      readonly executable: boolean;
+      /** Input Hash */
+      readonly input_hash: string;
+      /** Original Split */
+      readonly original_split: string;
+      /**
+       * Provenance
+       * @enum {string}
+       */
+      readonly provenance:
+        "human" | "authored_fixture" | "imported_unknown" | "model_generated";
+      /** Question Id */
+      readonly question_id: string;
+      /** Reason */
+      readonly reason: string;
+      /** Regression Id */
+      readonly regression_id: string;
+      /** Removed */
+      readonly removed: boolean;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Source Result Snapshot Id */
+      readonly source_result_snapshot_id: string;
+      /** Source Run Id */
+      readonly source_run_id: string;
+      /** Unavailable Reason */
+      readonly unavailable_reason: string | null;
+    };
+    /** RegressionPageDTO */
+    readonly RegressionPageDTO: {
+      /** Items */
+      readonly items: readonly components["schemas"]["RegressionDTO"][];
+    };
     /** RemoveOption */
     readonly RemoveOption: {
       /** Id */
@@ -2893,6 +3867,18 @@ export interface components {
        * @enum {string}
        */
       readonly kind: "remove_option";
+    };
+    /** RemoveRegressionRequest */
+    readonly RemoveRegressionRequest: {
+      /** Decision Id */
+      readonly decision_id: string;
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
     };
     /** RemoveSchemaField */
     readonly RemoveSchemaField: {
@@ -2986,6 +3972,54 @@ export interface components {
        */
       readonly kind: "replace_schema";
     };
+    /** ReportDTO */
+    readonly ReportDTO: {
+      /** Check Snapshot Id */
+      readonly check_snapshot_id: string | null;
+      /** Comparison Id */
+      readonly comparison_id: string | null;
+      /** Content Hash */
+      readonly content_hash: string;
+      /** Created At */
+      readonly created_at: string;
+      /** Diagnostic Snapshot Id */
+      readonly diagnostic_snapshot_id: string | null;
+      /** Evaluation Ids */
+      readonly evaluation_ids: readonly string[];
+      /** Evidence Modes */
+      readonly evidence_modes: readonly string[];
+      /** Label Snapshot Ids */
+      readonly label_snapshot_ids: readonly string[];
+      /** Legacy */
+      readonly legacy: boolean;
+      /** Nonexportable Reason */
+      readonly nonexportable_reason: string | null;
+      readonly raw: components["schemas"]["RawChoices"];
+      /** Report Id */
+      readonly report_id: string;
+      /** Result Snapshot Ids */
+      readonly result_snapshot_ids: readonly string[];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Target Id */
+      readonly target_id: string | null;
+      /** Target Kind */
+      readonly target_kind:
+        ("run" | "evaluation" | "comparison" | "diagnostic" | "check") | null;
+    };
+    /** ReportPageDTO */
+    readonly ReportPageDTO: {
+      /** Items */
+      readonly items: readonly components["schemas"]["ReportDTO"][];
+      /** Next Cursor */
+      readonly next_cursor: string | null;
+      /** Total */
+      readonly total: string;
+    };
     /** RequestIdentityDTO */
     readonly RequestIdentityDTO: {
       /** Case Id */
@@ -3067,8 +4101,50 @@ export interface components {
        */
       readonly schema_version: 1;
     };
+    /** ResultPageDTO */
+    readonly ResultPageDTO: {
+      /** Evaluation Id */
+      readonly evaluation_id: string | null;
+      /** Filtered Count */
+      readonly filtered_count: string;
+      /** Items */
+      readonly items: readonly components["schemas"]["ResultRowDTO"][];
+      /** Label Snapshot Id */
+      readonly label_snapshot_id: string;
+      /** Next Cursor */
+      readonly next_cursor: string | null;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /** Run Id */
+      readonly run_id: string;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Selected Count */
+      readonly selected_count: string;
+      /** Status Counts */
+      readonly status_counts: {
+        readonly [key: string]: string;
+      };
+      /** Summary */
+      readonly summary: {
+        readonly [key: string]: unknown;
+      };
+    };
+    /** ResultRowDTO */
+    readonly ResultRowDTO: {
+      /** Source */
+      readonly source: {
+        readonly [key: string]: unknown;
+      };
+    };
     /** RevisionDTO */
     readonly RevisionDTO: {
+      /** Editor Source */
+      readonly editor_source: string;
       readonly revision: components["schemas"]["Versioned_DecisionRevision_"];
       /**
        * Schema Version
@@ -3089,6 +4165,74 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+      /** Total */
+      readonly total: string;
+    };
+    /** RunAcceptedDTO */
+    readonly RunAcceptedDTO: {
+      /**
+       * Mode
+       * @enum {string}
+       */
+      readonly mode: "fixture" | "live";
+      /** Operation Id */
+      readonly operation_id: string;
+      /** Progress Path */
+      readonly progress_path: string;
+      /** Replayed */
+      readonly replayed: boolean;
+      /** Run Id */
+      readonly run_id: string;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Segment Id */
+      readonly segment_id: string | null;
+    };
+    /** RunAttemptProgressDTO */
+    readonly RunAttemptProgressDTO: {
+      /** Attempt Id */
+      readonly attempt_id: string;
+      /** Case Id */
+      readonly case_id: string;
+      /** Duration Seconds */
+      readonly duration_seconds: string | null;
+      /** Kind */
+      readonly kind: string;
+      /** Number */
+      readonly number: number;
+      /** State */
+      readonly state: string;
+    };
+    /** RunCancelRequest */
+    readonly RunCancelRequest: {
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** RunCaseProgressDTO */
+    readonly RunCaseProgressDTO: {
+      /** Attempt Id */
+      readonly attempt_id: string | null;
+      /** Case Id */
+      readonly case_id: string;
+      readonly error: components["schemas"]["ErrorDTO"] | null;
+      /** Status */
+      readonly status: string;
+    };
+    /** RunPageDTO */
+    readonly RunPageDTO: {
+      /** Items */
+      readonly items: readonly components["schemas"]["RunProgressDTO"][];
+      /** Next Cursor */
+      readonly next_cursor: string | null;
       /** Total */
       readonly total: string;
     };
@@ -3127,7 +4271,7 @@ export interface components {
       readonly schema_version: 1;
       /** Selected Case Ids */
       readonly selected_case_ids: readonly string[];
-      readonly settings: components["schemas"]["ExecutionSettings"];
+      readonly settings: components["schemas"]["ExecutionSettingsViewDTO"];
     };
     /** RunPreviewRequest */
     readonly RunPreviewRequest: {
@@ -3137,6 +4281,59 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+    };
+    /** RunProgressDTO */
+    readonly RunProgressDTO: {
+      /** Attempt Limit */
+      readonly attempt_limit: string;
+      /** Attempts */
+      readonly attempts: readonly components["schemas"]["RunAttemptProgressDTO"][];
+      /** Attempts Remaining */
+      readonly attempts_remaining: string;
+      /** Attempts Used */
+      readonly attempts_used: string;
+      /** Cases */
+      readonly cases: readonly components["schemas"]["RunCaseProgressDTO"][];
+      /** Dataset Id */
+      readonly dataset_id: string;
+      /** Decision Id */
+      readonly decision_id: string;
+      /** Execution Active */
+      readonly execution_active: boolean;
+      /** Execution Group Id */
+      readonly execution_group_id: string | null;
+      /** Group Attempts Remaining */
+      readonly group_attempts_remaining: string | null;
+      /** Latest Result Snapshot Id */
+      readonly latest_result_snapshot_id: string | null;
+      /**
+       * Mode
+       * @enum {string}
+       */
+      readonly mode: "fixture" | "live";
+      readonly reason: components["schemas"]["ErrorDTO"] | null;
+      /** Replayed */
+      readonly replayed: boolean;
+      /** Requested Model */
+      readonly requested_model: string;
+      /** Result Snapshot Ids */
+      readonly result_snapshot_ids: readonly string[];
+      /** Run Id */
+      readonly run_id: string;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Segment Ids */
+      readonly segment_ids: readonly string[];
+      /** Segments */
+      readonly segments: readonly components["schemas"]["RunSegmentProgressDTO"][];
+      readonly settings: components["schemas"]["ExecutionSettingsViewDTO"];
+      readonly sources: components["schemas"]["RunSourceReferencesDTO"];
+      /** State */
+      readonly state: string;
     };
     /** RunRequestDTO */
     readonly RunRequestDTO: {
@@ -3176,13 +4373,96 @@ export interface components {
        *       "timeout_seconds": 60
        *     }
        */
-      readonly settings?: components["schemas"]["ExecutionSettings"];
+      readonly settings?: components["schemas"]["ExecutionSettingsRequestDTO"];
       /**
        * Split
        * @default all
        * @enum {string}
        */
       readonly split?: "all" | "development" | "calibration" | "test";
+    };
+    /** RunResumePreviewDTO */
+    readonly RunResumePreviewDTO: {
+      /** Dry Run */
+      readonly dry_run: boolean;
+      /** Planned Case Ids */
+      readonly planned_case_ids: readonly string[];
+      /** Proposed Attempt Limit */
+      readonly proposed_attempt_limit: string;
+      /** Retry Unknown */
+      readonly retry_unknown: boolean;
+      readonly run: components["schemas"]["RunProgressDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** RunResumeRequest */
+    readonly RunResumeRequest: {
+      /** Max Attempts */
+      readonly max_attempts?: number | null;
+      /** Operation Id */
+      readonly operation_id: string;
+      /**
+       * Retry Unknown
+       * @default false
+       */
+      readonly retry_unknown?: boolean;
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** RunSegmentProgressDTO */
+    readonly RunSegmentProgressDTO: {
+      /** Deadline At */
+      readonly deadline_at: string;
+      /** Ended At */
+      readonly ended_at: string | null;
+      /** Retry Unknown */
+      readonly retry_unknown: boolean;
+      /** Segment Id */
+      readonly segment_id: string;
+      /** Started At */
+      readonly started_at: string;
+    };
+    /** RunSourceReferencesDTO */
+    readonly RunSourceReferencesDTO: {
+      /** Adapter */
+      readonly adapter?: string | null;
+      /** Compiler Id */
+      readonly compiler_id?: string | null;
+      /** Compiler Id Unavailable Reason */
+      readonly compiler_id_unavailable_reason?:
+        | (
+            | "no_prepared_request"
+            | "prepared_compiler_mismatch"
+            | "inconsistent_prepared_compiler_identity"
+          )
+        | null;
+      /** Compiler Version */
+      readonly compiler_version?: string | null;
+      /** Dataset Snapshot Id */
+      readonly dataset_snapshot_id: string;
+      /** Decision Revision Id */
+      readonly decision_revision_id: string;
+      /** Development Dataset Snapshot Id */
+      readonly development_dataset_snapshot_id: string;
+      /** Development Label Snapshot Id */
+      readonly development_label_snapshot_id: string;
+      /** Evidence Mode */
+      readonly evidence_mode?: ("authored_fixture" | "live") | null;
+      /** Fixture Set Id */
+      readonly fixture_set_id: string | null;
+      /** Label Snapshot Id */
+      readonly label_snapshot_id: string;
+      /** Option Order */
+      readonly option_order: readonly string[] | null;
+      /** Provider Profile Id */
+      readonly provider_profile_id: string;
     };
     /** SaveRevisionRequest */
     readonly SaveRevisionRequest: {
@@ -3495,9 +4775,93 @@ export interface components {
        */
       readonly seed?: string;
     };
+    /** StartCheckRequest */
+    readonly StartCheckRequest: {
+      /** Expected Review Context Hash */
+      readonly expected_review_context_hash: string;
+      /** Operation Id */
+      readonly operation_id: string;
+      readonly request: components["schemas"]["CheckRequestDTO"];
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** StartChoiceOrderRequest */
+    readonly StartChoiceOrderRequest: {
+      /** Expected Review Context Hash */
+      readonly expected_review_context_hash: string;
+      /** Operation Id */
+      readonly operation_id: string;
+      readonly request: components["schemas"]["ChoiceOrderRequestDTO"];
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** StartRunRequest */
+    readonly StartRunRequest: {
+      /** Expected Review Context Hash */
+      readonly expected_review_context_hash: string;
+      /** Operation Id */
+      readonly operation_id: string;
+      readonly request: components["schemas"]["RunRequestDTO"];
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** Success[AnnotationDTO] */
+    readonly Success_AnnotationDTO_: {
+      readonly data: components["schemas"]["AnnotationDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[AnnotationPageDTO] */
+    readonly Success_AnnotationPageDTO_: {
+      readonly data: components["schemas"]["AnnotationPageDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
     /** Success[BootstrapReply] */
     readonly Success_BootstrapReply_: {
       readonly data: components["schemas"]["BootstrapReply"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[CaseDetailDTO] */
+    readonly Success_CaseDetailDTO_: {
+      readonly data: components["schemas"]["CaseDetailDTO"];
       /**
        * Schema Version
        * @default 1
@@ -3558,6 +4922,51 @@ export interface components {
     /** Success[CaseReadDTO] */
     readonly Success_CaseReadDTO_: {
       readonly data: components["schemas"]["CaseReadDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[CheckViewDTO] */
+    readonly Success_CheckViewDTO_: {
+      readonly data: components["schemas"]["CheckViewDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[ComparisonDTO] */
+    readonly Success_ComparisonDTO_: {
+      readonly data: components["schemas"]["ComparisonDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[ComparisonPageDTO] */
+    readonly Success_ComparisonPageDTO_: {
+      readonly data: components["schemas"]["ComparisonPageDTO"];
       /**
        * Schema Version
        * @default 1
@@ -3675,6 +5084,21 @@ export interface components {
        */
       readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
     };
+    /** Success[DiagnosticViewDTO] */
+    readonly Success_DiagnosticViewDTO_: {
+      readonly data: components["schemas"]["DiagnosticViewDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
     /** Success[DraftTransformReviewDTO] */
     readonly Success_DraftTransformReviewDTO_: {
       readonly data: components["schemas"]["DraftTransformReviewDTO"];
@@ -3708,6 +5132,36 @@ export interface components {
     /** Success[EncodedInputV1] */
     readonly Success_EncodedInputV1_: {
       readonly data: components["schemas"]["EncodedInputV1"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[EvaluationDTO] */
+    readonly Success_EvaluationDTO_: {
+      readonly data: components["schemas"]["EvaluationDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[EvaluationPageDTO] */
+    readonly Success_EvaluationPageDTO_: {
+      readonly data: components["schemas"]["EvaluationPageDTO"];
       /**
        * Schema Version
        * @default 1
@@ -3765,9 +5219,54 @@ export interface components {
        */
       readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
     };
+    /** Success[GroupAcceptedDTO] */
+    readonly Success_GroupAcceptedDTO_: {
+      readonly data: components["schemas"]["GroupAcceptedDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
     /** Success[GroupPreviewDTO] */
     readonly Success_GroupPreviewDTO_: {
       readonly data: components["schemas"]["GroupPreviewDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[GroupProgressDTO] */
+    readonly Success_GroupProgressDTO_: {
+      readonly data: components["schemas"]["GroupProgressDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[GroupResumePreviewDTO] */
+    readonly Success_GroupResumePreviewDTO_: {
+      readonly data: components["schemas"]["GroupResumePreviewDTO"];
       /**
        * Schema Version
        * @default 1
@@ -4020,6 +5519,81 @@ export interface components {
        */
       readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
     };
+    /** Success[RegressionDTO] */
+    readonly Success_RegressionDTO_: {
+      readonly data: components["schemas"]["RegressionDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[RegressionPageDTO] */
+    readonly Success_RegressionPageDTO_: {
+      readonly data: components["schemas"]["RegressionPageDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[ReportDTO] */
+    readonly Success_ReportDTO_: {
+      readonly data: components["schemas"]["ReportDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[ReportPageDTO] */
+    readonly Success_ReportPageDTO_: {
+      readonly data: components["schemas"]["ReportPageDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[ResultPageDTO] */
+    readonly Success_ResultPageDTO_: {
+      readonly data: components["schemas"]["ResultPageDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
     /** Success[RevisionDTO] */
     readonly Success_RevisionDTO_: {
       readonly data: components["schemas"]["RevisionDTO"];
@@ -4050,9 +5624,69 @@ export interface components {
        */
       readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
     };
+    /** Success[RunAcceptedDTO] */
+    readonly Success_RunAcceptedDTO_: {
+      readonly data: components["schemas"]["RunAcceptedDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[RunPageDTO] */
+    readonly Success_RunPageDTO_: {
+      readonly data: components["schemas"]["RunPageDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
     /** Success[RunPreviewDTO] */
     readonly Success_RunPreviewDTO_: {
       readonly data: components["schemas"]["RunPreviewDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[RunProgressDTO] */
+    readonly Success_RunProgressDTO_: {
+      readonly data: components["schemas"]["RunProgressDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[RunResumePreviewDTO] */
+    readonly Success_RunResumePreviewDTO_: {
+      readonly data: components["schemas"]["RunResumePreviewDTO"];
       /**
        * Schema Version
        * @default 1
@@ -4299,6 +5933,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -4345,6 +5988,146 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readAnnotation: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly annotation_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_AnnotationDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -4415,6 +6198,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -4461,6 +6253,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -4531,6 +6332,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -4577,6 +6387,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -4647,6 +6466,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -4693,6 +6521,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -4763,6 +6600,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -4809,6 +6655,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -4879,6 +6734,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -4925,6 +6789,689 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly startRegressionCheck: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["StartCheckRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 202: {
+        headers: {
+          readonly Location?: string;
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupAcceptedDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readCheck: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_CheckViewDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly cancelCheck: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["GroupCancelRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupProgressDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly resumeCheck: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["GroupResumeRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 202: {
+        headers: {
+          readonly Location?: string;
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupAcceptedDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly previewCheckResume: {
+    readonly parameters: {
+      readonly query?: {
+        readonly retry_unknown?: "true" | "false";
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["VersionRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupResumePreviewDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -4995,6 +7542,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5041,6 +7597,413 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listComparisons: {
+    readonly parameters: {
+      readonly query?: {
+        readonly cursor?: string | null;
+        readonly limit?: number;
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_ComparisonPageDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly createComparison: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["CreateComparisonRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_ComparisonDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readComparison: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly comparison_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_ComparisonDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5111,6 +8074,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5157,6 +8129,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5227,6 +8208,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5273,6 +8263,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5340,6 +8339,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5386,6 +8394,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5457,6 +8474,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5503,6 +8529,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5574,6 +8609,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5620,6 +8664,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5693,6 +8746,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5739,6 +8801,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5810,6 +8881,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5856,6 +8936,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -5924,6 +9013,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -5970,6 +9068,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6042,6 +9149,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6088,6 +9204,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6160,6 +9285,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6206,6 +9340,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6277,6 +9420,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6323,6 +9475,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6394,6 +9555,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6440,6 +9610,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6511,6 +9690,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6557,6 +9745,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6628,6 +9825,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6674,6 +9880,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6745,6 +9960,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6791,6 +10015,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6861,6 +10094,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -6907,6 +10149,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -6977,6 +10228,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7023,6 +10283,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7090,6 +10359,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7136,6 +10414,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7207,6 +10494,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7253,6 +10549,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7325,6 +10630,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7371,6 +10685,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7442,6 +10765,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7488,6 +10820,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7559,6 +10900,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7605,6 +10955,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7677,6 +11036,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7723,6 +11091,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7793,6 +11170,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7839,6 +11225,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -7910,6 +11305,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -7956,6 +11360,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8027,6 +11440,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8073,6 +11495,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8144,6 +11575,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8190,6 +11630,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8257,6 +11706,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8303,6 +11761,417 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listRegressions: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly decision_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RegressionPageDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly addRegression: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly decision_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["AddRegressionRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RegressionDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly removeRegression: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly decision_id: string;
+        readonly registration_id: string;
+        readonly regression_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["RemoveRegressionRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RegressionDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8374,6 +12243,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8420,6 +12298,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8491,6 +12378,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8537,6 +12433,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8608,6 +12513,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8654,6 +12568,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8724,6 +12647,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8770,6 +12702,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8841,6 +12782,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -8887,6 +12837,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -8955,6 +12914,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9001,6 +12969,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9072,6 +13049,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9118,6 +13104,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9189,6 +13184,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9235,6 +13239,689 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readChoiceOrder: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_DiagnosticViewDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly cancelChoiceOrder: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["GroupCancelRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupProgressDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly resumeChoiceOrder: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["GroupResumeRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 202: {
+        headers: {
+          readonly Location?: string;
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupAcceptedDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly previewChoiceOrderResume: {
+    readonly parameters: {
+      readonly query?: {
+        readonly retry_unknown?: "true" | "false";
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["VersionRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupResumePreviewDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly startChoiceOrder: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["StartChoiceOrderRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 202: {
+        headers: {
+          readonly Location?: string;
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_GroupAcceptedDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9305,6 +13992,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9351,6 +14047,146 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readEvaluation: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly evaluation_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_EvaluationDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9420,6 +14256,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9466,6 +14311,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9536,6 +14390,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9582,6 +14445,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9651,6 +14523,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9697,6 +14578,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9763,6 +14653,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9809,6 +14708,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9878,6 +14786,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -9924,6 +14841,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -9991,6 +14917,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10037,6 +14972,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10108,6 +15052,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10154,6 +15107,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10225,6 +15187,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10271,6 +15242,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10342,6 +15322,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10388,6 +15377,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10459,6 +15457,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10505,6 +15512,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10572,6 +15588,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10618,6 +15643,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10691,6 +15725,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10737,6 +15780,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10807,6 +15859,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10853,6 +15914,2311 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listReports: {
+    readonly parameters: {
+      readonly query?: {
+        readonly cursor?: string | null;
+        readonly limit?: number;
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_ReportPageDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly createReport: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["CreateReportRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_ReportDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readReport: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly report_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_ReportDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly downloadReport: {
+    readonly parameters: {
+      readonly query: {
+        readonly format: "json" | "markdown";
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly report_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Saved report bytes */
+      readonly 200: {
+        headers: {
+          readonly "Cache-Control"?: "no-store";
+          /** @description Fixed attachment name report-{report_id}.{json|md} */
+          readonly "Content-Disposition"?: string;
+          readonly "X-Content-Type-Options"?: "nosniff";
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/octet-stream": string;
+          readonly "text/plain; charset=utf-8": string;
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listRuns: {
+    readonly parameters: {
+      readonly query?: {
+        readonly cursor?: string | null;
+        readonly decision_id?: string | null;
+        readonly limit?: number;
+        readonly status?: string | null;
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RunPageDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly startRun: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["StartRunRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 202: {
+        headers: {
+          readonly Location?: string;
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RunAcceptedDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readRun: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RunProgressDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listAnnotations: {
+    readonly parameters: {
+      readonly query?: {
+        readonly case_id?: string | null;
+        readonly cursor?: string | null;
+        readonly limit?: number;
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_AnnotationPageDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly addAnnotation: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["AddAnnotationRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_AnnotationDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly cancelRun: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["RunCancelRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RunProgressDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listEvaluations: {
+    readonly parameters: {
+      readonly query?: {
+        readonly cursor?: string | null;
+        readonly limit?: number;
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_EvaluationPageDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly createEvaluation: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["EvaluateRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_EvaluationDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly reevaluateRun: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["ReevaluateRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_EvaluationDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listResults: {
+    readonly parameters: {
+      readonly query?: {
+        readonly cursor?: string | null;
+        readonly evaluation_id?: string | null;
+        readonly limit?: number;
+        readonly split?: ("development" | "calibration" | "test") | null;
+        readonly status?: string | null;
+        readonly tag?: string | null;
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_ResultPageDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readResult: {
+    readonly parameters: {
+      readonly query?: {
+        readonly evaluation_id?: string | null;
+        readonly include_attempts?: "true" | "false";
+        readonly include_input?: "true" | "false";
+        readonly include_request?: "true" | "false";
+        readonly include_response?: "true" | "false";
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly case_id: string;
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_CaseDetailDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly resumeRun: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["RunResumeRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 202: {
+        headers: {
+          readonly Location?: string;
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RunAcceptedDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly previewRunResume: {
+    readonly parameters: {
+      readonly query?: {
+        readonly max_attempts?: string | null;
+        readonly retry_unknown?: "true" | "false";
+      };
+      readonly header?: never;
+      readonly path: {
+        readonly registration_id: string;
+        readonly run_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody: {
+      readonly content: {
+        readonly "application/json": components["schemas"]["VersionRequest"];
+      };
+    };
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_RunResumePreviewDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -10923,6 +18289,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -10969,6 +18344,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -11039,6 +18423,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -11085,6 +18478,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -11153,6 +18555,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -11199,6 +18610,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -11263,6 +18683,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -11309,6 +18738,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -11377,6 +18815,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -11423,6 +18870,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };
@@ -11491,6 +18947,15 @@ export interface operations {
         };
       };
       /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
       readonly 413: {
         headers: {
           readonly [name: string]: unknown;
@@ -11537,6 +19002,15 @@ export interface operations {
       };
       /** @description Safe structured failure */
       readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
         headers: {
           readonly [name: string]: unknown;
         };

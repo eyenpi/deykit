@@ -13,6 +13,7 @@ from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.dto.authoring import EditorTransformRequest, MappingTransformRequest
 from deykit.api.recent import RecentProjectsStore
+from deykit.api.routes.authoring import _revision
 from deykit.api.runtime import SystemClock, new_id
 from deykit.application.authoring_views import (
     ReorderOptions,
@@ -20,12 +21,50 @@ from deykit.application.authoring_views import (
     ReplaceOptionAliases,
     SetSelectedFields,
 )
+from deykit.application.definitions import Versioned, revision_editor_source
 from deykit.contracts.json_value import dump_json
+from deykit.contracts.records import (
+    ChoiceDefinition,
+    ChoiceOption,
+    ChoiceQuestion,
+    DecisionRevision,
+)
 from deykit.providers.configuration import create_provider_operations
 from deykit.runner.backends import ProviderBackends
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
 from deykit.storage.demo_staging import DemoStagingSource
+
+
+def test_saved_revision_projection_includes_canonical_editor_source():
+    definition = ChoiceDefinition(
+        input_kind="json",
+        input_schema_source='{"type":"number","minimum":900719925474099312345.6789}',
+        selected_fields=("amount",),
+        questions=(
+            ChoiceQuestion(
+                id="q",
+                instructions="Choose.",
+                options=(
+                    ChoiceOption(id="a", name="A", description=None),
+                    ChoiceOption(id="b", name="B", description=""),
+                ),
+            ),
+        ),
+    )
+    revision = DecisionRevision(
+        id="revision",
+        decision_id="decision",
+        definition=definition,
+        content_hash="a" * 64,
+        created_at="2026-10-09T12:00:00Z",
+    )
+
+    projected = _revision(Versioned(revision, "b" * 64))
+
+    assert projected.editor_source == revision_editor_source(revision)
+    assert "900719925474099312345.6789" in projected.editor_source
+    assert projected.model_dump(mode="json")["editor_source"] == projected.editor_source
 
 
 def test_authoring_edit_dtos_normalize_only_declared_json_array_fields():

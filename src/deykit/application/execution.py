@@ -7,7 +7,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
 from deykit.contracts.ports import Clock, CommitReceipt, SnapshotSource
-from deykit.contracts.records import AttemptRecord
+from deykit.contracts.records import AttemptRecord, RunSegment
 from deykit.runner.history import RunHistory
 from deykit.runner.planner import Planner, RunRequest, start_intent, validate_request
 from deykit.runner.ports import Backend, BackendFactory, ExecutionProject, Waiter
@@ -66,17 +66,83 @@ class ExecutionService:
             callback(RunCreated(history.manifest.id, history.manifest.mode, replayed))
         except Exception:
             if not replayed:
-                self.repository.finish(
-                    history.manifest.id,
-                    "interrupted",
-                    reason=ServiceError(code="internal_error", reason="created_callback_failed"),
+                try:
+                    self.repository.finish(
+                        history.manifest.id,
+                        "interrupted",
+                        reason=ServiceError(
+                            code="internal_error",
+                            resource_id=history.manifest.id,
+                            reason="created_callback_failed",
+                        ),
+                    )
+                except ServiceFailure as failure:
+                    raise ServiceFailure(
+                        failure.error.model_copy(update={"resource_id": history.manifest.id})
+                    ) from None
+                except Exception:
+                    raise ServiceFailure(
+                        ServiceError(
+                            code="internal_error",
+                            resource_id=history.manifest.id,
+                            reason="created_callback_finish_failed",
+                        )
+                    ) from None
+            raise ServiceFailure(
+                ServiceError(
+                    code="internal_error",
+                    resource_id=history.manifest.id,
+                    reason="created_callback_failed",
                 )
-            fail("created_callback_failed", "internal_error")
+            ) from None
 
     def _receipt(self, operation_id: str, digest: str) -> CommitReceipt | None:
         # A receipt read is the sole pre-ownership source boundary. It cannot dispatch.
         with self.source.consistent_read():
             return self.source.operation_receipt(operation_id, intent_hash=digest)
+
+    @staticmethod
+    def _require_start_ready(history: RunHistory) -> RunSegment:
+        run_id = history.manifest.id
+        first = tuple(
+            segment
+            for segment in history.segments
+            if segment.run_id == run_id and segment.sequence == 1
+        )
+        if len(first) != 1:
+            raise ServiceFailure(
+                ServiceError(
+                    code="run_incomplete",
+                    resource_id=run_id,
+                    reason="start_acknowledgement_incomplete",
+                )
+            )
+        segment = first[0]
+        if not any(
+            event.run_id == run_id
+            and event.segment_id == segment.id
+            and event.state == "segment_ready"
+            for event in history.events
+        ):
+            raise ServiceFailure(
+                ServiceError(
+                    code="run_incomplete",
+                    resource_id=run_id,
+                    reason="start_acknowledgement_incomplete",
+                )
+            )
+        return segment
+
+    def _capture_start_ready(self, operation_id: str, digest: str) -> RunHistory | None:
+        """Capture one original receipt and its durably admitted first segment."""
+        with self.source.consistent_read():
+            receipt = self.source.operation_receipt(operation_id, intent_hash=digest)
+            if receipt is None:
+                return None
+            run_id = self.repository.replay_run(receipt)
+            history = self.repository.history(run_id)
+            self._require_start_ready(history)
+            return history
 
     def _start_replay(
         self, receipt: CommitReceipt, callback: Callable[[RunCreated], None] | None
@@ -96,9 +162,16 @@ class ExecutionService:
     ) -> RunProgress:
         request, operation_id = validate_request(request), identifier(operation_id)
         digest = start_intent(request, expected_review_context_hash)
-        receipt = self._receipt(operation_id, digest)
-        if receipt is not None:
-            return self._start_replay(receipt, on_created)
+        if on_created is None:
+            receipt = self._receipt(operation_id, digest)
+            if receipt is not None:
+                return self._start_replay(receipt, None)
+        else:
+            history = self._capture_start_ready(operation_id, digest)
+            if history is not None:
+                active = self.execution.execution_active()
+                self._created(history, True, on_created)
+                return progress_view(history, replayed=True, active=active)
         try:
             return await self._start_owned(
                 request,
@@ -109,9 +182,16 @@ class ExecutionService:
             )
         except ServiceFailure as failure:
             if failure.error.code == "execution_locked":
-                receipt = self._receipt(operation_id, digest)
-                if receipt is not None:
-                    return self._start_replay(receipt, on_created)
+                if on_created is None:
+                    receipt = self._receipt(operation_id, digest)
+                    if receipt is not None:
+                        return self._start_replay(receipt, None)
+                else:
+                    history = self._capture_start_ready(operation_id, digest)
+                    if history is not None:
+                        active = self.execution.execution_active()
+                        self._created(history, True, on_created)
+                        return progress_view(history, replayed=True, active=active)
             raise
 
     async def _start_owned(
@@ -126,33 +206,92 @@ class ExecutionService:
         request, operation_id = validate_request(request), identifier(operation_id)
         digest = start_intent(request, expected_review_context_hash)
         with self.execution.execution_owner():
-            with self.source.consistent_read():
-                replay = self.source.operation_receipt(operation_id, intent_hash=digest)
-            if replay is not None:
-                history = self.repository.history(self.repository.replay_run(replay))
+            replay_history: RunHistory | None = None
+            if on_created is None:
+                with self.source.consistent_read():
+                    replay = self.source.operation_receipt(operation_id, intent_hash=digest)
+                if replay is not None:
+                    replay_history = self.repository.history(self.repository.replay_run(replay))
+            else:
+                replay_history = self._capture_start_ready(operation_id, digest)
+            if replay_history is not None:
+                history = replay_history
                 self._created(history, True, on_created)
                 return progress_view(history, replayed=True)
             plan = self.planner.prepare(request)
+            replay_history = None
+            replayed = False
             with self.source.consistent_read():
-                replay = self.source.operation_receipt(operation_id, intent_hash=digest)
-                if replay is not None:
-                    run_id = self.repository.replay_run(replay)
+                if on_created is None:
+                    replay = self.source.operation_receipt(operation_id, intent_hash=digest)
+                    if replay is not None:
+                        run_id = self.repository.replay_run(replay)
+                        replayed = True
+                    else:
+                        run_id = None
                 else:
+                    replay_history = self._capture_start_ready(operation_id, digest)
+                    run_id = replay_history.manifest.id if replay_history is not None else None
+                if run_id is None:
                     self.planner.check_context(plan)
                     from deykit.runner.review import require_review_hash, run_review_hash
 
                     require_review_hash(expected_review_context_hash, run_review_hash(plan))
                     run_id = self.repository.freeze(plan, operation_id, digest)
-            history = self.repository.history(run_id)
-            self._created(history, replay is not None, on_created)
-            if replay is not None:
+            if replay_history is not None:
+                self._created(replay_history, True, on_created)
+                return progress_view(replay_history, replayed=True)
+            if replayed:
+                history = self.repository.history(run_id)
                 return progress_view(history, replayed=True)
-            segment = self.repository.segment(
-                run_id,
-                self.repository.identity(),
-                safe_hash({"command": "run.first_segment", "run_id": run_id}),
-                acknowledge_cancellation=False,
-            )
+            if on_created is None:
+                history = self.repository.history(run_id)
+                segment = self.repository.segment(
+                    run_id,
+                    self.repository.identity(),
+                    safe_hash({"command": "run.first_segment", "run_id": run_id}),
+                    acknowledge_cancellation=False,
+                )
+            else:
+                try:
+                    segment = self.repository.segment(
+                        run_id,
+                        self.repository.identity(),
+                        safe_hash({"command": "run.first_segment", "run_id": run_id}),
+                        acknowledge_cancellation=False,
+                    )
+                except ServiceFailure as failure:
+                    if (
+                        failure.error.code != "internal_error"
+                        or failure.error.reason != "storage_io"
+                    ):
+                        raise
+                    raise ServiceFailure(
+                        ServiceError(
+                            code="run_incomplete",
+                            resource_id=run_id,
+                            reason="start_acknowledgement_incomplete",
+                        )
+                    ) from None
+                except OSError:
+                    raise ServiceFailure(
+                        ServiceError(
+                            code="run_incomplete",
+                            resource_id=run_id,
+                            reason="start_acknowledgement_incomplete",
+                        )
+                    ) from None
+                captured = self._capture_start_ready(operation_id, digest)
+                if captured is None or captured.manifest.id != run_id:
+                    raise ServiceFailure(
+                        ServiceError(
+                            code="run_incomplete",
+                            resource_id=run_id,
+                            reason="start_acknowledgement_incomplete",
+                        )
+                    )
+                history = captured
+                self._created(history, False, on_created)
             result = await self.scheduler.run(
                 self.repository.history(run_id),
                 segment.record,

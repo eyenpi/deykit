@@ -77,9 +77,7 @@ class ProviderOperations:
         view = self._reader.view(profile_id)
         return self._presentation(view.profile, view.etag)
 
-    def list(
-        self, *, cursor: str | None = None, limit: int = 50
-    ) -> ProviderPresentationPage:
+    def list(self, *, cursor: str | None = None, limit: int = 50) -> ProviderPresentationPage:
         page = self._reader.list_views(cursor=cursor, limit=limit)
         return ProviderPresentationPage(
             tuple(self._presentation(view.profile, view.etag) for view in page.items),
@@ -183,28 +181,43 @@ class ProviderOperations:
             raise ServiceFailure(
                 ServiceError(code="validation_error", reason="invalid_credential_reference")
             ) from None
-        admitted = self._admit_credential_mutation(
-            profile_id,
-            reference,
-            expected_etag=expected_etag,
-            operation_id=operation_id,
-        )
-        if isinstance(admitted, ProviderMutation):
-            return admitted
-        value = value_factory()
+        external_attempted = False
+
+        def set_external_credential() -> None:
+            nonlocal external_attempted
+            value = value_factory()
+            try:
+                credentials = self._os_credentials_factory()
+            except (CredentialUnavailable, ValueError):
+                raise ServiceFailure(
+                    ServiceError(
+                        code="preflight_failed",
+                        reason="credential_store_unavailable",
+                        resource_id=profile_id,
+                    )
+                ) from None
+            external_attempted = True
+            credentials.set(reference, value)
+
         try:
-            self._os_credentials_factory().set(reference, value)
-        except (CredentialUnavailable, ValueError):
-            raise ServiceFailure(
-                ServiceError(code="preflight_failed", reason="credential_store_unavailable")
-            ) from None
-        receipt = self._writer.set_credential_ref(
-            profile_id,
-            reference,
-            expected_etag=expected_etag,
-            operation_id=operation_id,
-        )
-        return self._mutation(operation_id, receipt)
+            receipt = self._writer.set_credential_ref(
+                profile_id,
+                reference,
+                expected_etag=expected_etag,
+                operation_id=operation_id,
+                before_commit=set_external_credential,
+            )
+            return self._mutation(operation_id, receipt)
+        except Exception:
+            if external_attempted:
+                raise ServiceFailure(
+                    ServiceError(
+                        code="internal_error",
+                        reason="credential_update_outcome_unknown",
+                        resource_id=profile_id,
+                    )
+                ) from None
+            raise
 
     def forget_credential(
         self, profile_id: str, *, expected_etag: str, operation_id: str
@@ -218,28 +231,49 @@ class ProviderOperations:
         if isinstance(admitted, ProviderMutation):
             return admitted
         reference = admitted.credential_ref
+        external_attempted = False
+        before_commit = None
         if reference is not None:
             parsed = self._references.validate(reference)
             if parsed.kind == "keyring":
-                try:
-                    self._os_credentials_factory().forget(reference)
-                except (CredentialUnavailable, ValueError):
-                    raise ServiceFailure(
-                        ServiceError(
-                            code="preflight_failed", reason="credential_store_unavailable"
-                        )
-                    ) from None
-        receipt = self._writer.set_credential_ref(
-            profile_id,
-            None,
-            expected_etag=expected_etag,
-            operation_id=operation_id,
-        )
-        return self._mutation(operation_id, receipt)
 
-    async def list_models(
-        self, profile_id: str, *, timeout_seconds: float = 60
-    ) -> ModelList:
+                def forget_external_credential() -> None:
+                    nonlocal external_attempted
+                    try:
+                        credentials = self._os_credentials_factory()
+                    except (CredentialUnavailable, ValueError):
+                        raise ServiceFailure(
+                            ServiceError(
+                                code="preflight_failed",
+                                reason="credential_store_unavailable",
+                                resource_id=profile_id,
+                            )
+                        ) from None
+                    external_attempted = True
+                    credentials.forget(reference)
+
+                before_commit = forget_external_credential
+        try:
+            receipt = self._writer.set_credential_ref(
+                profile_id,
+                None,
+                expected_etag=expected_etag,
+                operation_id=operation_id,
+                before_commit=before_commit,
+            )
+            return self._mutation(operation_id, receipt)
+        except Exception:
+            if external_attempted:
+                raise ServiceFailure(
+                    ServiceError(
+                        code="internal_error",
+                        reason="credential_update_outcome_unknown",
+                        resource_id=profile_id,
+                    )
+                ) from None
+            raise
+
+    async def list_models(self, profile_id: str, *, timeout_seconds: float = 60) -> ModelList:
         profile = self._reader.view(profile_id).profile
         return await self._list_models_for_profile(profile, timeout_seconds=timeout_seconds)
 

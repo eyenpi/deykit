@@ -150,6 +150,7 @@ class ProfileWriter(Protocol):
         *,
         expected_etag: str,
         operation_id: str,
+        before_commit: Callable[[], None] | None = None,
     ) -> CommitReceipt: ...
 
     def from_receipt(self, receipt: CommitReceipt) -> ProfileView: ...
@@ -172,9 +173,7 @@ class CredentialReferences(Protocol):
 
 
 class ProviderDescriptor(Protocol):
-    def describe(
-        self, profile: ProviderProfile
-    ) -> tuple[CompilerInfo, ProviderCapabilities]: ...
+    def describe(self, profile: ProviderProfile) -> tuple[CompilerInfo, ProviderCapabilities]: ...
 
 
 class ModelLister(Protocol):

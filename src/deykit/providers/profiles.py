@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pydantic import ValidationError
 
 from deykit.application.errors import ServiceFailure
@@ -167,6 +169,7 @@ class ProviderProfiles:
         *,
         expected_etag: str,
         operation_id: str,
+        before_commit: Callable[[], None] | None = None,
     ) -> CommitReceipt:
         _id(operation_id)
         digest = _credential_intent(profile_id, reference, expected_etag)
@@ -182,13 +185,16 @@ class ProviderProfiles:
             candidate = validate_provider_profile(
                 current.profile.model_copy(update={"credential_ref": reference})
             )
+            changes = (
+                SourceChange(
+                    ResourceKey("providers", profile_id), dump_record(candidate), expected_etag
+                ),
+            )
+            if before_commit is not None:
+                before_commit()
             return source.commit(
                 operation_id,
-                (
-                    SourceChange(
-                        ResourceKey("providers", profile_id), dump_record(candidate), expected_etag
-                    ),
-                ),
+                changes,
                 intent_hash=digest,
             )
 

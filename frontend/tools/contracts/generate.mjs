@@ -247,12 +247,16 @@ function assertSchemaSubset(schemas) {
           Array.isArray(value) ||
           typeof value.propertyName !== "string" ||
           !value.propertyName ||
-          Object.keys(value).some((key) => !["propertyName", "mapping"].includes(key)) ||
+          Object.keys(value).some(
+            (key) => !["propertyName", "mapping"].includes(key),
+          ) ||
           (value.mapping !== undefined &&
             (value.mapping === null ||
               typeof value.mapping !== "object" ||
               Array.isArray(value.mapping) ||
-              Object.values(value.mapping).some((target) => typeof target !== "string")))
+              Object.values(value.mapping).some(
+                (target) => typeof target !== "string",
+              )))
         ) {
           throw new Error(fixedSchemaError);
         }
@@ -303,11 +307,7 @@ const schemaSingleKeywords = new Set([
 const schemaArrayKeywords = new Set(["prefixItems", "allOf", "anyOf", "oneOf"]);
 
 function withoutDiscriminator(schema) {
-  if (
-    schema === null ||
-    typeof schema !== "object" ||
-    Array.isArray(schema)
-  ) {
+  if (schema === null || typeof schema !== "object" || Array.isArray(schema)) {
     return schema;
   }
   return Object.fromEntries(
@@ -350,24 +350,175 @@ function validatorAlias(name) {
   return `validate${name}`;
 }
 
-const httpMethods = new Set([
-  "get",
-  "post",
-  "put",
-  "patch",
-  "delete",
-  "head",
-]);
+const httpMethods = new Set(["get", "post", "put", "patch", "delete", "head"]);
 
 function componentSchemaName(schema) {
   const reference = schema?.$ref;
   const prefix = "#/components/schemas/";
   if (typeof reference !== "string" || !reference.startsWith(prefix))
-    throw new Error("Every API operation must reference a generated JSON schema.");
+    throw new Error(
+      "Every API operation must reference a generated JSON schema.",
+    );
   const name = decodeURIComponent(reference.slice(prefix.length));
   if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name))
     throw new Error("API operation schema references are invalid.");
   return name;
+}
+
+const reportDownloadPolicy = {
+  formatParameter: "format",
+  reportIdParameter: "report_id",
+  maxBytes: 8388608,
+  formats: {
+    json: { contentType: "application/octet-stream", extension: "json" },
+    markdown: { contentType: "text/plain; charset=utf-8", extension: "md" },
+  },
+};
+
+function sameJson(left, right) {
+  const stable = (value) =>
+    value !== null && typeof value === "object"
+      ? Array.isArray(value)
+        ? value.map(stable)
+        : Object.fromEntries(
+            Object.keys(value)
+              .sort(compare)
+              .map((key) => [key, stable(value[key])]),
+          )
+      : value;
+  return JSON.stringify(stable(left)) === JSON.stringify(stable(right));
+}
+
+function reportDownloadMetadata(path, method, operation, parameters) {
+  const annotation = operation["x-deykit-report-download-v1"];
+  if (annotation === undefined) return null;
+  if (
+    method !== "get" ||
+    path !==
+      "/api/v1/projects/{registration_id}/reports/{report_id}/download" ||
+    !sameJson(annotation, reportDownloadPolicy) ||
+    operation.requestBody !== undefined
+  )
+    throw new Error("The report download policy is invalid.");
+
+  const pathParameters = parameters
+    .filter((parameter) => parameter?.in === "path")
+    .map((parameter) => ({
+      name: parameter.name,
+      required: parameter.required,
+      schemaType: parameter.schema?.type,
+      keys: Object.keys(parameter).sort(compare),
+    }))
+    .sort((a, b) => compare(a.name, b.name));
+  if (
+    pathParameters.length !== 2 ||
+    !sameJson(
+      pathParameters.map(({ name, required }) => ({ name, required })),
+      [
+        { name: "registration_id", required: true },
+        { name: "report_id", required: true },
+      ],
+    ) ||
+    pathParameters.some(
+      (parameter) =>
+        parameter.schemaType !== "string" ||
+        parameter.keys.some(
+          (key) =>
+            !["description", "in", "name", "required", "schema"].includes(key),
+        ) ||
+        Object.keys(
+          parameters.find(
+            (item) => item?.in === "path" && item.name === parameter.name,
+          )?.schema ?? {},
+        ).some((key) => !["title", "type"].includes(key)),
+    )
+  )
+    throw new Error("The report download path parameters are invalid.");
+
+  const queryParameters = parameters.filter(
+    (parameter) => parameter?.in === "query",
+  );
+  const formatSchema = queryParameters[0]?.schema;
+  if (
+    queryParameters.length !== 1 ||
+    queryParameters[0].name !== "format" ||
+    queryParameters[0].required !== true ||
+    Object.keys(queryParameters[0]).some(
+      (key) =>
+        !["description", "in", "name", "required", "schema"].includes(key),
+    ) ||
+    formatSchema === null ||
+    typeof formatSchema !== "object" ||
+    Array.isArray(formatSchema) ||
+    formatSchema.type !== "string" ||
+    !sameJson(formatSchema.enum, ["json", "markdown"]) ||
+    (formatSchema.title !== undefined &&
+      typeof formatSchema.title !== "string") ||
+    Object.keys(formatSchema).some(
+      (key) => !["enum", "title", "type"].includes(key),
+    )
+  )
+    throw new Error("The report download format parameter is invalid.");
+
+  const successResponses = Object.entries(operation.responses ?? {}).filter(
+    ([status]) => /^2(?:[0-9]{2}|XX)$/.test(status),
+  );
+  if (successResponses.length !== 1 || successResponses[0][0] !== "200")
+    throw new Error("The report download must declare only a 200 success.");
+  const response = successResponses[0][1];
+  if (
+    Object.keys(response ?? {}).some(
+      (key) => !["content", "description", "headers"].includes(key),
+    )
+  )
+    throw new Error("The report download response shape is invalid.");
+  const content = response?.content;
+  const media = Object.keys(content ?? {}).sort(compare);
+  const expectedMedia = [
+    "application/octet-stream",
+    "text/plain; charset=utf-8",
+  ].sort(compare);
+  const binarySchema = { type: "string", format: "binary" };
+  if (
+    !sameJson(media, expectedMedia) ||
+    !sameJson(content["application/octet-stream"]?.schema, binarySchema) ||
+    !sameJson(content["text/plain; charset=utf-8"]?.schema, binarySchema)
+  )
+    throw new Error("The report download response media are invalid.");
+
+  const headers = response.headers ?? {};
+  if (
+    !sameJson(Object.keys(headers).sort(compare), [
+      "Cache-Control",
+      "Content-Disposition",
+      "X-Content-Type-Options",
+    ]) ||
+    headers["Content-Disposition"]?.schema?.type !== "string" ||
+    headers["Cache-Control"]?.schema?.type !== "string" ||
+    headers["Cache-Control"]?.schema?.const !== "no-store" ||
+    headers["X-Content-Type-Options"]?.schema?.type !== "string" ||
+    headers["X-Content-Type-Options"]?.schema?.const !== "nosniff" ||
+    Object.values(headers).some(
+      (header) =>
+        Object.keys(header ?? {}).some(
+          (key) => !["description", "schema"].includes(key),
+        ) ||
+        (header?.description !== undefined &&
+          typeof header.description !== "string"),
+    ) ||
+    typeof headers["Content-Disposition"]?.description !== "string" ||
+    Object.keys(headers["Content-Disposition"]?.schema ?? {}).some(
+      (key) => key !== "type",
+    ) ||
+    Object.keys(headers["Cache-Control"]?.schema ?? {}).some(
+      (key) => !["const", "type"].includes(key),
+    ) ||
+    Object.keys(headers["X-Content-Type-Options"]?.schema ?? {}).some(
+      (key) => !["const", "type"].includes(key),
+    )
+  )
+    throw new Error("The report download response headers are invalid.");
+  return reportDownloadPolicy;
 }
 
 function apiOperations(openapi) {
@@ -405,13 +556,46 @@ function apiOperations(openapi) {
         .filter((name) => typeof name === "string");
       const bodySchema =
         operation.requestBody?.content?.["application/json"]?.schema;
-      const success = Object.entries(operation.responses ?? {})
-        .filter(([status]) => /^2[0-9][0-9]$/.test(status))
-        .sort(([a], [b]) => Number(a) - Number(b))[0]?.[1];
-      const responseSchema =
-        success?.content?.["application/json"]?.schema;
-      if (!responseSchema)
-        throw new Error("Every API operation must declare a JSON success response.");
+      const downloadPolicy = reportDownloadMetadata(
+        path,
+        method,
+        operation,
+        parameters,
+      );
+      const successResponses = Object.entries(operation.responses ?? {})
+        .filter(([status]) => /^2(?:[0-9]{2}|XX)$/.test(status))
+        .sort(([a], [b]) => compare(a, b));
+      let success;
+      if (downloadPolicy) {
+        success = { kind: "report-download", status: 200, ...downloadPolicy };
+      } else {
+        const validators = {};
+        if (successResponses.length === 0)
+          throw new Error(
+            "Every API operation must declare a supported success response.",
+          );
+        for (const [status, response] of successResponses) {
+          if (status !== "200" && status !== "202")
+            throw new Error(
+              "API operations may only declare 200 or 202 JSON successes.",
+            );
+          const media = Object.keys(response?.content ?? {});
+          const responseSchema =
+            response?.content?.["application/json"]?.schema;
+          if (
+            media.length !== 1 ||
+            media[0] !== "application/json" ||
+            !responseSchema
+          )
+            throw new Error(
+              "Every JSON API success must declare one generated JSON schema.",
+            );
+          validators[status] = validatorAlias(
+            componentSchemaName(responseSchema),
+          );
+        }
+        success = { kind: "json", validators };
+      }
       found.push({
         id: operation.operationId,
         internal: operation["x-deykit-client-internal"] === true,
@@ -423,7 +607,7 @@ function apiOperations(openapi) {
           ? validatorAlias(componentSchemaName(bodySchema))
           : null,
         bodyRequired: Boolean(operation.requestBody?.required),
-        successValidator: validatorAlias(componentSchemaName(responseSchema)),
+        success,
       });
     }
   }
@@ -434,7 +618,9 @@ function apiOperations(openapi) {
 }
 
 function operationDeclarations(openapi) {
-  const entries = apiOperations(openapi).filter((operation) => !operation.internal);
+  const entries = apiOperations(openapi).filter(
+    (operation) => !operation.internal,
+  );
   const object = Object.fromEntries(
     entries.map((operation) => [
       operation.id,
@@ -445,12 +631,28 @@ function operationDeclarations(openapi) {
         queryParams: operation.queryParams,
         bodyValidator: operation.bodyValidator,
         bodyRequired: operation.bodyRequired,
-        successValidator: operation.successValidator,
+        success: operation.success,
       },
     ]),
   );
   return [
     "export type ApiOperationId = keyof typeof operationMetadata;",
+    "type OperationIdOfKind<K extends ApiOperationId, Kind extends ApiOperationMetadata['success']['kind']> = { [Id in K]: typeof operationMetadata[Id]['success']['kind'] extends Kind ? Id : never }[K];",
+    'export type ApiJsonOperationId = OperationIdOfKind<ApiOperationId, "json">;',
+    'export type ApiDownloadOperationId = OperationIdOfKind<ApiOperationId, "report-download">;',
+    "",
+    "export interface ApiJsonSuccess {",
+    '  readonly kind: "json";',
+    '  readonly validators: Readonly<Partial<Record<"200" | "202", string>>>;',
+    "}",
+    "export interface ApiReportDownloadSuccess {",
+    '  readonly kind: "report-download";',
+    "  readonly status: 200;",
+    '  readonly formatParameter: "format";',
+    '  readonly reportIdParameter: "report_id";',
+    "  readonly maxBytes: 8388608;",
+    '  readonly formats: { readonly json: { readonly contentType: "application/octet-stream"; readonly extension: "json" }; readonly markdown: { readonly contentType: "text/plain; charset=utf-8"; readonly extension: "md" } };',
+    "}",
     "",
     "export interface ApiOperationMetadata {",
     '  readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";',
@@ -459,7 +661,7 @@ function operationDeclarations(openapi) {
     "  readonly queryParams: readonly string[];",
     "  readonly bodyValidator: string | null;",
     "  readonly bodyRequired: boolean;",
-    "  readonly successValidator: string;",
+    "  readonly success: ApiJsonSuccess | ApiReportDownloadSuccess;",
     "}",
     "",
     "export const operationMetadata = ",
