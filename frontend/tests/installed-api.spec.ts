@@ -2856,7 +2856,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
-  ).toHaveText(caseOneOriginalSource);
+  ).toHaveText(staleCaseSource);
   await expect(
     page.getByRole("button", { name: "Refresh saved case" }),
   ).toHaveCount(0);
