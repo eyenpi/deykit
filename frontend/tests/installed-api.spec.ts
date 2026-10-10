@@ -3941,6 +3941,20 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("region", { name: "Saved changes awaiting refresh" }),
   ).toHaveCount(0);
+  const caseSelectionReview = page.getByRole("region", {
+    name: "Review selected context",
+  });
+  await expect(caseSelectionReview).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeDisabled();
+  await caseSelectionReview
+    .getByRole("button", { name: "Review current selection" })
+    .click();
+  await expect(caseSelectionReview).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText('{"case":1,"changed":true}');
+  expect(caseEditBodies).toHaveLength(2);
   const staleLabel = await readCaseOneLabel();
   expect((await staleLabel.json()).data).toMatchObject({
     status: "excluded",
