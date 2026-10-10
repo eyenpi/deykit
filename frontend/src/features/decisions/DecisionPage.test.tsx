@@ -134,6 +134,7 @@ function revisionReceipt(
   targetDecisionId = decisionId,
 ): RevisionReceipt {
   return {
+    schema_version: 1,
     editor_source: editorSource,
     revision: {
       etag: "revision-etag-1",
