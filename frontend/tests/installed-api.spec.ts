@@ -4430,6 +4430,10 @@ test("installed browser authors exact decision source and previews imports throu
   let revealedSourcesAreReadOnly: boolean[] = [];
   let fixtureRequestsHidden: APIResponse;
   try {
+    expect(revealedFixture.requests.length).toBeGreaterThan(0);
+    await expect(requestSourceTextboxes).toHaveCount(
+      revealedFixture.requests.length,
+    );
     revealedSourceMatches = await Promise.all(
       revealedFixture.requests.map(async (request, index) => {
         const textbox = page.getByLabel(`Stored request source ${index + 1}`, {
@@ -4456,8 +4460,6 @@ test("installed browser authors exact decision source and previews imports throu
   }
   const hiddenFixture = (await fixtureRequestsHidden.json())
     .data as ApiOperationData<"readFixtureSet">;
-  expect(revealedFixture.requests.length).toBeGreaterThan(0);
-  expect(requestSourceTextboxes).toHaveCount(revealedFixture.requests.length);
   expect(revealedSourceMatches.every(Boolean)).toBe(true);
   expect(revealedSourcesAreReadOnly.every(Boolean)).toBe(true);
   expect(fixtureRequestsHidden.status()).toBe(200);
