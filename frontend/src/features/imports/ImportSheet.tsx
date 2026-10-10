@@ -24,7 +24,7 @@ type MappingForm = NonNullable<
 >;
 type MappingEdit = ApiOperationBody<"transformImportMapping">["edit"];
 
-const INITIAL_MAPPING = '{"input_kind":"text"}';
+const INITIAL_MAPPING = '{"schema_version":1,"input_kind":"text"}';
 
 export function ImportSheet({
   project,

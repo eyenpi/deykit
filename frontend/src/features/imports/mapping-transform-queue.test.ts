@@ -12,7 +12,7 @@ describe("serialized opaque mapping transforms", () => {
     const queue = new MappingTransformQueue<
       { field: string; value: string },
       { fields: string[] }
-    >('{"input_kind":"text"}');
+    >('{"schema_version":1,"input_kind":"text","input_column":"input"}');
     const transform = async (
       source: string,
       edit: { field: string; value: string },
@@ -37,7 +37,8 @@ describe("serialized opaque mapping transforms", () => {
     await Promise.resolve();
     expect(requests).toEqual([
       {
-        source: '{"input_kind":"text"}',
+        source:
+          '{"schema_version":1,"input_kind":"text","input_column":"input"}',
         field: "id_column",
         value: "record_id",
       },

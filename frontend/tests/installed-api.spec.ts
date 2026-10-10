@@ -2,6 +2,39 @@ import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeErrorIdentifier(value: unknown): string | null {
+  return typeof value === "string" && /^[a-z][a-z0-9_]*$/.test(value)
+    ? value
+    : null;
+}
+
+function safeRoutePattern(pathname: string): string {
+  const identifiers = new Map<string, string>([
+    ["projects", "registration_id"],
+    ["decisions", "decision_id"],
+    ["datasets", "dataset_id"],
+    ["cases", "case_id"],
+    ["profiles", "profile_id"],
+    ["fixture-sets", "fixture_set_id"],
+    ["fixtures", "fixture_id"],
+    ["revisions", "revision_id"],
+    ["groups", "group_id"],
+    ["runs", "run_id"],
+    ["comparisons", "comparison_id"],
+  ]);
+  const segments = pathname.split("/");
+  return segments
+    .map((segment, index) => {
+      const identifier = identifiers.get(segments[index - 1] ?? "");
+      return identifier ? `:${identifier}` : segment;
+    })
+    .join("/");
+}
+
 test("installed shell recovers a lost authored-demo response without duplicate writes", async ({
   page,
 }, testInfo) => {
@@ -257,6 +290,12 @@ test("installed browser authors exact decision source and previews imports throu
   const progressPath = testInfo.outputPath("authoring-progress.json");
   const initialViewport = page.viewportSize();
   const browserVersion = page.context().browser()?.version() ?? null;
+  const apiFailures: Array<{
+    route_pattern: string;
+    status: number;
+    code: string | null;
+    reason: string | null;
+  }> = [];
   async function recordProgress() {
     const body = JSON.stringify({
       active_phase: activePhase,
@@ -264,6 +303,7 @@ test("installed browser authors exact decision source and previews imports throu
       screenshots,
       browser_version: browserVersion,
       initial_viewport: initialViewport,
+      api_failures: apiFailures,
     });
     await writeFile(progressPath, `${body}\n`, "utf8");
     progressSequence += 1;
@@ -288,6 +328,7 @@ test("installed browser authors exact decision source and previews imports throu
   let decisionName = "Precise source decision";
   const projectPath = testInfo.outputPath("authoring-project");
   const apiResponses: string[] = [];
+  const bundledAssetOrigins: string[] = [];
   let importCommitBody: Record<string, unknown> | undefined;
   const importCommitBodies: Array<Record<string, unknown>> = [];
   const splitCommitBodies: Array<Record<string, unknown>> = [];
@@ -301,7 +342,27 @@ test("installed browser authors exact decision source and previews imports throu
     if (request.url().endsWith("/splits/commit"))
       splitCommitBodies.push(request.postDataJSON() as Record<string, unknown>);
   });
+  page.on("response", (response) => {
+    const resourceType = response.request().resourceType();
+    if (
+      (resourceType === "script" || resourceType === "stylesheet") &&
+      new URL(response.url()).pathname.includes("/assets/")
+    )
+      bundledAssetOrigins.push(new URL(response.url()).origin);
+  });
   page.on("response", async (response) => {
+    if (response.status() >= 400) {
+      const body = await response.json().catch(() => undefined);
+      const error = isRecord(body) ? body.error : undefined;
+      const details = isRecord(error) ? error : undefined;
+      apiFailures.push({
+        route_pattern: safeRoutePattern(new URL(response.url()).pathname),
+        status: response.status(),
+        code: safeErrorIdentifier(details?.code),
+        reason: safeErrorIdentifier(details?.reason),
+      });
+      await recordProgress();
+    }
     if (response.url().endsWith("/api/v1/session/bootstrap")) {
       const body = await response.json().catch(() => undefined);
       if (typeof body?.data?.capability === "string")
@@ -309,7 +370,17 @@ test("installed browser authors exact decision source and previews imports throu
     }
   });
 
-  await page.goto("/");
+  const shell = await page.goto("/");
+  expect(shell?.status()).toBe(200);
+  expect(shell?.headers()["content-security-policy"]).toContain(
+    "frame-ancestors 'none'",
+  );
+  expect(bundledAssetOrigins.length).toBeGreaterThan(0);
+  expect(
+    bundledAssetOrigins.every(
+      (assetOrigin) => assetOrigin === new URL(page.url()).origin,
+    ),
+  ).toBe(true);
   await expect(
     page.getByRole("heading", { name: "Welcome to deykit." }),
   ).toBeVisible();
@@ -1586,7 +1657,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByLabel("Advanced mapping source")
     .fill(
-      '{"input_kind":"json","input_column":"input","input_parse_json":true,"id_column":"id","expected_column":"expected","group_column":"group"}',
+      '{"schema_version":1,"input_kind":"json","input_column":"input","input_parse_json":true,"id_column":"id","expected_column":"expected","group_column":"group"}',
     );
   const rows = Array.from({ length: 10 }, (_item, index) => {
     const rowNumber = index + 1;
