@@ -2624,7 +2624,9 @@ test("installed browser authors exact decision source and previews imports throu
     .getByRole("button", { name: "Keep editing", exact: true })
     .click();
   await expect(page).toHaveURL(stagedCaseHash);
-  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(stagedCaseSource);
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(
+    stagedCaseSource,
+  );
   const committedCaseResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/cases/seed-1") &&
@@ -2647,7 +2649,9 @@ test("installed browser authors exact decision source and previews imports throu
       .getByRole("region", { name: "Saved changes awaiting refresh" }),
   ).toContainText("Case saved; refresh its current review");
   await captureScreenshot("case-saved-refresh-pending.png");
-  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(stagedCaseSource);
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(
+    stagedCaseSource,
+  );
   await expect(page.getByRole("button", { name: "Save input" })).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "Retry same case edit" }),
@@ -2692,7 +2696,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByText("The local service could not complete the request."),
   ).toBeVisible();
-  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(stagedCaseSource);
+  await expect(page.getByLabel("Input source", { exact: true })).toHaveValue(
+    stagedCaseSource,
+  );
   expect(committedCaseBodies).toHaveLength(1);
   const recoveredCaseRead = page.waitForResponse(
     (response) =>
@@ -2705,9 +2711,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
   expect(committedCaseBodies).toHaveLength(1);
   expect(committedCaseBodies[0]?.input_source).toBe(stagedCaseSource);
-  await expect(page.getByLabel("Complete example input source", { exact: true })).toHaveText(
-    stagedCaseSource,
-  );
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(stagedCaseSource);
   const committedCaseRead = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/seed-1`,
     {
@@ -2822,17 +2828,17 @@ test("installed browser authors exact decision source and previews imports throu
   expect(staleCaseBodies).toHaveLength(1);
   expect(staleCaseBodies[0]?.input_source).toBe(staleCaseSource);
   await caseTwoReadStarted;
-  await expect(page.getByLabel("Complete example input source", { exact: true })).toHaveText(
-    caseOneOriginalSource,
-  );
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(caseOneOriginalSource);
   releaseCaseTwoRead();
   await (await caseTwoReadResponse).body();
   await expect(
     page.getByRole("heading", { name: "case-2", exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("Complete example input source", { exact: true })).toHaveText(
-    caseTwoOriginalSource,
-  );
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText(caseTwoOriginalSource);
   await expect(
     page.getByRole("button", { name: "Refresh saved case" }),
   ).toHaveCount(0);
@@ -3295,7 +3301,9 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await page.getByRole("button", { name: "Add example", exact: true }).click();
   const proposedAddSource = '{"proposal":"keep-after-review"}';
-  await page.getByLabel("Input source", { exact: true }).fill(proposedAddSource);
+  await page
+    .getByLabel("Input source", { exact: true })
+    .fill(proposedAddSource);
   let releaseAdd!: () => void;
   let reportAddStarted!: () => void;
   const addGate = new Promise<void>((resolve) => {
