@@ -365,7 +365,6 @@ test("installed browser authors exact decision source and previews imports throu
       .map(({ path }) => path.replace(/\{([a-z_]+)\}/g, ":$1")),
   );
   let progressWriteQueue: Promise<void> = Promise.resolve();
-  let progressSequence = 0;
   function recordProgress(): Promise<void> {
     const body = JSON.stringify({
       active_phase: activePhase,
@@ -4618,69 +4617,69 @@ test("installed browser authors exact decision source and previews imports throu
     elapsed_ms: splitReadinessStartedAt - splitReplayStartedAt,
   });
   let refreshReadinessTimer: ReturnType<typeof setTimeout> | undefined;
+  const splitReadinessTimeout = new Error(
+    "Split refresh did not reach a settled ready state.",
+  );
   const boundedSplitReadiness = new Promise<never>((_, reject) => {
     refreshReadinessTimer = setTimeout(() => {
-      void (async () => {
-        const [
-          editEnabled,
-          optionAEnabled,
-          selectedLoading,
-          labelsLoading,
-          selectionReviewNoticePresent,
-          errorPresent,
-          savedRefreshPresent,
-        ] = await Promise.all([
-          page
-            .getByRole("button", { name: "Edit input" })
-            .isEnabled()
-            .catch(() => false),
-          page
-            .getByRole("checkbox", { name: "Option A" })
-            .isEnabled()
-            .catch(() => false),
-          page
-            .getByText("Loading selected example…", { exact: true })
-            .count()
-            .then((count) => count > 0)
-            .catch(() => false),
-          page
-            .getByText("Loading labels…", { exact: true })
-            .count()
-            .then((count) => count > 0)
-            .catch(() => false),
-          page
-            .getByRole("region", { name: "Review selected context" })
-            .count()
-            .then((count) => count > 0)
-            .catch(() => false),
-          page
-            .getByRole("alert")
-            .count()
-            .then((count) => count > 0)
-            .catch(() => false),
-          page
-            .getByRole("region", { name: "Saved changes awaiting refresh" })
-            .count()
-            .then((count) => count > 0)
-            .catch(() => false),
-        ]);
-        splitReadinessFacts = {
-          edit_enabled: editEnabled,
-          option_a_enabled: optionAEnabled,
-          selected_loading: selectedLoading,
-          labels_loading: labelsLoading,
-          selection_review_notice_present: selectionReviewNoticePresent,
-          error_present: errorPresent,
-          saved_refresh_present: savedRefreshPresent,
-          pending_route_categories: [...pendingSourceReadCategories],
-        };
-        await recordProgress();
-        reject(new Error("Split refresh did not reach a settled ready state."));
-      })().catch(() => {
-        reject(new Error("Split refresh did not reach a settled ready state."));
-      });
+      reject(splitReadinessTimeout);
     }, 15_000);
   });
+  async function captureSplitReadinessFacts() {
+    const [
+      editEnabled,
+      optionAEnabled,
+      selectedLoading,
+      labelsLoading,
+      selectionReviewNoticePresent,
+      errorPresent,
+      savedRefreshPresent,
+    ] = await Promise.all([
+      page
+        .getByRole("button", { name: "Edit input" })
+        .isEnabled({ timeout: 200 })
+        .catch(() => false),
+      page
+        .getByRole("checkbox", { name: "Option A" })
+        .isEnabled({ timeout: 200 })
+        .catch(() => false),
+      page
+        .getByText("Loading selected example…", { exact: true })
+        .count()
+        .then((count) => count > 0)
+        .catch(() => false),
+      page
+        .getByText("Loading labels…", { exact: true })
+        .count()
+        .then((count) => count > 0)
+        .catch(() => false),
+      page
+        .getByRole("region", { name: "Review selected context" })
+        .count()
+        .then((count) => count > 0)
+        .catch(() => false),
+      page
+        .getByRole("alert")
+        .count()
+        .then((count) => count > 0)
+        .catch(() => false),
+      page
+        .getByRole("region", { name: "Saved changes awaiting refresh" })
+        .count()
+        .then((count) => count > 0)
+        .catch(() => false),
+    ]);
+    return {
+      edit_enabled: editEnabled,
+      option_a_enabled: optionAEnabled,
+      selected_loading: selectedLoading,
+      labels_loading: labelsLoading,
+      selection_review_notice_present: selectionReviewNoticePresent,
+      error_present: errorPresent,
+      saved_refresh_present: savedRefreshPresent,
+      pending_route_categories: [...pendingSourceReadCategories],
+    };
+  }
   void boundedSplitReadiness.catch(() => undefined);
   await expect
     .poll(() => splitCommitResults.length, { timeout: 15_000 })
@@ -4754,6 +4753,14 @@ test("installed browser authors exact decision source and previews imports throu
   void splitRefreshReadiness.catch(() => undefined);
   try {
     await Promise.race([splitRefreshReadiness, boundedSplitReadiness]);
+  } catch (error) {
+    try {
+      splitReadinessFacts = await captureSplitReadinessFacts();
+      await recordProgress();
+    } catch {
+      // Keep the readiness failure if collecting or saving facts fails.
+    }
+    throw error;
   } finally {
     if (refreshReadinessTimer !== undefined)
       clearTimeout(refreshReadinessTimer);
@@ -4828,16 +4835,56 @@ test("installed browser authors exact decision source and previews imports throu
   }
   const selectedSeedCase: ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"> =
     (await seedCaseResponse.json()).data;
-  await expect(
-    page.getByRole("heading", { name: "seed-1", exact: true }),
-  ).toBeVisible();
-  expect(
-    (await page
-      .getByLabel("Complete example input source", { exact: true })
-      .textContent()) === selectedSeedCase.case.record.input_source,
-  ).toBe(true);
-  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
-  await expect(page.getByRole("checkbox", { name: "Option B" })).toBeEnabled();
+  const selectedSeedHeading = page.getByRole("heading", {
+    name: "seed-1",
+    exact: true,
+  });
+  const selectedSeedSource = page.getByLabel(
+    "Complete example input source",
+    { exact: true },
+  );
+  const selectedSeedOptionA = page.getByRole("checkbox", {
+    name: "Option A",
+  });
+  const selectedSeedOptionB = page.getByRole("checkbox", {
+    name: "Option B",
+  });
+  await expect
+    .poll(async () => {
+      const [
+        headingCount,
+        displayedSource,
+        editEnabled,
+        optionAEnabled,
+        optionBEnabled,
+        selectedLoadingCount,
+        labelsLoadingCount,
+      ] = await Promise.all([
+        selectedSeedHeading.count(),
+        selectedSeedSource.textContent().catch(() => null),
+        page
+          .getByRole("button", { name: "Edit input" })
+          .isEnabled({ timeout: 200 })
+          .catch(() => false),
+        selectedSeedOptionA.isEnabled({ timeout: 200 }).catch(() => false),
+        selectedSeedOptionB.isEnabled({ timeout: 200 }).catch(() => false),
+        page
+          .getByText("Loading selected example…", { exact: true })
+          .count(),
+        page.getByText("Loading labels…", { exact: true }).count(),
+      ]);
+      return (
+        headingCount === 1 &&
+        displayedSource === selectedSeedCase.case.record.input_source &&
+        editEnabled &&
+        optionAEnabled &&
+        optionBEnabled &&
+        selectedLoadingCount === 0 &&
+        labelsLoadingCount === 0
+      );
+    })
+    .toBe(true);
+  await settleProjectReads();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
   const applicableLabelSave = page.waitForResponse(
