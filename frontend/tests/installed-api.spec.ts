@@ -1958,14 +1958,33 @@ test("installed browser authors exact decision source and previews imports throu
   const immediateVersionData = (await immediateVersionReceipt.json()).data;
   const immediateVersionId = immediateVersionData.revision.record.id as string;
   await expect(
-    page.getByRole("status").filter({ hasText: /^Saved version / }),
-  ).toBeVisible();
+    page
+      .getByRole("status")
+      .filter({ hasText: `Saved version ${immediateVersionId}.` }),
+  ).toHaveText(`Saved version ${immediateVersionId}.`);
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeEnabled();
   const immediateRevisionPage = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
+  if (!immediateRevisionPage.ok()) {
+    const failure = await immediateRevisionPage.json().catch(() => undefined);
+    const error = isRecord(failure) ? failure.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    apiFailures.push({
+      route_pattern: safeRoutePattern(
+        new URL(immediateRevisionPage.url()).pathname,
+      ),
+      status: immediateRevisionPage.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    });
+    await recordProgress();
+  }
   expect(immediateRevisionPage.status()).toBe(200);
   const immediateRevisionItems = (await immediateRevisionPage.json()).data
     .items;
@@ -2159,7 +2178,7 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("button", { name: "Retry the same restore request" }),
   ).toHaveCount(0);
   await expect(restoreDialog).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
+  await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
   expect(firstRestoreStatus).toBe(200);
   expect(uncertainRestoreRequests).toHaveLength(2);
   expect(uncertainRestoreRequests[1]).toEqual(uncertainRestoreRequests[0]);
@@ -2270,7 +2289,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBe(restoreRaceWinnerSource);
   const restoredSourceEditor = await openDecisionSourceEditor();
   await expect(restoredSourceEditor).toHaveValue(restoreRaceWinnerSource);
-  await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
+  await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
 
   await enterPhase("Label staging, review, provenance and write races");
   await page.getByRole("button", { name: "Examples", exact: true }).click();
@@ -2485,7 +2504,7 @@ test("installed browser authors exact decision source and previews imports throu
   await discardStagedLabel
     .getByRole("button", { name: "Discard changes", exact: true })
     .click();
-  await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
+  await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
   expect((await (await readSeedLabel()).json()).data.label).toBeNull();
   await page
     .getByRole("navigation", { name: "Workspace" })
