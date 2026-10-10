@@ -362,10 +362,12 @@ it("keeps the last admitted pair read-only after the selected label read fails",
     data: dataset,
     warnings: [],
   }));
-  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(async () => ({
-    data: listCases,
-    warnings: [],
-  }));
+  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(
+    async () => ({
+      data: listCases,
+      warnings: [],
+    }),
+  );
   const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
     async ({ caseId }) => {
       if (caseId === "case-b" && !failedTargetRead) {
@@ -428,15 +430,13 @@ it("admits a new dataset version with its matching case page and does not reload
     dataset_etag: currentDataset.etag,
   };
   let datasetReadCount = 0;
-  const datasetReads = vi.fn<DatasetAuthoringOperations["read"]>(
-    async () => {
-      datasetReadCount += 1;
-      return {
-        data: datasetReadCount === 1 ? dataset : currentDataset,
-        warnings: [],
-      };
-    },
-  );
+  const datasetReads = vi.fn<DatasetAuthoringOperations["read"]>(async () => {
+    datasetReadCount += 1;
+    return {
+      data: datasetReadCount === 1 ? dataset : currentDataset,
+      warnings: [],
+    };
+  });
   const currentCasePage: CasePage = {
     ...listCases,
     dataset_etag: currentDataset.etag,
@@ -536,8 +536,9 @@ it("keeps a failed new-version read read-only until an explicit reload recovers 
     "The selected example is not ready for changes. Reload its current review.",
   );
   expect(datasetRead).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled"))
-    .toBe(true);
+  expect(
+    screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled"),
+  ).toBe(true);
   expect(saveLabels).not.toHaveBeenCalled();
 
   await user.click(
@@ -566,10 +567,12 @@ it("rejects a case and dataset that report different dataset versions", async ()
       warnings: [],
     };
   });
-  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(async () => ({
-    data: listCases,
-    warnings: [],
-  }));
+  const casesRead = vi.fn<ExampleAuthoringOperations["listCases"]>(
+    async () => ({
+      data: listCases,
+      warnings: [],
+    }),
+  );
   const { user, saveLabels } = mountExamples(
     {
       readCase: async ({ caseId }) => ({
@@ -588,8 +591,9 @@ it("rejects a case and dataset that report different dataset versions", async ()
   );
   expect(datasetRead).toHaveBeenCalledTimes(2);
   expect(casesRead).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled"))
-    .toBe(true);
+  expect(
+    screen.getByRole("checkbox", { name: "Option A" }).matches(":disabled"),
+  ).toBe(true);
   expect(saveLabels).not.toHaveBeenCalled();
 });
 
