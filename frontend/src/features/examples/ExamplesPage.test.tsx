@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
@@ -170,6 +171,7 @@ function mountExamples(
   overrides: Partial<ExampleAuthoringOperations> = {},
   datasetOverrides: Partial<DatasetAuthoringOperations> = {},
   initialCaseId: string | null = "case-a",
+  followNavigation = false,
 ) {
   window.history.replaceState(
     null,
@@ -205,15 +207,15 @@ function mountExamples(
     ...datasetOverrides,
   };
   const user = userEvent.setup();
-  render(
+  const renderPage = (datasetFromRoute: string, caseFromRoute?: string) => (
     <ExamplesPage
       project={project}
       decision={decision}
       operations={operations}
       datasetOperations={datasetOperations}
       navigation={navigation}
-      datasetFromRoute="dataset-1"
-      caseFromRoute={initialCaseId ?? undefined}
+      datasetFromRoute={datasetFromRoute}
+      caseFromRoute={caseFromRoute}
       refreshToken={0}
       onDatasetChange={(_, caseId) =>
         navigation!.navigate({
@@ -226,7 +228,23 @@ function mountExamples(
       }
       onImport={() => undefined}
       onSplit={() => undefined}
-    />,
+    />
+  );
+  function NavigationAwarePage() {
+    const [route, setRoute] = useState(navigation!.current);
+    useEffect(() => navigation!.subscribe(setRoute), []);
+    const examplesRoute = route.kind === "examples" ? route : undefined;
+    return renderPage(
+      examplesRoute?.datasetId ?? "dataset-1",
+      examplesRoute?.caseId,
+    );
+  }
+  render(
+    followNavigation ? (
+      <NavigationAwarePage />
+    ) : (
+      renderPage("dataset-1", initialCaseId ?? undefined)
+    ),
   );
   return { user, operations, saveLabels: operations.saveLabels };
 }
@@ -498,6 +516,8 @@ it("saves the old admitted case before completing a dirty navigation", async () 
       }),
     },
     { read: async () => ({ data: currentDataset, warnings: [] }) },
+    "case-a",
+    true,
   );
 
   await waitForSelectedSource(sourceA);
