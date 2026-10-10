@@ -2,18 +2,18 @@
   "assets": [
     {
       "content_type": "text/css; charset=utf-8",
-      "name": "assets/index-CzrFOux6.css",
-      "sha256": "68b953b8e923941265e03fc4ddf0367f583c495b48cf9c2ae444629c02a47b7b"
+      "name": "assets/index-CfK2XFqi.css",
+      "sha256": "bc25e2c45b7f59c5b1f18a09895834c7ba392b5d14069cf61f2a0f6c2d1d8a2e"
     },
     {
       "content_type": "text/javascript; charset=utf-8",
-      "name": "assets/index-Dbyq0HF6.js",
-      "sha256": "d9194e13f07bb1f935edf6b4786d6ed7602e7b9358401ba01a095c9036e689b4"
+      "name": "assets/index-Z23cyuSM.js",
+      "sha256": "094c14775568f07a10995b2065e5e773260b274c2f84775348e7818fb6adf035"
     },
     {
       "content_type": "text/html; charset=utf-8",
       "name": "index.html",
-      "sha256": "841581a3899d0ec7c7afdf108addcd0c0f1b2d6feede618e2667bb06922f2d77"
+      "sha256": "fff7275e2f611ff5537103abb4b4ff686d5a06f7272995e109e1bcb2a5e278cd"
     }
   ],
   "schema_version": 1
