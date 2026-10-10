@@ -2863,17 +2863,78 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Refresh saved case" }),
   ).toHaveCount(0);
+  let releaseSeedCaseRead!: () => void;
+  let reportSeedCaseReadStarted!: () => void;
+  let seedCaseSource: string | undefined;
+  const holdSeedCaseRead = new Promise<void>((resolve) => {
+    releaseSeedCaseRead = resolve;
+  });
+  const seedCaseReadStarted = new Promise<void>((resolve) => {
+    reportSeedCaseReadStarted = resolve;
+  });
+  let labelWritesDuringSelection = 0;
+  const countSelectionLabelWrites = (request: Request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/labels/batch")
+    )
+      labelWritesDuringSelection += 1;
+  };
+  page.on("request", countSelectionLabelWrites);
+  await page.route("**/cases/seed-1", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    reportSeedCaseReadStarted();
+    await holdSeedCaseRead;
+    const response = await route.fetch();
+    const responseData = await response.json();
+    const source = responseData.data.case.record.input_source;
+    if (typeof source !== "string")
+      throw new Error("The admitted case read has no input source.");
+    seedCaseSource = source;
+    await route.fulfill({ response });
+  });
   await caseButton("seed-1").click();
+  await seedCaseReadStarted;
+  const admittedSeedRead = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/seed-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+  );
+  try {
+    await expect(
+      page.getByLabel("Complete example input source", { exact: true }),
+    ).toHaveText(staleCaseSource);
+    await expect(
+      page.getByRole("checkbox", { name: "Option A", exact: true }),
+    ).toBeDisabled();
+    expect(labelWritesDuringSelection).toBe(0);
+    await captureScreenshot("selection-loading-keeps-old-controls-readonly.png");
+  } finally {
+    releaseSeedCaseRead();
+  }
+  await (await admittedSeedRead).body();
   await expect(
     page.getByRole("heading", { name: "seed-1", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Expected answers" }),
   ).toBeVisible();
+  if (seedCaseSource === undefined)
+    throw new Error("The admitted case read did not provide its source.");
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
-  ).toHaveText(/\S/);
+  ).toHaveText(seedCaseSource);
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
+  await captureScreenshot("selection-admitted-target-controls-ready.png");
+  await page.getByRole("checkbox", { name: "Option A", exact: true }).check();
+  await expect(
+    page.getByRole("button", { name: "Save expected answer", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("checkbox", { name: "Option A", exact: true }).uncheck();
+  expect(labelWritesDuringSelection).toBe(0);
+  await page.unroute("**/cases/seed-1");
+  page.off("request", countSelectionLabelWrites);
   const readSeedLabel = async () => {
     const response = await page.request.get(
       `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/seed-1`,
