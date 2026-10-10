@@ -28,9 +28,13 @@ Decision and import source remains an exact string. The browser asks backend
 projection and transform operations for structured controls, and submits the
 service-returned source with its ETag and operation ID. Draft autosaves are
 serialized; acknowledgements advance the ETag without replacing newer typing.
-Conflicts and uncertain outcomes stop the queue and retain the editor source for
-review. Import preview and split preview likewise remain server-produced documents;
-the browser does not implement a row parser or split algorithm.
+Before a queued transform is admitted, the page waits for the parsed acknowledgement
+of any represented draft save, then snapshots the exact source and its advanced
+ETag. A stale page lifetime suppresses the local continuation while an admitted
+draft request still settles with its original receipt. Conflicts and uncertain
+outcomes stop the queue and retain the editor source for review. Import preview
+and split preview likewise remain server-produced documents; the browser does not
+implement a row parser or split algorithm.
 
 Label writes carry the full review projection. Case edits preserve the complete
 case record context and both case and dataset ETags. Provider credentials are

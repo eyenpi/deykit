@@ -197,6 +197,7 @@ export function DecisionPage({
   >(undefined);
   const archiveAction = useRef<"archive" | "restore" | undefined>(undefined);
   const actionLock = useRef(false);
+  const pageLoadLifetime = useRef(0);
   const removalIdentity = useRef<
     { sourceSequence: number; generation: number; source: string } | undefined
   >(undefined);
@@ -279,7 +280,25 @@ export function DecisionPage({
 
   useEffect(() => {
     let active = true;
+    const lifetime = ++pageLoadLifetime.current;
     const controller = new AbortController();
+    const previousAutosave = autosave.current;
+    autosave.current = undefined;
+    previousAutosave?.dispose();
+    transformTask.current = undefined;
+    transforming.current = false;
+    transformQueue.current = [];
+    deferredTransform.current = undefined;
+    transformState.current = "paused";
+    actionLock.current = false;
+    versionRequest.current = undefined;
+    versionBaselineContext.current = undefined;
+    versionBaselinePending.current = false;
+    setVersionOutcomeUnknown(false);
+    setVersionBaselineIssue(undefined);
+    setWorking(false);
+    setSourceControlsLockedNow(false);
+    let pageAutosave: DraftAutosaveController | undefined;
     setLoadError(undefined);
     setRecord(undefined);
     setEditorForm(null);
@@ -316,8 +335,7 @@ export function DecisionPage({
         setBackingSource(result.data.draft.record.editor_source);
         setDraftDirtyNow(false);
         setEditorForm(projection.data.form);
-        autosave.current?.dispose();
-        autosave.current = new DraftAutosaveController(
+        pageAutosave = new DraftAutosaveController(
           result.data.draft.etag,
           async (request) => {
             const saved = await operations.updateDraft({
@@ -330,21 +348,34 @@ export function DecisionPage({
                 operation_id: request.operationId,
               },
             });
-            draftEtagRef.current = saved.data.etag;
-            lastAcknowledgedSource.current = request.editorSource;
             if (
-              request.editorSource === sourceRef.current &&
-              representedGeneration.current === editGeneration.current &&
-              !hasPendingEditorWork()
-            )
-              setDraftDirtyNow(false);
-            else draftDirtyRef.current = true;
+              active &&
+              pageLoadLifetime.current === lifetime &&
+              autosave.current === pageAutosave
+            ) {
+              draftEtagRef.current = saved.data.etag;
+              lastAcknowledgedSource.current = request.editorSource;
+              if (
+                request.editorSource === sourceRef.current &&
+                representedGeneration.current === editGeneration.current &&
+                !hasPendingEditorWork()
+              )
+                setDraftDirtyNow(false);
+              else draftDirtyRef.current = true;
+            }
             return { etag: saved.data.etag };
           },
           (status) => {
-            setDraftStatus(status);
+            if (
+              active &&
+              pageLoadLifetime.current === lifetime &&
+              autosave.current === pageAutosave
+            )
+              setDraftStatus(status);
           },
         );
+        autosave.current = pageAutosave;
+        setDraftStatus({ kind: "idle" });
       })
       .catch((cause: unknown) => {
         if (active && !controller.signal.aborted)
@@ -352,12 +383,20 @@ export function DecisionPage({
       });
     return () => {
       active = false;
+      if (pageLoadLifetime.current === lifetime) {
+        pageLoadLifetime.current += 1;
+        transformTask.current = undefined;
+        transforming.current = false;
+      }
       controller.abort();
       if (transformTimer.current !== undefined)
         clearTimeout(transformTimer.current);
-      autosave.current?.dispose();
-      actionLock.current = false;
-      sourceControlsLockedRef.current = false;
+      if (autosave.current === pageAutosave) {
+        autosave.current = undefined;
+        pageAutosave?.dispose();
+        actionLock.current = false;
+        sourceControlsLockedRef.current = false;
+      }
     };
   }, [decisionId, operations, registrationId, setBackingSource]);
 
@@ -371,6 +410,12 @@ export function DecisionPage({
     }
     if (transformTask.current) return transformTask.current;
     if (transformState.current === "failed") return Promise.resolve("failed");
+    const draftController = autosave.current;
+    const lifetime = pageLoadLifetime.current;
+    if (!draftController) return Promise.resolve("paused");
+    const isCurrentLifetime = () =>
+      pageLoadLifetime.current === lifetime &&
+      autosave.current === draftController;
     const task = (async (): Promise<TransformResult> => {
       transforming.current = true;
       let result: TransformResult = "ready";
@@ -390,6 +435,7 @@ export function DecisionPage({
           setEditorForm(transformed.projection.form);
       };
       try {
+        if (!isCurrentLifetime()) return "paused";
         const deferred = deferredTransform.current;
         if (deferred) {
           if (deferred.queued.sourceSequence === sourceSequence.current) {
@@ -418,9 +464,54 @@ export function DecisionPage({
             continue;
           }
           if (queued.sourceSequence !== sourceSequence.current) continue;
+          if (
+            versionBaselinePending.current ||
+            versionBaselineContext.current !== undefined
+          ) {
+            transformQueue.current.unshift(queued);
+            result = "paused";
+            break;
+          }
+          if (!isCurrentLifetime()) {
+            result = "paused";
+            break;
+          }
           setEditError(undefined);
           setNotice(undefined);
+          try {
+            await draftController.flush();
+          } catch (cause) {
+            if (!isCurrentLifetime()) {
+              result = "paused";
+              break;
+            }
+            if (queued.sourceSequence !== sourceSequence.current) {
+              result = "paused";
+              break;
+            }
+            transformQueue.current.unshift(queued);
+            setTransformError(safeMessage(cause));
+            setTransformFailed(true);
+            result = "failed";
+            break;
+          }
+          if (!isCurrentLifetime()) {
+            result = "paused";
+            break;
+          }
+          if (queued.sourceSequence !== sourceSequence.current) continue;
+          if (
+            composingSource.current ||
+            compositionCommitPending.current ||
+            versionBaselinePending.current ||
+            versionBaselineContext.current !== undefined
+          ) {
+            transformQueue.current.unshift(queued);
+            result = "paused";
+            break;
+          }
           const requestSource = sourceRef.current;
+          const expectedDraftEtag = draftEtagRef.current;
           let response: TransformReview;
           try {
             const transformed = await operations.transformEditor({
@@ -429,17 +520,25 @@ export function DecisionPage({
               body: {
                 schema_version: 1,
                 editor_source: requestSource,
-                expected_draft_etag: draftEtagRef.current,
+                expected_draft_etag: expectedDraftEtag,
                 edit: queued.edit,
               },
             });
             response = transformed.data;
           } catch (cause) {
+            if (!isCurrentLifetime()) {
+              result = "paused";
+              break;
+            }
             if (queued.sourceSequence !== sourceSequence.current) continue;
             transformQueue.current.unshift(queued);
             setTransformError(safeMessage(cause));
             setTransformFailed(true);
             result = "failed";
+            break;
+          }
+          if (!isCurrentLifetime()) {
+            result = "paused";
             break;
           }
           if (queued.sourceSequence !== sourceSequence.current) continue;
@@ -474,15 +573,17 @@ export function DecisionPage({
         )
           result = "paused";
       } finally {
-        transforming.current = false;
-        transformState.current = result;
+        if (isCurrentLifetime()) {
+          transforming.current = false;
+          transformState.current = result;
+        } else result = "paused";
       }
       return result;
     })();
     const tracked = task.finally(() => {
       if (transformTask.current === tracked) {
         transformTask.current = undefined;
-        reconcileAcknowledgedDraft();
+        if (isCurrentLifetime()) reconcileAcknowledgedDraft();
       }
     });
     transformTask.current = tracked;
@@ -970,6 +1071,9 @@ export function DecisionPage({
     const current = recordRef.current;
     const controller = autosave.current;
     if (!current || !controller || actionLock.current) return;
+    const lifetime = pageLoadLifetime.current;
+    const isCurrentPage = () =>
+      pageLoadLifetime.current === lifetime && autosave.current === controller;
     if (versionBaselinePending.current) {
       setEditError(VERSION_PREFLIGHT_MESSAGES["saved-version-context-pending"]);
       return;
@@ -1006,6 +1110,7 @@ export function DecisionPage({
           transformTimer.current = undefined;
         }
         const drainResult = await drainTransforms();
+        if (!isCurrentPage()) return;
         if (drainResult === "paused")
           throw new VersionPreflightError("transform-paused");
         if (drainResult === "failed")
@@ -1022,11 +1127,13 @@ export function DecisionPage({
         if (!snapshotIsCurrent(generation, sequence, editorSource))
           throw new VersionPreflightError("editor-changed");
         await controller.flush();
+        if (!isCurrentPage()) return;
         if (!snapshotIsCurrent(generation, sequence, editorSource))
           throw new VersionPreflightError("editor-changed-during-draft-save");
         if (draftDirtyRef.current)
           throw new VersionPreflightError("draft-unsaved");
         const refreshed = await operations.read({ registrationId, decisionId });
+        if (!isCurrentPage()) return;
         if (!snapshotIsCurrent(generation, sequence, editorSource))
           throw new VersionPreflightError("editor-changed-during-read");
         if (
@@ -1058,11 +1165,13 @@ export function DecisionPage({
       attemptedRequest = request;
       versionRequest.current = request;
       phase = "mutating";
+      if (!isCurrentPage()) return;
       const result = await operations.saveRevision({
         registrationId,
         decisionId,
         body: request,
       });
+      if (!isCurrentPage()) return;
       phase = "committed";
       committedRevisionId = result.data.revision.record.id;
       versionRequest.current = undefined;
@@ -1084,6 +1193,7 @@ export function DecisionPage({
         });
       }
     } catch (cause) {
+      if (!isCurrentPage()) return;
       if (phase === "preflight") {
         if (entryOutcomeUnknown) {
           versionRequest.current = entryRequest;
@@ -1127,9 +1237,11 @@ export function DecisionPage({
         );
       }
     } finally {
-      if (controlsLocked) setSourceControlsLockedNow(false);
-      actionLock.current = false;
-      setWorking(false);
+      if (isCurrentPage()) {
+        if (controlsLocked) setSourceControlsLockedNow(false);
+        actionLock.current = false;
+        setWorking(false);
+      }
     }
   }
 
