@@ -8,23 +8,39 @@ export type MutationState<Receipt> =
   | { kind: "failed"; message: string }
   | { kind: "outcome-unknown"; message: string };
 
-function definitelyRejected(cause: unknown): cause is ApiError {
+export class QueuedMutationNotAdmitted extends Error {
+  constructor() {
+    super(
+      "The request was not sent because an earlier source operation is still settling.",
+    );
+    this.name = "QueuedMutationNotAdmitted";
+  }
+}
+
+export function isQueuedMutationNotAdmitted(
+  cause: unknown,
+): cause is QueuedMutationNotAdmitted {
+  return cause instanceof QueuedMutationNotAdmitted;
+}
+
+function definitelyRejected(cause: unknown): boolean {
   return (
-    cause instanceof ApiError &&
-    ((cause.status !== undefined &&
-      cause.status >= 400 &&
-      cause.status < 500 &&
-      cause.status !== 408 &&
-      cause.status !== 425 &&
-      cause.status !== 429) ||
-      [
-        "invalid_operation",
-        "invalid_request",
-        "invalid_path",
-        "invalid_query",
-        "invalid_body",
-        "session_required",
-      ].includes(cause.code))
+    isQueuedMutationNotAdmitted(cause) ||
+    (cause instanceof ApiError &&
+      ((cause.status !== undefined &&
+        cause.status >= 400 &&
+        cause.status < 500 &&
+        cause.status !== 408 &&
+        cause.status !== 425 &&
+        cause.status !== 429) ||
+        [
+          "invalid_operation",
+          "invalid_request",
+          "invalid_path",
+          "invalid_query",
+          "invalid_body",
+          "session_required",
+        ].includes(cause.code)))
   );
 }
 

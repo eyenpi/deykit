@@ -1,6 +1,7 @@
 import { ApiError } from "../api/client";
+import { QueuedMutationNotAdmitted } from "./mutation-controller";
 
-/** Serializes source reads which address the same open project registration. */
+/** Serializes source operations which address the same open project registration. */
 export class RegistrationReadSequencer {
   private readonly tails = new Map<string, Promise<void>>();
 
@@ -9,15 +10,35 @@ export class RegistrationReadSequencer {
     callerSignal: AbortSignal | undefined,
     perform: () => Promise<T>,
   ): Promise<T> {
+    return this.enqueue(registrationId, callerSignal, "read", perform);
+  }
+
+  enqueueMutation<T>(
+    registrationId: string,
+    callerSignal: AbortSignal | undefined,
+    perform: () => Promise<T>,
+  ): Promise<T> {
+    return this.enqueue(registrationId, callerSignal, "mutation", perform);
+  }
+
+  private enqueue<T>(
+    registrationId: string,
+    callerSignal: AbortSignal | undefined,
+    mode: "read" | "mutation",
+    perform: () => Promise<T>,
+  ): Promise<T> {
     const previous = this.tails.get(registrationId) ?? Promise.resolve();
     const result = previous.then(async () => {
-      if (callerSignal?.aborted) throw cancelledRead();
+      if (callerSignal?.aborted) {
+        if (mode === "mutation") throw new QueuedMutationNotAdmitted();
+        throw cancelledRead();
+      }
       try {
         const value = await perform();
-        if (callerSignal?.aborted) throw cancelledRead();
+        if (mode === "read" && callerSignal?.aborted) throw cancelledRead();
         return value;
       } catch (cause) {
-        if (callerSignal?.aborted) throw cancelledRead();
+        if (mode === "read" && callerSignal?.aborted) throw cancelledRead();
         throw cause;
       }
     });

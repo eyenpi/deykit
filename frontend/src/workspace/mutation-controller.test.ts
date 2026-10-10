@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/client";
-import { isOutcomeUnknown, RetainedMutation } from "./mutation-controller";
+import {
+  isOutcomeUnknown,
+  QueuedMutationNotAdmitted,
+  RetainedMutation,
+} from "./mutation-controller";
 
 describe("retained mutation outcomes", () => {
   it("keeps malformed acknowledgements and untyped transport failures unknown", async () => {
@@ -44,6 +48,24 @@ describe("retained mutation outcomes", () => {
     );
     await conflict.submit({ operationId: "op-conflict" });
     expect(conflict.state.kind).toBe("conflict");
+  });
+
+  it("keeps a queued mutation known when it was never sent", async () => {
+    const failure = new QueuedMutationNotAdmitted();
+    expect(isOutcomeUnknown(failure)).toBe(false);
+    const mutation = new RetainedMutation(
+      async () => {
+        throw failure;
+      },
+      () => undefined,
+    );
+
+    await mutation.submit({ operationId: "op-not-admitted" });
+
+    expect(mutation.state).toMatchObject({ kind: "failed" });
+    expect(mutation.originalRequest).toEqual({
+      operationId: "op-not-admitted",
+    });
   });
 
   it("replays the retained request once after an explicit retry", async () => {

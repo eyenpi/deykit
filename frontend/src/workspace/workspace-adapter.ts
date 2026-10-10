@@ -29,7 +29,7 @@ export function createWorkspaceGateway(
     perform: () => Promise<T>,
   ) => reads.enqueueRead(registrationId, signal, perform);
   return {
-    authoring: createAuthoringGateway(client, read),
+    authoring: createAuthoringGateway(client, reads, read),
     async recentProjects(signal) {
       const result = await client.operation(
         "listRecentProjects",
@@ -120,6 +120,7 @@ export function createWorkspaceGateway(
 /** Operation-specific presentation ports. ApiClient remains the sole transport. */
 function createAuthoringGateway(
   client: ApiClient,
+  sequencer: RegistrationReadSequencer,
   read: <T>(
     registrationId: string,
     signal: AbortSignal | undefined,
@@ -131,10 +132,23 @@ function createAuthoringGateway(
     signal: AbortSignal | undefined,
     operation: K,
     args: ApiOperationArguments<K>,
-  ) =>
-    read(registrationId, signal, () =>
-      client.operation(operation, { ...args, signal: undefined }),
+  ) => {
+    const captured = captureOperationArguments(args);
+    return read(registrationId, signal, () =>
+      client.operation(operation, captured),
     );
+  };
+  const sourceMutation = <K extends ApiJsonOperationId>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    operation: K,
+    args: ApiOperationArguments<K>,
+  ) => {
+    const captured = captureOperationArguments(args);
+    return sequencer.enqueueMutation(registrationId, signal, () =>
+      client.operation(operation, captured),
+    );
+  };
   return {
     decisions: {
       list: ({ registrationId, query, signal }) =>
@@ -143,20 +157,18 @@ function createAuthoringGateway(
           query,
         }),
       create: ({ registrationId, body, signal }) =>
-        client.operation("createDecision", {
+        sourceMutation(registrationId, signal, "createDecision", {
           path: { registration_id: registrationId },
           body,
-          signal,
         }),
       read: ({ registrationId, decisionId, signal }) =>
         sourceRead(registrationId, signal, "readDecision", {
           path: { registration_id: registrationId, decision_id: decisionId },
         }),
       updateDraft: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("updateDecisionDraft", {
+        sourceMutation(registrationId, signal, "updateDecisionDraft", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       projectEditor: ({ registrationId, decisionId, body, signal }) =>
         sourceRead(registrationId, signal, "projectDecisionEditor", {
@@ -174,10 +186,9 @@ function createAuthoringGateway(
           body,
         }),
       saveRevision: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("saveDecisionRevision", {
+        sourceMutation(registrationId, signal, "saveDecisionRevision", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       revisions: ({ registrationId, decisionId, query, signal }) =>
         sourceRead(registrationId, signal, "listDecisionRevisions", {
@@ -202,29 +213,30 @@ function createAuthoringGateway(
           query,
         }),
       rename: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("renameDecision", {
+        sourceMutation(registrationId, signal, "renameDecision", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       archive: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("archiveDecision", {
+        sourceMutation(registrationId, signal, "archiveDecision", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       restore: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("restoreDecision", {
+        sourceMutation(registrationId, signal, "restoreDecision", {
           path: { registration_id: registrationId, decision_id: decisionId },
           body,
-          signal,
         }),
       restoreRevisionToDraft: ({ registrationId, decisionId, body, signal }) =>
-        client.operation("restoreDecisionRevisionToDraft", {
-          path: { registration_id: registrationId, decision_id: decisionId },
-          body,
+        sourceMutation(
+          registrationId,
           signal,
-        }),
+          "restoreDecisionRevisionToDraft",
+          {
+            path: { registration_id: registrationId, decision_id: decisionId },
+            body,
+          },
+        ),
     },
     datasets: {
       list: ({ registrationId, query, signal }) =>
@@ -235,10 +247,9 @@ function createAuthoringGateway(
           { path: { registration_id: registrationId }, query },
         ),
       create: ({ registrationId, body, signal }) =>
-        client.operation("createDataset", {
+        sourceMutation(registrationId, signal, "createDataset", {
           path: { registration_id: registrationId },
           body,
-          signal,
         }),
       read: ({ registrationId, datasetId, signal }) =>
         sourceRead(
@@ -250,30 +261,33 @@ function createAuthoringGateway(
           },
         ),
       update: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "patch_dataset_api_v1_projects__registration_id__datasets__dataset_id__patch",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
       archive: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "archive_dataset_api_v1_projects__registration_id__datasets__dataset_id__archive_post",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
       restore: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "restore_dataset_api_v1_projects__registration_id__datasets__dataset_id__restore_post",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
     },
@@ -302,16 +316,19 @@ function createAuthoringGateway(
           },
         ),
       addCase: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "add_case_api_v1_projects__registration_id__datasets__dataset_id__cases_post",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
       editCase: ({ registrationId, datasetId, caseId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put",
           {
             path: {
@@ -320,11 +337,12 @@ function createAuthoringGateway(
               case_id: caseId,
             },
             body,
-            signal,
           },
         ),
       removeCase: ({ registrationId, datasetId, caseId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "delete_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__delete",
           {
             path: {
@@ -333,7 +351,6 @@ function createAuthoringGateway(
               case_id: caseId,
             },
             body,
-            signal,
           },
         ),
       listLabels: ({ registrationId, decisionId, datasetId, query, signal }) =>
@@ -395,7 +412,9 @@ function createAuthoringGateway(
           },
         ),
       saveLabels: ({ registrationId, decisionId, datasetId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post",
           {
             path: {
@@ -404,7 +423,6 @@ function createAuthoringGateway(
               dataset_id: datasetId,
             },
             body,
-            signal,
           },
         ),
       previewImport: ({ registrationId, datasetId, body, signal }) =>
@@ -418,12 +436,13 @@ function createAuthoringGateway(
           },
         ),
       commitImport: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
       previewSplit: ({ registrationId, datasetId, body, signal }) =>
@@ -437,12 +456,13 @@ function createAuthoringGateway(
           },
         ),
       commitSplit: ({ registrationId, datasetId, body, signal }) =>
-        client.operation(
+        sourceMutation(
+          registrationId,
+          signal,
           "commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post",
           {
             path: { registration_id: registrationId, dataset_id: datasetId },
             body,
-            signal,
           },
         ),
     },
@@ -457,39 +477,34 @@ function createAuthoringGateway(
           path: { registration_id: registrationId, profile_id: profileId },
         }),
       configure: ({ registrationId, profileId, body, signal }) =>
-        client.operation("configureProviderProfile", {
+        sourceMutation(registrationId, signal, "configureProviderProfile", {
           path: { registration_id: registrationId, profile_id: profileId },
           body,
-          signal,
         }),
       credentialStatus: ({ registrationId, profileId, signal }) =>
         sourceRead(registrationId, signal, "providerCredentialStatus", {
           path: { registration_id: registrationId, profile_id: profileId },
         }),
       attachEnvironment: ({ registrationId, profileId, body, signal }) =>
-        client.operation("attachEnvironmentCredential", {
+        sourceMutation(registrationId, signal, "attachEnvironmentCredential", {
           path: { registration_id: registrationId, profile_id: profileId },
           body,
-          signal,
         }),
       setOSCredential: ({ registrationId, profileId, body, signal }) =>
-        client.operation("setOSStoreCredential", {
+        sourceMutation(registrationId, signal, "setOSStoreCredential", {
           path: { registration_id: registrationId, profile_id: profileId },
           body,
-          signal,
         }),
       forgetCredential: ({ registrationId, profileId, body, signal }) =>
-        client.operation("forgetProviderCredential", {
+        sourceMutation(registrationId, signal, "forgetProviderCredential", {
           path: { registration_id: registrationId, profile_id: profileId },
           body,
-          signal,
         }),
       listModels: ({ registrationId, profileId, query, body, signal }) =>
-        client.operation("listProviderModels", {
+        sourceRead(registrationId, signal, "listProviderModels", {
           path: { registration_id: registrationId, profile_id: profileId },
           query,
           body,
-          signal,
         }),
     },
     fixtures: {
@@ -507,10 +522,9 @@ function createAuthoringGateway(
           query,
         }),
       create: ({ registrationId, body, signal }) =>
-        client.operation("createFixtureSet", {
+        sourceMutation(registrationId, signal, "createFixtureSet", {
           path: { registration_id: registrationId },
           body,
-          signal,
         }),
     },
     sources: {
@@ -546,4 +560,10 @@ function createAuthoringGateway(
         }),
     },
   };
+}
+
+function captureOperationArguments<K extends ApiJsonOperationId>(
+  args: ApiOperationArguments<K>,
+): ApiOperationArguments<K> {
+  return structuredClone({ ...args, signal: undefined });
 }

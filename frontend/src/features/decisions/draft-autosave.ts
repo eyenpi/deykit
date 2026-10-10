@@ -1,4 +1,5 @@
 import { ApiError } from "../../api/client";
+import { isQueuedMutationNotAdmitted } from "../../workspace/mutation-controller";
 
 export type DraftSaveStatus =
   | { kind: "idle" }
@@ -23,6 +24,8 @@ type StatusListener = (status: DraftSaveStatus) => void;
 type PendingSource = { source: string; sequence: number };
 
 function failureStatus(cause: unknown): DraftSaveStatus {
+  if (isQueuedMutationNotAdmitted(cause))
+    return { kind: "failed", message: cause.message };
   if (
     cause instanceof ApiError &&
     (cause.status === 409 || cause.code === "conflict")

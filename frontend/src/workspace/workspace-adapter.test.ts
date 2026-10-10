@@ -248,4 +248,95 @@ describe("workspace API adapter", () => {
     });
     expect(transport).toHaveBeenCalledTimes(3);
   });
+
+  it("snapshots mutation arrays at adapter entry while waiting for a source read", async () => {
+    const bodyReadStarted = deferred<void>();
+    const releaseBody = deferred<void>();
+    const failureBody = JSON.stringify({
+      schema_version: 1,
+      error: {
+        schema_version: 1,
+        code: "service_unavailable",
+        message: "The local source is temporarily unavailable.",
+      },
+    });
+    const heldReadResponse = new Response(
+      new ReadableStream<Uint8Array>(
+        {
+          async pull(controller) {
+            bodyReadStarted.resolve(undefined);
+            await releaseBody.promise;
+            controller.enqueue(new TextEncoder().encode(failureBody));
+            controller.close();
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+      { status: 503, headers: { "Content-Type": "application/json" } },
+    );
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json({
+          capability: "c".repeat(43),
+          origin: "http://localhost",
+          api_version: 1,
+        }),
+      )
+      .mockResolvedValueOnce(heldReadResponse)
+      .mockResolvedValueOnce(
+        new Response(failureBody, {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const gateway = createWorkspaceGateway(
+      new ApiClient(transport, () => "http://localhost"),
+    );
+    const read = gateway.authoring.examples.listCases({
+      registrationId: "registration-1",
+      datasetId: "dataset-1",
+      query: { limit: "50" },
+    });
+    await bodyReadStarted.promise;
+
+    const tags = ["authored-tag"];
+    const derivedFrom = ["case-original"];
+    const write = gateway.authoring.examples.addCase({
+      registrationId: "registration-1",
+      datasetId: "dataset-1",
+      body: {
+        schema_version: 1,
+        operation_id: "00000000-0000-4000-8000-000000000001",
+        expected_dataset_etag: "a".repeat(64),
+        input_kind: "text",
+        input_source: "opaque input source",
+        metadata_source: "{\"source\":\"preserved\"}",
+        tags,
+        split: "development",
+        group_id: null,
+        derived_from: derivedFrom,
+      },
+    });
+    tags.push("later-tag");
+    derivedFrom[0] = "case-mutated";
+    expect(transport).toHaveBeenCalledTimes(2);
+
+    releaseBody.resolve(undefined);
+    await expect(read).rejects.toMatchObject({ status: 503 });
+    await expect(write).rejects.toMatchObject({ status: 503 });
+    expect(transport).toHaveBeenCalledTimes(3);
+    expect(JSON.parse(transport.mock.calls[2][1]!.body as string)).toEqual({
+      schema_version: 1,
+      operation_id: "00000000-0000-4000-8000-000000000001",
+      expected_dataset_etag: "a".repeat(64),
+      input_kind: "text",
+      input_source: "opaque input source",
+      metadata_source: "{\"source\":\"preserved\"}",
+      tags: ["authored-tag"],
+      split: "development",
+      group_id: null,
+      derived_from: ["case-original"],
+    });
+  });
 });

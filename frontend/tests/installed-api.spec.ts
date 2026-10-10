@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { Request } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { operationMetadata } from "../src/api/generated/operations";
@@ -946,7 +947,7 @@ test("installed browser authors exact decision source and previews imports throu
     "Draft saved",
   );
 
-  await enterPhase("Obsolete transform settles after raw IME acknowledgement");
+  await enterPhase("Obsolete transform settles before raw IME acknowledgement");
   let releaseObsoleteTransform!: () => void;
   let reportObsoleteTransformStarted!: () => void;
   const obsoleteTransformGate = new Promise<void>((resolve) => {
@@ -965,6 +966,15 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByLabel("Question").fill("Question from obsolete transform");
   await page.getByLabel("Question").press("Tab");
   await obsoleteTransformStarted;
+  let rawDraftWrites = 0;
+  const countRawDraftWrites = (request: Request) => {
+    if (
+      request.method() === "PUT" &&
+      new URL(request.url()).pathname.endsWith("/draft")
+    )
+      rawDraftWrites += 1;
+  };
+  page.on("request", countRawDraftWrites);
   const obsoleteRawEditor = await openDecisionSourceEditor();
   const sourceBeforeReplacement = await obsoleteRawEditor.inputValue();
   const rawReplacementSource = sourceBeforeReplacement.replace(
@@ -1001,10 +1011,11 @@ test("installed browser authors exact decision source and previews imports throu
       new CompositionEvent("compositionend", { bubbles: true, data: "" }),
     );
   }, rawReplacementSource);
-  expect((await rawReplacementAcknowledged).status()).toBe(200);
+  await expect(obsoleteRawEditor).toHaveValue(rawReplacementSource);
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
-    "Changes not saved",
+    "Saving draft…",
   );
+  expect(rawDraftWrites).toBe(0);
   const projectEditorPath = operationMetadata.projectDecisionEditor.path
     .replace("{registration_id}", registrationId)
     .replace("{decision_id}", decisionId);
@@ -1016,9 +1027,12 @@ test("installed browser authors exact decision source and previews imports throu
         .editor_source === rawReplacementSource,
   );
   releaseObsoleteTransform();
+  expect((await rawReplacementAcknowledged).status()).toBe(200);
+  expect(rawDraftWrites).toBe(1);
   await expect(page.locator(".document-title-row [role=status]")).toHaveText(
     "Draft saved",
   );
+  page.off("request", countRawDraftWrites);
   const projectionResponse = await rawReplacementProjection;
   expect(projectionResponse.status()).toBe(200);
   await projectionResponse.body();

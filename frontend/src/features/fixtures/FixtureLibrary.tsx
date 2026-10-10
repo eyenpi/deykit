@@ -12,6 +12,7 @@ import type {
   FixtureAuthoringOperations,
   ProjectOverview,
 } from "../../workspace/gateway";
+import { isQueuedMutationNotAdmitted } from "../../workspace/mutation-controller";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 
@@ -217,6 +218,8 @@ export function FixtureLibrary({
       if (cause instanceof ApiError && cause.status === 409) {
         setPending({ body, signature });
         setAwaitingReview(true);
+      } else if (isQueuedMutationNotAdmitted(cause)) {
+        setPending(undefined);
       } else if (
         !(cause instanceof ApiError) ||
         cause.status === undefined ||
