@@ -18,6 +18,51 @@ type EditorForm = NonNullable<
 type EditorEdit = ApiOperationBody<"transformDecisionEditor">["edit"];
 type TransformReview = ApiOperationData<"transformDecisionEditor">;
 type TransformResult = "ready" | "paused" | "failed";
+type VersionPreflightReason =
+  | "composing-before-save"
+  | "original-save-unavailable"
+  | "composing-before-retry"
+  | "transform-paused"
+  | "transform-failed"
+  | "composing-after-transform"
+  | "unrepresented-editor"
+  | "editor-changed"
+  | "editor-changed-during-draft-save"
+  | "draft-unsaved"
+  | "editor-changed-during-read"
+  | "saved-draft-mismatch"
+  | "composing-before-mutation";
+const VERSION_PREFLIGHT_MESSAGES: Record<VersionPreflightReason, string> = {
+  "composing-before-save":
+    "Finish composing the editor source before saving a version.",
+  "original-save-unavailable":
+    "The original version save is unavailable. Review the current version history before continuing.",
+  "composing-before-retry":
+    "Finish composing before retrying the original version save.",
+  "transform-paused":
+    "Finish composing or committing the editor source. No version was saved.",
+  "transform-failed":
+    "The latest editor change could not be applied. No version was saved.",
+  "composing-after-transform":
+    "Finish composing the editor source. No version was saved.",
+  "unrepresented-editor": "Commit the latest editor change. No version was saved.",
+  "editor-changed": "The editor changed. No version was saved.",
+  "editor-changed-during-draft-save":
+    "The editor changed while saving its draft. No version was saved.",
+  "draft-unsaved": "The latest draft is not saved. No version was saved.",
+  "editor-changed-during-read":
+    "The editor changed while checking the saved draft. No version was saved.",
+  "saved-draft-mismatch":
+    "The saved draft differs from the editor. Review it before saving a version.",
+  "composing-before-mutation":
+    "Finish composing before saving this version. The original request was not changed.",
+};
+class VersionPreflightError extends Error {
+  constructor(reason: VersionPreflightReason) {
+    super(VERSION_PREFLIGHT_MESSAGES[reason]);
+    this.name = "VersionPreflightError";
+  }
+}
 type QueuedTransform = {
   edit: EditorEdit;
   sequence: number;
@@ -772,24 +817,18 @@ export function DecisionPage({
     let controlsLocked = false;
     try {
       if (composingSource.current || compositionCommitPending.current)
-        throw new Error(
-          "Finish composing the editor source before saving a version.",
-        );
+        throw new VersionPreflightError("composing-before-save");
       let request: ApiOperationBody<"saveDecisionRevision">;
       let refreshedRecord = current;
       if (entryOutcomeUnknown) {
         if (!entryRequest)
-          throw new Error(
-            "The original version save is unavailable. Review the current version history before continuing.",
-          );
+          throw new VersionPreflightError("original-save-unavailable");
         request = entryRequest;
         attemptedRequest = request;
         setSourceControlsLockedNow(true);
         controlsLocked = true;
         if (composingSource.current || compositionCommitPending.current)
-          throw new Error(
-            "Finish composing before retrying the original version save.",
-          );
+          throw new VersionPreflightError("composing-before-retry");
       } else {
         if (transformTimer.current !== undefined) {
           clearTimeout(transformTimer.current);
@@ -797,49 +836,33 @@ export function DecisionPage({
         }
         const drainResult = await drainTransforms();
         if (drainResult === "paused")
-          throw new Error(
-            "Finish composing or committing the editor source. No version was saved.",
-          );
+          throw new VersionPreflightError("transform-paused");
         if (drainResult === "failed")
-          throw new Error(
-            "The latest editor change could not be applied. No version was saved.",
-          );
+          throw new VersionPreflightError("transform-failed");
         if (composingSource.current || compositionCommitPending.current)
-          throw new Error(
-            "Finish composing the editor source. No version was saved.",
-          );
+          throw new VersionPreflightError("composing-after-transform");
         if (editGeneration.current !== representedGeneration.current)
-          throw new Error(
-            "Commit the latest editor change. No version was saved.",
-          );
+          throw new VersionPreflightError("unrepresented-editor");
         const generation = editGeneration.current;
         const sequence = sourceSequence.current;
         const editorSource = sourceRef.current;
         setSourceControlsLockedNow(true);
         controlsLocked = true;
         if (!snapshotIsCurrent(generation, sequence, editorSource))
-          throw new Error("The editor changed. No version was saved.");
+          throw new VersionPreflightError("editor-changed");
         await controller.flush();
         if (!snapshotIsCurrent(generation, sequence, editorSource))
-          throw new Error(
-            "The editor changed while saving its draft. No version was saved.",
-          );
+          throw new VersionPreflightError("editor-changed-during-draft-save");
         if (draftDirtyRef.current)
-          throw new Error(
-            "The latest draft is not saved. No version was saved.",
-          );
+          throw new VersionPreflightError("draft-unsaved");
         const refreshed = await operations.read({ registrationId, decisionId });
         if (!snapshotIsCurrent(generation, sequence, editorSource))
-          throw new Error(
-            "The editor changed while checking the saved draft. No version was saved.",
-          );
+          throw new VersionPreflightError("editor-changed-during-read");
         if (
           refreshed.data.draft.record.editor_source !== editorSource ||
           refreshed.data.draft.etag !== draftEtagRef.current
         )
-          throw new Error(
-            "The saved draft differs from the editor. Review it before saving a version.",
-          );
+          throw new VersionPreflightError("saved-draft-mismatch");
         refreshedRecord = refreshed.data;
         request = {
           schema_version: 1,
@@ -851,9 +874,7 @@ export function DecisionPage({
         versionRequest.current = request;
       }
       if (composingSource.current || compositionCommitPending.current)
-        throw new Error(
-          "Finish composing before saving this version. The original request was not changed.",
-        );
+        throw new VersionPreflightError("composing-before-mutation");
       attemptedRequest = request;
       versionRequest.current = request;
       phase = "mutating";
@@ -879,7 +900,11 @@ export function DecisionPage({
           versionRequest.current = undefined;
           setVersionOutcomeUnknown(false);
         }
-        setEditError(safeMessage(cause));
+        setEditError(
+          cause instanceof VersionPreflightError
+            ? cause.message
+            : safeMessage(cause),
+        );
       } else if (phase === "mutating") {
         if (uncertainOutcome(cause) && attemptedRequest) {
           versionRequest.current = attemptedRequest;
