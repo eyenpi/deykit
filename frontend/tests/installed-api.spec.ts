@@ -1968,7 +1968,8 @@ test("installed browser authors exact decision source and previews imports throu
     },
   );
   expect(immediateRevisionPage.status()).toBe(200);
-  const immediateRevisionItems = (await immediateRevisionPage.json()).data.items;
+  const immediateRevisionItems = (await immediateRevisionPage.json()).data
+    .items;
   expect(
     immediateRevisionItems.some(
       (item: { revision: { record: { id: string } } }) =>
