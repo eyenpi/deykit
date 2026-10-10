@@ -241,10 +241,7 @@ export class WorkspaceNavigation {
         this.#activeExternal = pending;
         try {
           await this.#serialize(async () => {
-            if (
-              this.#disposed ||
-              pending.generation !== this.#intentGeneration
-            )
+            if (this.#disposed || pending.generation !== this.#intentGeneration)
               return;
             if (sameRoute(pending.route, this.#route)) {
               this.#admittedHash = pending.hash;
@@ -259,17 +256,15 @@ export class WorkspaceNavigation {
                 this.#restoreAdmittedHash();
               return;
             }
-            if (
-              this.#disposed ||
-              pending.generation !== this.#intentGeneration
-            )
+            if (this.#disposed || pending.generation !== this.#intentGeneration)
               return;
             this.#admittedHash = pending.hash;
             this.#browser.history.replaceState(null, "", pending.hash);
             this.#publish(pending.route);
           });
         } finally {
-          if (this.#activeExternal === pending) this.#activeExternal = undefined;
+          if (this.#activeExternal === pending)
+            this.#activeExternal = undefined;
         }
       }
     } finally {

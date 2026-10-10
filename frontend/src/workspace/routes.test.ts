@@ -374,7 +374,10 @@ describe("workspace routes", () => {
     nativePopstate(providers);
     await guardReached.promise;
     const invalidOldURL = window.location.href;
-    const invalidURL = new URL("#/invalid/route", window.location.href).toString();
+    const invalidURL = new URL(
+      "#/invalid/route",
+      window.location.href,
+    ).toString();
     window.history.pushState(null, "", invalidURL);
     window.dispatchEvent(
       new HashChangeEvent("hashchange", {
@@ -431,12 +434,18 @@ describe("workspace routes", () => {
     const firstURL = new URL(routeToHash(providers), firstOldURL).toString();
     window.history.pushState(null, "", firstURL);
     window.dispatchEvent(
-      new HashChangeEvent("hashchange", { oldURL: firstOldURL, newURL: firstURL }),
+      new HashChangeEvent("hashchange", {
+        oldURL: firstOldURL,
+        newURL: firstURL,
+      }),
     );
     await firstReached.promise;
 
     const distinctOldURL = window.location.href;
-    const distinctURL = new URL(routeToHash(fixtures), distinctOldURL).toString();
+    const distinctURL = new URL(
+      routeToHash(fixtures),
+      distinctOldURL,
+    ).toString();
     window.history.pushState(null, "", distinctURL);
     window.dispatchEvent(
       new HashChangeEvent("hashchange", {
@@ -448,7 +457,10 @@ describe("workspace routes", () => {
     const retryURL = new URL(routeToHash(providers), retryOldURL).toString();
     window.history.pushState(null, "", retryURL);
     window.dispatchEvent(
-      new HashChangeEvent("hashchange", { oldURL: retryOldURL, newURL: retryURL }),
+      new HashChangeEvent("hashchange", {
+        oldURL: retryOldURL,
+        newURL: retryURL,
+      }),
     );
 
     firstGuard.resolve(true);
