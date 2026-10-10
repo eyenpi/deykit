@@ -3680,10 +3680,8 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Review current cases and dataset" })
     .click();
-  const selectedCaseReadPath =
-    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/`;
-  const selectedLabelReadPath =
-    `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/`;
+  const selectedCaseReadPath = `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/`;
+  const selectedLabelReadPath = `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/`;
   const selectedCaseReadResponse = page.waitForResponse(
     (response) => {
       const pathname = new URL(response.url()).pathname;
