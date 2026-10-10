@@ -25,14 +25,10 @@ describe("registration source sequencing", () => {
       calls.push("second-start");
       return Promise.resolve("second");
     });
-    const write = sequencer.enqueueMutation(
-      "registration-a",
-      undefined,
-      () => {
-        calls.push("write-start");
-        return Promise.resolve("write");
-      },
-    );
+    const write = sequencer.enqueueMutation("registration-a", undefined, () => {
+      calls.push("write-start");
+      return Promise.resolve("write");
+    });
     const independent = sequencer.enqueueRead(
       "registration-b",
       undefined,
@@ -212,8 +208,10 @@ describe("registration source sequencing", () => {
     const sequencer = new RegistrationReadSequencer();
     const held = deferred<string>();
     const controller = new AbortController();
-    const first = sequencer.enqueueRead("registration", undefined, () =>
-      held.promise,
+    const first = sequencer.enqueueRead(
+      "registration",
+      undefined,
+      () => held.promise,
     );
     let dispatched = 0;
     const queued = sequencer.enqueueMutation(
