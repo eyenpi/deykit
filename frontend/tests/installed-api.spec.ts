@@ -377,7 +377,8 @@ test("installed browser authors exact decision source and previews imports throu
     if (
       (activePhase ===
         "Import row validation and explicit accepted-row commit" ||
-        activePhase === "Case source preservation and stale-label applicability") &&
+        activePhase ===
+          "Case source preservation and stale-label applicability") &&
       request.method() === "GET"
     ) {
       const routePattern = safeRoutePattern(new URL(request.url()).pathname);
