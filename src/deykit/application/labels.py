@@ -294,10 +294,10 @@ class LabelService:
             cases: dict[str, CaseRecord] = {}
             for case_key in case_ids:
                 stored_case = snapshot_required(ResourceKey("cases", case_key, (dataset_id,)))
-                case = decoded(CaseRecord, stored_case)
-                if case.id != case_key or case.dataset_id != dataset_id:
+                decoded_case = decoded(CaseRecord, stored_case)
+                if decoded_case.id != case_key or decoded_case.dataset_id != dataset_id:
                     fail("invalid_record")
-                cases[case_key] = case
+                cases[case_key] = decoded_case
 
             pairs = {(case_key, definition.questions[0].id) for case_key in case_ids}
             labels: dict[tuple[str, str], StoredRecord] = {}
