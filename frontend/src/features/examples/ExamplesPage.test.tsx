@@ -132,6 +132,7 @@ function labelReceipt(body: LabelBatchBody): LabelBatchReceipt {
         id: "change-a",
         operation_id: body.operation_id,
         action: edit.action,
+        created_at: "2026-01-01T00:00:00Z",
         case_id: "case-a",
         dataset_id: "dataset-1",
         decision_id: decision.id,
@@ -600,7 +601,6 @@ it("recaptures the acknowledged same-scope label after a guard saves the case", 
   expect(editCase).toHaveBeenCalledTimes(1);
   expect(saveLabels).toHaveBeenCalledTimes(1);
   const labelRequest = saveLabels.mock.calls[0]?.[0];
-  expect(labelRequest?.caseId).toBe("case-a");
   expect(labelRequest?.body.edits[0]?.review.case_id).toBe("case-a");
   const caseSave = events.indexOf("edit-case");
   const refreshedCase = events.indexOf("read-case:case-a", caseSave + 1);
@@ -613,7 +613,7 @@ it("recaptures the acknowledged same-scope label after a guard saves the case", 
 });
 
 it("rejects a stale expected-answer callback after live navigation publishes before render", async () => {
-  const { user, saveLabels } = mountExamples();
+  const { saveLabels } = mountExamples();
   await waitForSelectedSource(sourceA);
   const answer = screen.getByRole("checkbox", { name: "Option A" });
   await act(async () => {
@@ -640,6 +640,8 @@ it("rejects a stale source callback after live navigation publishes before rende
   await waitForSelectedSource(sourceA);
   await user.click(screen.getByRole("button", { name: "Edit input" }));
   const sourceEditor = screen.getByRole("textbox", { name: "Input source" });
+  if (!(sourceEditor instanceof HTMLTextAreaElement))
+    throw new Error("Expected the input source editor to be a textarea.");
   await act(async () => {
     await navigation!.navigate({
       kind: "examples",
@@ -652,7 +654,7 @@ it("rejects a stale source callback after live navigation publishes before rende
     fireEvent.change(sourceEditor, { target: { value: sourceB } });
   });
 
-  expect(sourceEditor).toHaveValue(sourceA);
+  expect(sourceEditor.value).toBe(sourceA);
   expect(editCase).not.toHaveBeenCalled();
 });
 

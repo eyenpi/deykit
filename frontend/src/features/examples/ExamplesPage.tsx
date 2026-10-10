@@ -1038,7 +1038,6 @@ export function ExamplesPage({
         setEditCase(false);
         updatePendingCase(undefined);
         setNotice(undefined);
-        const refreshedStage = caseStageRef.current;
         caseStageRef.current = {
           owner: refreshedAdmission,
           generation: caseEditGeneration.current,
@@ -1261,6 +1260,7 @@ export function ExamplesPage({
       finishSelectionReload(selectionReloadToken);
       return;
     }
+    const capturedDatasetAdmission = admittedDataset;
     if (
       !liveRouteMatchesSelection({
         registrationId,
@@ -1287,7 +1287,7 @@ export function ExamplesPage({
         !controller.signal.aborted &&
         readEpoch === selectionReadEpochRef.current &&
         requestedNavigationEpoch === navigationEpochRef.current &&
-        datasetAdmissionRef.current === admittedDataset &&
+        datasetAdmissionRef.current === capturedDatasetAdmission &&
         current.registrationId === requestedContext.registrationId &&
         current.datasetId === requestedDatasetId &&
         current.decisionId === requestedDecisionId &&
@@ -1326,7 +1326,7 @@ export function ExamplesPage({
           datasetId: requestedDatasetId,
           decisionId: requestedDecisionId,
           caseId: requestedCaseId,
-          dataset: admittedDataset.read,
+          dataset: capturedDatasetAdmission.read,
           caseRead: caseResult.data,
           labelView: labelResult?.data,
         })
@@ -1341,7 +1341,7 @@ export function ExamplesPage({
         caseId: requestedCaseId,
         readEpoch,
         navigationEpoch: requestedNavigationEpoch,
-        datasetAdmission: admittedDataset,
+        datasetAdmission: capturedDatasetAdmission,
         caseRead: caseResult.data,
         labelView: labelResult?.data,
       });
@@ -1378,7 +1378,8 @@ export function ExamplesPage({
         previous !== undefined &&
         caseOwnedByPrevious &&
         (previous.caseRead.case.etag !== caseResult.data.case.etag ||
-          previous.datasetAdmission.read.etag !== admittedDataset.read.etag ||
+          previous.datasetAdmission.read.etag !==
+            capturedDatasetAdmission.read.etag ||
           !sameCaseSource(
             previous.caseRead.case.record,
             caseResult.data.case.record,
@@ -1752,7 +1753,7 @@ export function ExamplesPage({
       return false;
     }
 
-    const pending: CommittedRefresh = {
+    const committedRefresh: CommittedRefresh = {
       kind: "label",
       context,
       decisionId,
@@ -1765,12 +1766,12 @@ export function ExamplesPage({
       stagedAnswers: stagedAnswersAtSubmit,
       note: noteAtSubmit,
     };
-    committedRefreshRef.current = pending;
-    setCommittedRefresh(pending);
+    committedRefreshRef.current = committedRefresh;
+    setCommittedRefresh(committedRefresh);
     updatePendingLabel(undefined);
     setNotice(undefined);
     setMutationInFlight(false);
-    await refreshCommittedView(pending);
+    await refreshCommittedView(committedRefresh);
     updateBusy(false);
     return true;
   }
@@ -1983,7 +1984,7 @@ export function ExamplesPage({
       return false;
     }
 
-    const pending: CommittedRefresh = {
+    const committedRefresh: CommittedRefresh = {
       kind: "case",
       context,
       caseId,
@@ -1997,12 +1998,12 @@ export function ExamplesPage({
       inputSource: inputSourceAtSubmit,
       metadataSource: metadataSourceAtSubmit,
     };
-    committedRefreshRef.current = pending;
-    setCommittedRefresh(pending);
+    committedRefreshRef.current = committedRefresh;
+    setCommittedRefresh(committedRefresh);
     updatePendingCase(undefined);
     setNotice(undefined);
     setMutationInFlight(false);
-    await refreshCommittedView(pending);
+    await refreshCommittedView(committedRefresh);
     updateBusy(false);
     return true;
   }
