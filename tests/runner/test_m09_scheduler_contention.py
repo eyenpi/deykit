@@ -50,10 +50,11 @@ def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsi
                 lock_acquired.set()
                 release_lock.wait(timeout=5)
 
-        holder = Thread(target=hold_source)
+        holder = Thread(target=hold_source, daemon=True)
         holder.start()
 
     transport_calls = 0
+
     async def transport(_case_id, _wire):
         nonlocal transport_calls
         transport_calls += 1
@@ -70,11 +71,11 @@ def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsi
         async def wait(self, seconds):
             nonlocal heartbeat_at_contention
             clock.value += seconds
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.001)
             if source_busy_observed.is_set():
                 if heartbeat_at_contention is None:
                     heartbeat_at_contention = heartbeat_ticks
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.001)
             if (
                 source_busy_observed.is_set()
                 and dispatch_started.is_set()
@@ -94,24 +95,39 @@ def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsi
         nonlocal heartbeat_ticks
         while not done.is_set():
             heartbeat_ticks += 1
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.001)
 
     async def run():
         done = asyncio.Event()
         beat = asyncio.create_task(heartbeat(done))
         task = asyncio.create_task(
             service.start(
-                request(settings=ExecutionSettings(concurrency=1)),
+                request(settings=ExecutionSettings(concurrency=2)),
                 operation_id="start-contention",
                 on_created=lambda created: run_ids.append(created.run_id),
             )
         )
         try:
-            result = await task
+            finished, _ = await asyncio.wait({task}, timeout=8)
+            if task not in finished:
+                release_lock.set()
+                release_dispatch.set()
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=3)
+                except asyncio.CancelledError:
+                    pass
+                except TimeoutError:
+                    raise AssertionError("native contention task did not drain after cancellation")
+                raise AssertionError("native source contention scenario did not finish")
+            return task.result()
         finally:
+            release_lock.set()
+            release_dispatch.set()
             done.set()
-            await beat
-        return result
+            await asyncio.gather(beat, return_exceptions=True)
+            if holder is not None:
+                await asyncio.to_thread(holder.join, 2)
 
     result = asyncio.run(run())
 
