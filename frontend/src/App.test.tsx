@@ -43,18 +43,19 @@ it("keeps project form values and operation ID after a failed mutation", async (
 it(
   "renders server supplied project context and keeps Run/History within decision context",
   async () => {
+    const overview = {
+      id: "authored-test",
+      name: "Authored test project",
+      path: "/tmp/test",
+      decisions: [{ id: "d", name: "Test decision" }],
+      datasets: [],
+      warnings: [],
+    };
     const gateway: WorkspaceGateway = {
       authoring: disconnectedWorkspace.authoring,
       recentProjects: async () => ({ items: [], warnings: [] }),
-      projectOverview: async () => { throw new Error("not used"); },
-      openProject: async () => ({
-        id: "authored-test",
-        name: "Authored test project",
-        path: "/tmp/test",
-        decisions: [{ id: "d", name: "Test decision" }],
-        datasets: [],
-        warnings: [],
-      }),
+      projectOverview: async (registrationId) => ({ ...overview, id: registrationId }),
+      openProject: async () => overview,
       reconnect: async () => {},
     };
     const user = userEvent.setup();

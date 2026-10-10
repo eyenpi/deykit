@@ -202,7 +202,7 @@ const pending = () =>
     "integration_pending",
     "The local workspace service is not connected in this build. Project folders are unavailable.",
   );
-function disconnectedOperation(): never {
+async function disconnectedOperation(): Promise<never> {
   throw pending();
 }
 
