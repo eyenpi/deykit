@@ -20,6 +20,10 @@ from deykit.runner.views import RunCreated, RunResumed
 
 from .registry import Registration
 
+_CANCEL_RETRY_BUDGET_SECONDS = 5.0
+_CANCEL_RETRY_DELAYS_SECONDS = (0.01, 0.05, 0.1, 0.2, 0.25)
+_SupervisorTarget = tuple[Literal["run", "group"], str, str, Registration, Any, asyncio.Task[Any]]
+
 
 @dataclass(frozen=True)
 class RunAccepted:
@@ -127,10 +131,11 @@ class ExecutionSupervisor:
 
         def callback(event: RunCreated) -> None:
             key = (registration.id, event.run_id)
-            self._runs[key] = (registration, service)
-            if task_holder:
-                self._preparing.discard(task_holder[0])
-                self._run_tasks[key] = task_holder[0]
+            task = task_holder[0]
+            self._preparing.discard(task)
+            if not event.replayed:
+                self._runs[key] = (registration, service)
+                self._run_tasks[key] = task
             if not acknowledged.done():
                 acknowledged.set_result(event)
 
@@ -160,7 +165,6 @@ class ExecutionSupervisor:
         except asyncio.CancelledError:
             # The HTTP waiter has gone away. The execution task remains service-owned.
             raise
-        self._runs[(registration.id, event.run_id)] = (registration, service)
         return RunAccepted(
             operation_id,
             event.run_id,
@@ -190,10 +194,11 @@ class ExecutionSupervisor:
 
         def callback(event: RunResumed) -> None:
             key = (registration.id, event.run_id)
-            self._runs[key] = (registration, service)
-            if task_holder:
-                self._preparing.discard(task_holder[0])
-                self._run_tasks[key] = task_holder[0]
+            task = task_holder[0]
+            self._preparing.discard(task)
+            if not event.replayed:
+                self._runs[key] = (registration, service)
+                self._run_tasks[key] = task
             if not acknowledged.done():
                 acknowledged.set_result(event)
 
@@ -220,7 +225,6 @@ class ExecutionSupervisor:
 
         task_holder.append(self._start_task(execute(), acknowledged))
         event = await asyncio.shield(acknowledged)
-        self._runs[(registration.id, event.run_id)] = (registration, service)
         return RunAccepted(
             operation_id,
             event.run_id,
@@ -249,10 +253,11 @@ class ExecutionSupervisor:
 
         def callback(event: GroupAcknowledged) -> None:
             key = (registration.id, event.group_id)
-            self._groups[key] = (registration, service, kind)
-            if task_holder:
-                self._preparing.discard(task_holder[0])
-                self._group_tasks[key] = task_holder[0]
+            task = task_holder[0]
+            self._preparing.discard(task)
+            if not event.replayed:
+                self._groups[key] = (registration, service, kind)
+                self._group_tasks[key] = task
             if not acknowledged.done():
                 acknowledged.set_result(event)
 
@@ -289,7 +294,6 @@ class ExecutionSupervisor:
 
         task_holder.append(self._start_task(execute(), acknowledged))
         event = await asyncio.shield(acknowledged)
-        self._groups[(registration.id, event.group_id)] = (registration, service, kind)
         return GroupAccepted(
             operation_id,
             event.group_id,
@@ -321,10 +325,11 @@ class ExecutionSupervisor:
 
         def callback(event: GroupAcknowledged) -> None:
             key = (registration.id, event.group_id)
-            self._groups[key] = (registration, service, kind)
-            if task_holder:
-                self._preparing.discard(task_holder[0])
-                self._group_tasks[key] = task_holder[0]
+            task = task_holder[0]
+            self._preparing.discard(task)
+            if not event.replayed:
+                self._groups[key] = (registration, service, kind)
+                self._group_tasks[key] = task
             if not acknowledged.done():
                 acknowledged.set_result(event)
 
@@ -359,7 +364,6 @@ class ExecutionSupervisor:
 
         task_holder.append(self._start_task(execute(), acknowledged))
         event = await asyncio.shield(acknowledged)
-        self._groups[(registration.id, event.group_id)] = (registration, service, kind)
         return GroupAccepted(
             operation_id,
             event.group_id,
@@ -384,31 +388,82 @@ class ExecutionSupervisor:
         self._admitting = False
         preparing = tuple(self._preparing)
         for task in preparing:
-            task.cancel()
+            if task in self._preparing and not task.done():
+                task.cancel()
         if preparing:
             await asyncio.gather(*preparing, return_exceptions=True)
 
-        cancellation_failures = False
-        for (registration_id, run_id), (run_registration, run_service) in tuple(self._runs.items()):
-            run_task = self._run_tasks.get((registration_id, run_id))
-            if run_registration.id != registration_id or run_task is None or run_task.done():
-                continue
-            try:
-                await asyncio.to_thread(
-                    run_service.cancel, run_id, operation_id=f"shutdown-{run_id[:32]}"
-                )
-            except Exception:
-                cancellation_failures = True
+        # A shared monotonic budget bounds only retry waits and attempts. Each
+        # distinct owner still gets its initial attempt, and every thread is
+        # awaited before shutdown can release retained project sources.
+        loop = asyncio.get_running_loop()
+        retry_deadline = loop.time() + _CANCEL_RETRY_BUDGET_SECONDS
+        targets: list[_SupervisorTarget] = []
+        for (registration_id, run_id), (registration, service) in tuple(self._runs.items()):
+            task = self._run_tasks.get((registration_id, run_id))
+            if registration.id == registration_id and task is not None:
+                targets.append(("run", registration_id, run_id, registration, service, task))
         for (registration_id, group_id), (registration, service, _kind) in tuple(
             self._groups.items()
         ):
-            group_task = self._group_tasks.get((registration_id, group_id))
-            if registration.id != registration_id or group_task is None or group_task.done():
+            task = self._group_tasks.get((registration_id, group_id))
+            if registration.id == registration_id and task is not None:
+                targets.append(("group", registration_id, group_id, registration, service, task))
+
+        def is_current(target: _SupervisorTarget) -> bool:
+            category, registration_id, resource_id, _registration, _service, task = target
+            owners = self._run_tasks if category == "run" else self._group_tasks
+            return owners.get((registration_id, resource_id)) is task and not task.done()
+
+        def cancel_target(target: _SupervisorTarget) -> None:
+            _category, _registration_id, resource_id, _registration, service, _task = target
+            service.cancel(resource_id, operation_id=f"shutdown-{resource_id[:32]}")
+
+        pending: list[tuple[_SupervisorTarget, int]] = []
+        cancellation_failures = False
+        for target in targets:
+            if not is_current(target):
                 continue
             try:
-                await asyncio.to_thread(
-                    service.cancel, group_id, operation_id=f"shutdown-{group_id[:32]}"
-                )
+                await asyncio.to_thread(cancel_target, target)
+            except ServiceFailure as error:
+                if error.error.code == "conflict" and error.error.reason == "source_busy":
+                    if is_current(target):
+                        pending.append((target, 0))
+                else:
+                    cancellation_failures = True
+            except Exception:
+                cancellation_failures = True
+
+        while pending:
+            target, delay_index = pending.pop(0)
+            if not is_current(target):
+                continue
+            remaining = retry_deadline - loop.time()
+            if remaining <= 0:
+                cancellation_failures = True
+                continue
+            delay = min(
+                _CANCEL_RETRY_DELAYS_SECONDS[
+                    min(delay_index, len(_CANCEL_RETRY_DELAYS_SECONDS) - 1)
+                ],
+                remaining,
+            )
+            owner = target[-1]
+            done, _ = await asyncio.wait((owner,), timeout=delay)
+            if done or not is_current(target):
+                continue
+            if loop.time() >= retry_deadline:
+                cancellation_failures = True
+                continue
+            try:
+                await asyncio.to_thread(cancel_target, target)
+            except ServiceFailure as error:
+                if error.error.code == "conflict" and error.error.reason == "source_busy":
+                    if is_current(target):
+                        pending.append((target, delay_index + 1))
+                else:
+                    cancellation_failures = True
             except Exception:
                 cancellation_failures = True
         while self._tasks:
