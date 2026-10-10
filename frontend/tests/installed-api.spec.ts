@@ -337,6 +337,19 @@ test("installed browser authors exact decision source and previews imports throu
       contentType: "application/json",
     });
   }
+  async function recordDirectApiFailure(response: APIResponse, path: string) {
+    if (response.status() < 400) return;
+    const body: unknown = await response.json().catch(() => undefined);
+    const error = isRecord(body) ? body.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    apiFailures.push({
+      route_pattern: safeRoutePattern(path),
+      status: response.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    });
+    await recordProgress();
+  }
   async function enterPhase(name: string) {
     completedPhases.push(activePhase);
     activePhase = name;
@@ -2740,7 +2753,10 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.getByRole("button", { name: "Refresh saved case" }).click();
   await (await recoveredCaseRead).body();
-  await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
   expect(committedCaseBodies).toHaveLength(1);
   expect(committedCaseBodies[0]?.input_source).toBe(stagedCaseSource);
   await expect(
@@ -2752,6 +2768,10 @@ test("installed browser authors exact decision source and previews imports throu
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
+  await recordDirectApiFailure(
+    committedCaseRead,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/seed-1`,
+  );
   expect(committedCaseRead.status()).toBe(200);
   expect((await committedCaseRead.json()).data.case.record.input_source).toBe(
     stagedCaseSource,
@@ -2761,11 +2781,19 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "case-1", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByText("Loading selected example…", { exact: true }),
+  ).toHaveCount(0);
   const caseOneBefore = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
+  );
+  await recordDirectApiFailure(
+    caseOneBefore,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
   );
   expect(caseOneBefore.status()).toBe(200);
   const caseOneOriginalSource = (await caseOneBefore.json()).data.case.record
@@ -2775,6 +2803,10 @@ test("installed browser authors exact decision source and previews imports throu
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
+  );
+  await recordDirectApiFailure(
+    caseTwoBefore,
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
   );
   expect(caseTwoBefore.status()).toBe(200);
   const caseTwoOriginalSource = (await caseTwoBefore.json()).data.case.record
