@@ -278,10 +278,11 @@ def test_m09_cancel_projection_failure_does_not_repeat_admitted_cancel(
     with pytest.raises(typer.Exit) as raised:
         _invoke_cancel("cancel-projection-error")
 
-    assert raised.value.exit_code == 1
+    assert raised.value.exit_code == 2
     assert len(runner_data) == 1
     _, calls, active_depths = runner_data[0]
     assert calls == [("run-fixed", "actual-cancel-operation")]
     assert active_depths == [0]
     envelope = json.loads(capsys.readouterr().out)
-    assert envelope["error"]["code"] == "internal_error"
+    assert envelope["error"]["code"] == "validation_error"
+    assert envelope["error"]["reason"] == "invalid_input"
