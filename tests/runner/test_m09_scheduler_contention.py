@@ -1,6 +1,7 @@
 """Native source-lock contention coverage for the M09 scheduler policy."""
 
 import asyncio
+from contextlib import contextmanager
 from threading import Event, Thread
 
 import pytest
@@ -13,18 +14,36 @@ from deykit.contracts.records import ExecutionSettings
 from deykit.runner.history import read_history
 
 
-def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsive(setup):
+def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsive(
+    setup, monkeypatch
+):
     source, service, factory, clock = setup(3)
     lock_acquired, release_lock = Event(), Event()
     dispatch_started, release_dispatch = asyncio.Event(), asyncio.Event()
     holder: Thread | None = None
     run_ids: list[str] = []
     heartbeat_ticks = 0
+    source_busy_observed = Event()
+    source_busy_reasons: list[str | None] = []
+    heartbeat_at_contention: int | None = None
 
-    def after_dispatch(stage, _attempt):
+    original_consistent_read = source.consistent_read
+
+    @contextmanager
+    def observe_source_busy():
+        try:
+            with original_consistent_read() as admitted_source:
+                yield admitted_source
+        except ServiceFailure as error:
+            if error.error.code == "conflict" and error.error.reason == "source_busy":
+                source_busy_reasons.append(error.error.reason)
+                source_busy_observed.set()
+            raise
+
+    monkeypatch.setattr(source, "consistent_read", observe_source_busy)
+
+    def start_holder():
         nonlocal holder
-        if stage != "after_dispatch":
-            return
 
         def hold_source():
             with source.consistent_read():
@@ -33,12 +52,15 @@ def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsi
 
         holder = Thread(target=hold_source)
         holder.start()
-        assert lock_acquired.wait(timeout=2)
 
-    service.scheduler.hook = after_dispatch
-
+    transport_calls = 0
     async def transport(_case_id, _wire):
-        dispatch_started.set()
+        nonlocal transport_calls
+        transport_calls += 1
+        if transport_calls == 2:
+            start_holder()
+            assert await asyncio.to_thread(lock_acquired.wait, 2)
+            dispatch_started.set()
         await release_dispatch.wait()
         return answer()
 
@@ -46,9 +68,20 @@ def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsi
 
     class ReleaseOnContention:
         async def wait(self, seconds):
+            nonlocal heartbeat_at_contention
             clock.value += seconds
             await asyncio.sleep(0)
-            if dispatch_started.is_set() and not release_lock.is_set():
+            if source_busy_observed.is_set():
+                if heartbeat_at_contention is None:
+                    heartbeat_at_contention = heartbeat_ticks
+                await asyncio.sleep(0)
+            if (
+                source_busy_observed.is_set()
+                and dispatch_started.is_set()
+                and heartbeat_at_contention is not None
+                and heartbeat_ticks > heartbeat_at_contention
+                and not release_lock.is_set()
+            ):
                 release_lock.set()
                 assert holder is not None
                 await asyncio.to_thread(holder.join, 2)
@@ -83,10 +116,18 @@ def test_m09_native_lock_contention_keeps_cancel_durable_and_event_loop_responsi
     result = asyncio.run(run())
 
     assert holder is not None and not holder.is_alive()
-    assert heartbeat_ticks > 0
-    assert len(factory.calls) == 1
-    assert result.state == "cancelled" and result.attempts_used == 1
+    assert source_busy_reasons.count("source_busy") >= 1
+    assert heartbeat_at_contention is not None
+    assert heartbeat_ticks > heartbeat_at_contention
+    assert len(factory.calls) == 2
+    assert result.state == "cancelled" and result.attempts_used == 2
     assert service.show(result.run_id).state == "cancelled"
+    history = read_history(source, result.run_id)
+    assert len(history.attempts) == 2
+    assert all(
+        (final := history.final_event(attempt.id)) is not None and final.state == "known"
+        for attempt in history.attempts
+    )
 
 
 def test_m09_dispatch_contention_stops_at_original_deadline_without_transport(setup):
