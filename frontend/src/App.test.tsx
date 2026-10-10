@@ -1,10 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { ApiError } from "./api/client";
 import { disconnectedWorkspace } from "./workspace/gateway";
 import type { WorkspaceGateway } from "./workspace/gateway";
+
+beforeEach(() => {
+  window.history.replaceState(null, "", "#/");
+});
+
 it("reports unavailable service without fictional recent projects or run controls", async () => {
   render(<App />);
   expect(await screen.findByRole("alert")).toBeTruthy();
