@@ -944,6 +944,118 @@ it("recaptures the acknowledged same-scope label after a guard saves the case", 
   expect(labelSave).toBeGreaterThan(refreshedLabel);
 });
 
+it("requires deliberate review when a recovered case receipt changes the label input hash", async () => {
+  let currentDataset: DatasetRead = dataset;
+  let currentCase: CaseRead = caseA;
+  let failNextRead = false;
+  const editCase = vi.fn<ExampleAuthoringOperations["editCase"]>(
+    async ({ caseId, body }) => {
+      const updated = caseRead(caseId, body.input_source);
+      currentDataset = { ...dataset, etag: "dataset-etag-after-save" };
+      currentCase = {
+        ...updated,
+        dataset_etag: currentDataset.etag,
+        case: { ...updated.case, etag: "etag-case-a-after-save" },
+      };
+      failNextRead = true;
+      const receipt: CaseEditReceipt = {
+        schema_version: 1,
+        case: currentCase.case,
+        dataset: currentDataset,
+        cleared_label_ids: [],
+        replayed: false,
+      };
+      return { data: receipt, warnings: [] };
+    },
+  );
+  const readCase = vi.fn<ExampleAuthoringOperations["readCase"]>(
+    async ({ caseId }) => {
+      if (caseId === "case-a" && failNextRead) {
+        failNextRead = false;
+        throw new ApiError("source_busy", "Refresh is temporarily busy.", 503);
+      }
+      return {
+        data: caseId === "case-a" ? currentCase : caseB,
+        warnings: [],
+      };
+    },
+  );
+  const readLabel = vi.fn<ExampleAuthoringOperations["readLabel"]>(
+    async ({ caseId }) => {
+      const selectedCase = caseId === "case-a" ? currentCase : caseB;
+      const view = labelView(selectedCase);
+      return {
+        data: {
+          ...view,
+          review: {
+            ...view.review,
+            input_hash:
+              selectedCase.case.record.input_source === sourceA
+                ? "hash-before-case-edit"
+                : "hash-after-case-edit",
+          },
+        },
+        warnings: [],
+      };
+    },
+  );
+  const { user } = mountExamples(
+    {
+      editCase,
+      readCase,
+      readLabel,
+      listCases: async () => ({
+        data: {
+          ...listCases,
+          dataset_etag: currentDataset.etag,
+          items: [currentCase.case, caseB.case],
+        },
+        warnings: [],
+      }),
+    },
+    { read: async () => ({ data: currentDataset, warnings: [] }) },
+  );
+
+  await waitForSelectedSource(sourceA);
+  await user.click(screen.getByRole("button", { name: "Edit input" }));
+  const savedSource = '{"case":"saved"}';
+  fireEvent.change(screen.getByRole("textbox", { name: "Input source" }), {
+    target: { value: savedSource },
+  });
+  await user.click(screen.getByRole("button", { name: "Save input" }));
+  await screen.findByRole("region", { name: "Saved changes awaiting refresh" });
+  expect(editCase).toHaveBeenCalledTimes(1);
+  expect(
+    screen.queryByRole("button", { name: "Retry same case edit" }),
+  ).toBeNull();
+  expect(screen.getByRole("button", { name: "Refresh saved case" })).toBeTruthy();
+
+  await user.click(screen.getByRole("button", { name: "Refresh saved case" }));
+  await screen.findByRole("region", { name: "Review selected context" });
+  expect(
+    screen.getByText(
+      "Case saved. The current label review changed; review it before making another label change.",
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Edit input" }).matches(":disabled"),
+  ).toBe(true);
+  expect(editCase).toHaveBeenCalledTimes(1);
+
+  await user.click(
+    screen.getByRole("button", { name: "Review current selection" }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("region", { name: "Review selected context" }),
+    ).toBeNull(),
+  );
+  expect(
+    screen.getByRole("button", { name: "Edit input" }).matches(":disabled"),
+  ).toBe(false);
+  expect(editCase).toHaveBeenCalledTimes(1);
+});
+
 it("rejects a stale expected-answer callback after live navigation publishes before render", async () => {
   const { saveLabels } = mountExamples();
   await waitForSelectedSource(sourceA);

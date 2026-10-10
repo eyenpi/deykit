@@ -2753,6 +2753,27 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.getByRole("button", { name: "Refresh saved case" }).click();
   await (await recoveredCaseRead).body();
+  const changedLabelReview = page.getByRole("region", {
+    name: "Review selected context",
+  });
+  await expect(changedLabelReview).toContainText(
+    "The current example or label context changed. Review it before making another change.",
+  );
+  await expect(
+    page.getByText(
+      "Case saved. The current label review changed; review it before making another label change.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeDisabled();
+  await page.getByRole("button", { name: "Review current selection" }).click();
+  await expect(changedLabelReview).toHaveCount(0);
+  await expect(
+    page.getByText(
+      "Current example and label review acknowledged. Your staged changes remain available to reapply deliberately.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled({
     timeout: 10_000,
   });
