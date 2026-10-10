@@ -209,6 +209,33 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 test("installed browser authors exact decision source and previews imports through real APIs", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(180_000);
+  const completedPhases: string[] = [];
+  const screenshots: string[] = [];
+  let activePhase = "Workspace bootstrap and project creation";
+  let progressSequence = 0;
+  const progressPath = testInfo.outputPath("authoring-progress.json");
+  async function recordProgress() {
+    const body = JSON.stringify({ active_phase: activePhase, completed_phases: completedPhases, screenshots });
+    await writeFile(progressPath, `${body}\n`, "utf8");
+    progressSequence += 1;
+    await testInfo.attach(`authoring-progress-${progressSequence}`, {
+      body: `${body}\n`,
+      contentType: "application/json",
+    });
+  }
+  async function enterPhase(name: string) {
+    completedPhases.push(activePhase);
+    activePhase = name;
+    await recordProgress();
+  }
+  async function captureScreenshot(name: string) {
+    await page.screenshot({ path: testInfo.outputPath(name), fullPage: true });
+    screenshots.push(name);
+    await recordProgress();
+  }
+  await recordProgress();
+
   const projectName = "M10 authoring acceptance";
   let decisionName = "Precise source decision";
   const projectPath = testInfo.outputPath("authoring-project");
@@ -235,13 +262,15 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByLabel("Project folder path").fill(projectPath);
   await page.getByRole("dialog").getByRole("button", { name: "Create project" }).click();
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+  await enterPhase("Dataset creation and first import mapping");
 
   await page.getByRole("button", { name: "Create dataset" }).click();
   await page.getByLabel("Dataset name").fill("Imported before decision");
   await page.getByRole("dialog").getByRole("button", { name: "Create dataset" }).click();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("examples-before-decision.png"), fullPage: true });
+  await captureScreenshot("examples-before-decision.png");
 
+  await enterPhase("Serialized opaque mapping transforms and import preview");
   await page.getByRole("button", { name: "Project examples", exact: true }).click();
   await page.getByRole("button", { name: "Import examples" }).click();
   await page.getByLabel("Import source text").fill("id,input\nseed-1,first imported input\n");
@@ -298,7 +327,7 @@ test("installed browser authors exact decision source and previews imports throu
   expect(previewBodies[0].mapping_source).toBe(finalMappingSource);
   await expect(page.getByRole("heading", { name: "Import review" })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "1 rows · 1 valid · 0 rejected" })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("import-before-decision.png"), fullPage: true });
+  await captureScreenshot("import-before-decision.png");
   await page.getByRole("button", { name: "Import cases" }).click();
   await expect(page.getByRole("button", { name: "seed-1", exact: true })).toBeVisible();
   const initialImportHash = new URL(page.url()).hash;
@@ -306,6 +335,7 @@ test("installed browser authors exact decision source and previews imports throu
   const datasetId = new URLSearchParams(initialImportHash.split("?")[1] ?? "").get("dataset") as string;
 
   await page.getByRole("button", { name: projectName, exact: true }).click();
+  await enterPhase("Exact decision source authoring and API/CLI conflict recovery");
   await page.getByRole("button", { name: "Create decision" }).click();
   await page.getByLabel("Decision name").fill(decisionName);
   await page.getByRole("dialog").getByRole("button", { name: "Create decision" }).click();
@@ -315,7 +345,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByLabel("Advanced JSON Schema source").fill(schemaSource);
   await page.getByLabel("Advanced JSON Schema source").press("Tab");
   await expect(page.locator(".document-title-row [role=status]")).toHaveText("Draft saved");
-  await page.screenshot({ path: testInfo.outputPath("decision-json-schema.png"), fullPage: true });
+  await captureScreenshot("decision-json-schema.png");
 
   const registrationMatch = new URL(page.url()).hash.match(/^#\/p\/([A-Za-z0-9_-]+)/);
   const decisionMatch = new URL(page.url()).hash.match(/\/d\/([A-Za-z0-9_-]+)/);
@@ -393,6 +423,7 @@ test("installed browser authors exact decision source and previews imports throu
   expect(reappliedDraft.record.editor_source).toBe(browserSource);
 
   decisionName = "Precise source decision renamed";
+  await enterPhase("Decision mutation replay and immutable revision history");
   const renameBodies: Array<Record<string, unknown>> = [];
   await page.route(`**/decisions/${decisionId}/rename`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
@@ -616,10 +647,12 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByLabel("Decision source")).toHaveValue(restoreRaceWinnerSource);
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
 
+  await enterPhase("Label staging, review, provenance and write races");
   await page.getByRole("button", { name: "Examples", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Expected answers" })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("examples-label-review.png"), fullPage: true });
+  await captureScreenshot("examples-label-review.png");
 
+  await enterPhase("Import row validation and explicit accepted-row commit");
   await page.getByRole("button", { name: "Import examples" }).click();
   await page.getByLabel("Map expected answers for").selectOption(decisionId);
   await page.getByLabel("Advanced mapping source").fill(
@@ -639,7 +672,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("row", { name: /3.*not-json.*invalid/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /7.*missing-option/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Import valid rows" })).toBeDisabled();
-  await page.screenshot({ path: testInfo.outputPath("import-row-errors.png"), fullPage: true });
+  await captureScreenshot("import-row-errors.png");
   await page.getByLabel("Import source text").fill(`${sourceText}# changed proposal\n`);
   await expect(page.getByRole("heading", { name: "Import review" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Import valid rows" })).toHaveCount(0);
@@ -647,7 +680,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Preview all rows" }).click();
   await expect(page.getByRole("status").filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" })).toBeVisible();
   await page.getByRole("checkbox", { name: "Import valid rows only (8) and keep the exclusion report" }).check();
-  await page.screenshot({ path: testInfo.outputPath("import-valid-rows-reviewed.png"), fullPage: true });
+  await captureScreenshot("import-valid-rows-reviewed.png");
   await page.getByRole("button", { name: "Import valid rows" }).click();
   await expect(page.getByRole("button", { name: "case-1", exact: true })).toBeVisible();
   expect(importCommitBody).toBeDefined();
@@ -789,6 +822,7 @@ test("installed browser authors exact decision source and previews imports throu
   expect(tagOnly.status()).toBe(200);
   expect((await readCaseOneLabel().then((response) => response.json())).data.status).toBe("applicable");
 
+  await enterPhase("Case source preservation and stale-label applicability");
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await page.getByRole("button", { name: "case-1", exact: true }).click();
@@ -835,6 +869,7 @@ test("installed browser authors exact decision source and previews imports throu
   expect(readded.status()).toBe(200);
   expect((await readCaseOneLabel().then((response) => response.json())).data.label).toBeNull();
 
+  await enterPhase("Grouped server split preview and option-reference impact");
   await page.getByRole("button", { name: "Split dataset" }).click();
   await page.getByRole("button", { name: "Preview assignments" }).click();
   await expect(page.getByRole("heading", { name: "Server split preview" })).toBeVisible();
@@ -850,7 +885,7 @@ test("installed browser authors exact decision source and previews imports throu
     .map(([, split]) => split);
   expect(relatedAssignments).toHaveLength(4);
   expect(new Set(relatedAssignments).size).toBe(1);
-  await page.screenshot({ path: testInfo.outputPath("split-server-preview.png"), fullPage: true });
+  await captureScreenshot("split-server-preview.png");
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Discard proposal" }).click();
 
@@ -896,6 +931,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(uncomputableImpact.getByRole("list", { name: "Affected references" })).toHaveCount(0);
   await uncomputableImpact.getByRole("button", { name: "Cancel" }).click();
 
+  await enterPhase("Decision archive recovery and provider safety controls");
   await page.getByRole("button", { name: "Archive decision" }).click();
   const archiveDialog = page.getByRole("dialog", { name: "Archive this decision?" });
   await expect(archiveDialog).toBeVisible();
@@ -987,11 +1023,12 @@ test("installed browser authors exact decision source and previews imports throu
   expect((credentialBodies[0].credential_value as string).length).toBe(credentialValue.length);
   expect(await page.locator("body").innerText()).not.toContain(credentialValue);
   await page.unroute(`**/providers/${configuredProvider.id}/credential-os-store`);
-  await page.screenshot({ path: testInfo.outputPath("provider-setup.png"), fullPage: true });
+  await captureScreenshot("provider-setup.png");
 
+  await enterPhase("Demo fixture profile safety and authored binding verification");
   await page.getByRole("button", { name: "Fixtures", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Fixtures" })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("fixture-setup.png"), fullPage: true });
+  await captureScreenshot("fixture-setup.png");
 
   // Inspect the packaged authored fixture through the installed UI and API.
   // The test never invokes provider networking or requests raw-source display.
@@ -1044,7 +1081,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByLabel("Store a credential in the operating system")).toHaveCount(0);
   await expect(page.getByLabel("Destination")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Refresh model list" })).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath("fixture-provider-safe-details.png"), fullPage: true });
+  await captureScreenshot("fixture-provider-safe-details.png");
   await page.getByRole("button", { name: "Open fixture library" }).click();
   await expect(page.getByRole("heading", { name: "Fixture library" })).toBeVisible();
   await page.getByRole("button", { name: "Fixtures", exact: true }).click();
@@ -1065,7 +1102,7 @@ test("installed browser authors exact decision source and previews imports throu
     model_identity: fixtureSummary.model_identity,
     requests: [],
   });
-  await page.screenshot({ path: testInfo.outputPath("fixture-exact-bindings.png"), fullPage: true });
+  await captureScreenshot("fixture-exact-bindings.png");
 
   const bindingSources = execFileSync(
     "python",
@@ -1104,14 +1141,16 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(createdFixtureData.requests).toEqual([]);
 
+  await enterPhase("Responsive 320px and reduced-motion review");
   await page.setViewportSize({ width: 320, height: 800 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath("authoring-narrow-320.png"), fullPage: true });
+  await captureScreenshot("authoring-narrow-320.png");
 
   expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(true);
   expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(true);
   expect(page.url()).not.toContain(capability as string);
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
   expect(await page.evaluate(() => (document as Document & { cookie: string }).cookie)).toBe("");
+  await enterPhase("Connected authoring workflow complete");
 });
