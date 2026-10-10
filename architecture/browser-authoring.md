@@ -39,6 +39,15 @@ field used by the OS-store operation; provider model listing is explicitly invok
 Fixture requests use authored strict binding source strings, and reading request
 details is opt-in.
 
+After a label or case write returns a valid receipt, a later read failure leaves
+the write known as committed and keeps the submitted context available. The page
+offers an explicit read-only refresh; it does not retry the write or replace its
+operation ID, body, or ETags. Further label or case edits and Save-and-leave wait
+until the current review has been read. If the refreshed review shows an external
+change, the author must review it before deliberately reapplying staged work.
+Discarding the pending local edits can leave the page, but it does not undo the
+committed label or case write.
+
 The browser may author project content, labels, profiles, and fixtures. It does not
 expose run dispatch, progress, resume, result review, comparison, reevaluation, or
 diagnostic UI. A browser acceptance claim requires the packaged static assets with

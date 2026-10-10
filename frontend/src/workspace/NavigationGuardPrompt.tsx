@@ -13,12 +13,14 @@ export function useDirtyNavigationGuard({
   save,
   discard,
   blockedMessage,
+  allowDiscardWhenBlocked = false,
 }: {
   dirty: boolean;
   isDirtyNow?: () => boolean;
   save: () => Promise<void>;
   discard: () => void;
   blockedMessage?: string;
+  allowDiscardWhenBlocked?: boolean;
 }): {
   guard: DirtyNavigationGuard;
   prompt: ReactNode;
@@ -115,7 +117,7 @@ export function useDirtyNavigationGuard({
             </button>
             <button
               type="button"
-              disabled={saving || !!blockedMessage}
+              disabled={saving || (!!blockedMessage && !allowDiscardWhenBlocked)}
               onClick={discardAndLeave}
             >
               Discard changes

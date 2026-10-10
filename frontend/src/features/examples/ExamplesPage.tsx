@@ -32,12 +32,50 @@ type LabelView =
   ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">;
 type LabelMutationBody =
   ApiOperationBody<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
+type LabelMutationReceipt =
+  ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
 type CaseEditBody =
   ApiOperationBody<"edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put">;
+type CaseMutationReceipt =
+  ApiOperationData<"edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put">;
 type AddCaseBody =
   ApiOperationBody<"add_case_api_v1_projects__registration_id__datasets__dataset_id__cases_post">;
 type RemoveCaseBody =
   ApiOperationBody<"delete_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__delete">;
+
+type ReadContext = {
+  registrationId: string;
+  datasetId: string;
+  decisionId?: string;
+  selectedCaseId?: string;
+  refreshGeneration: number;
+  refreshToken: number;
+};
+
+type CommittedRefresh =
+  | {
+      kind: "label";
+      context: ReadContext;
+      decisionId: string;
+      caseId: string;
+      receipt: LabelMutationReceipt;
+      body: LabelMutationBody;
+      stagedGeneration: number;
+      stagedAnswers: readonly string[];
+      note: string;
+    }
+  | {
+      kind: "case";
+      context: ReadContext;
+      caseId: string;
+      decisionId?: string;
+      receipt: CaseMutationReceipt;
+      body: CaseEditBody;
+      stagedGeneration: number;
+      inputKind: "text" | "json";
+      inputSource: string;
+      metadataSource: string;
+    };
 
 const opId = () => crypto.randomUUID();
 
@@ -114,12 +152,18 @@ export function ExamplesPage({
     uncertain: boolean;
     conflict: boolean;
   }>();
+  const [committedRefresh, setCommittedRefresh] =
+    useState<CommittedRefresh>();
+  const committedRefreshRef = useRef<CommittedRefresh>();
+  const caseEditGeneration = useRef(0);
+  const labelEditGeneration = useRef(0);
   const [caseConflictReviewed, setCaseConflictReviewed] = useState(false);
   const [addConflictReviewed, setAddConflictReviewed] = useState(false);
   const [removeConflictReviewed, setRemoveConflictReviewed] = useState(false);
-  const currentReadContext = useRef({
+  const currentReadContext = useRef<ReadContext>({
     registrationId,
     datasetId,
+    decisionId: decision?.id,
     selectedCaseId,
     refreshGeneration,
     refreshToken,
@@ -127,6 +171,7 @@ export function ExamplesPage({
   currentReadContext.current = {
     registrationId,
     datasetId,
+    decisionId: decision?.id,
     selectedCaseId,
     refreshGeneration,
     refreshToken,
@@ -136,10 +181,186 @@ export function ExamplesPage({
     return (
       current.registrationId === context.registrationId &&
       current.datasetId === context.datasetId &&
+      current.decisionId === context.decisionId &&
       current.selectedCaseId === context.selectedCaseId &&
       current.refreshGeneration === context.refreshGeneration &&
       current.refreshToken === context.refreshToken
     );
+  }
+  function isCommittedRefreshCurrent(pending: CommittedRefresh) {
+    return (
+      committedRefreshRef.current === pending &&
+      isCurrentContext(pending.context) &&
+      decision?.id === pending.context.decisionId
+    );
+  }
+  function clearCommittedRefresh(pending: CommittedRefresh) {
+    if (committedRefreshRef.current !== pending) return;
+    committedRefreshRef.current = undefined;
+    setCommittedRefresh(undefined);
+  }
+  async function refreshCommittedView(
+    pending: CommittedRefresh,
+  ): Promise<boolean> {
+    if (!isCommittedRefreshCurrent(pending)) {
+      setError("The saved item belongs to a different selection. Reload it before editing.");
+      return false;
+    }
+    try {
+      if (pending.kind === "label") {
+        const submitted = pending.body.edits[0];
+        if (!submitted) throw new Error("The saved label request is unavailable.");
+        const receiptMatches = pending.receipt.changes.some(
+          (change) =>
+            change.operation_id === pending.body.operation_id &&
+            change.case_id === pending.caseId &&
+            change.dataset_id === pending.context.datasetId &&
+            change.decision_id === pending.decisionId,
+        );
+        if (!receiptMatches)
+          throw new Error("The saved label receipt did not match this review.");
+        const refreshedLabel = await operations.readLabel({
+          registrationId: pending.context.registrationId,
+          decisionId: pending.decisionId,
+          datasetId: pending.context.datasetId,
+          caseId: pending.caseId,
+        });
+        if (!isCommittedRefreshCurrent(pending)) return false;
+        const page = await operations.listLabels({
+          registrationId: pending.context.registrationId,
+          decisionId: pending.decisionId,
+          datasetId: pending.context.datasetId,
+          query: { limit: "50" },
+        });
+        if (!isCommittedRefreshCurrent(pending)) return false;
+        const review = refreshedLabel.data.review;
+        if (
+          review.case_id !== pending.caseId ||
+          review.dataset_id !== pending.context.datasetId ||
+          review.decision_id !== pending.decisionId
+        )
+          throw new Error("The refreshed label belongs to a different review.");
+
+        const reviewChanged =
+          review.decision_etag !== submitted.review.decision_etag ||
+          review.draft_etag !== submitted.review.draft_etag ||
+          review.input_hash !== submitted.review.input_hash;
+        setLabelView(refreshedLabel.data);
+        setLabels(page.data);
+        setLabelCursor(page.data.next_cursor ?? undefined);
+        if (reviewChanged) {
+          setPendingLabel({
+            body: pending.body,
+            uncertain: false,
+            conflict: true,
+          });
+          setNotice(
+            "Label saved. Its current review changed; review it before reapplying your staged answer.",
+          );
+        } else if (labelEditGeneration.current === pending.stagedGeneration) {
+          setStagedAnswers(
+            refreshedLabel.data.label?.acceptable_option_ids ?? [],
+          );
+          setNote("");
+          setEditorDirty(false);
+          setPendingLabel(undefined);
+          setNotice(undefined);
+        }
+        clearCommittedRefresh(pending);
+        setError(undefined);
+        return true;
+      }
+
+      const receiptCase = pending.receipt.case;
+      if (
+        !receiptCase ||
+        receiptCase.record.id !== pending.caseId ||
+        receiptCase.record.dataset_id !== pending.context.datasetId ||
+        pending.receipt.dataset.record.id !== pending.context.datasetId
+      )
+        throw new Error("The saved case receipt did not match this case.");
+      const refreshedCase = await operations.readCase({
+        registrationId: pending.context.registrationId,
+        datasetId: pending.context.datasetId,
+        caseId: pending.caseId,
+      });
+      if (!isCommittedRefreshCurrent(pending)) return false;
+      const refreshedDataset = await datasetOperations.read({
+        registrationId: pending.context.registrationId,
+        datasetId: pending.context.datasetId,
+      });
+      if (!isCommittedRefreshCurrent(pending)) return false;
+      const refreshedLabel = pending.decisionId
+        ? await operations.readLabel({
+            registrationId: pending.context.registrationId,
+            decisionId: pending.decisionId,
+            datasetId: pending.context.datasetId,
+            caseId: pending.caseId,
+          })
+        : undefined;
+      if (!isCommittedRefreshCurrent(pending)) return false;
+      const page = await operations.listCases({
+        registrationId: pending.context.registrationId,
+        datasetId: pending.context.datasetId,
+        query: { limit: "50" },
+      });
+      if (!isCommittedRefreshCurrent(pending)) return false;
+      if (
+        refreshedCase.data.case.record.id !== pending.caseId ||
+        refreshedCase.data.case.record.dataset_id !== pending.context.datasetId ||
+        refreshedDataset.data.record.id !== pending.context.datasetId ||
+        (refreshedLabel &&
+          (refreshedLabel.data.review.case_id !== pending.caseId ||
+            refreshedLabel.data.review.dataset_id !== pending.context.datasetId ||
+            refreshedLabel.data.review.decision_id !== pending.decisionId))
+      )
+        throw new Error("The refreshed case belongs to a different review.");
+
+      const currentCaseChanged =
+        receiptCase.etag !== refreshedCase.data.case.etag ||
+        pending.receipt.dataset.etag !== refreshedDataset.data.etag;
+      setCaseRead(refreshedCase.data);
+      setDataset(refreshedDataset.data);
+      if (refreshedLabel) setLabelView(refreshedLabel.data);
+      setCases(page.data);
+      setCaseCursor(page.data.next_cursor ?? undefined);
+      if (currentCaseChanged) {
+        setPendingCase({
+          body: pending.body,
+          uncertain: false,
+          conflict: true,
+        });
+        setCaseConflictReviewed(false);
+        setEditCase(true);
+        setNotice(
+          "Case saved. Newer case or dataset changes were found; review before reapplying.",
+        );
+      } else if (caseEditGeneration.current === pending.stagedGeneration) {
+        setInputKind(refreshedCase.data.case.record.input_kind);
+        setInputSource(refreshedCase.data.case.record.input_source);
+        setMetadataSource(
+          refreshedCase.data.case.record.metadata_source ?? "{}",
+        );
+        setEditorDirty(false);
+        setEditCase(false);
+        setPendingCase(undefined);
+        setNotice(undefined);
+      }
+      clearCommittedRefresh(pending);
+      setError(undefined);
+      return true;
+    } catch (cause) {
+      if (isCommittedRefreshCurrent(pending)) setError(safeMessage(cause));
+      return false;
+    }
+  }
+  async function refreshCommittedOutcome() {
+    const pending = committedRefreshRef.current;
+    if (!pending || busy) return;
+    setBusy(true);
+    setError(undefined);
+    await refreshCommittedView(pending);
+    setBusy(false);
   }
 
   useEffect(() => {
@@ -329,9 +550,11 @@ export function ExamplesPage({
     action: "set" | "resolve" | "dispute" | "clear",
   ): Promise<boolean> {
     if (
+      committedRefreshRef.current ||
       !decision ||
       !datasetId ||
       !labelView ||
+      !selectedCaseId ||
       (stagedAnswers.length === 0 && action !== "clear" && action !== "dispute")
     )
       return false;
@@ -339,6 +562,12 @@ export function ExamplesPage({
     setBusy(true);
     setMutationInFlight(true);
     setError(undefined);
+    const context = { ...currentReadContext.current };
+    const decisionId = decision.id;
+    const caseId = selectedCaseId;
+    const stagedGeneration = labelEditGeneration.current;
+    const stagedAnswersAtSubmit = [...stagedAnswers];
+    const noteAtSubmit = note;
     const body: LabelMutationBody = pendingLabel?.uncertain
       ? pendingLabel.body
       : {
@@ -349,41 +578,25 @@ export function ExamplesPage({
               review: labelView.review,
               action,
               ...(action === "set" || action === "resolve"
-                ? { acceptable_option_ids: stagedAnswers }
+                ? { acceptable_option_ids: stagedAnswersAtSubmit }
                 : {}),
               ...(action === "set" || action === "resolve"
                 ? { provenance: "human" as const }
                 : {}),
-              ...(note ? { note } : {}),
+              ...(noteAtSubmit ? { note: noteAtSubmit } : {}),
             },
           ],
         };
+    let receipt: LabelMutationReceipt;
     try {
-      await operations.saveLabels({
-        registrationId,
-        decisionId: decision.id,
-        datasetId,
-        body,
-      });
-      setPendingLabel(undefined);
-      setNote("");
-      const refreshed = await operations.readLabel({
-        registrationId,
-        decisionId: decision.id,
-        datasetId,
-        caseId: selectedCaseId!,
-      });
-      setLabelView(refreshed.data);
-      setStagedAnswers(refreshed.data.label?.acceptable_option_ids ?? []);
-      setEditorDirty(false);
-      const page = await operations.listLabels({
-        registrationId,
-        decisionId: decision.id,
-        datasetId,
-        query: { limit: "50" },
-      });
-      setLabels(page.data);
-      setLabelCursor(page.data.next_cursor ?? undefined);
+      receipt = (
+        await operations.saveLabels({
+          registrationId: context.registrationId,
+          decisionId,
+          datasetId: context.datasetId,
+          body,
+        })
+      ).data;
     } catch (cause) {
       if (isOutcomeUnknown(cause))
         setPendingLabel({ body, uncertain: true, conflict: false });
@@ -391,11 +604,29 @@ export function ExamplesPage({
         setPendingLabel({ body, uncertain: false, conflict: true });
       else setPendingLabel(undefined);
       setError(safeMessage(cause));
-      return false;
-    } finally {
       setBusy(false);
       setMutationInFlight(false);
+      return false;
     }
+
+    const pending: CommittedRefresh = {
+      kind: "label",
+      context,
+      decisionId,
+      caseId,
+      receipt,
+      body,
+      stagedGeneration,
+      stagedAnswers: stagedAnswersAtSubmit,
+      note: noteAtSubmit,
+    };
+    committedRefreshRef.current = pending;
+    setCommittedRefresh(pending);
+    setPendingLabel(undefined);
+    setNotice(undefined);
+    setMutationInFlight(false);
+    await refreshCommittedView(pending);
+    setBusy(false);
     return true;
   }
 
@@ -429,11 +660,24 @@ export function ExamplesPage({
   }
 
   async function saveCase(): Promise<boolean> {
-    if (!dataset || !caseRead || !selectedCaseId) return false;
+    if (
+      committedRefreshRef.current ||
+      !dataset ||
+      !caseRead ||
+      !selectedCaseId
+    )
+      return false;
     if (pendingCase?.conflict) return false;
     setBusy(true);
     setMutationInFlight(true);
     setError(undefined);
+    const context = { ...currentReadContext.current };
+    const caseId = selectedCaseId;
+    const decisionId = decision?.id;
+    const stagedGeneration = caseEditGeneration.current;
+    const inputKindAtSubmit = inputKind;
+    const inputSourceAtSubmit = inputSource;
+    const metadataSourceAtSubmit = metadataSource;
     const record = caseRead.case.record;
     const body: CaseEditBody = pendingCase?.uncertain
       ? pendingCase.body
@@ -442,52 +686,24 @@ export function ExamplesPage({
           operation_id: opId(),
           expected_case_etag: caseRead.case.etag,
           expected_dataset_etag: dataset.etag,
-          input_kind: inputKind,
-          input_source: inputSource,
+          input_kind: inputKindAtSubmit,
+          input_source: inputSourceAtSubmit,
           tags: record.tags ?? [],
           split: record.split ?? "development",
           group_id: record.group_id ?? null,
           derived_from: record.derived_from ?? [],
-          metadata_source: metadataSource,
+          metadata_source: metadataSourceAtSubmit,
         };
+    let receipt: CaseMutationReceipt;
     try {
-      await operations.editCase({
-        registrationId,
-        datasetId,
-        caseId: selectedCaseId,
-        body,
-      });
-      setPendingCase(undefined);
-      setCaseConflictReviewed(false);
-      setEditCase(false);
-      setEditorDirty(false);
-      const refreshed = await operations.readCase({
-        registrationId,
-        datasetId,
-        caseId: selectedCaseId,
-      });
-      setCaseRead(refreshed.data);
-      const refreshedDataset = await datasetOperations.read({
-        registrationId,
-        datasetId,
-      });
-      setDataset(refreshedDataset.data);
-      if (decision) {
-        const refreshedLabel = await operations.readLabel({
-          registrationId,
-          decisionId: decision.id,
-          datasetId,
-          caseId: selectedCaseId,
-        });
-        setLabelView(refreshedLabel.data);
-      }
-      const page = await operations.listCases({
-        registrationId,
-        datasetId,
-        query: { limit: "50" },
-      });
-      setCases(page.data);
-      setCaseCursor(page.data.next_cursor ?? undefined);
+      receipt = (
+        await operations.editCase({
+          registrationId: context.registrationId,
+          datasetId: context.datasetId,
+          caseId,
+          body,
+        })
+      ).data;
     } catch (cause) {
       if (isOutcomeUnknown(cause))
         setPendingCase({ body, uncertain: true, conflict: false });
@@ -496,11 +712,30 @@ export function ExamplesPage({
         setCaseConflictReviewed(false);
       } else setPendingCase(undefined);
       setError(safeMessage(cause));
-      return false;
-    } finally {
       setBusy(false);
       setMutationInFlight(false);
+      return false;
     }
+
+    const pending: CommittedRefresh = {
+      kind: "case",
+      context,
+      caseId,
+      decisionId,
+      receipt,
+      body,
+      stagedGeneration,
+      inputKind: inputKindAtSubmit,
+      inputSource: inputSourceAtSubmit,
+      metadataSource: metadataSourceAtSubmit,
+    };
+    committedRefreshRef.current = pending;
+    setCommittedRefresh(pending);
+    setPendingCase(undefined);
+    setNotice(undefined);
+    setMutationInFlight(false);
+    await refreshCommittedView(pending);
+    setBusy(false);
     return true;
   }
 
@@ -707,6 +942,14 @@ export function ExamplesPage({
     [...stagedAnswers].sort().join("\0") !==
       [...(currentLabel?.acceptable_option_ids ?? [])].sort().join("\0");
   async function saveBeforeLeaving() {
+    if (committedRefreshRef.current) {
+      const kind = committedRefreshRef.current.kind;
+      throw new Error(
+        kind === "label"
+          ? "The label was saved. Refresh its current review before leaving or starting another change."
+          : "The case was saved. Refresh its current review before leaving or starting another change.",
+      );
+    }
     if (
       pendingLabel?.uncertain ||
       pendingCase?.uncertain ||
@@ -734,6 +977,11 @@ export function ExamplesPage({
       throw new Error(
         "The case edit did not save. Its source is still available for review.",
       );
+    if (committedRefreshRef.current) {
+      throw new Error(
+        "The case was saved. Refresh its current review before saving another change or leaving.",
+      );
+    }
     if (decision && labelView && (labelSetChanged || note.trim())) {
       if (savedCase)
         throw new Error(
@@ -748,6 +996,11 @@ export function ExamplesPage({
         throw new Error(
           "The label did not save. Its staged answer is still available for review.",
         );
+      if (committedRefreshRef.current) {
+        throw new Error(
+          "The label was saved. Refresh its current review before leaving.",
+        );
+      }
     }
   }
   const uncertainWrite = !!(
@@ -762,13 +1015,26 @@ export function ExamplesPage({
     pendingAdd?.conflict ||
     pendingRemove?.conflict
   );
-  const navigationBlockedMessage = uncertainWrite
-    ? "A write may have completed. Keep editing and retry its original request before leaving this examples page."
-    : mutationInFlight
-      ? "An examples write is still in progress. Keep this page open until it finishes."
-      : undefined;
+  const navigationBlockedMessage = committedRefresh
+    ? committedRefresh.kind === "label"
+      ? "The label was saved. Refresh its current review before leaving this examples page."
+      : "The case was saved. Refresh its current review before leaving this examples page."
+    : uncertainWrite
+      ? "A write may have completed. Keep editing and retry its original request before leaving this examples page."
+      : mutationInFlight
+        ? "An examples write is still in progress. Keep this page open until it finishes."
+        : undefined;
   const dirtyGuard = useDirtyNavigationGuard({
     dirty:
+      editorDirty ||
+      labelSetChanged ||
+      (decision !== undefined && note.trim().length > 0) ||
+      committedRefresh !== undefined ||
+      uncertainWrite ||
+      unresolvedConflict ||
+      mutationInFlight,
+    isDirtyNow: () =>
+      committedRefreshRef.current !== undefined ||
       editorDirty ||
       labelSetChanged ||
       (decision !== undefined && note.trim().length > 0) ||
@@ -776,8 +1042,11 @@ export function ExamplesPage({
       unresolvedConflict ||
       mutationInFlight,
     blockedMessage: navigationBlockedMessage,
+    allowDiscardWhenBlocked: committedRefresh !== undefined,
     save: saveBeforeLeaving,
     discard: () => {
+      committedRefreshRef.current = undefined;
+      setCommittedRefresh(undefined);
       setEditorDirty(false);
       setNote("");
       if (currentCase) {
@@ -845,6 +1114,20 @@ export function ExamplesPage({
           <p role="status" className="save-status">
             {notice}
           </p>
+        )}
+        {committedRefresh?.kind === "label" && (
+          <section className="warning-summary" aria-label="Saved changes awaiting refresh">
+            <p role="status">
+              Label saved; refresh its current review before another change.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void refreshCommittedOutcome()}
+            >
+              {busy ? "Refreshing saved review…" : "Refresh saved label"}
+            </button>
+          </section>
         )}
         <div className="dataset-selector field">
           <label htmlFor="examples-dataset">Dataset</label>
@@ -1021,7 +1304,11 @@ export function ExamplesPage({
                   Input, expected answers, and source context
                 </p>
               </div>
-              <button type="button" onClick={() => setEditCase(true)}>
+              <button
+                type="button"
+                disabled={busy || !!committedRefresh}
+                onClick={() => setEditCase(true)}
+              >
                 Edit input
               </button>
               <button type="button" onClick={() => setDeleteCaseOpen(true)}>
@@ -1063,6 +1350,7 @@ export function ExamplesPage({
                   options={optionRows}
                   selected={stagedAnswers}
                   onChange={(answers) => {
+                    labelEditGeneration.current += 1;
                     setStagedAnswers(answers);
                     setEditorDirty(true);
                   }}
@@ -1071,7 +1359,7 @@ export function ExamplesPage({
                       currentLabel?.status === "disputed" ? "resolve" : "set",
                     )
                   }
-                  saving={busy || pendingLabel?.uncertain}
+                  saving={busy || !!committedRefresh || pendingLabel?.uncertain}
                 />
                 {pendingLabel?.uncertain && (
                   <div className="warning-summary">
@@ -1105,7 +1393,7 @@ export function ExamplesPage({
                 )}
                 {currentLabel?.status === "disputed" && (
                   <button
-                    disabled={busy || pendingLabel?.uncertain}
+                    disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
                     onClick={() => void saveLabel("resolve")}
                   >
                     Resolve dispute with staged set
@@ -1113,7 +1401,7 @@ export function ExamplesPage({
                 )}
                 {currentLabel && currentLabel.status !== "disputed" && (
                   <button
-                    disabled={busy || pendingLabel?.uncertain}
+                    disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
                     onClick={() => void saveLabel("dispute")}
                   >
                     Dispute label
@@ -1121,7 +1409,7 @@ export function ExamplesPage({
                 )}
                 {currentLabel && (
                   <button
-                    disabled={busy || pendingLabel?.uncertain}
+                    disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
                     onClick={() => void saveLabel("clear")}
                   >
                     Clear label
@@ -1131,8 +1419,9 @@ export function ExamplesPage({
                 <input
                   id="label-note"
                   value={note}
-                  disabled={pendingLabel?.uncertain}
+                  disabled={busy || !!committedRefresh || pendingLabel?.uncertain}
                   onChange={(event) => {
+                    labelEditGeneration.current += 1;
                     setNote(event.target.value);
                     setEditorDirty(true);
                   }}
@@ -1155,10 +1444,29 @@ export function ExamplesPage({
           <Modal
             title={`Edit ${currentCase.id}`}
             onDismiss={() => {
-              if (!busy && !pendingCase?.uncertain) setEditCase(false);
+              if (!busy && !committedRefresh && !pendingCase?.uncertain)
+                setEditCase(false);
             }}
           >
             <div className="modal-body case-editor">
+              {committedRefresh?.kind === "case" && (
+                <div
+                  className="warning-summary"
+                  aria-label="Saved changes awaiting refresh"
+                >
+                  <p role="status">
+                    Case saved; refresh its current review before another
+                    change.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void refreshCommittedOutcome()}
+                  >
+                    {busy ? "Refreshing saved review…" : "Refresh saved case"}
+                  </button>
+                </div>
+              )}
               {pendingCase?.uncertain && (
                 <div className="warning-summary">
                   <p>
@@ -1202,8 +1510,9 @@ export function ExamplesPage({
                     <input
                       type="radio"
                       checked={inputKind === kind}
-                      disabled={busy || pendingCase?.uncertain}
+                      disabled={busy || !!committedRefresh || pendingCase?.uncertain}
                       onChange={() => {
+                        caseEditGeneration.current += 1;
                         setInputKind(kind);
                         setEditorDirty(true);
                       }}
@@ -1215,8 +1524,9 @@ export function ExamplesPage({
               <JsonSourceEditor
                 label="Input source"
                 value={inputSource}
-                readOnly={busy || pendingCase?.uncertain}
+                readOnly={busy || !!committedRefresh || pendingCase?.uncertain}
                 onChange={(value) => {
+                  caseEditGeneration.current += 1;
                   setInputSource(value);
                   setEditorDirty(true);
                 }}
@@ -1224,8 +1534,9 @@ export function ExamplesPage({
               <JsonSourceEditor
                 label="Metadata source"
                 value={metadataSource}
-                readOnly={busy || pendingCase?.uncertain}
+                readOnly={busy || !!committedRefresh || pendingCase?.uncertain}
                 onChange={(value) => {
+                  caseEditGeneration.current += 1;
                   setMetadataSource(value);
                   setEditorDirty(true);
                 }}
@@ -1234,7 +1545,7 @@ export function ExamplesPage({
                 <button
                   type="button"
                   className="primary"
-                  disabled={busy || !!pendingCase?.conflict}
+                  disabled={busy || !!committedRefresh || !!pendingCase?.conflict}
                   onClick={() => void saveCase()}
                 >
                   {busy
@@ -1245,7 +1556,7 @@ export function ExamplesPage({
                 </button>
                 <button
                   type="button"
-                  disabled={busy || pendingCase?.uncertain}
+                  disabled={busy || !!committedRefresh || pendingCase?.uncertain}
                   onClick={() => setEditCase(false)}
                 >
                   Cancel

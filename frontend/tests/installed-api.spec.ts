@@ -2455,6 +2455,34 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("button", { name: "Edit input" }).click();
   const stagedCaseSource = '{"case":"seed-1","kept":true}';
   await page.getByLabel("Input source").fill(stagedCaseSource);
+  let caseRefreshFailures = 2;
+  const committedCaseBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/cases/seed-1", async (route) => {
+    if (route.request().method() === "PUT") {
+      committedCaseBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      return route.continue();
+    }
+    if (route.request().method() === "GET" && caseRefreshFailures > 0) {
+      caseRefreshFailures -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          schema_version: 1,
+          error: {
+            schema_version: 1,
+            code: "internal_error",
+            message: "The local service could not complete the request.",
+            reason: "injected_read_failure",
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
   const stagedCaseHash = page.url();
   await page.evaluate((hash) => {
     window.location.hash = hash;
@@ -2466,8 +2494,208 @@ test("installed browser authors exact decision source and previews imports throu
     .click();
   await expect(page).toHaveURL(stagedCaseHash);
   await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
+  const committedCaseResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/seed-1") &&
+      response.request().method() === "PUT",
+  );
+  const failedCaseRefresh = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/seed-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 503,
+  );
   await page.getByRole("button", { name: "Save input" }).click();
+  const committedCaseReceipt = await committedCaseResponse;
+  expect(committedCaseReceipt.status()).toBe(200);
+  await committedCaseReceipt.body();
+  await (await failedCaseRefresh).body();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Edit seed-1" })
+      .getByRole("region", { name: "Saved changes awaiting refresh" }),
+  ).toContainText("Case saved; refresh its current review");
+  await captureScreenshot("case-saved-refresh-pending.png");
+  await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
+  await expect(page.getByRole("button", { name: "Save input" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Retry same case edit" }),
+  ).toHaveCount(0);
+  expect(committedCaseBodies).toHaveLength(1);
+  const committedCaseHash = page.url();
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `#/p/${registrationId}/d/${decisionId}`);
+  const committedCaseGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(committedCaseGuard).toBeVisible();
+  await expect(committedCaseGuard).toContainText(
+    "The case was saved. Refresh its current review before leaving this examples page.",
+  );
+  await expect(
+    committedCaseGuard.getByRole("button", { name: "Save and leave", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    committedCaseGuard.getByRole("button", { name: "Discard changes", exact: true }),
+  ).toBeEnabled();
+  await committedCaseGuard
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
+  await expect(page).toHaveURL(committedCaseHash);
+  expect(committedCaseBodies).toHaveLength(1);
+  const failedCaseRecovery = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/seed-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 503,
+  );
+  await page.getByRole("button", { name: "Refresh saved case" }).click();
+  await (await failedCaseRecovery).body();
+  await expect(page.getByText("The local service could not complete the request.")).toBeVisible();
+  await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
+  expect(committedCaseBodies).toHaveLength(1);
+  const recoveredCaseRead = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/seed-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "Refresh saved case" }).click();
+  await (await recoveredCaseRead).body();
   await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
+  expect(committedCaseBodies).toHaveLength(1);
+  expect(committedCaseBodies[0]?.input_source).toBe(stagedCaseSource);
+  await expect(page.getByLabel("Complete example input source")).toHaveText(
+    stagedCaseSource,
+  );
+  const committedCaseRead = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/seed-1`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
+  );
+  expect(committedCaseRead.status()).toBe(200);
+  expect((await committedCaseRead.json()).data.case.record.input_source).toBe(
+    stagedCaseSource,
+  );
+  await page.unroute("**/cases/seed-1");
+  await page.getByRole("button", { name: "case-1", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "case-1", exact: true })).toBeVisible();
+  const caseOneBefore = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
+  );
+  expect(caseOneBefore.status()).toBe(200);
+  const caseOneOriginalSource = (await caseOneBefore.json()).data.case.record
+    .input_source as string;
+  const caseTwoBefore = await page.request.get(
+    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
+  );
+  expect(caseTwoBefore.status()).toBe(200);
+  const caseTwoOriginalSource = (await caseTwoBefore.json()).data.case.record
+    .input_source as string;
+  await page.getByRole("button", { name: "Edit input" }).click();
+  const staleCaseSource = '{"case":"case-1","stale":true}';
+  await page.getByLabel("Input source").fill(staleCaseSource);
+  let releaseStaleCaseRead!: () => void;
+  let reportStaleCaseReadStarted!: () => void;
+  const staleCaseReadGate = new Promise<void>((resolve) => {
+    releaseStaleCaseRead = resolve;
+  });
+  const staleCaseReadStarted = new Promise<void>((resolve) => {
+    reportStaleCaseReadStarted = resolve;
+  });
+  const staleCaseBodies: Array<Record<string, unknown>> = [];
+  let releaseCaseTwoRead!: () => void;
+  let reportCaseTwoReadStarted!: () => void;
+  const caseTwoReadGate = new Promise<void>((resolve) => {
+    releaseCaseTwoRead = resolve;
+  });
+  const caseTwoReadStarted = new Promise<void>((resolve) => {
+    reportCaseTwoReadStarted = resolve;
+  });
+  await page.route("**/cases/case-1", async (route) => {
+    if (route.request().method() === "PUT") {
+      staleCaseBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      return route.continue();
+    }
+    if (route.request().method() === "GET") {
+      reportStaleCaseReadStarted();
+      await staleCaseReadGate;
+    }
+    await route.continue();
+  });
+  await page.route("**/cases/case-2", async (route) => {
+    if (route.request().method() === "GET") {
+      reportCaseTwoReadStarted();
+      await caseTwoReadGate;
+    }
+    await route.continue();
+  });
+  const staleCaseReadResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/case-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+  );
+  const caseTwoReadResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/cases/case-2") &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "Save input" }).click();
+  await staleCaseReadStarted;
+  expect(staleCaseBodies).toHaveLength(1);
+  await expect(
+    page
+      .getByRole("dialog", { name: "Edit case-1" })
+      .getByRole("region", { name: "Saved changes awaiting refresh" }),
+  ).toBeVisible();
+  const staleCaseTargetHash = `#/p/${registrationId}/d/${decisionId}/examples?dataset=${encodeURIComponent(datasetId)}&case=case-2`;
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, staleCaseTargetHash);
+  const discardStaleCaseRead = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(discardStaleCaseRead).toBeVisible();
+  await discardStaleCaseRead
+    .getByRole("button", { name: "Discard changes", exact: true })
+    .click();
+  const staleCaseTargetUrl = new URL(staleCaseTargetHash, page.url()).toString();
+  await expect(page).toHaveURL(staleCaseTargetUrl);
+  releaseStaleCaseRead();
+  await (await staleCaseReadResponse).body();
+  expect(staleCaseBodies).toHaveLength(1);
+  expect(staleCaseBodies[0]?.input_source).toBe(staleCaseSource);
+  await caseTwoReadStarted;
+  await expect(page.getByLabel("Complete example input source")).toHaveText(
+    caseOneOriginalSource,
+  );
+  releaseCaseTwoRead();
+  await (await caseTwoReadResponse).body();
+  await expect(page.getByRole("heading", { name: "case-2", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Complete example input source")).toHaveText(
+    caseTwoOriginalSource,
+  );
+  await expect(page.getByRole("button", { name: "Refresh saved case" })).toHaveCount(0);
+  await page.unroute("**/cases/case-1");
+  await page.unroute("**/cases/case-2");
+  const caseOneExamplesHash = `#/p/${registrationId}/d/${decisionId}/examples?dataset=${encodeURIComponent(datasetId)}&case=case-1`;
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, caseOneExamplesHash);
+  await expect(page).toHaveURL(new URL(caseOneExamplesHash, page.url()).toString());
+  await expect(page.getByRole("button", { name: "seed-1", exact: true })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeEnabled();
   const readSeedLabel = async () => {
     const response = await page.request.get(
@@ -2606,11 +2834,92 @@ test("installed browser authors exact decision source and previews imports throu
       response.url().endsWith("/labels/batch") &&
       response.request().method() === "POST",
   );
+  let labelRefreshFailures = 2;
+  await page.route("**/labels/seed-1", async (route) => {
+    if (route.request().method() === "GET" && labelRefreshFailures > 0) {
+      labelRefreshFailures -= 1;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          schema_version: 1,
+          error: {
+            schema_version: 1,
+            code: "internal_error",
+            message: "The local service could not complete the request.",
+            reason: "injected_read_failure",
+          },
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  const labelMutationCountBeforeReceipt = labelMutationBodies.length;
+  const failedLabelRefresh = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/seed-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 503,
+  );
   await page.getByRole("button", { name: "Save expected answer" }).click();
   const expectedLabelReceipt = await expectedLabelSaveResponse;
   expect(expectedLabelReceipt.status()).toBe(200);
   await expectedLabelReceipt.body();
+  await (await failedLabelRefresh).body();
+  await expect(
+    page.getByRole("region", { name: "Saved changes awaiting refresh" }),
+  ).toContainText("Label saved; refresh its current review");
+  await captureScreenshot("label-saved-refresh-pending.png");
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Dispute label" })).toBeDisabled();
+  expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
+  const committedLabelHash = page.url();
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `#/p/${registrationId}/d/${decisionId}`);
+  const committedLabelGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(committedLabelGuard).toBeVisible();
+  await expect(committedLabelGuard).toContainText(
+    "The label was saved. Refresh its current review before leaving this examples page.",
+  );
+  await expect(
+    committedLabelGuard.getByRole("button", { name: "Save and leave", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    committedLabelGuard.getByRole("button", { name: "Discard changes", exact: true }),
+  ).toBeEnabled();
+  await committedLabelGuard
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
+  await expect(page).toHaveURL(committedLabelHash);
+  expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
+  const failedLabelRecovery = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/seed-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 503,
+  );
+  await page.getByRole("button", { name: "Refresh saved label" }).click();
+  await (await failedLabelRecovery).body();
+  await expect(page.getByText("The local service could not complete the request.")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
+  expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
+  const recoveredLabelRead = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/labels/seed-1") &&
+      response.request().method() === "GET" &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "Refresh saved label" }).click();
+  await (await recoveredLabelRead).body();
   await expect(page.getByRole("button", { name: "Dispute label" })).toBeEnabled();
+  expect(labelMutationBodies).toHaveLength(labelMutationCountBeforeReceipt + 1);
+  await page.unroute("**/labels/seed-1");
   let savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label).toMatchObject({
     acceptable_option_ids: ["option-a", "option-b"],
