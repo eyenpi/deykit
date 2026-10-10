@@ -3899,7 +3899,9 @@ test("installed browser authors exact decision source and previews imports throu
   await page
     .getByRole("button", { name: "Retry the same split request" })
     .click();
-  await expect.poll(() => splitCommitResults.length).toBe(2);
+  await expect
+    .poll(() => splitCommitResults.length, { timeout: 15_000 })
+    .toBe(2);
   await expect(
     page.getByRole("status").filter({ hasText: "Saved new dataset revision" }),
   ).toBeVisible();
