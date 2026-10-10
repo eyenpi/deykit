@@ -3849,6 +3849,7 @@ test("installed browser authors exact decision source and previews imports throu
   await captureScreenshot("split-server-preview.png");
   const splitCommitResults: Array<Record<string, unknown>> = [];
   let firstSplitCommitStatus: number | undefined;
+  let firstSplitCommitAborted = false;
   await page.route("**/splits/commit", async (route) => {
     const response = await route.fetch();
     const result = (await response.json()).data as Record<string, unknown>;
@@ -3856,15 +3857,19 @@ test("installed browser authors exact decision source and previews imports throu
     if (splitCommitResults.length === 1) {
       firstSplitCommitStatus = response.status();
       await route.abort("failed");
+      firstSplitCommitAborted = true;
       return;
     }
     await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Apply split" }).click();
+  await expect.poll(() => firstSplitCommitAborted, { timeout: 15_000 }).toBe(
+    true,
+  );
+  expect(firstSplitCommitStatus).toBe(200);
   await expect(
     page.getByRole("button", { name: "Retry the same split request" }),
   ).toBeVisible();
-  expect(firstSplitCommitStatus).toBe(200);
   expect(splitCommitBodies).toHaveLength(1);
   expect(splitCommitBodies[0].preview_document_source).toBe(
     splitPreview.preview_document_source,
@@ -4015,6 +4020,7 @@ test("installed browser authors exact decision source and previews imports throu
   });
   await expect(archiveDialog).toBeVisible();
   const archiveBodies: Array<Record<string, unknown>> = [];
+  let firstArchiveStatus: number | undefined;
   await page.route(`**/decisions/${decisionId}/archive`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     archiveBodies.push(
@@ -4022,6 +4028,7 @@ test("installed browser authors exact decision source and previews imports throu
     );
     const response = await route.fetch();
     if (archiveBodies.length === 1) {
+      firstArchiveStatus = response.status();
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -4034,6 +4041,9 @@ test("installed browser authors exact decision source and previews imports throu
   await archiveDialog
     .getByRole("button", { name: "Archive decision", exact: true })
     .click();
+  await expect
+    .poll(() => firstArchiveStatus, { timeout: 15_000 })
+    .toBe(200);
   await expect(
     archiveDialog.getByRole("button", { name: "Retry same archive action" }),
   ).toBeVisible();
@@ -4159,6 +4169,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await secretInput.fill(credentialValue);
   await page.getByRole("button", { name: "Store credential" }).click();
+  await expect
+    .poll(() => firstCredentialStatus, { timeout: 15_000 })
+    .toBe(200);
   await expect(
     page.getByRole("button", { name: "Retry the same credential request" }),
   ).toBeVisible();
@@ -4407,6 +4420,8 @@ test("installed browser authors exact decision source and previews imports throu
     .fill(bindingSources.join("\n"));
   const fixtureCreateBodies: Array<Record<string, unknown>> = [];
   const fixtureCreateResults: Array<Record<string, unknown>> = [];
+  let firstFixtureCreateStatus: number | undefined;
+  let firstFixtureCreateAborted = false;
   await page.route("**/api/v1/projects/*/fixtures", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     fixtureCreateBodies.push(
@@ -4417,12 +4432,18 @@ test("installed browser authors exact decision source and previews imports throu
       (await response.json()).data as Record<string, unknown>,
     );
     if (fixtureCreateBodies.length === 1) {
+      firstFixtureCreateStatus = response.status();
       await route.abort("failed");
+      firstFixtureCreateAborted = true;
       return;
     }
     await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Create authored set" }).click();
+  await expect
+    .poll(() => firstFixtureCreateAborted, { timeout: 15_000 })
+    .toBe(true);
+  expect(firstFixtureCreateStatus).toBe(200);
   await expect(
     page.getByRole("button", { name: "Retry same create" }),
   ).toBeVisible();
