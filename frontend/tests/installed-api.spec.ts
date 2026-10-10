@@ -313,9 +313,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Welcome to deykit." }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Create project" })
-    .click();
+  await page.getByRole("button", { name: "Create project" }).click();
   await page.getByLabel("Project name").fill(projectName);
   await page.getByLabel("Project folder path").fill(projectPath);
   await page
@@ -1961,9 +1959,7 @@ test("installed browser authors exact decision source and previews imports throu
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
-  await page
-    .getByRole("button", { name: "Add example", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Add example", exact: true }).click();
   const proposedAddSource = '{"proposal":"keep-after-review"}';
   await page.getByLabel("Input source").fill(proposedAddSource);
   const addBodies: Array<Record<string, unknown>> = [];
