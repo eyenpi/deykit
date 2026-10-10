@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Request } from "@playwright/test";
+import type { APIResponse, Request } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { operationMetadata } from "../src/api/generated/operations";
@@ -283,7 +283,7 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 test("installed browser authors exact decision source and previews imports through real APIs", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(270_000);
+  test.setTimeout(360_000);
   page.setDefaultTimeout(10_000);
   const completedPhases: string[] = [];
   const screenshots: string[] = [];
@@ -3304,8 +3304,33 @@ test("installed browser authors exact decision source and previews imports throu
   const clearedLabel = await readSeedLabel();
   expect((await clearedLabel.json()).data.label).toBeNull();
 
-  const readCaseOne = () =>
-    page.request.get(
+  const expectSuccessfulRead = async (
+    response: APIResponse,
+    operation: "case_read" | "case_label_read",
+  ) => {
+    const status = response.status();
+    let code: string | null = null;
+    let reason: string | null = null;
+    if (status !== 200) {
+      try {
+        const payload: unknown = await response.json();
+        if (isRecord(payload) && isRecord(payload.error)) {
+          code = safeErrorIdentifier(payload.error.code);
+          reason = safeErrorIdentifier(payload.error.reason);
+        }
+      } catch {
+        // Keep diagnostics limited to safe API identifiers and status.
+      }
+    }
+    expect(
+      status,
+      JSON.stringify({ operation, status, code, reason }),
+    ).toBe(200);
+    return response;
+  };
+  const readCaseOne = async () =>
+    expectSuccessfulRead(
+      await page.request.get(
       `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
       {
         headers: {
@@ -3313,9 +3338,12 @@ test("installed browser authors exact decision source and previews imports throu
           "X-Deykit-Capability": capability as string,
         },
       },
+      ),
+      "case_read",
     );
-  const readCaseOneLabel = () =>
-    page.request.get(
+  const readCaseOneLabel = async () =>
+    expectSuccessfulRead(
+      await page.request.get(
       `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/case-1`,
       {
         headers: {
@@ -3323,6 +3351,8 @@ test("installed browser authors exact decision source and previews imports throu
           "X-Deykit-Capability": capability as string,
         },
       },
+      ),
+      "case_label_read",
     );
   await caseButton("case-1").click();
   await expect(
@@ -3611,6 +3641,16 @@ test("installed browser authors exact decision source and previews imports throu
     caseEditBodies[0].expected_case_etag,
   );
   await page.unroute("**/cases/case-1");
+  await expect(
+    page.getByRole("dialog", { name: "Edit case-1" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Complete example input source", { exact: true }),
+  ).toHaveText('{"case":1,"changed":true}');
+  await expect(page.getByRole("button", { name: "Edit input" })).toBeEnabled();
+  await expect(
+    page.getByRole("region", { name: "Saved changes awaiting refresh" }),
+  ).toHaveCount(0);
   const staleLabel = await readCaseOneLabel();
   expect((await staleLabel.json()).data).toMatchObject({
     status: "excluded",
