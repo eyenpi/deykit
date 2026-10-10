@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { APIResponse, Request } from "@playwright/test";
+import type { APIResponse, Request, Response } from "@playwright/test";
 import type { ApiOperationData } from "../src/api/client";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
@@ -4428,7 +4428,7 @@ test("installed browser authors exact decision source and previews imports throu
   );
   let revealedSourceMatches: boolean[] = [];
   let revealedSourcesAreReadOnly: boolean[] = [];
-  let fixtureRequestsHidden: APIResponse;
+  let fixtureRequestsHidden: Response;
   try {
     expect(revealedFixture.requests.length).toBeGreaterThan(0);
     await expect(requestSourceTextboxes).toHaveCount(
