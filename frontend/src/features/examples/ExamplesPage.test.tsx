@@ -180,7 +180,8 @@ function mountExamples(
       initialCaseId ? `&case=${initialCaseId}` : ""
     }`,
   );
-  navigation = new WorkspaceNavigation(window);
+  const activeNavigation = new WorkspaceNavigation(window);
+  navigation = activeNavigation;
   const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
     async () => {
       throw new ApiError("preflight_failed", "Synthetic rejection.", 422);
@@ -213,12 +214,12 @@ function mountExamples(
       decision={decision}
       operations={operations}
       datasetOperations={datasetOperations}
-      navigation={navigation}
+      navigation={activeNavigation}
       datasetFromRoute={datasetFromRoute}
       caseFromRoute={caseFromRoute}
       refreshToken={0}
       onDatasetChange={(_, caseId) =>
-        navigation!.navigate({
+        activeNavigation.navigate({
           kind: "examples",
           registrationId: project.id,
           decisionId: decision.id,
@@ -231,8 +232,8 @@ function mountExamples(
     />
   );
   function NavigationAwarePage() {
-    const [route, setRoute] = useState(navigation!.current);
-    useEffect(() => navigation!.subscribe(setRoute), []);
+    const [route, setRoute] = useState(activeNavigation.current);
+    useEffect(() => activeNavigation.subscribe(setRoute), []);
     const examplesRoute = route.kind === "examples" ? route : undefined;
     return renderPage(
       examplesRoute?.datasetId ?? "dataset-1",
