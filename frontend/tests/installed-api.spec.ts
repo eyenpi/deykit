@@ -379,6 +379,8 @@ test("installed browser authors exact decision source and previews imports throu
     }
   });
 
+  await page.clock.install();
+  await page.clock.resume();
   const shell = await page.goto("/");
   expect(shell?.status()).toBe(200);
   expect(shell?.headers()["content-security-policy"]).toContain(
@@ -1516,7 +1518,7 @@ test("installed browser authors exact decision source and previews imports throu
   if (!(await rawSourceEditor.isVisible()))
     await page.locator(".advanced-source > summary").click();
   await expect(rawSourceEditor).toBeVisible();
-  await page.clock.install();
+  await page.clock.pauseAt(new Date());
   const sourceBeforeHeldRefresh = await rawSourceEditor.inputValue();
   const sourceDuringHeldRefresh = `${sourceBeforeHeldRefresh} `;
   const projectionAfterVersionEdit = page.waitForResponse(
