@@ -283,6 +283,7 @@ test("installed browser authors exact decision source and previews imports throu
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
+  page.setDefaultTimeout(10_000);
   const completedPhases: string[] = [];
   const screenshots: string[] = [];
   let activePhase = "Workspace bootstrap and project creation";
@@ -732,6 +733,12 @@ test("installed browser authors exact decision source and previews imports throu
     name: "Retry pending edits",
   });
   await expect(retryPendingEdits).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toHaveCount(0);
   expect(failedTransformRequests).toHaveLength(1);
   const emptyCompositionEditor = page.getByLabel("Advanced JSON Schema source");
   const emptyCompositionValue = await emptyCompositionEditor.inputValue();
@@ -744,6 +751,12 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await page.getByRole("button", { name: "Save version", exact: true }).click();
   await expect(retryPendingEdits).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toHaveCount(0);
   expect(blockedVersionRequests).toHaveLength(0);
   expect(failedTransformRequests).toHaveLength(1);
   expect(await emptyCompositionEditor.inputValue()).toBe(emptyCompositionValue);
@@ -760,6 +773,69 @@ test("installed browser authors exact decision source and previews imports throu
     "Retained before transform failure",
   );
   await expect(retryPendingEdits).toHaveCount(0);
+
+  await enterPhase("Draft uncertainty does not create a version retry");
+  let failFirstDraftSave = true;
+  await page.route("**/draft", async (route) => {
+    if (route.request().method() === "PUT" && failFirstDraftSave) {
+      failFirstDraftSave = false;
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+  await page.getByLabel("Question").fill("Question before draft uncertainty");
+  await page.getByLabel("Question").press("Tab");
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Save outcome unknown",
+  );
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toHaveCount(0);
+  expect(blockedVersionRequests).toHaveLength(0);
+  await page.getByRole("button", { name: "Retry unchanged save" }).click();
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
+  await page.unroute("**/draft");
+
+  await enterPhase("Authoritative read failure does not create a version retry");
+  await page.route(
+    `**/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          schema_version: 1,
+          error: { code: "service_unavailable", message: "Read unavailable" },
+        }),
+      });
+    },
+  );
+  const failedAuthoritativeRead = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/decisions/${decisionId}`) &&
+      response.request().method() === "GET" &&
+      response.status() === 503,
+  );
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await failedAuthoritativeRead;
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toHaveCount(0);
+  expect(blockedVersionRequests).toHaveLength(0);
+  await page.unroute(
+    `**/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+  );
 
   await enterPhase("Transform failure during IME retains ordered edits");
   const composingFailureRequests: Array<Record<string, unknown>> = [];
@@ -986,6 +1062,12 @@ test("installed browser authors exact decision source and previews imports throu
       .getByRole("alert")
       .filter({ hasText: "Finish composing or committing the editor source" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toHaveCount(0);
   expect(pausedVersionRequests).toHaveLength(0);
   await expect(inFlightSchemaEditor).toHaveValue(inFlightIntermediateSource);
   const inFlightDraftSaved = page.waitForResponse(
@@ -1341,6 +1423,15 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("button", { name: "Retry same version save" }),
   ).toBeVisible();
+  const versionEditor = page.getByLabel("Advanced JSON Schema source");
+  await versionEditor.focus();
+  await versionEditor.dispatchEvent("compositionstart", { data: "" });
+  await page.getByRole("button", { name: "Retry same version save" }).click();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toBeVisible();
+  expect(revisionSaveBodies).toHaveLength(1);
+  await versionEditor.dispatchEvent("compositionend", { data: "" });
   await page.getByRole("button", { name: "Retry same version save" }).click();
   await expect(
     page.getByRole("status").filter({ hasText: /^Saved version / }),
@@ -1348,6 +1439,32 @@ test("installed browser authors exact decision source and previews imports throu
   expect(revisionSaveBodies).toHaveLength(2);
   expect(revisionSaveBodies[1]).toEqual(revisionSaveBodies[0]);
   await page.unroute(`**/decisions/${decisionId}/revisions`);
+
+  const rejectedVersionBodies: Array<Record<string, unknown>> = [];
+  await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    rejectedVersionBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        schema_version: 1,
+        error: { code: "etag_conflict", message: "Version changed" },
+      }),
+    });
+  });
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toHaveCount(0);
+  expect(rejectedVersionBodies).toHaveLength(1);
+  await page.unroute(`**/decisions/${decisionId}/revisions`);
+
   const firstRevisionPage = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
     {

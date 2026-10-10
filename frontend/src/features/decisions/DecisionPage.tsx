@@ -750,10 +750,17 @@ export function DecisionPage({
     const current = recordRef.current;
     const controller = autosave.current;
     if (!current || !controller || actionLock.current) return;
+    const entryRequest = versionRequest.current;
+    const entryOutcomeUnknown = versionOutcomeUnknown;
     actionLock.current = true;
     setWorking(true);
     setEditError(undefined);
     const noteSnapshot = note;
+    let phase: "preflight" | "mutating" | "committed" = "preflight";
+    let attemptedRequest:
+      | ApiOperationBody<"saveDecisionRevision">
+      | undefined;
+    let committedRevisionId: string | undefined;
     let controlsLocked = false;
     try {
       if (composingSource.current || compositionCommitPending.current)
@@ -762,8 +769,13 @@ export function DecisionPage({
         );
       let request: ApiOperationBody<"saveDecisionRevision">;
       let refreshedRecord = current;
-      if (versionOutcomeUnknown && versionRequest.current) {
-        request = versionRequest.current;
+      if (entryOutcomeUnknown) {
+        if (!entryRequest)
+          throw new Error(
+            "The original version save is unavailable. Review the current version history before continuing.",
+          );
+        request = entryRequest;
+        attemptedRequest = request;
         setSourceControlsLockedNow(true);
         controlsLocked = true;
         if (composingSource.current || compositionCommitPending.current)
@@ -834,21 +846,53 @@ export function DecisionPage({
         throw new Error(
           "Finish composing before saving this version. The original request was not changed.",
         );
+      attemptedRequest = request;
+      versionRequest.current = request;
+      phase = "mutating";
       const result = await operations.saveRevision({
         registrationId,
         decisionId,
         body: request,
       });
+      phase = "committed";
+      committedRevisionId = result.data.revision.record.id;
       versionRequest.current = undefined;
       setVersionOutcomeUnknown(false);
       setNote("");
       recordRef.current = refreshedRecord;
       setRecord(refreshedRecord);
-      setNotice(`Saved version ${result.data.revision.record.id}.`);
+      setNotice(`Saved version ${committedRevisionId}.`);
     } catch (cause) {
-      if (uncertainOutcome(cause)) setVersionOutcomeUnknown(true);
-      else versionRequest.current = undefined;
-      setEditError(safeMessage(cause));
+      if (phase === "preflight") {
+        if (entryOutcomeUnknown) {
+          versionRequest.current = entryRequest;
+          setVersionOutcomeUnknown(true);
+        } else {
+          versionRequest.current = undefined;
+          setVersionOutcomeUnknown(false);
+        }
+        setEditError(safeMessage(cause));
+      } else if (phase === "mutating") {
+        if (uncertainOutcome(cause) && attemptedRequest) {
+          versionRequest.current = attemptedRequest;
+          setVersionOutcomeUnknown(true);
+        } else {
+          versionRequest.current = undefined;
+          setVersionOutcomeUnknown(false);
+        }
+        setEditError(safeMessage(cause));
+      } else {
+        versionRequest.current = undefined;
+        setVersionOutcomeUnknown(false);
+        setNotice(
+          committedRevisionId
+            ? `Saved version ${committedRevisionId}.`
+            : "Version save confirmed.",
+        );
+        setEditError(
+          `The version was saved, but its result could not be displayed. ${safeMessage(cause)}`,
+        );
+      }
     } finally {
       if (controlsLocked) setSourceControlsLockedNow(false);
       actionLock.current = false;
@@ -1096,13 +1140,15 @@ export function DecisionPage({
           <button
             type="button"
             className="primary"
-            disabled={working}
+            disabled={working || (versionOutcomeUnknown && !versionRequest.current)}
             onClick={() => void saveRevision()}
           >
             {working
               ? "Saving version…"
               : versionOutcomeUnknown
-                ? "Retry same version save"
+                ? versionRequest.current
+                  ? "Retry same version save"
+                  : "Original version save unavailable"
                 : "Save version"}
           </button>
         </div>
