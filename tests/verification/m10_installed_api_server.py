@@ -207,22 +207,22 @@ class LifespanWitness:
             if message_type == "lifespan.startup.complete":
                 self.startup_completed = True
             elif message_type == "lifespan.startup.failed":
-                self.startup_error = str(message.get("message", "lifespan.startup.failed"))
+                self.startup_error = "lifespan.startup.failed"
             elif message_type == "lifespan.shutdown.complete":
                 self.shutdown_completed = True
             elif message_type == "lifespan.shutdown.failed":
-                self.shutdown_error = str(message.get("message", "lifespan.shutdown.failed"))
+                self.shutdown_error = "lifespan.shutdown.failed"
             await send(message)
 
         try:
             await self._app(scope, receive, observe)
         except BaseException as error:
             phase = "shutdown" if self.startup_completed else "startup"
-            error_text = f"{type(error).__name__}: {error}"
+            error_type = type(error).__name__
             if phase == "startup":
-                self.startup_error = error_text
+                self.startup_error = error_type
             else:
-                self.shutdown_error = error_text
+                self.shutdown_error = error_type
             raise
 
 
