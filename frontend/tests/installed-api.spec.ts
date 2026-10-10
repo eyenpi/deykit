@@ -2041,14 +2041,27 @@ test("installed browser authors exact decision source and previews imports throu
       response.request().method() === "PUT",
   );
   await page.getByRole("button", { name: "Move Option C up" }).click();
-  await reorderTransform;
-  await reorderDraftSave;
+  const [reorderTransformResponse, reorderDraftSaveResponse] =
+    await Promise.all([reorderTransform, reorderDraftSave]);
+  expect(reorderTransformResponse.status()).toBe(200);
+  expect(reorderDraftSaveResponse.status()).toBe(200);
+  await Promise.all([
+    reorderTransformResponse.json(),
+    reorderDraftSaveResponse.json(),
+  ]);
+  await expect(
+    page.getByRole("status").filter({ hasText: "Draft saved" }),
+  ).toHaveText("Draft saved");
+  const transformedDecisionPath =
+    `/api/v1/projects/${registrationId}/decisions/${decisionId}`;
   const transformedDecision = await page.request.get(
-    `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
+    transformedDecisionPath,
     {
       headers: { Origin: origin, "X-Deykit-Capability": capability as string },
     },
   );
+  await recordDirectApiFailure(transformedDecision, transformedDecisionPath);
+  expect(transformedDecision.status()).toBe(200);
   const transformedSource = (await transformedDecision.json()).data.draft.record
     .editor_source as string;
   expect(transformedSource).toContain("9007199254740993");
