@@ -3848,9 +3848,8 @@ test("installed browser authors exact decision source and previews imports throu
   expect(relatedAssignments).toHaveLength(4);
   expect(new Set(relatedAssignments).size).toBe(1);
   await captureScreenshot("split-server-preview.png");
-  type SplitCommitData = ApiOperationData<
-    "commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post"
-  >;
+  type SplitCommitData =
+    ApiOperationData<"commit_split_api_v1_projects__registration_id__datasets__dataset_id__splits_commit_post">;
   const splitCommitResults: SplitCommitData[] = [];
   let firstSplitCommitStatus: number | undefined;
   let firstSplitCommitAborted = false;
@@ -4399,11 +4398,11 @@ test("installed browser authors exact decision source and previews imports throu
   expect(hiddenFixtureDetail.id).toBe(fixtureSummary.id);
   expect(hiddenFixtureDetail.decision_id).toBe(fixtureSummary.decision_id);
   expect(hiddenFixtureDetail.dataset_id).toBe(fixtureSummary.dataset_id);
-  expect(hiddenFixtureDetail.model_identity).toBe(fixtureSummary.model_identity);
+  expect(hiddenFixtureDetail.model_identity).toBe(
+    fixtureSummary.model_identity,
+  );
   expect(hiddenFixtureDetail.requests.length === 0).toBe(true);
-  await expect(
-    page.getByLabel(/^Stored request source \d+$/),
-  ).toHaveCount(0);
+  await expect(page.getByLabel(/^Stored request source \d+$/)).toHaveCount(0);
   await captureScreenshot("fixture-exact-bindings.png");
 
   const fixtureRequestsVisibleResponse = page.waitForResponse(
@@ -4423,7 +4422,8 @@ test("installed browser authors exact decision source and previews imports throu
   const fixtureRequestsHiddenResponse = page.waitForResponse(
     (response) =>
       response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
-      new URL(response.url()).searchParams.get("include_requests") === "false" &&
+      new URL(response.url()).searchParams.get("include_requests") ===
+        "false" &&
       response.request().method() === "GET",
   );
   let revealedSourceMatches: boolean[] = [];
@@ -4444,10 +4444,12 @@ test("installed browser authors exact decision source and previews imports throu
     );
     revealedSourcesAreReadOnly = await Promise.all(
       revealedFixture.requests.map(async (_, index) =>
-        requestSourceTextboxes.nth(index).evaluate(
-          (element) =>
-            element instanceof HTMLTextAreaElement && element.readOnly,
-        ),
+        requestSourceTextboxes
+          .nth(index)
+          .evaluate(
+            (element) =>
+              element instanceof HTMLTextAreaElement && element.readOnly,
+          ),
       ),
     );
   } finally {
