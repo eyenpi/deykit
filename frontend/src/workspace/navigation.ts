@@ -56,7 +56,7 @@ export class WorkspaceNavigation {
   #pendingExternal: { route: WorkspaceRoute; hash: string; generation: number } | undefined;
   #intentGeneration = 0;
   #transitionTail: Promise<void> = Promise.resolve();
-  #onExternalNavigation = () => void;
+  #onExternalNavigation: () => void;
   #onBeforeUnload = (event: BeforeUnloadEvent) => {
     if (![...this.#guards.values()].some((guard) => guard.isDirty())) return;
     event.preventDefault();

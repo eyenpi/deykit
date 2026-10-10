@@ -355,7 +355,7 @@ export function ImportSheet({
                   <td>{row.acceptable_option_ids.join(", ") || "—"}</td>
                   <td>{row.errors.map((item, index) => <p key={`${item.code}-${index}`} className="field-error">Line {row.source_line}: {item.message} <code>{item.code}</code></p>)}</td>
                 </tr>
-              )}</tbody>
+              ))}</tbody>
             </table>
             {rejectedCount > 0 && (
               <label className="check-row">
