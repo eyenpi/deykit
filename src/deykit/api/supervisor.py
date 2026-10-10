@@ -147,7 +147,10 @@ class ExecutionSupervisor:
                     on_created=callback,
                     expected_review_context_hash=expected_review_context_hash,
                 )
-                await asyncio.to_thread(settle_execution, evaluation_service, result, operation_id)
+                if not (result.replayed and result.execution_active):
+                    await asyncio.to_thread(
+                        settle_execution, evaluation_service, result, operation_id
+                    )
             except Exception as error:
                 self._pre_ack(acknowledged, error)
             except asyncio.CancelledError:
@@ -211,7 +214,10 @@ class ExecutionSupervisor:
                     max_attempts=max_attempts,
                     on_resumed=callback,
                 )
-                await asyncio.to_thread(settle_execution, evaluation_service, result, operation_id)
+                if not (result.replayed and result.execution_active):
+                    await asyncio.to_thread(
+                        settle_execution, evaluation_service, result, operation_id
+                    )
             except Exception as error:
                 self._pre_ack(acknowledged, error)
             except asyncio.CancelledError:

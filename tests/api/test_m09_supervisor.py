@@ -49,6 +49,7 @@ class _RunService:
         self.durable_cancelled_ids = []
         self.settle_after_busy = False
         self.replay_operations = set()
+        self.replay_active = False
         self.started = asyncio.Event()
         self.acknowledged = asyncio.Event()
         self.release_ack = asyncio.Event()
@@ -68,8 +69,9 @@ class _RunService:
             on_created(RunCreated("run-1", "fixture", True))
             return SimpleNamespace(
                 run_id="run-1",
+                replayed=True,
                 latest_result_snapshot_id=None,
-                execution_active=False,
+                execution_active=self.replay_active,
                 exit_code=0,
             )
         if self.defer_ack:
@@ -81,6 +83,7 @@ class _RunService:
         await self.wait_forever.wait()
         return SimpleNamespace(
             run_id="run-1",
+            replayed=False,
             latest_result_snapshot_id=None,
             execution_active=False,
             exit_code=0,
@@ -103,8 +106,9 @@ class _RunService:
             on_resumed(RunResumed("run-1", "segment-2", "fixture", True))
             return SimpleNamespace(
                 run_id="run-1",
+                replayed=True,
                 latest_result_snapshot_id=None,
-                execution_active=False,
+                execution_active=self.replay_active,
                 exit_code=0,
             )
         on_resumed(RunResumed("run-1", "segment-2", "fixture", False))
@@ -112,6 +116,7 @@ class _RunService:
         await self.resume_wait_forever.wait()
         return SimpleNamespace(
             run_id="run-1",
+            replayed=False,
             latest_result_snapshot_id=None,
             execution_active=False,
             exit_code=0,
@@ -648,6 +653,121 @@ def test_replay_only_acknowledgement_does_not_claim_external_owner(method, kind)
         assert supervisor._groups == {}
         assert supervisor._run_tasks == {}
         assert supervisor._group_tasks == {}
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("method", ["start_run", "resume_run"])
+def test_active_standalone_replays_skip_settlement_and_preserve_original_owner(method, monkeypatch):
+    settlement_operations = []
+
+    def record_settlement(_evaluations, result, operation_id):
+        settlement_operations.append((operation_id, result.replayed, result.execution_active))
+
+    monkeypatch.setattr(supervisor_module, "settle_execution", record_settlement)
+
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+        registration = _registration()
+        service = _RunService()
+        service.replay_active = True
+
+        async def invoke(operation_id):
+            if method == "start_run":
+                return await supervisor.start_run(
+                    registration,
+                    service,
+                    object(),
+                    operation_id=operation_id,
+                    expected_review_context_hash="2" * 64,
+                    evaluation_service=_EvaluationService(),  # type: ignore[arg-type]
+                )
+            return await supervisor.resume_run(
+                registration,
+                service,
+                "run-1",
+                operation_id=operation_id,
+                retry_unknown=True,
+                max_attempts=None,
+                evaluation_service=_EvaluationService(),  # type: ignore[arg-type]
+            )
+
+        original_operation = f"fresh-{method}"
+        await invoke(original_operation)
+        key = (registration.id, "run-1")
+        original_owner = supervisor._run_tasks[key]
+        assert original_owner in supervisor._tasks and not original_owner.done()
+
+        for index in range(10):
+            replay_operation = f"replay-active-{method}-{index}"
+            service.replay_operations.add(replay_operation)
+            accepted = await invoke(replay_operation)
+            assert accepted.replayed is True
+            for _ in range(100):
+                if supervisor._tasks == {original_owner}:
+                    break
+                await asyncio.sleep(0.001)
+            assert settlement_operations == []
+            assert supervisor._run_tasks[key] is original_owner
+            assert supervisor._runs[key] == (registration, service)
+            assert supervisor._tasks == {original_owner}
+
+        await supervisor.shutdown()
+
+        assert settlement_operations == [(original_operation, False, False)]
+        assert service.cancelled_ids == ["run-1"]
+        assert supervisor._tasks == set()
+        assert supervisor._preparing == set()
+        assert supervisor._runs == {}
+        assert supervisor._run_tasks == {}
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("method", ["start_run", "resume_run"])
+def test_inactive_standalone_replay_keeps_shared_settlement(method, monkeypatch):
+    settlement_operations = []
+    settlement_called = Event()
+
+    def record_settlement(_evaluations, result, operation_id):
+        settlement_operations.append((operation_id, result.replayed, result.execution_active))
+        settlement_called.set()
+
+    monkeypatch.setattr(supervisor_module, "settle_execution", record_settlement)
+
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+        registration = _registration()
+        service = _RunService()
+        service.replay_operations.add("inactive-replay")
+        if method == "start_run":
+            accepted = await supervisor.start_run(
+                registration,
+                service,
+                object(),
+                operation_id="inactive-replay",
+                expected_review_context_hash="3" * 64,
+                evaluation_service=_EvaluationService(),  # type: ignore[arg-type]
+            )
+        else:
+            accepted = await supervisor.resume_run(
+                registration,
+                service,
+                "run-1",
+                operation_id="inactive-replay",
+                retry_unknown=True,
+                max_attempts=None,
+                evaluation_service=_EvaluationService(),  # type: ignore[arg-type]
+            )
+
+        assert accepted.replayed is True
+        assert await asyncio.to_thread(settlement_called.wait, 1)
+        assert settlement_operations == [("inactive-replay", True, False)]
+        await supervisor.shutdown()
+        assert supervisor._tasks == set()
+        assert supervisor._preparing == set()
+        assert supervisor._runs == {}
+        assert supervisor._run_tasks == {}
 
     asyncio.run(scenario())
 
