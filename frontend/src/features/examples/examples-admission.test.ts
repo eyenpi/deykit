@@ -77,22 +77,12 @@ describe("Examples selection admission", () => {
       caseId: "case-1",
     };
 
+    expect(liveSelectionRouteMatches(route, expected, {})).toBe(true);
     expect(
-      liveSelectionRouteMatches(route, expected, {}),
-    ).toBe(true);
-    expect(
-      liveSelectionRouteMatches(
-        { ...route, caseId: "case-2" },
-        expected,
-        {},
-      ),
+      liveSelectionRouteMatches({ ...route, caseId: "case-2" }, expected, {}),
     ).toBe(false);
     expect(
-      liveSelectionRouteMatches(
-        { ...route, decisionId: null },
-        expected,
-        {},
-      ),
+      liveSelectionRouteMatches({ ...route, decisionId: null }, expected, {}),
     ).toBe(false);
   });
 
@@ -128,7 +118,10 @@ describe("Examples selection admission", () => {
         caseId: "case-1",
         dataset,
         caseRead,
-        labelView: { ...labelView, review: { ...labelView.review, case_id: "case-2" } },
+        labelView: {
+          ...labelView,
+          review: { ...labelView.review, case_id: "case-2" },
+        },
       }),
     ).toBe(false);
   });
@@ -141,9 +134,9 @@ describe("Examples selection admission", () => {
       caseId: "case-1",
     };
     expect(matchesSelectionScope(target, target)).toBe(true);
-    expect(
-      matchesSelectionScope(target, { ...target, caseId: "case-2" }),
-    ).toBe(false);
+    expect(matchesSelectionScope(target, { ...target, caseId: "case-2" })).toBe(
+      false,
+    );
     expect(
       matchesSelectionScope(target, {
         registrationId: target.registrationId,

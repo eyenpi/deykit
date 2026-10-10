@@ -1,21 +1,16 @@
 import type { ApiOperationData } from "../../api/client";
 import type { WorkspaceRoute } from "../../workspace/routes";
 
-export type CasePage = ApiOperationData<
-  "list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get"
->;
-export type CaseRead = ApiOperationData<
-  "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get"
->;
-export type DatasetRead = ApiOperationData<
-  "read_dataset_api_v1_projects__registration_id__datasets__dataset_id__get"
->;
-export type LabelPage = ApiOperationData<
-  "list_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_get"
->;
-export type LabelView = ApiOperationData<
-  "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get"
->;
+export type CasePage =
+  ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">;
+export type CaseRead =
+  ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get">;
+export type DatasetRead =
+  ApiOperationData<"read_dataset_api_v1_projects__registration_id__datasets__dataset_id__get">;
+export type LabelPage =
+  ApiOperationData<"list_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_get">;
+export type LabelView =
+  ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">;
 
 export type ReadContext = {
   registrationId: string;
@@ -27,7 +22,10 @@ export type ReadContext = {
 };
 
 export type DatasetScope = { registrationId: string; datasetId: string };
-export type SelectionScope = DatasetScope & { decisionId?: string; caseId: string };
+export type SelectionScope = DatasetScope & {
+  decisionId?: string;
+  caseId: string;
+};
 
 export type DatasetAdmission = {
   registrationId: string;
@@ -124,9 +122,7 @@ export function sameCaseSource(
 }
 
 export type LabelRecord = NonNullable<
-  ApiOperationData<
-    "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post"
-  >["changes"][number]["label"]
+  ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">["changes"][number]["label"]
 >;
 
 export function sameLabelRecord(
@@ -181,7 +177,7 @@ export function selectionPairMatches(args: {
     caseRead.case.record.id === args.caseId &&
     caseRead.case.record.dataset_id === args.datasetId &&
     caseRead.dataset_etag === dataset.etag &&
-    ((args.decisionId === undefined) === (labelView === undefined)) &&
+    (args.decisionId === undefined) === (labelView === undefined) &&
     (labelView === undefined ||
       (labelView.review.case_id === args.caseId &&
         labelView.review.dataset_id === args.datasetId &&

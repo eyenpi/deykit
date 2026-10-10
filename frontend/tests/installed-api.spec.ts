@@ -2874,10 +2874,7 @@ test("installed browser authors exact decision source and previews imports throu
   });
   let labelWritesDuringSelection = 0;
   const countSelectionLabelWrites = (request: Request) => {
-    if (
-      request.method() === "POST" &&
-      request.url().endsWith("/labels/batch")
-    )
+    if (request.method() === "POST" && request.url().endsWith("/labels/batch"))
       labelWritesDuringSelection += 1;
   };
   page.on("request", countSelectionLabelWrites);
@@ -2909,7 +2906,9 @@ test("installed browser authors exact decision source and previews imports throu
       page.getByRole("checkbox", { name: "Option A", exact: true }),
     ).toBeDisabled();
     expect(labelWritesDuringSelection).toBe(0);
-    await captureScreenshot("selection-loading-keeps-old-controls-readonly.png");
+    await captureScreenshot(
+      "selection-loading-keeps-old-controls-readonly.png",
+    );
   } finally {
     releaseSeedCaseRead();
   }

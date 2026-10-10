@@ -2,9 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
-import type {
-  ApiOperationData,
-} from "../../api/client";
+import type { ApiOperationData } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
 import type {
   DatasetAuthoringOperations,
@@ -12,16 +10,11 @@ import type {
   ProjectOverview,
 } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
-import type {
-  CaseRead,
-  DatasetRead,
-  LabelView,
-} from "./examples-admission";
+import type { CaseRead, DatasetRead, LabelView } from "./examples-admission";
 import { ExamplesPage } from "./ExamplesPage";
 
-type CasePage = ApiOperationData<
-  "list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get"
->;
+type CasePage =
+  ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">;
 
 const sourceA = '{"case":"old"}';
 const sourceB = '{"case":"target","n":9007199254740993}';
@@ -107,14 +100,13 @@ const listCases: CasePage = {
   total: "2",
   next_cursor: null,
 };
-const emptyLabelPage: ApiOperationData<
-  "list_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_get"
-> = {
-  schema_version: 1,
-  items: [],
-  total: "0",
-  next_cursor: null,
-};
+const emptyLabelPage: ApiOperationData<"list_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_get"> =
+  {
+    schema_version: 1,
+    items: [],
+    total: "0",
+    next_cursor: null,
+  };
 
 let navigation: WorkspaceNavigation | undefined;
 afterEach(() => {
@@ -143,9 +135,11 @@ it("keeps the old display read-only until the selected case and label pair is ad
         ? heldTargetRead
         : Promise.resolve({ data: caseA, warnings: [] }),
   );
-  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(async () => {
-    throw new ApiError("preflight_failed", "Synthetic rejection.", 422);
-  });
+  const saveLabels = vi.fn<ExampleAuthoringOperations["saveLabels"]>(
+    async () => {
+      throw new ApiError("preflight_failed", "Synthetic rejection.", 422);
+    },
+  );
   const operations: ExampleAuthoringOperations = {
     ...disconnectedWorkspace.authoring.examples,
     listCases: async () => ({ data: listCases, warnings: [] }),
@@ -189,9 +183,9 @@ it("keeps the old display read-only until the selected case and label pair is ad
   await screen.findByText(sourceA);
   await user.click(screen.getByRole("button", { name: "case-b" }));
   await screen.findByRole("region", { name: "Selected review status" });
-  expect(screen.getByLabelText("Complete example input source").textContent).toBe(
-    sourceA,
-  );
+  expect(
+    screen.getByLabelText("Complete example input source").textContent,
+  ).toBe(sourceA);
   const optionA = screen.getByRole("checkbox", { name: "Option A" });
   expect(optionA).toBeDisabled();
   expect(saveLabels).not.toHaveBeenCalled();
@@ -203,7 +197,9 @@ it("keeps the old display read-only until the selected case and label pair is ad
     ).toBe(sourceB);
   });
   await user.click(screen.getByRole("checkbox", { name: "Option A" }));
-  await user.click(screen.getByRole("button", { name: "Save expected answer" }));
+  await user.click(
+    screen.getByRole("button", { name: "Save expected answer" }),
+  );
   await waitFor(() => expect(saveLabels).toHaveBeenCalledTimes(1));
   const request = saveLabels.mock.calls[0]?.[0];
   expect(request?.registrationId).toBe(project.id);

@@ -174,9 +174,9 @@ export function ExamplesPage({
   const selectionAdmissionRef = useRef<SelectionAdmission | undefined>(
     undefined,
   );
-  const previousSelectionAdmissionRef = useRef<
-    SelectionAdmission | undefined
-  >(undefined);
+  const previousSelectionAdmissionRef = useRef<SelectionAdmission | undefined>(
+    undefined,
+  );
   const datasetReadEpochRef = useRef(0);
   const selectionReadEpochRef = useRef(0);
   const navigationEpochRef = useRef(0);
@@ -357,7 +357,8 @@ export function ExamplesPage({
         navigationEpochRef.current += 1;
         selectionReadEpochRef.current += 1;
         previousSelectionAdmissionRef.current =
-          selectionAdmissionRef.current ?? previousSelectionAdmissionRef.current;
+          selectionAdmissionRef.current ??
+          previousSelectionAdmissionRef.current;
         selectionAdmissionRef.current = undefined;
         if (
           route.kind !== "examples" ||
@@ -892,23 +893,20 @@ export function ExamplesPage({
       const labelStageChanged =
         !!previous &&
         labelOwnedByPrevious &&
-        ((note.trim().length > 0) ||
+        (note.trim().length > 0 ||
           [...stagedAnswers].sort().join("\0") !==
-            [
-              ...(previous.labelView?.label?.acceptable_option_ids ?? []),
-            ]
+            [...(previous.labelView?.label?.acceptable_option_ids ?? [])]
               .sort()
               .join("\0"));
       const caseReviewChanged =
         previous !== undefined &&
         caseOwnedByPrevious &&
-          (previous.caseRead.case.etag !== caseResult.data.case.etag ||
-            previous.datasetAdmission.read.etag !==
-              datasetAdmission.read.etag ||
-            !sameCaseSource(
-              previous.caseRead.case.record,
-              caseResult.data.case.record,
-            ));
+        (previous.caseRead.case.etag !== caseResult.data.case.etag ||
+          previous.datasetAdmission.read.etag !== datasetAdmission.read.etag ||
+          !sameCaseSource(
+            previous.caseRead.case.record,
+            caseResult.data.case.record,
+          ));
       const labelReviewChanged =
         previous !== undefined &&
         labelOwnedByPrevious &&
@@ -927,7 +925,8 @@ export function ExamplesPage({
       selectionAdmissionRef.current = admission;
       if (!stageNeedsReview) {
         if (preserveCaseStage) caseStageOwnerRef.current = ownerFor(admission);
-        if (preserveLabelStage) labelStageOwnerRef.current = ownerFor(admission);
+        if (preserveLabelStage)
+          labelStageOwnerRef.current = ownerFor(admission);
       }
       if (!preserveCaseStage) {
         setInputKind(caseRecord.input_kind);
@@ -936,9 +935,7 @@ export function ExamplesPage({
         caseStageOwnerRef.current = ownerFor(admission);
       }
       if (!preserveLabelStage) {
-        setStagedAnswers(
-          labelResult?.data.label?.acceptable_option_ids ?? [],
-        );
+        setStagedAnswers(labelResult?.data.label?.acceptable_option_ids ?? []);
         setNote("");
         labelStageOwnerRef.current = ownerFor(admission);
       }
@@ -987,10 +984,7 @@ export function ExamplesPage({
         datasetId,
         query: { cursor: caseCursor, limit: "50" },
       });
-      if (
-        !isCurrentContext(context) ||
-        currentDatasetAdmission() !== admission
-      )
+      if (!isCurrentContext(context) || currentDatasetAdmission() !== admission)
         return;
       setCases((current) =>
         current
@@ -1003,10 +997,7 @@ export function ExamplesPage({
       );
       setCaseCursor(result.data.next_cursor ?? undefined);
     } catch (cause) {
-      if (
-        isCurrentContext(context) &&
-        currentDatasetAdmission() === admission
-      )
+      if (isCurrentContext(context) && currentDatasetAdmission() === admission)
         setError(safeMessage(cause));
     } finally {
       setBusy(false);
@@ -1042,10 +1033,7 @@ export function ExamplesPage({
       );
       setLabelCursor(result.data.next_cursor ?? undefined);
     } catch (cause) {
-      if (
-        isCurrentContext(context) &&
-        currentDatasetAdmission() === admission
-      )
+      if (isCurrentContext(context) && currentDatasetAdmission() === admission)
         setError(safeMessage(cause));
     } finally {
       setBusy(false);
@@ -1203,14 +1191,20 @@ export function ExamplesPage({
         registrationId: admission.registrationId,
         datasetId: admission.datasetId,
       });
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const refreshedCase = await operations.readCase({
         registrationId: admission.registrationId,
         datasetId: admission.datasetId,
         caseId: admission.caseId,
       });
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const refreshed = await operations.readLabel({
         registrationId: admission.registrationId,
@@ -1231,12 +1225,12 @@ export function ExamplesPage({
       )
         return;
       const reviewedAdmission = publishReviewedPair(
-      context,
-      refreshedDataset.data,
-      refreshedCase.data,
-      refreshed.data,
-      admission.readEpoch,
-      admission.navigationEpoch,
+        context,
+        refreshedDataset.data,
+        refreshedCase.data,
+        refreshed.data,
+        admission.readEpoch,
+        admission.navigationEpoch,
       );
       if (!reviewedAdmission) return;
       const caseStillCurrent =
@@ -1248,7 +1242,8 @@ export function ExamplesPage({
       // Keep the user's staged answer intact. A new deliberate save will use
       // this reviewed server context and a fresh operation ID.
       labelStageOwnerRef.current = ownerFor(reviewedAdmission);
-      if (caseStillCurrent) caseStageOwnerRef.current = ownerFor(reviewedAdmission);
+      if (caseStillCurrent)
+        caseStageOwnerRef.current = ownerFor(reviewedAdmission);
       setPendingLabel(undefined);
       setSelectionNeedsReview(!caseStillCurrent);
       setNotice(
@@ -1390,14 +1385,20 @@ export function ExamplesPage({
         registrationId: admission.registrationId,
         datasetId: admission.datasetId,
       });
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const currentCase = await operations.readCase({
         registrationId: admission.registrationId,
         datasetId: admission.datasetId,
         caseId: admission.caseId,
       });
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const currentLabel = admission.decisionId
         ? await operations.readLabel({
@@ -1407,15 +1408,18 @@ export function ExamplesPage({
             caseId: admission.caseId,
           })
         : undefined;
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const reviewed = publishReviewedPair(
-      context,
-      currentDataset.data,
-      currentCase.data,
-      currentLabel?.data,
-      admission.readEpoch,
-      admission.navigationEpoch,
+        context,
+        currentDataset.data,
+        currentCase.data,
+        currentLabel?.data,
+        admission.readEpoch,
+        admission.navigationEpoch,
       );
       if (!reviewed) return;
       const labelUnchanged =
@@ -1452,18 +1456,21 @@ export function ExamplesPage({
   async function addCase(): Promise<boolean> {
     const admission = captureDatasetAdmission();
     if (committedRefreshRef.current || !admission) return false;
-    if (pendingAdd?.uncertain && !matchesDatasetScope(pendingAdd.scope, admission))
+    if (
+      pendingAdd?.uncertain &&
+      !matchesDatasetScope(pendingAdd.scope, admission)
+    )
       return false;
     if (pendingAdd?.conflict) return false;
     setBusy(true);
     setMutationInFlight(true);
     setError(undefined);
-      const body: AddCaseBody = pendingAdd?.uncertain
-        ? pendingAdd.body
-        : {
-            schema_version: 1,
-            operation_id: opId(),
-            expected_dataset_etag: admission.read.etag,
+    const body: AddCaseBody = pendingAdd?.uncertain
+      ? pendingAdd.body
+      : {
+          schema_version: 1,
+          operation_id: opId(),
+          expected_dataset_etag: admission.read.etag,
           input_kind: newInputKind,
           input_source: newInputSource,
           metadata_source: newMetadataSource,
@@ -1664,14 +1671,20 @@ export function ExamplesPage({
         registrationId: admission.registrationId,
         datasetId: admission.datasetId,
       });
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const currentCase = await operations.readCase({
         registrationId: admission.registrationId,
         datasetId: admission.datasetId,
         caseId: admission.caseId,
       });
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const currentLabel = admission.decisionId
         ? await operations.readLabel({
@@ -1681,15 +1694,18 @@ export function ExamplesPage({
             caseId: admission.caseId,
           })
         : undefined;
-      if (!isCurrentContext(context) || currentSelectionAdmission() !== admission)
+      if (
+        !isCurrentContext(context) ||
+        currentSelectionAdmission() !== admission
+      )
         return;
       const reviewed = publishReviewedPair(
-      context,
-      currentDataset.data,
-      currentCase.data,
-      currentLabel?.data,
-      admission.readEpoch,
-      admission.navigationEpoch,
+        context,
+        currentDataset.data,
+        currentCase.data,
+        currentLabel?.data,
+        admission.readEpoch,
+        admission.navigationEpoch,
       );
       if (!reviewed) return;
       caseStageOwnerRef.current = ownerFor(reviewed);
@@ -1919,10 +1935,7 @@ export function ExamplesPage({
               type="button"
               className="primary"
               onClick={() => {
-                if (
-                  !committedRefreshRef.current &&
-                  captureDatasetAdmission()
-                )
+                if (!committedRefreshRef.current && captureDatasetAdmission())
                   setAddCaseOpen(true);
               }}
               disabled={!datasetReady || !!committedRefresh}
@@ -1938,7 +1951,10 @@ export function ExamplesPage({
           </p>
         )}
         {selectedCaseId && !selectionReady && (
-          <section className="warning-summary" aria-label="Selected review status">
+          <section
+            className="warning-summary"
+            aria-label="Selected review status"
+          >
             <p role="status">
               {selectionLoading
                 ? "Loading selected example…"
@@ -1954,9 +1970,13 @@ export function ExamplesPage({
           </section>
         )}
         {selectionNeedsReview && (
-          <section className="warning-summary" aria-label="Review selected context">
+          <section
+            className="warning-summary"
+            aria-label="Review selected context"
+          >
             <p role="status">
-              The current example or label context changed. Review it before making another change.
+              The current example or label context changed. Review it before
+              making another change.
             </p>
             <button
               type="button"
@@ -2376,9 +2396,7 @@ export function ExamplesPage({
                   <button
                     type="button"
                     disabled={
-                      !pendingCaseMatchesSelection ||
-                      busy ||
-                      !!committedRefresh
+                      !pendingCaseMatchesSelection || busy || !!committedRefresh
                     }
                     onClick={() => void saveCase()}
                   >
@@ -2395,9 +2413,7 @@ export function ExamplesPage({
                   <button
                     type="button"
                     disabled={
-                      !pendingCaseMatchesSelection ||
-                      busy ||
-                      !!committedRefresh
+                      !pendingCaseMatchesSelection || busy || !!committedRefresh
                     }
                     onClick={() => void reviewCaseConflict()}
                   >
@@ -2519,9 +2535,7 @@ export function ExamplesPage({
                   <button
                     type="button"
                     disabled={
-                      !pendingAddMatchesDataset ||
-                      busy ||
-                      !!committedRefresh
+                      !pendingAddMatchesDataset || busy || !!committedRefresh
                     }
                     onClick={() => void addCase()}
                   >
@@ -2539,9 +2553,7 @@ export function ExamplesPage({
                   <button
                     type="button"
                     disabled={
-                      !pendingAddMatchesDataset ||
-                      busy ||
-                      !!committedRefresh
+                      !pendingAddMatchesDataset || busy || !!committedRefresh
                     }
                     onClick={() => void reviewAddConflict()}
                   >
