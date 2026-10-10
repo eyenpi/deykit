@@ -2052,14 +2052,10 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("status").filter({ hasText: "Draft saved" }),
   ).toHaveText("Draft saved");
-  const transformedDecisionPath =
-    `/api/v1/projects/${registrationId}/decisions/${decisionId}`;
-  const transformedDecision = await page.request.get(
-    transformedDecisionPath,
-    {
-      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
-    },
-  );
+  const transformedDecisionPath = `/api/v1/projects/${registrationId}/decisions/${decisionId}`;
+  const transformedDecision = await page.request.get(transformedDecisionPath, {
+    headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+  });
   await recordDirectApiFailure(transformedDecision, transformedDecisionPath);
   expect(transformedDecision.status()).toBe(200);
   const transformedSource = (await transformedDecision.json()).data.draft.record
