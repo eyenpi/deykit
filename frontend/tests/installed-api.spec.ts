@@ -4616,12 +4616,12 @@ test("installed browser authors exact decision source and previews imports throu
     stage: "receipt",
     elapsed_ms: splitReadinessStartedAt - splitReplayStartedAt,
   });
-  let refreshReadinessTimer: ReturnType<typeof setTimeout> | undefined;
   const splitReadinessTimeout = new Error(
     "Split refresh did not reach a settled ready state.",
   );
+  let splitRefreshReadinessTimer: ReturnType<typeof setTimeout> | undefined;
   const boundedSplitReadiness = new Promise<never>((_, reject) => {
-    refreshReadinessTimer = setTimeout(() => {
+    splitRefreshReadinessTimer = setTimeout(() => {
       reject(splitReadinessTimeout);
     }, 15_000);
   });
@@ -4762,8 +4762,8 @@ test("installed browser authors exact decision source and previews imports throu
     }
     throw error;
   } finally {
-    if (refreshReadinessTimer !== undefined)
-      clearTimeout(refreshReadinessTimer);
+    if (splitRefreshReadinessTimer !== undefined)
+      clearTimeout(splitRefreshReadinessTimer);
   }
   actionTimings.push({
     action: "split_replay",
