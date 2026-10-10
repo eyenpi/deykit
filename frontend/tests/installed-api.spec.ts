@@ -2339,7 +2339,7 @@ test("installed browser authors exact decision source and previews imports throu
     '"input_kind":"json"',
   );
   expect(jsonInputDecisionData.draft.record.editor_source).toContain(
-    JSON.stringify(committedAfterBlurSource),
+    JSON.stringify(acknowledgedCompositionSource),
   );
 
   await enterPhase("Label staging, review, provenance and write races");
