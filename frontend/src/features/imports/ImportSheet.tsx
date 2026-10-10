@@ -4,16 +4,24 @@ import { safeMessage } from "../../api/client";
 import { JsonSourceEditor } from "../../components/JsonSourceEditor";
 import { Modal } from "../../components/Modal";
 import { ErrorSummary, LoadingState } from "../../components/States";
-import type { ExampleAuthoringOperations, ProjectOverview, SourceAuthoringOperations } from "../../workspace/gateway";
+import type {
+  ExampleAuthoringOperations,
+  ProjectOverview,
+  SourceAuthoringOperations,
+} from "../../workspace/gateway";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
 import { MappingTransformQueue } from "./mapping-transform-queue";
 
-type ImportPreview = ApiOperationData<"preview_import_api_v1_projects__registration_id__datasets__dataset_id__imports_preview_post">;
-type ImportCommit = ApiOperationData<"commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post">;
-type MappingForm = NonNullable<ApiOperationData<"projectImportMapping">["form"]>;
+type ImportPreview =
+  ApiOperationData<"preview_import_api_v1_projects__registration_id__datasets__dataset_id__imports_preview_post">;
+type ImportCommit =
+  ApiOperationData<"commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post">;
+type MappingForm = NonNullable<
+  ApiOperationData<"projectImportMapping">["form"]
+>;
 type MappingEdit = ApiOperationBody<"transformImportMapping">["edit"];
 
 const INITIAL_MAPPING = '{"input_kind":"text"}';
@@ -47,18 +55,28 @@ export function ImportSheet({
   const [mappingError, setMappingError] = useState<string>();
   const [loadingMapping, setLoadingMapping] = useState(false);
   const [mappingTransformPending, setMappingTransformPending] = useState(false);
-  const [state, setState] = useState<MutationState<ImportCommit>>({ kind: "idle" });
+  const [state, setState] = useState<MutationState<ImportCommit>>({
+    kind: "idle",
+  });
   const [busy, setBusy] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
-  const mutation = useRef<RetainedMutation<{
-    registrationId: string;
-    datasetId: string;
-    body: ApiOperationBody<"commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post">;
-  }, ImportCommit> | undefined>(undefined);
+  const mutation = useRef<
+    | RetainedMutation<
+        {
+          registrationId: string;
+          datasetId: string;
+          body: ApiOperationBody<"commit_import_api_v1_projects__registration_id__datasets__dataset_id__imports_commit_post">;
+        },
+        ImportCommit
+      >
+    | undefined
+  >(undefined);
   const mappingFieldOriginals = useRef(new Map<string, string>());
   const mappingSourceRef = useRef(INITIAL_MAPPING);
   const mappingFormRef = useRef<MappingForm | undefined>(undefined);
-  const mappingQueue = useRef(new MappingTransformQueue<MappingEdit, MappingForm>(INITIAL_MAPPING));
+  const mappingQueue = useRef(
+    new MappingTransformQueue<MappingEdit, MappingForm>(INITIAL_MAPPING),
+  );
   const mappingTransformCount = useRef(0);
   const uncommittedMappingEdits = useRef(new Map<string, MappingEdit>());
   const mappingProjectionSequence = useRef(0);
@@ -67,20 +85,28 @@ export function ImportSheet({
     let active = true;
     const sequence = ++mappingProjectionSequence.current;
     setLoadingMapping(true);
-    void sources.projectMapping({
-      registrationId: project.id,
-      body: { schema_version: 1, mapping_source: mappingSourceRef.current },
-    }).then((result) => {
-      if (active && sequence === mappingProjectionSequence.current) {
-        setMappingForm(result.data.form ?? undefined);
-        mappingFormRef.current = result.data.form ?? undefined;
-      }
-    }).catch((cause: unknown) => {
-      if (active && sequence === mappingProjectionSequence.current) setMappingError(safeMessage(cause));
-    }).finally(() => {
-      if (active && sequence === mappingProjectionSequence.current) setLoadingMapping(false);
-    });
-    return () => { active = false; };
+    void sources
+      .projectMapping({
+        registrationId: project.id,
+        body: { schema_version: 1, mapping_source: mappingSourceRef.current },
+      })
+      .then((result) => {
+        if (active && sequence === mappingProjectionSequence.current) {
+          setMappingForm(result.data.form ?? undefined);
+          mappingFormRef.current = result.data.form ?? undefined;
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active && sequence === mappingProjectionSequence.current)
+          setMappingError(safeMessage(cause));
+      })
+      .finally(() => {
+        if (active && sequence === mappingProjectionSequence.current)
+          setLoadingMapping(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [project.id, sources]);
 
   useEffect(() => {
@@ -105,7 +131,8 @@ export function ImportSheet({
   }
 
   function recordMappingEdit(edit: MappingEdit) {
-    if (edit.kind === "set") uncommittedMappingEdits.current.set(edit.field, edit);
+    if (edit.kind === "set")
+      uncommittedMappingEdits.current.set(edit.field, edit);
   }
 
   function mergeUncommittedEdits(form: MappingForm): MappingForm {
@@ -114,40 +141,52 @@ export function ImportSheet({
       if (edit.kind !== "set") continue;
       switch (edit.field) {
         case "input_kind":
-          if (edit.value === "text" || edit.value === "json") next = { ...next, input_kind: edit.value };
+          if (edit.value === "text" || edit.value === "json")
+            next = { ...next, input_kind: edit.value };
           break;
         case "input_parse_json":
-          if (typeof edit.value === "boolean") next = { ...next, input_parse_json: edit.value };
+          if (typeof edit.value === "boolean")
+            next = { ...next, input_parse_json: edit.value };
           break;
         case "id_column":
-          if (typeof edit.value === "string" || edit.value === null) next = { ...next, id_column: edit.value };
+          if (typeof edit.value === "string" || edit.value === null)
+            next = { ...next, id_column: edit.value };
           break;
         case "expected_column":
-          if (typeof edit.value === "string" || edit.value === null) next = { ...next, expected_column: edit.value };
+          if (typeof edit.value === "string" || edit.value === null)
+            next = { ...next, expected_column: edit.value };
           break;
         case "expected_parse_json":
-          if (typeof edit.value === "boolean") next = { ...next, expected_parse_json: edit.value };
+          if (typeof edit.value === "boolean")
+            next = { ...next, expected_parse_json: edit.value };
           break;
         case "group_column":
-          if (typeof edit.value === "string" || edit.value === null) next = { ...next, group_column: edit.value };
+          if (typeof edit.value === "string" || edit.value === null)
+            next = { ...next, group_column: edit.value };
           break;
         case "tags_column":
-          if (typeof edit.value === "string" || edit.value === null) next = { ...next, tags_column: edit.value };
+          if (typeof edit.value === "string" || edit.value === null)
+            next = { ...next, tags_column: edit.value };
           break;
         case "tags_parse_json":
-          if (typeof edit.value === "boolean") next = { ...next, tags_parse_json: edit.value };
+          if (typeof edit.value === "boolean")
+            next = { ...next, tags_parse_json: edit.value };
           break;
         case "split_column":
-          if (typeof edit.value === "string" || edit.value === null) next = { ...next, split_column: edit.value };
+          if (typeof edit.value === "string" || edit.value === null)
+            next = { ...next, split_column: edit.value };
           break;
         case "metadata_column":
-          if (typeof edit.value === "string" || edit.value === null) next = { ...next, metadata_column: edit.value };
+          if (typeof edit.value === "string" || edit.value === null)
+            next = { ...next, metadata_column: edit.value };
           break;
         case "metadata_parse_json":
-          if (typeof edit.value === "boolean") next = { ...next, metadata_parse_json: edit.value };
+          if (typeof edit.value === "boolean")
+            next = { ...next, metadata_parse_json: edit.value };
           break;
         case "input_column":
-          if (typeof edit.value === "string" || edit.value === null) next = { ...next, input_column: edit.value };
+          if (typeof edit.value === "string" || edit.value === null)
+            next = { ...next, input_column: edit.value };
           break;
       }
     }
@@ -161,31 +200,43 @@ export function ImportSheet({
     for (const edit of edits) {
       mappingTransformCount.current += 1;
       setMappingTransformPending(true);
-      void mappingQueue.current.enqueue(edit, async (source, queuedEdit) => {
-        const result = await sources.transformMapping({
-          registrationId: project.id,
-          body: { schema_version: 1, mapping_source: source, edit: queuedEdit },
+      void mappingQueue.current
+        .enqueue(edit, async (source, queuedEdit) => {
+          const result = await sources.transformMapping({
+            registrationId: project.id,
+            body: {
+              schema_version: 1,
+              mapping_source: source,
+              edit: queuedEdit,
+            },
+          });
+          return {
+            mapping_source: result.data.mapping_source,
+            form: result.data.projection.form ?? null,
+          };
+        })
+        .then((result) => {
+          if (
+            edit.kind === "set" &&
+            uncommittedMappingEdits.current.get(edit.field) === edit
+          )
+            uncommittedMappingEdits.current.delete(edit.field);
+          mappingSourceRef.current = mappingQueue.current.source;
+          setMappingSource(mappingQueue.current.source);
+          if (result.form) {
+            const next = mergeUncommittedEdits(result.form);
+            mappingFormRef.current = next;
+            setMappingForm(next);
+          }
+        })
+        .catch((cause: unknown) => {
+          setMappingError(safeMessage(cause));
+        })
+        .finally(() => {
+          mappingTransformCount.current -= 1;
+          if (mappingTransformCount.current === 0)
+            setMappingTransformPending(false);
         });
-        return {
-          mapping_source: result.data.mapping_source,
-          form: result.data.projection.form ?? null,
-        };
-      }).then((result) => {
-        if (edit.kind === "set" && uncommittedMappingEdits.current.get(edit.field) === edit)
-          uncommittedMappingEdits.current.delete(edit.field);
-        mappingSourceRef.current = mappingQueue.current.source;
-        setMappingSource(mappingQueue.current.source);
-        if (result.form) {
-          const next = mergeUncommittedEdits(result.form);
-          mappingFormRef.current = next;
-          setMappingForm(next);
-        }
-      }).catch((cause: unknown) => {
-        setMappingError(safeMessage(cause));
-      }).finally(() => {
-        mappingTransformCount.current -= 1;
-        if (mappingTransformCount.current === 0) setMappingTransformPending(false);
-      });
     }
   }
 
@@ -200,7 +251,11 @@ export function ImportSheet({
   }
 
   function retryMappingEdits() {
-    if (mappingTransformCount.current > 0 || uncommittedMappingEdits.current.size === 0) return;
+    if (
+      mappingTransformCount.current > 0 ||
+      uncommittedMappingEdits.current.size === 0
+    )
+      return;
     mappingQueue.current.reset(mappingSourceRef.current);
     scheduleMappingEdits([...uncommittedMappingEdits.current.values()]);
   }
@@ -213,13 +268,18 @@ export function ImportSheet({
     }
     try {
       const bytes = await file.arrayBuffer();
-      const decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+      const decoded = new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: true,
+      }).decode(bytes);
       setFileName(file.name);
       setSourceText(decoded);
       setFormat(file.name.toLowerCase().endsWith(".jsonl") ? "jsonl" : "csv");
       invalidatePreview();
     } catch {
-      setError("The selected file is not valid UTF-8. Your current import source is unchanged.");
+      setError(
+        "The selected file is not valid UTF-8. Your current import source is unchanged.",
+      );
     }
   }
 
@@ -230,7 +290,9 @@ export function ImportSheet({
       uncommittedMappingEdits.current.size > 0 ||
       loadingMapping
     ) {
-      setError("Finish or retry the pending mapping changes before previewing this import.");
+      setError(
+        "Finish or retry the pending mapping changes before previewing this import.",
+      );
       return;
     }
     setBusy(true);
@@ -262,7 +324,9 @@ export function ImportSheet({
 
   async function commitImport() {
     if (!preview || !mutation.current) return;
-    const rejected = preview.preview.rows.filter((row) => row.errors.length > 0).length;
+    const rejected = preview.preview.rows.filter(
+      (row) => row.errors.length > 0,
+    ).length;
     if (rejected > 0 && !skipInvalid) return;
     setBusy(true);
     const request = {
@@ -275,9 +339,10 @@ export function ImportSheet({
         ...(skipInvalid ? { skip_invalid: true } : { skip_invalid: false }),
       },
     };
-    const result = state.kind === "outcome-unknown"
-      ? await mutation.current.retryOriginal()
-      : await mutation.current.submit(request);
+    const result =
+      state.kind === "outcome-unknown"
+        ? await mutation.current.retryOriginal()
+        : await mutation.current.submit(request);
     if (result) onImported(result);
     setBusy(false);
   }
@@ -285,22 +350,42 @@ export function ImportSheet({
   const rows = preview?.preview.rows ?? [];
   const rejectedCount = rows.filter((row) => row.errors.length > 0).length;
   const validCount = rows.length - rejectedCount;
-  const mutationMessage = state.kind === "conflict" || state.kind === "failed" || state.kind === "outcome-unknown" ? state.message : undefined;
-  const locked = state.kind === "submitting" || state.kind === "outcome-unknown";
-  const hasUnsavedImport = !!sourceText || mappingSource !== INITIAL_MAPPING || !!preview;
-  const writePending = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const mutationMessage =
+    state.kind === "conflict" ||
+    state.kind === "failed" ||
+    state.kind === "outcome-unknown"
+      ? state.message
+      : undefined;
+  const locked =
+    state.kind === "submitting" || state.kind === "outcome-unknown";
+  const hasUnsavedImport =
+    !!sourceText || mappingSource !== INITIAL_MAPPING || !!preview;
+  const writePending =
+    state.kind === "submitting" || state.kind === "outcome-unknown";
   const guard = useDirtyNavigationGuard({
     dirty: hasUnsavedImport || mappingTransformPending || writePending,
     blockedMessage: writePending
       ? "An import write may have completed. Keep this sheet open and retry its original request before leaving."
       : undefined,
     save: async () => {
-      if (writePending) throw new Error("Retry the original import request before leaving this sheet.");
-      throw new Error("Review or explicitly discard the import sheet before leaving.");
+      if (writePending)
+        throw new Error(
+          "Retry the original import request before leaving this sheet.",
+        );
+      throw new Error(
+        "Review or explicitly discard the import sheet before leaving.",
+      );
     },
     discard: onClose,
   });
-  useEffect(() => navigation.registerDirtyGuard(`import:${project.id}:${datasetId}`, guard.guard), [datasetId, guard.guard, navigation, project.id]);
+  useEffect(
+    () =>
+      navigation.registerDirtyGuard(
+        `import:${project.id}:${datasetId}`,
+        guard.guard,
+      ),
+    [datasetId, guard.guard, navigation, project.id],
+  );
   function requestClose() {
     if (busy) return;
     if (state.kind === "outcome-unknown") return;
@@ -310,44 +395,126 @@ export function ImportSheet({
   return (
     <Modal title="Import examples" onDismiss={requestClose} sheet>
       <div className="modal-body import-sheet">
-        <p className="muted">Import adds cases only. It never starts a model request.</p>
+        <p className="muted">
+          Import adds cases only. It never starts a model request.
+        </p>
         {error && <ErrorSummary message={error} />}
         {mutationMessage && <ErrorSummary message={mutationMessage} />}
-        {state.kind === "outcome-unknown" && <button type="button" disabled={busy} onClick={() => void commitImport()}>Retry the same import request</button>}
+        {state.kind === "outcome-unknown" && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void commitImport()}
+          >
+            Retry the same import request
+          </button>
+        )}
         <div className="field">
           <label htmlFor="import-file">CSV or JSONL file</label>
-        <input id="import-file" type="file" accept=".csv,.jsonl,text/csv,application/x-ndjson" disabled={locked} onChange={(event) => void readFile(event.currentTarget.files?.[0])} />
+          <input
+            id="import-file"
+            type="file"
+            accept=".csv,.jsonl,text/csv,application/x-ndjson"
+            disabled={locked}
+            onChange={(event) => void readFile(event.currentTarget.files?.[0])}
+          />
           {fileName && <p className="muted">Selected file: {fileName}</p>}
         </div>
         <fieldset>
           <legend>Format</legend>
           {(["csv", "jsonl"] as const).map((value) => (
-            <label key={value}><input type="radio" name="import-format" checked={format === value} disabled={locked} onChange={() => { setFormat(value); invalidatePreview(); }} />{value.toUpperCase()}</label>
+            <label key={value}>
+              <input
+                type="radio"
+                name="import-format"
+                checked={format === value}
+                disabled={locked}
+                onChange={() => {
+                  setFormat(value);
+                  invalidatePreview();
+                }}
+              />
+              {value.toUpperCase()}
+            </label>
           ))}
         </fieldset>
         <div className="field">
           <label htmlFor="import-decision">Map expected answers for</label>
-          <select id="import-decision" value={decisionId} disabled={locked} onChange={(event) => { setDecisionId(event.target.value); invalidatePreview(); }}>
+          <select
+            id="import-decision"
+            value={decisionId}
+            disabled={locked}
+            onChange={(event) => {
+              setDecisionId(event.target.value);
+              invalidatePreview();
+            }}
+          >
             <option value="">No decision selected</option>
-            {project.decisions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            {project.decisions.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
           </select>
         </div>
-        {loadingMapping ? <LoadingState>Loading mapping controls…</LoadingState> : mappingForm ? (
-            <section className="mapping-form" aria-label="Common import mapping controls">
+        {loadingMapping ? (
+          <LoadingState>Loading mapping controls…</LoadingState>
+        ) : mappingForm ? (
+          <section
+            className="mapping-form"
+            aria-label="Common import mapping controls"
+          >
             <fieldset>
               <legend>Input format</legend>
-              {(["text", "json"] as const).map((value) => <label key={value}><input type="radio" checked={mappingForm.input_kind === value} disabled={locked} onChange={() => void transformMapping({ kind: "set", field: "input_kind", value })} />{value.toUpperCase()}</label>)}
+              {(["text", "json"] as const).map((value) => (
+                <label key={value}>
+                  <input
+                    type="radio"
+                    checked={mappingForm.input_kind === value}
+                    disabled={locked}
+                    onChange={() =>
+                      void transformMapping({
+                        kind: "set",
+                        field: "input_kind",
+                        value,
+                      })
+                    }
+                  />
+                  {value.toUpperCase()}
+                </label>
+              ))}
             </fieldset>
-            {(["input_column", "id_column", "expected_column", "group_column", "tags_column", "split_column", "metadata_column"] as const).map((field) => (
+            {(
+              [
+                "input_column",
+                "id_column",
+                "expected_column",
+                "group_column",
+                "tags_column",
+                "split_column",
+                "metadata_column",
+              ] as const
+            ).map((field) => (
               <div className="field" key={field}>
-                <label htmlFor={`mapping-${field}`}>{field.replaceAll("_", " ")}</label>
+                <label htmlFor={`mapping-${field}`}>
+                  {field.replaceAll("_", " ")}
+                </label>
                 <input
                   id={`mapping-${field}`}
                   value={mappingForm[field] ?? ""}
                   disabled={locked}
-                  onFocus={(event) => mappingFieldOriginals.current.set(field, event.currentTarget.value)}
+                  onFocus={(event) =>
+                    mappingFieldOriginals.current.set(
+                      field,
+                      event.currentTarget.value,
+                    )
+                  }
                   onChange={(event) => {
-                    const edit: MappingEdit = { kind: "set", field, value: event.target.value || null };
+                    const edit: MappingEdit = {
+                      kind: "set",
+                      field,
+                      value: event.target.value || null,
+                    };
                     recordMappingEdit(edit);
                     const next = mappingFormRef.current
                       ? mergeUncommittedEdits(mappingFormRef.current)
@@ -360,10 +527,15 @@ export function ImportSheet({
                   }}
                   onBlur={(event) => {
                     if (
-                      event.currentTarget.value !== mappingFieldOriginals.current.get(field) ||
+                      event.currentTarget.value !==
+                        mappingFieldOriginals.current.get(field) ||
                       uncommittedMappingEdits.current.has(field)
                     )
-                      void transformMapping({ kind: "set", field, value: event.currentTarget.value || null });
+                      void transformMapping({
+                        kind: "set",
+                        field,
+                        value: event.currentTarget.value || null,
+                      });
                   }}
                 />
               </div>
@@ -371,67 +543,203 @@ export function ImportSheet({
           </section>
         ) : null}
         {mappingError && <ErrorSummary message={mappingError} />}
-        {mappingQueue.current.blocked && uncommittedMappingEdits.current.size > 0 && <button type="button" disabled={busy || mappingTransformPending} onClick={retryMappingEdits}>Retry pending mapping changes</button>}
-        <JsonSourceEditor label="Advanced mapping source" value={mappingSource} onChange={(value) => {
-          mappingSourceRef.current = value;
-          mappingQueue.current.reset(value);
-          const sequence = ++mappingProjectionSequence.current;
-          uncommittedMappingEdits.current.clear();
-          mappingFormRef.current = undefined;
-          setMappingForm(undefined);
-          setMappingSource(value);
-          setLoadingMapping(true);
-          invalidatePreview();
-          void sources.projectMapping({ registrationId: project.id, body: { schema_version: 1, mapping_source: value } })
-            .then((result) => {
-              if (sequence !== mappingProjectionSequence.current || mappingSourceRef.current !== value || uncommittedMappingEdits.current.size > 0) return;
-              mappingFormRef.current = result.data.form ?? undefined;
-              setMappingForm(result.data.form ?? undefined);
-            }).catch((cause: unknown) => {
-              if (sequence === mappingProjectionSequence.current) setMappingError(safeMessage(cause));
-            }).finally(() => {
-              if (sequence === mappingProjectionSequence.current) setLoadingMapping(false);
-            });
-        }} readOnly={locked || mappingTransformPending} />
-        <JsonSourceEditor label="Import source text" value={sourceText} onChange={(value) => { setSourceText(value); invalidatePreview(); }} readOnly={locked} />
+        {mappingQueue.current.blocked &&
+          uncommittedMappingEdits.current.size > 0 && (
+            <button
+              type="button"
+              disabled={busy || mappingTransformPending}
+              onClick={retryMappingEdits}
+            >
+              Retry pending mapping changes
+            </button>
+          )}
+        <JsonSourceEditor
+          label="Advanced mapping source"
+          value={mappingSource}
+          onChange={(value) => {
+            mappingSourceRef.current = value;
+            mappingQueue.current.reset(value);
+            const sequence = ++mappingProjectionSequence.current;
+            uncommittedMappingEdits.current.clear();
+            mappingFormRef.current = undefined;
+            setMappingForm(undefined);
+            setMappingSource(value);
+            setLoadingMapping(true);
+            invalidatePreview();
+            void sources
+              .projectMapping({
+                registrationId: project.id,
+                body: { schema_version: 1, mapping_source: value },
+              })
+              .then((result) => {
+                if (
+                  sequence !== mappingProjectionSequence.current ||
+                  mappingSourceRef.current !== value ||
+                  uncommittedMappingEdits.current.size > 0
+                )
+                  return;
+                mappingFormRef.current = result.data.form ?? undefined;
+                setMappingForm(result.data.form ?? undefined);
+              })
+              .catch((cause: unknown) => {
+                if (sequence === mappingProjectionSequence.current)
+                  setMappingError(safeMessage(cause));
+              })
+              .finally(() => {
+                if (sequence === mappingProjectionSequence.current)
+                  setLoadingMapping(false);
+              });
+          }}
+          readOnly={locked || mappingTransformPending}
+        />
+        <JsonSourceEditor
+          label="Import source text"
+          value={sourceText}
+          onChange={(value) => {
+            setSourceText(value);
+            invalidatePreview();
+          }}
+          readOnly={locked}
+        />
         <div className="actions">
-          <button type="button" disabled={busy || locked || mappingTransformPending || loadingMapping || uncommittedMappingEdits.current.size > 0 || mappingQueue.current.blocked || !sourceText} onClick={() => void previewImport()}>{busy ? "Reviewing…" : "Preview all rows"}</button>
+          <button
+            type="button"
+            disabled={
+              busy ||
+              locked ||
+              mappingTransformPending ||
+              loadingMapping ||
+              uncommittedMappingEdits.current.size > 0 ||
+              mappingQueue.current.blocked ||
+              !sourceText
+            }
+            onClick={() => void previewImport()}
+          >
+            {busy ? "Reviewing…" : "Preview all rows"}
+          </button>
         </div>
         {preview && (
-          <section className="section import-preview" aria-labelledby="import-preview-heading">
+          <section
+            className="section import-preview"
+            aria-labelledby="import-preview-heading"
+          >
             <h2 id="import-preview-heading">Import review</h2>
-            <p role="status">{rows.length} rows · {validCount} valid · {rejectedCount} rejected · {preview.would_import} would import</p>
+            <p role="status">
+              {rows.length} rows · {validCount} valid · {rejectedCount} rejected
+              · {preview.would_import} would import
+            </p>
             <table className="records-table">
               <caption>Actual parsed rows and server validation</caption>
-              <thead><tr><th scope="col">Row</th><th scope="col">Input preview</th><th scope="col">Expected IDs</th><th scope="col">Errors</th></tr></thead>
-              <tbody>{rows.map((row) => (
-                <tr key={`${row.row}-${row.source_line}`}>
-                  <th scope="row">{row.row}</th>
-                  <td><code>{row.case?.input_source.slice(0, 120) ?? "—"}</code></td>
-                  <td>{row.acceptable_option_ids.join(", ") || "—"}</td>
-                  <td>{row.errors.map((item, index) => <p key={`${item.code}-${index}`} className="field-error">Line {row.source_line}: {item.message} <code>{item.code}</code></p>)}</td>
+              <thead>
+                <tr>
+                  <th scope="col">Row</th>
+                  <th scope="col">Input preview</th>
+                  <th scope="col">Expected IDs</th>
+                  <th scope="col">Errors</th>
                 </tr>
-              ))}</tbody>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={`${row.row}-${row.source_line}`}>
+                    <th scope="row">{row.row}</th>
+                    <td>
+                      <code>{row.case?.input_source.slice(0, 120) ?? "—"}</code>
+                    </td>
+                    <td>{row.acceptable_option_ids.join(", ") || "—"}</td>
+                    <td>
+                      {row.errors.map((item, index) => (
+                        <p
+                          key={`${item.code}-${index}`}
+                          className="field-error"
+                        >
+                          Line {row.source_line}: {item.message}{" "}
+                          <code>{item.code}</code>
+                        </p>
+                      ))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
             {rejectedCount > 0 && (
               <label className="check-row">
-                <input type="checkbox" checked={skipInvalid} disabled={locked} onChange={(event) => setSkipInvalid(event.target.checked)} />
-                Import valid rows only ({validCount}) and keep the exclusion report
+                <input
+                  type="checkbox"
+                  checked={skipInvalid}
+                  disabled={locked}
+                  onChange={(event) => setSkipInvalid(event.target.checked)}
+                />
+                Import valid rows only ({validCount}) and keep the exclusion
+                report
               </label>
             )}
             <div className="actions">
-              <button type="button" className="primary" disabled={busy || (rejectedCount > 0 && !skipInvalid) || state.kind === "committed" || state.kind === "conflict" || state.kind === "failed"} onClick={() => void commitImport()}>
-                {busy ? "Importing…" : `Import ${rejectedCount > 0 ? "valid rows" : "cases"}`}
+              <button
+                type="button"
+                className="primary"
+                disabled={
+                  busy ||
+                  (rejectedCount > 0 && !skipInvalid) ||
+                  state.kind === "committed" ||
+                  state.kind === "conflict" ||
+                  state.kind === "failed"
+                }
+                onClick={() => void commitImport()}
+              >
+                {busy
+                  ? "Importing…"
+                  : `Import ${rejectedCount > 0 ? "valid rows" : "cases"}`}
               </button>
-              <button type="button" disabled={busy || state.kind === "outcome-unknown"} onClick={requestClose}>Close</button>
+              <button
+                type="button"
+                disabled={busy || state.kind === "outcome-unknown"}
+                onClick={requestClose}
+              >
+                Close
+              </button>
             </div>
             {state.kind === "committed" && (
-              <div role="status"><p>Imported {state.receipt.imported_case_ids.length} case(s) into the selected dataset.</p><p>Excluded rows: {state.receipt.exclusions.length}. The exact server exclusions remain available in this report.</p></div>
+              <div role="status">
+                <p>
+                  Imported {state.receipt.imported_case_ids.length} case(s) into
+                  the selected dataset.
+                </p>
+                <p>
+                  Excluded rows: {state.receipt.exclusions.length}. The exact
+                  server exclusions remain available in this report.
+                </p>
+              </div>
             )}
           </section>
         )}
       </div>
-      {discardConfirm && <Modal title="Discard this import review?" onDismiss={() => { if (state.kind !== "outcome-unknown") setDiscardConfirm(false); }}><div className="modal-body"><p>The selected source, mapping, and preview will be cleared when this sheet closes.</p><div className="actions"><button className="primary" disabled={state.kind === "outcome-unknown"} onClick={onClose}>Discard import review</button><button onClick={() => setDiscardConfirm(false)}>Keep editing</button></div></div></Modal>}
+      {discardConfirm && (
+        <Modal
+          title="Discard this import review?"
+          onDismiss={() => {
+            if (state.kind !== "outcome-unknown") setDiscardConfirm(false);
+          }}
+        >
+          <div className="modal-body">
+            <p>
+              The selected source, mapping, and preview will be cleared when
+              this sheet closes.
+            </p>
+            <div className="actions">
+              <button
+                className="primary"
+                disabled={state.kind === "outcome-unknown"}
+                onClick={onClose}
+              >
+                Discard import review
+              </button>
+              <button onClick={() => setDiscardConfirm(false)}>
+                Keep editing
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {guard.prompt}
     </Modal>
   );

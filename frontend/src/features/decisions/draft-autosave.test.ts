@@ -8,8 +8,14 @@ describe("draft autosave sequencing", () => {
   it("sends newer typing after an older acknowledgement with the advanced ETag", async () => {
     vi.useFakeTimers();
     let releaseFirst!: () => void;
-    const first = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const calls: Array<{ editorSource: string; expectedDraftEtag: string; operationId: string }> = [];
+    const first = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const calls: Array<{
+      editorSource: string;
+      expectedDraftEtag: string;
+      operationId: string;
+    }> = [];
     const controller = new DraftAutosaveController(
       "e0",
       async (request) => {
@@ -18,7 +24,10 @@ describe("draft autosave sequencing", () => {
         return { etag: `e${calls.length}` };
       },
       () => undefined,
-      (() => { let next = 0; return () => `op-${++next}`; })(),
+      (() => {
+        let next = 0;
+        return () => `op-${++next}`;
+      })(),
     );
 
     controller.edit("older source");
@@ -27,7 +36,9 @@ describe("draft autosave sequencing", () => {
     releaseFirst();
     await controller.flush();
 
-    expect(calls.map((call) => [call.editorSource, call.expectedDraftEtag])).toEqual([
+    expect(
+      calls.map((call) => [call.editorSource, call.expectedDraftEtag]),
+    ).toEqual([
       ["older source", "e0"],
       ["newer source", "e1"],
     ]);
@@ -37,12 +48,17 @@ describe("draft autosave sequencing", () => {
 
   it("keeps an uncertain request and ETag for deliberate unchanged replay", async () => {
     vi.useFakeTimers();
-    const calls: Array<{ editorSource: string; expectedDraftEtag: string; operationId: string }> = [];
+    const calls: Array<{
+      editorSource: string;
+      expectedDraftEtag: string;
+      operationId: string;
+    }> = [];
     const controller = new DraftAutosaveController(
       "e0",
       async (request) => {
         calls.push(request);
-        if (calls.length === 1) throw new ApiError("service_unavailable", "Unknown outcome.", 503);
+        if (calls.length === 1)
+          throw new ApiError("service_unavailable", "Unknown outcome.", 503);
         return { etag: "e1" };
       },
       () => undefined,
@@ -59,19 +75,32 @@ describe("draft autosave sequencing", () => {
   it("treats malformed success replies as unknown and replays once before newer typing", async () => {
     vi.useFakeTimers();
     let releaseRetry!: () => void;
-    const retryBarrier = new Promise<void>((resolve) => { releaseRetry = resolve; });
-    const calls: Array<{ editorSource: string; expectedDraftEtag: string; operationId: string }> = [];
+    const retryBarrier = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
+    const calls: Array<{
+      editorSource: string;
+      expectedDraftEtag: string;
+      operationId: string;
+    }> = [];
     const controller = new DraftAutosaveController(
       "e0",
       async (request) => {
         calls.push(request);
         if (calls.length === 1)
-          throw new ApiError("response_invalid", "The success response was malformed.", 200);
+          throw new ApiError(
+            "response_invalid",
+            "The success response was malformed.",
+            200,
+          );
         if (calls.length === 2) await retryBarrier;
         return { etag: `e${calls.length}` };
       },
       () => undefined,
-      (() => { let next = 0; return () => `op-${++next}`; })(),
+      (() => {
+        let next = 0;
+        return () => `op-${++next}`;
+      })(),
     );
     controller.edit("sent source");
     await vi.advanceTimersByTimeAsync(500);
@@ -84,7 +113,12 @@ describe("draft autosave sequencing", () => {
     expect(calls[1]).toEqual(calls[0]);
     releaseRetry();
     await Promise.all([firstRetry, duplicateRetry]);
-    expect(calls.map(({ editorSource, expectedDraftEtag }) => [editorSource, expectedDraftEtag])).toEqual([
+    expect(
+      calls.map(({ editorSource, expectedDraftEtag }) => [
+        editorSource,
+        expectedDraftEtag,
+      ]),
+    ).toEqual([
       ["sent source", "e0"],
       ["sent source", "e0"],
       ["newer typing", "e2"],
@@ -97,7 +131,9 @@ describe("draft autosave sequencing", () => {
     vi.useFakeTimers();
     const controller = new DraftAutosaveController(
       "e0",
-      async () => { throw new ApiError("validation_error", "Invalid source.", 422); },
+      async () => {
+        throw new ApiError("validation_error", "Invalid source.", 422);
+      },
       () => undefined,
     );
     controller.edit("invalid but retained");

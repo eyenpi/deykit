@@ -9,7 +9,13 @@ const exactSource = '{"large":9007199254740993,"value":"ab"}';
 it("keeps exact source and the insertion caret through controlled edits", async () => {
   function Harness() {
     const [source, setSource] = useState(exactSource);
-    return <JsonSourceEditor label="Exact source" value={source} onChange={setSource} />;
+    return (
+      <JsonSourceEditor
+        label="Exact source"
+        value={source}
+        onChange={setSource}
+      />
+    );
   }
 
   const user = userEvent.setup();
@@ -39,7 +45,9 @@ it("forwards composition boundaries while retaining the exact composing string",
     );
   }
   render(<Harness />);
-  const editor = screen.getByLabelText("Composed source") as HTMLTextAreaElement;
+  const editor = screen.getByLabelText(
+    "Composed source",
+  ) as HTMLTextAreaElement;
   fireEvent.compositionStart(editor);
   fireEvent.change(editor, { target: { value: `${exactSource}字` } });
   expect(editor.value).toBe(`${exactSource}字`);

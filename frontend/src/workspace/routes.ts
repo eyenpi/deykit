@@ -126,10 +126,7 @@ export function routeFromHash(hash: string): WorkspaceRoute | null {
       keys.length === 0
     ) {
       route = { kind: "fixtures", registrationId };
-    } else if (
-      segments[2] === "examples" &&
-      segments.length === 3
-    ) {
+    } else if (segments[2] === "examples" && segments.length === 3) {
       route = { kind: "examples", registrationId, decisionId: null };
     } else if (segments[2] === "d" && validId(segments[3])) {
       const decisionId = segments[3];
@@ -141,10 +138,7 @@ export function routeFromHash(hash: string): WorkspaceRoute | null {
         keys.length === 0
       ) {
         route = { kind: "decision-history", registrationId, decisionId };
-      } else if (
-        segments[4] === "examples" &&
-        segments.length === 5
-      ) {
+      } else if (segments[4] === "examples" && segments.length === 5) {
         route = {
           kind: "examples",
           registrationId,

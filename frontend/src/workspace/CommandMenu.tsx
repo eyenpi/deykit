@@ -23,7 +23,9 @@ export function CommandMenu({
   const filtered = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
     return commands.filter((command) =>
-      `${command.label} ${command.context}`.toLocaleLowerCase().includes(needle),
+      `${command.label} ${command.context}`
+        .toLocaleLowerCase()
+        .includes(needle),
     );
   }, [commands, search]);
 
@@ -64,7 +66,9 @@ export function CommandMenu({
       {open && (
         <Modal title="Search workspace" onDismiss={() => setOpen(false)}>
           <div className="modal-body command-menu">
-            <label htmlFor="workspace-command-search">Search loaded workspace</label>
+            <label htmlFor="workspace-command-search">
+              Search loaded workspace
+            </label>
             <input
               id="workspace-command-search"
               ref={searchField}
@@ -82,7 +86,9 @@ export function CommandMenu({
                 } else if (event.key === "ArrowUp") {
                   event.preventDefault();
                   setActiveIndex((index) =>
-                    filtered.length ? (index - 1 + filtered.length) % filtered.length : 0,
+                    filtered.length
+                      ? (index - 1 + filtered.length) % filtered.length
+                      : 0,
                   );
                 } else if (event.key === "Enter") {
                   event.preventDefault();
@@ -96,9 +102,17 @@ export function CommandMenu({
                 No loaded workspace items match.
               </p>
             ) : (
-              <ul className="command-results" role="listbox" aria-label="Loaded workspace items">
+              <ul
+                className="command-results"
+                role="listbox"
+                aria-label="Loaded workspace items"
+              >
                 {filtered.map((command, index) => (
-                  <li key={command.id} role="option" aria-selected={index === activeIndex}>
+                  <li
+                    key={command.id}
+                    role="option"
+                    aria-selected={index === activeIndex}
+                  >
                     <button
                       type="button"
                       onMouseEnter={() => setActiveIndex(index)}
@@ -111,7 +125,9 @@ export function CommandMenu({
                 ))}
               </ul>
             )}
-            <p className="muted">Use ↑ and ↓ to move, Enter to open, Escape to close.</p>
+            <p className="muted">
+              Use ↑ and ↓ to move, Enter to open, Escape to close.
+            </p>
           </div>
         </Modal>
       )}

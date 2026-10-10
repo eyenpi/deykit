@@ -1,7 +1,9 @@
 import { isValidWorkspaceRoute, routeFromHash, routeToHash } from "./routes";
 import type { WorkspaceRoute } from "./routes";
 
-export type DirtyNavigationGuard = ((target: WorkspaceRoute) => Promise<boolean>) & {
+export type DirtyNavigationGuard = ((
+  target: WorkspaceRoute,
+) => Promise<boolean>) & {
   isDirty: () => boolean;
 };
 
@@ -53,7 +55,8 @@ export class WorkspaceNavigation {
   #guards = new Map<string, DirtyNavigationGuard>();
   #externalCheckScheduled = false;
   #externalCheckRunning = false;
-  #pendingExternal: { route: WorkspaceRoute; hash: string; generation: number } | undefined;
+  #pendingExternal:
+    { route: WorkspaceRoute; hash: string; generation: number } | undefined;
   #intentGeneration = 0;
   #transitionTail: Promise<void> = Promise.resolve();
   #onExternalNavigation: () => void;
@@ -102,10 +105,7 @@ export class WorkspaceNavigation {
     return () => this.#listeners.delete(listener);
   }
 
-  registerDirtyGuard(
-    key: string,
-    guard: DirtyNavigationGuard,
-  ): () => void {
+  registerDirtyGuard(key: string, guard: DirtyNavigationGuard): () => void {
     this.#guards.set(key, guard);
     return () => {
       const current = this.#guards.get(key);
@@ -187,7 +187,10 @@ export class WorkspaceNavigation {
 
   #serialize<T>(transition: () => Promise<T>): Promise<T> {
     const next = this.#transitionTail.then(transition, transition);
-    this.#transitionTail = next.then(() => undefined, () => undefined);
+    this.#transitionTail = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
 

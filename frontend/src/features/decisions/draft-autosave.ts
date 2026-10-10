@@ -23,19 +23,34 @@ type StatusListener = (status: DraftSaveStatus) => void;
 type PendingSource = { source: string; sequence: number };
 
 function failureStatus(cause: unknown): DraftSaveStatus {
-  if (cause instanceof ApiError && (cause.status === 409 || cause.code === "conflict")) {
+  if (
+    cause instanceof ApiError &&
+    (cause.status === 409 || cause.code === "conflict")
+  ) {
     return { kind: "conflict", message: cause.message };
   }
-  const definitelyRejected = cause instanceof ApiError && (
-    (cause.status !== undefined && cause.status >= 400 && cause.status < 500 &&
-      cause.status !== 408 && cause.status !== 425 && cause.status !== 429) ||
-    ["invalid_operation", "invalid_request", "invalid_path", "invalid_query", "invalid_body", "session_required"].includes(cause.code)
-  );
+  const definitelyRejected =
+    cause instanceof ApiError &&
+    ((cause.status !== undefined &&
+      cause.status >= 400 &&
+      cause.status < 500 &&
+      cause.status !== 408 &&
+      cause.status !== 425 &&
+      cause.status !== 429) ||
+      [
+        "invalid_operation",
+        "invalid_request",
+        "invalid_path",
+        "invalid_query",
+        "invalid_body",
+        "session_required",
+      ].includes(cause.code));
   return definitelyRejected
     ? { kind: "failed", message: cause.message }
     : {
         kind: "outcome-unknown",
-        message: "The save may have reached the service. Review the saved draft before retrying.",
+        message:
+          "The save may have reached the service. Review the saved draft before retrying.",
       };
 }
 
@@ -89,7 +104,10 @@ export class DraftAutosaveController {
       this.#timer = undefined;
     }
     await this.#drain();
-    if (this.#status.kind === "conflict" || this.#status.kind === "outcome-unknown") {
+    if (
+      this.#status.kind === "conflict" ||
+      this.#status.kind === "outcome-unknown"
+    ) {
       throw new Error(this.#status.message);
     }
     if (this.#status.kind === "failed") throw new Error(this.#status.message);
@@ -143,7 +161,11 @@ export class DraftAutosaveController {
     if (this.#inFlight) {
       await this.#inFlight;
       if (this.#stopped || !this.#latest) return;
-      if (this.#status.kind === "conflict" || this.#status.kind === "outcome-unknown") return;
+      if (
+        this.#status.kind === "conflict" ||
+        this.#status.kind === "outcome-unknown"
+      )
+        return;
       return this.#drain();
     }
     if (this.#stopped || !this.#latest) return;

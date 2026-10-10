@@ -28,17 +28,14 @@ export function useDirtyNavigationGuard({
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
-  const guardFunction = useCallback(
-    (next: WorkspaceRoute) => {
-      if (!dirtyRef.current) return Promise.resolve(true);
-      setError(undefined);
-      setTarget(next);
-      return new Promise<boolean>((done) => {
-        resolve.current = done;
-      });
-    },
-    [],
-  );
+  const guardFunction = useCallback((next: WorkspaceRoute) => {
+    if (!dirtyRef.current) return Promise.resolve(true);
+    setError(undefined);
+    setTarget(next);
+    return new Promise<boolean>((done) => {
+      resolve.current = done;
+    });
+  }, []);
   const guard = useMemo<DirtyNavigationGuard>(
     () => Object.assign(guardFunction, { isDirty: () => dirtyRef.current }),
     [guardFunction],
@@ -87,7 +84,10 @@ export function useDirtyNavigationGuard({
         }}
       >
         <div className="modal-body">
-          <p>{blockedMessage ?? "Save your changes before leaving, discard them, or keep editing."}</p>
+          <p>
+            {blockedMessage ??
+              "Save your changes before leaving, discard them, or keep editing."}
+          </p>
           {error && <ErrorSummary message={error} focus />}
           <div className="actions">
             <button
@@ -98,10 +98,18 @@ export function useDirtyNavigationGuard({
             >
               {saving ? "Saving…" : "Save and leave"}
             </button>
-            <button type="button" disabled={saving || !!blockedMessage} onClick={discardAndLeave}>
+            <button
+              type="button"
+              disabled={saving || !!blockedMessage}
+              onClick={discardAndLeave}
+            >
               Discard changes
             </button>
-            <button type="button" disabled={saving} onClick={() => settle(false)}>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => settle(false)}
+            >
               Keep editing
             </button>
           </div>

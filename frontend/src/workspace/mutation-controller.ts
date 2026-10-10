@@ -9,26 +9,47 @@ export type MutationState<Receipt> =
   | { kind: "outcome-unknown"; message: string };
 
 function definitelyRejected(cause: unknown): cause is ApiError {
-  return cause instanceof ApiError && (
-    (cause.status !== undefined && cause.status >= 400 && cause.status < 500 &&
-      cause.status !== 408 && cause.status !== 425 && cause.status !== 429) ||
-    ["invalid_operation", "invalid_request", "invalid_path", "invalid_query", "invalid_body", "session_required"].includes(cause.code)
+  return (
+    cause instanceof ApiError &&
+    ((cause.status !== undefined &&
+      cause.status >= 400 &&
+      cause.status < 500 &&
+      cause.status !== 408 &&
+      cause.status !== 425 &&
+      cause.status !== 429) ||
+      [
+        "invalid_operation",
+        "invalid_request",
+        "invalid_path",
+        "invalid_query",
+        "invalid_body",
+        "session_required",
+      ].includes(cause.code))
   );
 }
 
 export function isOutcomeUnknown(cause: unknown): boolean {
-  return !(cause instanceof ApiError && (cause.status === 409 || cause.code === "conflict")) &&
-    !definitelyRejected(cause);
+  return (
+    !(
+      cause instanceof ApiError &&
+      (cause.status === 409 || cause.code === "conflict")
+    ) && !definitelyRejected(cause)
+  );
 }
 
 function stateForFailure<Receipt>(cause: unknown): MutationState<Receipt> {
-  const message = cause instanceof Error ? cause.message : "The change could not be saved.";
-  if (cause instanceof ApiError && (cause.status === 409 || cause.code === "conflict"))
+  const message =
+    cause instanceof Error ? cause.message : "The change could not be saved.";
+  if (
+    cause instanceof ApiError &&
+    (cause.status === 409 || cause.code === "conflict")
+  )
     return { kind: "conflict", message };
   if (isOutcomeUnknown(cause))
     return {
       kind: "outcome-unknown",
-      message: "The service may have saved this change. Review its current state before retrying.",
+      message:
+        "The service may have saved this change. Review its current state before retrying.",
     };
   return { kind: "failed", message };
 }

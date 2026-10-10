@@ -48,7 +48,8 @@ export function JsonSourceEditor({
         aria-describedby={`${id}-help`}
       />
       <p id={`${id}-help`} className={error ? "field-error" : "muted"}>
-        {error ?? description ??
+        {error ??
+          description ??
           "Values and formatting are preserved. Validation is performed by the local service."}
       </p>
     </div>

@@ -67,9 +67,12 @@ export function Shell({
   }
 
   const registrationId = project?.id;
-  const activeDecisionId = route.kind === "decision" || route.kind === "examples" || route.kind === "decision-history"
-    ? route.decisionId
-    : undefined;
+  const activeDecisionId =
+    route.kind === "decision" ||
+    route.kind === "examples" ||
+    route.kind === "decision-history"
+      ? route.decisionId
+      : undefined;
   const decisionContext = !!decision && !!activeDecisionId;
 
   return (
@@ -122,27 +125,59 @@ export function Shell({
                   <div key={item.id}>
                     <button
                       aria-current={selected ? "page" : undefined}
-                      onClick={() => go({ kind: "decision", registrationId, decisionId: item.id })}
+                      onClick={() =>
+                        go({
+                          kind: "decision",
+                          registrationId,
+                          decisionId: item.id,
+                        })
+                      }
                     >
                       {item.name}
                     </button>
                     {selected && (
                       <div className="decision-nav">
                         <button
-                          aria-current={route.kind === "decision" ? "page" : undefined}
-                          onClick={() => go({ kind: "decision", registrationId, decisionId: item.id })}
+                          aria-current={
+                            route.kind === "decision" ? "page" : undefined
+                          }
+                          onClick={() =>
+                            go({
+                              kind: "decision",
+                              registrationId,
+                              decisionId: item.id,
+                            })
+                          }
                         >
                           Decision
                         </button>
                         <button
-                          aria-current={route.kind === "examples" ? "page" : undefined}
-                          onClick={() => go({ kind: "examples", registrationId, decisionId: item.id })}
+                          aria-current={
+                            route.kind === "examples" ? "page" : undefined
+                          }
+                          onClick={() =>
+                            go({
+                              kind: "examples",
+                              registrationId,
+                              decisionId: item.id,
+                            })
+                          }
                         >
                           Examples
                         </button>
                         <button
-                          aria-current={route.kind === "decision-history" ? "page" : undefined}
-                          onClick={() => go({ kind: "decision-history", registrationId, decisionId: item.id })}
+                          aria-current={
+                            route.kind === "decision-history"
+                              ? "page"
+                              : undefined
+                          }
+                          onClick={() =>
+                            go({
+                              kind: "decision-history",
+                              registrationId,
+                              decisionId: item.id,
+                            })
+                          }
                         >
                           History
                         </button>
@@ -152,8 +187,14 @@ export function Shell({
                 );
               })}
               <button
-                aria-current={route.kind === "examples" && route.decisionId === null ? "page" : undefined}
-                onClick={() => go({ kind: "examples", registrationId, decisionId: null })}
+                aria-current={
+                  route.kind === "examples" && route.decisionId === null
+                    ? "page"
+                    : undefined
+                }
+                onClick={() =>
+                  go({ kind: "examples", registrationId, decisionId: null })
+                }
               >
                 Project examples
               </button>
@@ -192,10 +233,21 @@ export function Shell({
             Menu
           </button>
           <nav aria-label="Breadcrumb">
-            <span>{project && route.kind !== "start" ? project.name : "Local workspace"}</span>
-            {decisionContext && <><span aria-hidden="true"> / </span><span>{decision?.name}</span></>}
+            <span>
+              {project && route.kind !== "start"
+                ? project.name
+                : "Local workspace"}
+            </span>
+            {decisionContext && (
+              <>
+                <span aria-hidden="true"> / </span>
+                <span>{decision?.name}</span>
+              </>
+            )}
           </nav>
-          {decisionContext && decisionActions && <div className="actions">{decisionActions}</div>}
+          {decisionContext && decisionActions && (
+            <div className="actions">{decisionActions}</div>
+          )}
         </header>
         <main id="main-content" tabIndex={-1}>
           {children}

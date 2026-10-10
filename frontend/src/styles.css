@@ -132,7 +132,11 @@ strong {
 .sidebar kbd {
   float: right;
   color: var(--muted);
-  font: 12px ui-monospace, SFMono-Regular, Consolas, monospace;
+  font:
+    12px ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
 }
 .sidebar-bottom {
   margin-top: auto;

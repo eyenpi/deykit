@@ -44,27 +44,52 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 
   const shell = await page.goto("/");
   expect(shell?.status()).toBe(200);
-  expect(shell?.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
-  await expect(page.getByRole("heading", { name: "Welcome to deykit." })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("initial.png"), fullPage: true });
+  expect(shell?.headers()["content-security-policy"]).toContain(
+    "frame-ancestors 'none'",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("initial.png"),
+    fullPage: true,
+  });
 
   await page.getByRole("button", { name: "Try support demo" }).click();
   const pathField = page.getByLabel("Project folder path");
   await pathField.fill(demoPath);
-  await page.getByRole("button", { name: "Try support demo", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
   await expect(page.getByRole("dialog").getByRole("alert")).toBeVisible();
   await expect(pathField).toHaveValue(demoPath);
-  await page.screenshot({ path: testInfo.outputPath("error.png"), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath("error.png"),
+    fullPage: true,
+  });
 
-  await page.getByRole("dialog").getByRole("button", { name: "Reconnect" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Reconnect" })
+    .click();
   await expect(pathField).toHaveValue(demoPath);
   await expect(page.getByRole("dialog")).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("reconnect.png"), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath("reconnect.png"),
+    fullPage: true,
+  });
 
-  await page.getByRole("button", { name: "Try support demo", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Sandbox", exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
   await expect(page.getByText(demoPath, { exact: true })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("open-demo.png"), fullPage: true });
+  await page.screenshot({
+    path: testInfo.outputPath("open-demo.png"),
+    fullPage: true,
+  });
 
   expect(
     typeof capability === "string" && /^[A-Za-z0-9_-]{43}$/.test(capability),
@@ -90,13 +115,17 @@ test("installed shell recovers a lost authored-demo response without duplicate w
     { headers: authorizedHeaders },
   );
   expect(demoRegistration.status()).toBe(200);
-  expect((await demoRegistration.json()).data.registration_id).toBe(registrationId);
+  expect((await demoRegistration.json()).data.registration_id).toBe(
+    registrationId,
+  );
   const demoOverview = await page.request.get(
     `/api/v1/projects/${registrationId}/overview`,
     { headers: authorizedHeaders },
   );
   expect(demoOverview.status()).toBe(200);
-  expect((await demoOverview.json()).data.registration.project.name).toBe("Sandbox");
+  expect((await demoOverview.json()).data.registration.project.name).toBe(
+    "Sandbox",
+  );
   const demoValidated = await page.request.post(
     `/api/v1/projects/${registrationId}/validate`,
     { headers: authorizedHeaders, data: { schema_version: 1 } },
@@ -161,7 +190,9 @@ test("installed shell recovers a lost authored-demo response without duplicate w
   );
 
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Welcome to deykit." })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Projects", exact: true })
@@ -190,19 +221,28 @@ test("installed shell recovers a lost authored-demo response without duplicate w
     { status: 200, replayed: false },
     { status: 200, replayed: true },
   ]);
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([
-    0,
-    0,
-  ]);
-  expect(await page.evaluate(() => (document as Document & { cookie: string }).cookie)).toBe("");
-  expect(await page.evaluate(() => (window as Window & { __xss?: unknown }).__xss)).toBeUndefined();
+  expect(
+    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
+  ).toEqual([0, 0]);
+  expect(
+    await page.evaluate(
+      () => (document as Document & { cookie: string }).cookie,
+    ),
+  ).toBe("");
+  expect(
+    await page.evaluate(() => (window as Window & { __xss?: unknown }).__xss),
+  ).toBeUndefined();
   await expect(page.locator("img")).toHaveCount(0);
   expect(page.url()).not.toContain("?");
   expect(
-    requestUrls.every((url) => new URL(url).origin === new URL(page.url()).origin),
+    requestUrls.every(
+      (url) => new URL(url).origin === new URL(page.url()).origin,
+    ),
   ).toBe(true);
   expect(page.url()).not.toContain(sessionCapability);
-  expect(requestUrls.every((url) => !url.includes(sessionCapability))).toBe(true);
+  expect(requestUrls.every((url) => !url.includes(sessionCapability))).toBe(
+    true,
+  );
   expect(consoleMessages.join("\n")).not.toContain(sessionCapability);
 });
 
@@ -216,7 +256,11 @@ test("installed browser authors exact decision source and previews imports throu
   let progressSequence = 0;
   const progressPath = testInfo.outputPath("authoring-progress.json");
   async function recordProgress() {
-    const body = JSON.stringify({ active_phase: activePhase, completed_phases: completedPhases, screenshots });
+    const body = JSON.stringify({
+      active_phase: activePhase,
+      completed_phases: completedPhases,
+      screenshots,
+    });
     await writeFile(progressPath, `${body}\n`, "utf8");
     progressSequence += 1;
     await testInfo.attach(`authoring-progress-${progressSequence}`, {
@@ -262,33 +306,51 @@ test("installed browser authors exact decision source and previews imports throu
   });
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Welcome to deykit." })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Create project" }).click();
   await page.getByLabel("Project name").fill(projectName);
   await page.getByLabel("Project folder path").fill(projectPath);
-  await page.getByRole("dialog").getByRole("button", { name: "Create project" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create project" })
+    .click();
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
   await enterPhase("Dataset creation and first import mapping");
 
   await page.getByRole("button", { name: "Create dataset" }).click();
   await page.getByLabel("Dataset name").fill("Imported before decision");
-  await page.getByRole("dialog").getByRole("button", { name: "Create dataset" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create dataset" })
+    .click();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
   await captureScreenshot("examples-before-decision.png");
 
   await enterPhase("Serialized opaque mapping transforms and import preview");
-  await page.getByRole("button", { name: "Project examples", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Project examples", exact: true })
+    .click();
   await page.getByRole("button", { name: "Import examples" }).click();
-  await page.getByLabel("Import source text").fill("id,input\nseed-1,first imported input\n");
+  await page
+    .getByLabel("Import source text")
+    .fill("id,input\nseed-1,first imported input\n");
   const mappingBodies: Array<Record<string, unknown>> = [];
   let firstMappingSource: string | undefined;
   let finalMappingSource: string | undefined;
   let releaseFirstMapping!: () => void;
   let reportFirstMapping!: () => void;
   let reportSecondMapping!: () => void;
-  const firstMappingGate = new Promise<void>((resolve) => { releaseFirstMapping = resolve; });
-  const firstMappingStarted = new Promise<void>((resolve) => { reportFirstMapping = resolve; });
-  const secondMappingFinished = new Promise<void>((resolve) => { reportSecondMapping = resolve; });
+  const firstMappingGate = new Promise<void>((resolve) => {
+    releaseFirstMapping = resolve;
+  });
+  const firstMappingStarted = new Promise<void>((resolve) => {
+    reportFirstMapping = resolve;
+  });
+  const secondMappingFinished = new Promise<void>((resolve) => {
+    reportSecondMapping = resolve;
+  });
   let mappingCall = 0;
   await page.route("**/authoring/mapping-transform", async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>;
@@ -319,7 +381,9 @@ test("installed browser authors exact decision source and previews imports throu
   await firstMappingStarted;
   await page.getByLabel("input column").fill("input");
   await page.getByLabel("input column").press("Tab");
-  await expect(page.getByRole("button", { name: "Preview all rows" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Preview all rows" }),
+  ).toBeDisabled();
   expect(mappingBodies).toHaveLength(1);
   releaseFirstMapping();
   await secondMappingFinished;
@@ -327,61 +391,110 @@ test("installed browser authors exact decision source and previews imports throu
   expect(mappingBodies[1].mapping_source).toBe(firstMappingSource);
   await expect(page.getByLabel("id column")).toHaveValue("id");
   await expect(page.getByLabel("input column")).toHaveValue("input");
-  await expect(page.getByRole("button", { name: "Preview all rows" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Preview all rows" }),
+  ).toBeEnabled();
   await page.getByRole("button", { name: "Preview all rows" }).click();
   await expect.poll(() => previewBodies.length).toBe(1);
   expect(previewBodies[0].mapping_source).toBe(finalMappingSource);
-  await expect(page.getByRole("heading", { name: "Import review" })).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "1 rows · 1 valid · 0 rejected" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Import review" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "1 rows · 1 valid · 0 rejected" }),
+  ).toBeVisible();
   await captureScreenshot("import-before-decision.png");
   await page.getByRole("button", { name: "Import cases" }).click();
-  await expect(page.getByRole("button", { name: "seed-1", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "seed-1", exact: true }),
+  ).toBeVisible();
   const initialImportHash = new URL(page.url()).hash;
-  const registrationId = initialImportHash.match(/^#\/p\/([A-Za-z0-9_-]+)/)?.[1] as string;
-  const datasetId = new URLSearchParams(initialImportHash.split("?")[1] ?? "").get("dataset") as string;
+  const registrationId = initialImportHash.match(
+    /^#\/p\/([A-Za-z0-9_-]+)/,
+  )?.[1] as string;
+  const datasetId = new URLSearchParams(
+    initialImportHash.split("?")[1] ?? "",
+  ).get("dataset") as string;
 
   await page.getByRole("button", { name: projectName, exact: true }).click();
-  await enterPhase("Exact decision source authoring and API/CLI conflict recovery");
+  await enterPhase(
+    "Exact decision source authoring and API/CLI conflict recovery",
+  );
   await page.getByRole("button", { name: "Create decision" }).click();
   await page.getByLabel("Decision name").fill(decisionName);
-  await page.getByRole("dialog").getByRole("button", { name: "Create decision" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create decision" })
+    .click();
   await expect(page.getByLabel("Question")).toBeVisible();
   const schemaSource =
     '{"type":"object","properties":{"large":{"const":9007199254740993},"fraction":{"multipleOf":0.1234567890123456789}}}';
   await page.getByLabel("Advanced JSON Schema source").fill(schemaSource);
   await page.getByLabel("Advanced JSON Schema source").press("Tab");
-  await expect(page.locator(".document-title-row [role=status]")).toHaveText("Draft saved");
-  const schemaCompositionEditor = page.getByLabel("Advanced JSON Schema source");
-  const intermediateCompositionSource = '{"type":"object","properties":{"ime":{"const":"intermediate"}}}';
-  const committedCompositionSource = '{"type":"object","properties":{"ime":{"const":"committed"}}}';
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
+  const schemaCompositionEditor = page.getByLabel(
+    "Advanced JSON Schema source",
+  );
+  const intermediateCompositionSource =
+    '{"type":"object","properties":{"ime":{"const":"intermediate"}}}';
+  const committedCompositionSource =
+    '{"type":"object","properties":{"ime":{"const":"committed"}}}';
   const compositionTransforms: Array<Record<string, unknown>> = [];
   await page.route("**/editor-transform", async (route) => {
     if (route.request().method() === "POST")
-      compositionTransforms.push(route.request().postDataJSON() as Record<string, unknown>);
+      compositionTransforms.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
     await route.continue();
   });
-  const compositionTransformResponse = page.waitForResponse((response) =>
-    response.url().endsWith("/editor-transform") && response.request().method() === "POST",
+  const compositionTransformResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
   );
   await schemaCompositionEditor.focus();
   await schemaCompositionEditor.dispatchEvent("compositionstart", { data: "" });
   await schemaCompositionEditor.fill(intermediateCompositionSource);
   await schemaCompositionEditor.evaluate((editor) => editor.blur());
   await schemaCompositionEditor.evaluate((editor, committedSource) => {
-    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
     setter?.call(editor, committedSource);
-    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertCompositionText", data: "" }));
-    editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "" }));
+    editor.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertCompositionText",
+        data: "",
+      }),
+    );
+    editor.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "" }),
+    );
   }, committedCompositionSource);
   await compositionTransformResponse;
   expect(compositionTransforms).toHaveLength(1);
-  expect(compositionTransforms[0].edit).toEqual({ kind: "replace_schema", input_schema_source: committedCompositionSource });
-  expect(compositionTransforms[0].editor_source).not.toContain(intermediateCompositionSource);
+  expect(compositionTransforms[0].edit).toEqual({
+    kind: "replace_schema",
+    input_schema_source: committedCompositionSource,
+  });
+  expect(compositionTransforms[0].editor_source).not.toContain(
+    intermediateCompositionSource,
+  );
   await page.unroute("**/editor-transform");
-  await expect(page.locator(".document-title-row [role=status]")).toHaveText("Draft saved");
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
   await captureScreenshot("decision-json-schema.png");
 
-  const registrationMatch = new URL(page.url()).hash.match(/^#\/p\/([A-Za-z0-9_-]+)/);
+  const registrationMatch = new URL(page.url()).hash.match(
+    /^#\/p\/([A-Za-z0-9_-]+)/,
+  );
   const decisionMatch = new URL(page.url()).hash.match(/\/d\/([A-Za-z0-9_-]+)/);
   expect(registrationMatch).not.toBeNull();
   expect(decisionMatch).not.toBeNull();
@@ -395,7 +508,9 @@ test("installed browser authors exact decision source and previews imports throu
   const decisionId = decisionMatch?.[1] as string;
   const stored = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   expect(stored.status()).toBe(200);
   const decision = (await stored.json()).data;
@@ -415,8 +530,12 @@ test("installed browser authors exact decision source and previews imports throu
   await writeFile(cliSourcePath, cliSource, "utf8");
   let releaseBrowserSave!: () => void;
   let reportBrowserSaveStarted!: () => void;
-  const browserSaveStarted = new Promise<void>((resolve) => { reportBrowserSaveStarted = resolve; });
-  const holdBrowserSave = new Promise<void>((resolve) => { releaseBrowserSave = resolve; });
+  const browserSaveStarted = new Promise<void>((resolve) => {
+    reportBrowserSaveStarted = resolve;
+  });
+  const holdBrowserSave = new Promise<void>((resolve) => {
+    releaseBrowserSave = resolve;
+  });
   let heldFirstSave = false;
   await page.route("**/api/v1/projects/*/decisions/*/draft", async (route) => {
     if (route.request().method() === "PUT" && !heldFirstSave) {
@@ -433,29 +552,47 @@ test("installed browser authors exact decision source and previews imports throu
   const cliResult = execFileSync(
     "deykit",
     [
-      "--project", projectPath,
+      "--project",
+      projectPath,
       "--json",
-      "decision", "edit", decisionId,
-      "--file", cliSourcePath,
-      "--if-hash", decision.draft.etag,
-      "--operation-id", "m10-browser-cli-etag-winner",
+      "decision",
+      "edit",
+      decisionId,
+      "--file",
+      cliSourcePath,
+      "--if-hash",
+      decision.draft.etag,
+      "--operation-id",
+      "m10-browser-cli-etag-winner",
     ],
     { encoding: "utf8" },
   );
   expect(cliResult).toContain("m10-browser-cli-etag-winner");
   releaseBrowserSave();
-  await expect(page.getByRole("button", { name: "Review current and reapply my source" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Review current and reapply my source" }),
+  ).toBeVisible();
   await expect(sourceEditor).toHaveValue(browserSource);
   const raceWinner = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  expect((await raceWinner.json()).data.draft.record.editor_source).toBe(cliSource);
-  await page.getByRole("button", { name: "Review current and reapply my source" }).click();
-  await expect(page.locator(".document-title-row [role=status]")).toHaveText("Draft saved");
+  expect((await raceWinner.json()).data.draft.record.editor_source).toBe(
+    cliSource,
+  );
+  await page
+    .getByRole("button", { name: "Review current and reapply my source" })
+    .click();
+  await expect(page.locator(".document-title-row [role=status]")).toHaveText(
+    "Draft saved",
+  );
   const reapplied = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   const reappliedDraft = (await reapplied.json()).data.draft;
   expect(reappliedDraft.record.editor_source).toBe(browserSource);
@@ -465,21 +602,31 @@ test("installed browser authors exact decision source and previews imports throu
   const renameBodies: Array<Record<string, unknown>> = [];
   await page.route(`**/decisions/${decisionId}/rename`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
-    renameBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    renameBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
     const response = await route.fetch();
     if (renameBodies.length === 1) {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "{}",
+      });
       return;
     }
     await route.fulfill({ response });
   });
-  const renameResponse = page.waitForResponse((response) =>
-    response.url().endsWith("/rename") && response.request().method() === "POST",
+  const renameResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/rename") &&
+      response.request().method() === "POST",
   );
   await page.getByLabel("Decision name").fill(decisionName);
   await page.getByLabel("Decision name").press("Tab");
   expect((await renameResponse).status()).toBe(200);
-  await expect(page.getByRole("button", { name: "Retry same rename" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same rename" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Retry same rename" }).click();
   await expect(page.getByLabel("Decision name")).toHaveValue(decisionName);
   expect(renameBodies).toHaveLength(2);
@@ -487,147 +634,227 @@ test("installed browser authors exact decision source and previews imports throu
   await page.unroute(`**/decisions/${decisionId}/rename`);
   const renamed = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   expect((await renamed.json()).data.decision.record.name).toBe(decisionName);
 
   const revisionSaveBodies: Array<Record<string, unknown>> = [];
   await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
-    revisionSaveBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    revisionSaveBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
     const response = await route.fetch();
     if (revisionSaveBodies.length === 1) {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "{}",
+      });
       return;
     }
     await route.fulfill({ response });
   });
-  await page.getByLabel("Version note (optional)").fill("Source preservation baseline");
+  await page
+    .getByLabel("Version note (optional)")
+    .fill("Source preservation baseline");
   await page.getByRole("button", { name: "Save version", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Retry same version save" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Retry same version save" }).click();
-  await expect(page.getByRole("status").filter({ hasText: /^Saved version / })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Saved version / }),
+  ).toBeVisible();
   expect(revisionSaveBodies).toHaveLength(2);
   expect(revisionSaveBodies[1]).toEqual(revisionSaveBodies[0]);
   await page.unroute(`**/decisions/${decisionId}/revisions`);
   const firstRevisionPage = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  const firstRevisionId = (await firstRevisionPage.json()).data.items[0].revision.record.id as string;
+  const firstRevisionId = (await firstRevisionPage.json()).data.items[0]
+    .revision.record.id as string;
   const firstRevision = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions/${firstRevisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  const firstRevisionEditorSource = (await firstRevision.json()).data.editor_source as string;
+  const firstRevisionEditorSource = (await firstRevision.json()).data
+    .editor_source as string;
 
   await page.getByRole("button", { name: "+ Add option" }).click();
   const optionNames = page.getByLabel("Option name");
   await expect(optionNames).toHaveCount(3);
   await optionNames.nth(2).fill("Option C");
-  const addTransform = page.waitForResponse((response) =>
-    response.url().endsWith("/editor-transform") && response.request().method() === "POST",
+  const addTransform = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
   );
-  const addDraftSave = page.waitForResponse((response) =>
-    response.url().endsWith("/draft") && response.request().method() === "PUT",
+  const addDraftSave = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
   );
   await optionNames.nth(2).press("Tab");
   await addTransform;
   await addDraftSave;
-  const renameTransform = page.waitForResponse((response) =>
-    response.url().endsWith("/editor-transform") && response.request().method() === "POST",
+  const renameTransform = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
   );
-  const renameDraftSave = page.waitForResponse((response) =>
-    response.url().endsWith("/draft") && response.request().method() === "PUT",
+  const renameDraftSave = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
   );
   await page.getByLabel("Option name").nth(1).fill("Renamed Option B");
   await page.getByLabel("Option name").nth(1).press("Tab");
   await renameTransform;
   await renameDraftSave;
-  const reorderTransform = page.waitForResponse((response) =>
-    response.url().endsWith("/editor-transform") && response.request().method() === "POST",
+  const reorderTransform = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
   );
-  const reorderDraftSave = page.waitForResponse((response) =>
-    response.url().endsWith("/draft") && response.request().method() === "PUT",
+  const reorderDraftSave = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
   );
   await page.getByRole("button", { name: "Move Option C up" }).click();
   await reorderTransform;
   await reorderDraftSave;
   const transformedDecision = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  const transformedSource = (await transformedDecision.json()).data.draft.record.editor_source as string;
+  const transformedSource = (await transformedDecision.json()).data.draft.record
+    .editor_source as string;
   expect(transformedSource).toContain("9007199254740993");
   expect(transformedSource).toContain("0.1234567890123456789");
-  await expect(page.locator(".option-list > li")).toContainText(["Option A", "Option C", "Renamed Option B"]);
+  await expect(page.locator(".option-list > li")).toContainText([
+    "Option A",
+    "Option C",
+    "Renamed Option B",
+  ]);
   const immediateVersionOptionName = "Saved before transform debounce";
   await page.getByLabel("Option name").nth(1).fill(immediateVersionOptionName);
-  const immediateSaveResponse = page.waitForResponse((response) =>
-    response.url().endsWith(`/decisions/${decisionId}/revisions`) && response.request().method() === "POST",
+  const immediateSaveResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Save version", exact: true }).click();
   expect((await immediateSaveResponse).status()).toBe(200);
-  await expect(page.getByRole("status").filter({ hasText: /^Saved version / })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Saved version / }),
+  ).toBeVisible();
   const immediateRevisionPage = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  const immediateRevisionId = (await immediateRevisionPage.json()).data.items[0].revision.record.id as string;
+  const immediateRevisionId = (await immediateRevisionPage.json()).data.items[0]
+    .revision.record.id as string;
   const immediateRevision = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions/${immediateRevisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  const immediateRevisionSource = (await immediateRevision.json()).data.editor_source as string;
+  const immediateRevisionSource = (await immediateRevision.json()).data
+    .editor_source as string;
   expect(immediateRevisionSource).toContain(immediateVersionOptionName);
   expect(immediateRevisionSource).toContain("9007199254740993");
   expect(immediateRevisionSource).toContain("0.1234567890123456789");
   const draftAfterImmediateSave = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  expect(immediateRevisionSource).toBe((await draftAfterImmediateSave.json()).data.draft.record.editor_source);
-  await page.getByLabel("Version note (optional)").fill("Stable option identity and order");
+  expect(immediateRevisionSource).toBe(
+    (await draftAfterImmediateSave.json()).data.draft.record.editor_source,
+  );
+  await page
+    .getByLabel("Version note (optional)")
+    .fill("Stable option identity and order");
   await page.getByRole("button", { name: "Save version", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: /^Saved version / })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: /^Saved version / }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Version history" }).click();
-  await expect(page.getByRole("heading", { name: "Version history" })).toBeVisible();
-  const revisionRows = page.getByRole("table", { name: "Saved decision versions" }).getByRole("row");
+  await expect(
+    page.getByRole("heading", { name: "Version history" }),
+  ).toBeVisible();
+  const revisionRows = page
+    .getByRole("table", { name: "Saved decision versions" })
+    .getByRole("row");
   await expect(revisionRows).toHaveCount(4);
   const baselineRow = revisionRows.nth(3);
   await baselineRow.getByRole("button", { name: "Compare to latest" }).click();
-  await expect(page.getByLabel("Difference from latest")).toContainText("Option order changed: Yes");
-  await expect(page.getByLabel("Difference from latest")).toContainText("Added option IDs:");
+  await expect(page.getByLabel("Difference from latest")).toContainText(
+    "Option order changed: Yes",
+  );
+  await expect(page.getByLabel("Difference from latest")).toContainText(
+    "Added option IDs:",
+  );
   await baselineRow.getByRole("button", { name: "Inspect" }).click();
   await page.getByText("Exact saved editor source", { exact: true }).click();
   const savedEditor = page.getByLabel("Saved editor source");
   await expect(savedEditor).toContainText("9007199254740993");
   await expect(savedEditor).toContainText("0.1234567890123456789");
   await baselineRow.getByRole("button", { name: "Restore to draft…" }).click();
-  const restoreDialog = page.getByRole("dialog", { name: "Restore this version to the draft?" });
+  const restoreDialog = page.getByRole("dialog", {
+    name: "Restore this version to the draft?",
+  });
   await expect(restoreDialog).toBeVisible();
-  await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  await expect(
+    restoreDialog.getByLabel("Editor source to restore"),
+  ).toHaveValue(firstRevisionEditorSource);
   const uncertainRestoreRequests: Array<Record<string, unknown>> = [];
   let firstRestoreStatus: number | undefined;
   let releaseRestoreReply!: () => void;
   let reportRestoreReplyStarted!: () => void;
-  const restoreReplyGate = new Promise<void>((resolve) => { releaseRestoreReply = resolve; });
-  const restoreReplyStarted = new Promise<void>((resolve) => { reportRestoreReplyStarted = resolve; });
-  await page.route(`**/decisions/${decisionId}/restore-revision`, async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    uncertainRestoreRequests.push(route.request().postDataJSON() as Record<string, unknown>);
-    const response = await route.fetch();
-    if (uncertainRestoreRequests.length === 1) {
-      firstRestoreStatus = response.status();
-      reportRestoreReplyStarted();
-      await restoreReplyGate;
-      await route.abort("failed");
-      return;
-    }
-    await route.fulfill({ response });
+  const restoreReplyGate = new Promise<void>((resolve) => {
+    releaseRestoreReply = resolve;
   });
-  await restoreDialog.getByRole("button", { name: "Restore to draft", exact: true }).click();
+  const restoreReplyStarted = new Promise<void>((resolve) => {
+    reportRestoreReplyStarted = resolve;
+  });
+  await page.route(
+    `**/decisions/${decisionId}/restore-revision`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      uncertainRestoreRequests.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (uncertainRestoreRequests.length === 1) {
+        firstRestoreStatus = response.status();
+        reportRestoreReplyStarted();
+        await restoreReplyGate;
+        await route.abort("failed");
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  await restoreDialog
+    .getByRole("button", { name: "Restore to draft", exact: true })
+    .click();
   await restoreReplyStarted;
   expect(uncertainRestoreRequests).toHaveLength(1);
   const restoreHashBeforeBack = page.url();
@@ -635,11 +862,19 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(restoreDialog).toBeVisible();
   expect(page.url()).toBe(restoreHashBeforeBack);
   expect(uncertainRestoreRequests).toHaveLength(1);
-  await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  await expect(
+    restoreDialog.getByLabel("Editor source to restore"),
+  ).toHaveValue(firstRevisionEditorSource);
   releaseRestoreReply();
-  await expect(page.getByRole("button", { name: "Retry the same restore request" })).toBeVisible();
-  await expect(restoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
-  await page.getByRole("button", { name: "Retry the same restore request" }).click();
+  await expect(
+    page.getByRole("button", { name: "Retry the same restore request" }),
+  ).toBeVisible();
+  await expect(
+    restoreDialog.getByLabel("Editor source to restore"),
+  ).toHaveValue(firstRevisionEditorSource);
+  await page
+    .getByRole("button", { name: "Retry the same restore request" })
+    .click();
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
   expect(firstRestoreStatus).toBe(200);
   expect(uncertainRestoreRequests).toHaveLength(2);
@@ -647,35 +882,57 @@ test("installed browser authors exact decision source and previews imports throu
   await page.unroute(`**/decisions/${decisionId}/restore-revision`);
 
   await page.getByRole("button", { name: "Version history" }).click();
-  await expect(page.getByRole("heading", { name: "Version history" })).toBeVisible();
-  const refreshedRevisionRows = page.getByRole("table", { name: "Saved decision versions" }).getByRole("row");
-  await refreshedRevisionRows.nth(2).getByRole("button", { name: "Restore to draft…" }).click();
-  const conflictRestoreDialog = page.getByRole("dialog", { name: "Restore this version to the draft?" });
-  await expect(conflictRestoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
+  await expect(
+    page.getByRole("heading", { name: "Version history" }),
+  ).toBeVisible();
+  const refreshedRevisionRows = page
+    .getByRole("table", { name: "Saved decision versions" })
+    .getByRole("row");
+  await refreshedRevisionRows
+    .nth(2)
+    .getByRole("button", { name: "Restore to draft…" })
+    .click();
+  const conflictRestoreDialog = page.getByRole("dialog", {
+    name: "Restore this version to the draft?",
+  });
+  await expect(
+    conflictRestoreDialog.getByLabel("Editor source to restore"),
+  ).toHaveValue(firstRevisionEditorSource);
   const beforeRestoreRace = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   const currentDraft = (await beforeRestoreRace.json()).data.draft;
   expect(currentDraft.record.editor_source).toBe(firstRevisionEditorSource);
   const restoreRaceWinnerSource = `${currentDraft.record.editor_source}\n`;
   let releaseRestore!: () => void;
   let reportRestoreStarted!: () => void;
-  const restoreStarted = new Promise<void>((resolve) => { reportRestoreStarted = resolve; });
-  const holdRestore = new Promise<void>((resolve) => { releaseRestore = resolve; });
+  const restoreStarted = new Promise<void>((resolve) => {
+    reportRestoreStarted = resolve;
+  });
+  const holdRestore = new Promise<void>((resolve) => {
+    releaseRestore = resolve;
+  });
   let restoreHeld = false;
   let restoreConflictStatus: number | undefined;
-  await page.route(`**/decisions/${decisionId}/restore-revision`, async (route) => {
-    if (route.request().method() === "POST" && !restoreHeld) {
-      restoreHeld = true;
-      reportRestoreStarted();
-      await holdRestore;
-    }
-    const response = await route.fetch();
-    restoreConflictStatus = response.status();
-    await route.fulfill({ response });
-  });
-  await conflictRestoreDialog.getByRole("button", { name: "Restore to draft", exact: true }).click();
+  await page.route(
+    `**/decisions/${decisionId}/restore-revision`,
+    async (route) => {
+      if (route.request().method() === "POST" && !restoreHeld) {
+        restoreHeld = true;
+        reportRestoreStarted();
+        await holdRestore;
+      }
+      const response = await route.fetch();
+      restoreConflictStatus = response.status();
+      await route.fulfill({ response });
+    },
+  );
+  await conflictRestoreDialog
+    .getByRole("button", { name: "Restore to draft", exact: true })
+    .click();
   await restoreStarted;
   const concurrentDraftWrite = await page.request.put(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/draft`,
@@ -694,56 +951,103 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByRole("alert")).toBeVisible();
   expect(restoreConflictStatus).toBe(409);
   await expect(conflictRestoreDialog).toBeVisible();
-  await expect(conflictRestoreDialog).toContainText("Review the current draft before reapplying.");
-  await expect(conflictRestoreDialog.getByLabel("Editor source to restore")).toHaveValue(firstRevisionEditorSource);
-  await conflictRestoreDialog.getByRole("button", { name: "Review current draft" }).click();
-  await expect(conflictRestoreDialog.getByLabel("Reviewed current draft source")).toHaveValue(restoreRaceWinnerSource);
-  await conflictRestoreDialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByRole("navigation", { name: "Workspace" })
+  await expect(conflictRestoreDialog).toContainText(
+    "Review the current draft before reapplying.",
+  );
+  await expect(
+    conflictRestoreDialog.getByLabel("Editor source to restore"),
+  ).toHaveValue(firstRevisionEditorSource);
+  await conflictRestoreDialog
+    .getByRole("button", { name: "Review current draft" })
+    .click();
+  await expect(
+    conflictRestoreDialog.getByLabel("Reviewed current draft source"),
+  ).toHaveValue(restoreRaceWinnerSource);
+  await conflictRestoreDialog
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
     .click();
   const restoreConflictWinner = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  expect((await restoreConflictWinner.json()).data.draft.record.editor_source).toBe(restoreRaceWinnerSource);
+  expect(
+    (await restoreConflictWinner.json()).data.draft.record.editor_source,
+  ).toBe(restoreRaceWinnerSource);
   await page.getByText("Advanced editor source", { exact: true }).click();
-  await expect(page.getByLabel("Decision source")).toHaveValue(restoreRaceWinnerSource);
+  await expect(page.getByLabel("Decision source")).toHaveValue(
+    restoreRaceWinnerSource,
+  );
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
 
   await enterPhase("Label staging, review, provenance and write races");
   await page.getByRole("button", { name: "Examples", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Expected answers" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Expected answers" }),
+  ).toBeVisible();
   await captureScreenshot("examples-label-review.png");
 
   await enterPhase("Import row validation and explicit accepted-row commit");
   await page.getByRole("button", { name: "Import examples" }).click();
   await page.getByLabel("Map expected answers for").selectOption(decisionId);
-  await page.getByLabel("Advanced mapping source").fill(
-    '{"input_kind":"json","input_column":"input","input_parse_json":true,"id_column":"id","expected_column":"expected","group_column":"group"}',
-  );
+  await page
+    .getByLabel("Advanced mapping source")
+    .fill(
+      '{"input_kind":"json","input_column":"input","input_parse_json":true,"id_column":"id","expected_column":"expected","group_column":"group"}',
+    );
   const rows = Array.from({ length: 10 }, (_item, index) => {
     const rowNumber = index + 1;
     const input = rowNumber === 3 ? "not-json" : `{"case":${rowNumber}}`;
     const expected = rowNumber === 7 ? "missing-option" : "option-a";
-    const group = [1, 2, 8, 9].includes(rowNumber) ? "related-group" : `group-${rowNumber}`;
+    const group = [1, 2, 8, 9].includes(rowNumber)
+      ? "related-group"
+      : `group-${rowNumber}`;
     return `case-${rowNumber},"${input.replaceAll('"', '""')}",${expected},${group}`;
   });
   const sourceText = `id,input,expected,group\n${rows.join("\n")}\n`;
   await page.getByLabel("Import source text").fill(sourceText);
   await page.getByRole("button", { name: "Preview all rows" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" })).toBeVisible();
-  await expect(page.getByRole("row", { name: /3.*not-json.*invalid/ })).toBeVisible();
-  await expect(page.getByRole("row", { name: /7.*missing-option/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Import valid rows" })).toBeDisabled();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /3.*not-json.*invalid/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("row", { name: /7.*missing-option/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Import valid rows" }),
+  ).toBeDisabled();
   await captureScreenshot("import-row-errors.png");
-  await page.getByLabel("Import source text").fill(`${sourceText}# changed proposal\n`);
-  await expect(page.getByRole("heading", { name: "Import review" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Import valid rows" })).toHaveCount(0);
+  await page
+    .getByLabel("Import source text")
+    .fill(`${sourceText}# changed proposal\n`);
+  await expect(
+    page.getByRole("heading", { name: "Import review" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Import valid rows" }),
+  ).toHaveCount(0);
   await page.getByLabel("Import source text").fill(sourceText);
   await page.getByRole("button", { name: "Preview all rows" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" })).toBeVisible();
-  await page.getByRole("checkbox", { name: "Import valid rows only (8) and keep the exclusion report" }).check();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "10 rows · 8 valid · 2 rejected · 8 would import" }),
+  ).toBeVisible();
+  await page
+    .getByRole("checkbox", {
+      name: "Import valid rows only (8) and keep the exclusion report",
+    })
+    .check();
   await captureScreenshot("import-valid-rows-reviewed.png");
   let firstImportCommitStatus: number | undefined;
   await page.route("**/imports/commit", async (route) => {
@@ -756,23 +1060,41 @@ test("installed browser authors exact decision source and previews imports throu
     await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Import valid rows" }).click();
-  await expect(page.getByRole("button", { name: "Retry the same import request" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry the same import request" }),
+  ).toBeVisible();
   expect(firstImportCommitStatus).toBe(200);
-  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Close", exact: true }),
+  ).toBeDisabled();
   const importHashBeforeRouteAttempt = page.url();
-  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
-  const importUnknownGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `#/p/${registrationId}/d/${decisionId}`);
+  const importUnknownGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
   await expect(importUnknownGuard).toBeVisible();
-  await expect(importUnknownGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
-  await importUnknownGuard.getByRole("button", { name: "Keep editing" }).click();
+  await expect(
+    importUnknownGuard.getByRole("button", { name: "Discard changes" }),
+  ).toBeDisabled();
+  await importUnknownGuard
+    .getByRole("button", { name: "Keep editing" })
+    .click();
   await expect(page).toHaveURL(importHashBeforeRouteAttempt);
   expect(importCommitBodies).toHaveLength(1);
-  await page.getByRole("button", { name: "Retry the same import request" }).click();
-  await expect(page.getByRole("button", { name: "case-1", exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Retry the same import request" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "case-1", exact: true }),
+  ).toBeVisible();
   expect(importCommitBodies).toHaveLength(2);
   expect(importCommitBodies[1]).toEqual(importCommitBodies[0]);
   await page.unroute("**/imports/commit");
-  await expect(page.getByRole("button", { name: "case-1", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "case-1", exact: true }),
+  ).toBeVisible();
   expect(importCommitBody).toBeDefined();
   const commitReplay = await page.request.post(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/imports/commit`,
@@ -785,7 +1107,9 @@ test("installed browser authors exact decision source and previews imports throu
   expect((await commitReplay.json()).data.replayed).toBe(true);
   const importedCases = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases?limit=50`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   expect((await importedCases.json()).data.total).toBe("9");
 
@@ -794,7 +1118,9 @@ test("installed browser authors exact decision source and previews imports throu
   const stagedCaseSource = '{"case":"seed-1","kept":true}';
   await page.getByLabel("Input source").fill(stagedCaseSource);
   const stagedCaseHash = page.url();
-  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `#/p/${registrationId}/d/${decisionId}`);
   const keepStagedCase = page.getByRole("dialog", { name: "Unsaved changes" });
   await expect(keepStagedCase).toBeVisible();
   await keepStagedCase.getByRole("button", { name: "Keep editing" }).click();
@@ -802,26 +1128,39 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(page.getByLabel("Input source")).toHaveValue(stagedCaseSource);
   await page.getByRole("button", { name: "Save input" }).click();
   await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
-  const readSeedLabel = () => page.request.get(
-    `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/seed-1`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
-  );
+  const readSeedLabel = () =>
+    page.request.get(
+      `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/seed-1`,
+      {
+        headers: {
+          Origin: origin,
+          "X-Deykit-Capability": capability as string,
+        },
+      },
+    );
   const emptySeedLabel = await readSeedLabel();
   expect((await emptySeedLabel.json()).data.label).toBeNull();
   await page.getByRole("checkbox", { name: "Option A" }).check();
   await page.getByRole("checkbox", { name: "Option B" }).check();
   const stagedLabelHash = page.url();
   await page.getByRole("button", { name: "case-2", exact: true }).click();
-  const keepStagedSelection = page.getByRole("dialog", { name: "Unsaved changes" });
+  const keepStagedSelection = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
   await expect(keepStagedSelection).toBeVisible();
-  await keepStagedSelection.getByRole("button", { name: "Keep editing" }).click();
+  await keepStagedSelection
+    .getByRole("button", { name: "Keep editing" })
+    .click();
   await expect(page).toHaveURL(stagedLabelHash);
-  await expect(page.getByRole("heading", { name: "seed-1", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "seed-1", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   const stillUnlabelled = await readSeedLabel();
   expect((await stillUnlabelled.json()).data.label).toBeNull();
-  await page.getByRole("navigation", { name: "Workspace" })
+  await page
+    .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
     .click();
   const keepStagedLabel = page.getByRole("dialog", { name: "Unsaved changes" });
@@ -829,14 +1168,20 @@ test("installed browser authors exact decision source and previews imports throu
   await keepStagedLabel.getByRole("button", { name: "Keep editing" }).click();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
-  await page.getByRole("navigation", { name: "Workspace" })
+  await page
+    .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
     .click();
-  const discardStagedLabel = page.getByRole("dialog", { name: "Unsaved changes" });
-  await discardStagedLabel.getByRole("button", { name: "Discard changes" }).click();
+  const discardStagedLabel = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await discardStagedLabel
+    .getByRole("button", { name: "Discard changes" })
+    .click();
   await expect(page.getByRole("heading", { name: decisionName })).toBeVisible();
   expect((await (await readSeedLabel()).json()).data.label).toBeNull();
-  await page.getByRole("navigation", { name: "Workspace" })
+  await page
+    .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Examples", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
@@ -846,8 +1191,12 @@ test("installed browser authors exact decision source and previews imports throu
 
   let releaseLabelSave!: () => void;
   let reportLabelSaveStarted!: () => void;
-  const labelSaveStarted = new Promise<void>((resolve) => { reportLabelSaveStarted = resolve; });
-  const holdLabelSave = new Promise<void>((resolve) => { releaseLabelSave = resolve; });
+  const labelSaveStarted = new Promise<void>((resolve) => {
+    reportLabelSaveStarted = resolve;
+  });
+  const holdLabelSave = new Promise<void>((resolve) => {
+    releaseLabelSave = resolve;
+  });
   let heldLabelSave = false;
   let droppedCommittedLabelResponse = false;
   let losingLabelBody: Record<string, unknown> | undefined;
@@ -878,7 +1227,10 @@ test("installed browser authors exact decision source and previews imports throu
   const winningLabelBody = {
     ...losingLabelBody,
     operation_id: "m10-label-race-winner",
-    edits: losingEdits.map((edit) => ({ ...edit, acceptable_option_ids: ["option-a"] })),
+    edits: losingEdits.map((edit) => ({
+      ...edit,
+      acceptable_option_ids: ["option-a"],
+    })),
   };
   const winningLabelResponse = await page.request.post(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/batch`,
@@ -889,12 +1241,18 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(winningLabelResponse.status()).toBe(200);
   releaseLabelSave();
-  await expect(page.getByRole("button", { name: "Review current label" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Review current label" }),
+  ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
-  expect((await (await readSeedLabel()).json()).data.label.acceptable_option_ids).toEqual(["option-a"]);
+  expect(
+    (await (await readSeedLabel()).json()).data.label.acceptable_option_ids,
+  ).toEqual(["option-a"]);
   await page.getByRole("button", { name: "Review current label" }).click();
-  await expect(page.getByRole("button", { name: "Review current label" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Review current label" }),
+  ).toHaveCount(0);
   await expect(page.getByRole("checkbox", { name: "Option A" })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "Option B" })).toBeChecked();
   await page.getByRole("button", { name: "Save expected answer" }).click();
@@ -905,38 +1263,75 @@ test("installed browser authors exact decision source and previews imports throu
     status: "active",
   });
   await page.getByRole("button", { name: "Dispute label" }).click();
-  await expect(page.getByRole("button", { name: "Retry original label request" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry original label request" }),
+  ).toBeVisible();
   expect(labelMutationBodies.at(-1)?.operation_id).toBeTruthy();
   const unknownLabelHash = page.url();
-  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
-  const unknownLabelGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `#/p/${registrationId}/d/${decisionId}`);
+  const unknownLabelGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
   await expect(unknownLabelGuard).toBeVisible();
-  await expect(unknownLabelGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
+  await expect(
+    unknownLabelGuard.getByRole("button", { name: "Discard changes" }),
+  ).toBeDisabled();
   await unknownLabelGuard.getByRole("button", { name: "Keep editing" }).click();
   await expect(page).toHaveURL(unknownLabelHash);
-  expect(labelMutationBodies.filter((body) => ((body.edits as Array<Record<string, unknown>>)[0]?.action === "dispute"))).toHaveLength(1);
-  await page.getByRole("button", { name: "Retry original label request" }).click();
-  await expect(page.getByRole("button", { name: "Retry original label request" })).toHaveCount(0);
-  const disputeBodies = labelMutationBodies.filter((body) => ((body.edits as Array<Record<string, unknown>>)[0]?.action === "dispute"));
+  expect(
+    labelMutationBodies.filter(
+      (body) =>
+        (body.edits as Array<Record<string, unknown>>)[0]?.action === "dispute",
+    ),
+  ).toHaveLength(1);
+  await page
+    .getByRole("button", { name: "Retry original label request" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Retry original label request" }),
+  ).toHaveCount(0);
+  const disputeBodies = labelMutationBodies.filter(
+    (body) =>
+      (body.edits as Array<Record<string, unknown>>)[0]?.action === "dispute",
+  );
   expect(disputeBodies).toHaveLength(2);
   expect(disputeBodies[1]).toEqual(disputeBodies[0]);
   savedLabel = await readSeedLabel();
   expect((await savedLabel.json()).data.label.status).toBe("disputed");
-  await page.getByRole("button", { name: "Resolve dispute with staged set" }).click();
+  await page
+    .getByRole("button", { name: "Resolve dispute with staged set" })
+    .click();
   savedLabel = await readSeedLabel();
-  expect((await savedLabel.json()).data.label).toMatchObject({ status: "active", provenance: "human" });
+  expect((await savedLabel.json()).data.label).toMatchObject({
+    status: "active",
+    provenance: "human",
+  });
   await page.getByRole("button", { name: "Clear label" }).click();
   const clearedLabel = await readSeedLabel();
   expect((await clearedLabel.json()).data.label).toBeNull();
 
-  const readCaseOne = () => page.request.get(
-    `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
-  );
-  const readCaseOneLabel = () => page.request.get(
-    `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/case-1`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
-  );
+  const readCaseOne = () =>
+    page.request.get(
+      `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
+      {
+        headers: {
+          Origin: origin,
+          "X-Deykit-Capability": capability as string,
+        },
+      },
+    );
+  const readCaseOneLabel = () =>
+    page.request.get(
+      `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/case-1`,
+      {
+        headers: {
+          Origin: origin,
+          "X-Deykit-Capability": capability as string,
+        },
+      },
+    );
   const caseBeforeTag = (await (await readCaseOne()).json()).data;
   const tagOnly = await page.request.put(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
@@ -958,7 +1353,9 @@ test("installed browser authors exact decision source and previews imports throu
     },
   );
   expect(tagOnly.status()).toBe(200);
-  expect((await readCaseOneLabel().then((response) => response.json())).data.status).toBe("applicable");
+  expect(
+    (await readCaseOneLabel().then((response) => response.json())).data.status,
+  ).toBe("applicable");
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Examples" })).toBeVisible();
@@ -968,8 +1365,12 @@ test("installed browser authors exact decision source and previews imports throu
   const addBodies: Array<Record<string, unknown>> = [];
   let releaseAdd!: () => void;
   let reportAddStarted!: () => void;
-  const addGate = new Promise<void>((resolve) => { releaseAdd = resolve; });
-  const addStarted = new Promise<void>((resolve) => { reportAddStarted = resolve; });
+  const addGate = new Promise<void>((resolve) => {
+    releaseAdd = resolve;
+  });
+  const addStarted = new Promise<void>((resolve) => {
+    reportAddStarted = resolve;
+  });
   let heldAdd = false;
   await page.route("**/datasets/*/cases", async (route) => {
     if (route.request().method() === "POST") {
@@ -982,11 +1383,16 @@ test("installed browser authors exact decision source and previews imports throu
     }
     await route.continue();
   });
-  await page.getByRole("button", { name: "Add example", exact: true }).last().click();
+  await page
+    .getByRole("button", { name: "Add example", exact: true })
+    .last()
+    .click();
   await addStarted;
   const addDataset = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   const addDatasetData = (await addDataset.json()).data;
   const addWinner = await page.request.post(
@@ -1010,14 +1416,20 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(addWinner.status()).toBe(200);
   releaseAdd();
-  await expect(page.getByRole("button", { name: "Review current cases and dataset" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Review current cases and dataset" }),
+  ).toBeVisible();
   await expect(page.getByLabel("Input source")).toHaveValue(proposedAddSource);
-  await page.getByRole("button", { name: "Review current cases and dataset" }).click();
+  await page
+    .getByRole("button", { name: "Review current cases and dataset" })
+    .click();
   await page.getByRole("button", { name: "Reapply reviewed example" }).click();
   expect(addBodies).toHaveLength(2);
   expect(addBodies[1].input_source).toBe(proposedAddSource);
   expect(addBodies[1].operation_id).not.toBe(addBodies[0].operation_id);
-  expect(addBodies[1].expected_dataset_etag).not.toBe(addBodies[0].expected_dataset_etag);
+  expect(addBodies[1].expected_dataset_etag).not.toBe(
+    addBodies[0].expected_dataset_etag,
+  );
   await page.unroute("**/datasets/*/cases");
 
   await enterPhase("Case source preservation and stale-label applicability");
@@ -1029,12 +1441,18 @@ test("installed browser authors exact decision source and previews imports throu
   const caseEditBodies: Array<Record<string, unknown>> = [];
   let releaseCaseEdit!: () => void;
   let reportCaseEditStarted!: () => void;
-  const caseEditGate = new Promise<void>((resolve) => { releaseCaseEdit = resolve; });
-  const caseEditStarted = new Promise<void>((resolve) => { reportCaseEditStarted = resolve; });
+  const caseEditGate = new Promise<void>((resolve) => {
+    releaseCaseEdit = resolve;
+  });
+  const caseEditStarted = new Promise<void>((resolve) => {
+    reportCaseEditStarted = resolve;
+  });
   let heldCaseEdit = false;
   await page.route("**/cases/case-1", async (route) => {
     if (route.request().method() === "PUT") {
-      caseEditBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      caseEditBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
       if (!heldCaseEdit) {
         heldCaseEdit = true;
         reportCaseEditStarted();
@@ -1067,31 +1485,54 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(caseEditWinner.status()).toBe(200);
   releaseCaseEdit();
-  await expect(page.getByRole("button", { name: "Review current case and dataset" })).toBeVisible();
-  await expect(page.getByLabel("Input source")).toHaveValue('{"case":1,"changed":true}');
-  await page.getByRole("button", { name: "Review current case and dataset" }).click();
-  await page.getByRole("button", { name: "Reapply reviewed case edit" }).click();
+  await expect(
+    page.getByRole("button", { name: "Review current case and dataset" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Input source")).toHaveValue(
+    '{"case":1,"changed":true}',
+  );
+  await page
+    .getByRole("button", { name: "Review current case and dataset" })
+    .click();
+  await page
+    .getByRole("button", { name: "Reapply reviewed case edit" })
+    .click();
   await expect(page.getByRole("button", { name: "Edit input" })).toBeVisible();
   expect(caseEditBodies).toHaveLength(2);
   expect(caseEditBodies[1].input_source).toBe('{"case":1,"changed":true}');
-  expect(caseEditBodies[1].operation_id).not.toBe(caseEditBodies[0].operation_id);
-  expect(caseEditBodies[1].expected_case_etag).not.toBe(caseEditBodies[0].expected_case_etag);
+  expect(caseEditBodies[1].operation_id).not.toBe(
+    caseEditBodies[0].operation_id,
+  );
+  expect(caseEditBodies[1].expected_case_etag).not.toBe(
+    caseEditBodies[0].expected_case_etag,
+  );
   await page.unroute("**/cases/case-1");
   const staleLabel = await readCaseOneLabel();
-  expect((await staleLabel.json()).data).toMatchObject({ status: "excluded", reasons: ["stale"] });
+  expect((await staleLabel.json()).data).toMatchObject({
+    status: "excluded",
+    reasons: ["stale"],
+  });
 
   await page.getByRole("button", { name: "case-2", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "case-2", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "case-2", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Remove case" }).click();
   const removeBodies: Array<Record<string, unknown>> = [];
   let releaseRemove!: () => void;
   let reportRemoveStarted!: () => void;
-  const removeGate = new Promise<void>((resolve) => { releaseRemove = resolve; });
-  const removeStarted = new Promise<void>((resolve) => { reportRemoveStarted = resolve; });
+  const removeGate = new Promise<void>((resolve) => {
+    releaseRemove = resolve;
+  });
+  const removeStarted = new Promise<void>((resolve) => {
+    reportRemoveStarted = resolve;
+  });
   let heldRemove = false;
   await page.route("**/datasets/*/cases/case-2", async (route) => {
     if (route.request().method() === "DELETE") {
-      removeBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      removeBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
       if (!heldRemove) {
         heldRemove = true;
         reportRemoveStarted();
@@ -1100,11 +1541,16 @@ test("installed browser authors exact decision source and previews imports throu
     }
     await route.continue();
   });
-  await page.getByRole("button", { name: "Remove case", exact: true }).last().click();
+  await page
+    .getByRole("button", { name: "Remove case", exact: true })
+    .last()
+    .click();
   await removeStarted;
   const caseTwoResponse = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-2`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   const caseTwo = (await caseTwoResponse.json()).data;
   const removeConflictWinner = await page.request.put(
@@ -1128,16 +1574,24 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(removeConflictWinner.status()).toBe(200);
   releaseRemove();
-  await expect(page.getByRole("button", { name: "Review current case and dataset" })).toBeVisible();
-  await page.getByRole("button", { name: "Review current case and dataset" }).click();
+  await expect(
+    page.getByRole("button", { name: "Review current case and dataset" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Review current case and dataset" })
+    .click();
   await page.getByRole("button", { name: "Reapply reviewed removal" }).click();
   expect(removeBodies).toHaveLength(2);
   expect(removeBodies[1].operation_id).not.toBe(removeBodies[0].operation_id);
-  expect(removeBodies[1].expected_case_etag).not.toBe(removeBodies[0].expected_case_etag);
+  expect(removeBodies[1].expected_case_etag).not.toBe(
+    removeBodies[0].expected_case_etag,
+  );
   await page.unroute("**/datasets/*/cases/case-2");
   const datasetAfterRemoval = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   const readdCaseTwo = await page.request.post(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases`,
@@ -1160,7 +1614,9 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(readdCaseTwo.status()).toBe(200);
   await page.getByRole("button", { name: "case-1", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "case-1", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "case-1", exact: true }),
+  ).toBeVisible();
 
   const currentCase = (await (await readCaseOne()).json()).data;
   const removed = await page.request.delete(
@@ -1197,25 +1653,38 @@ test("installed browser authors exact decision source and previews imports throu
     },
   );
   expect(readded.status()).toBe(200);
-  expect((await readCaseOneLabel().then((response) => response.json())).data.label).toBeNull();
+  expect(
+    (await readCaseOneLabel().then((response) => response.json())).data.label,
+  ).toBeNull();
 
   await enterPhase("Grouped server split preview and option-reference impact");
   await page.getByRole("button", { name: "Split dataset" }).click();
-  const splitPreviewResponse = page.waitForResponse((response) =>
-    response.url().endsWith("/splits/preview") && response.request().method() === "POST",
+  const splitPreviewResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/splits/preview") &&
+      response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Preview assignments" }).click();
   const splitPreview = (await (await splitPreviewResponse).json()).data;
-  await expect(page.getByRole("heading", { name: "Server split preview" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Server split preview" }),
+  ).toBeVisible();
   await page.locator(".split-preview details summary").click();
-  const assignments = await page.locator(".split-preview details table tbody tr").evaluateAll((rows) =>
-    rows.map((row) => [
-      row.querySelector("th")?.textContent?.trim() ?? "",
-      row.querySelector("td")?.textContent?.trim() ?? "",
-    ] as const),
-  );
+  const assignments = await page
+    .locator(".split-preview details table tbody tr")
+    .evaluateAll((rows) =>
+      rows.map(
+        (row) =>
+          [
+            row.querySelector("th")?.textContent?.trim() ?? "",
+            row.querySelector("td")?.textContent?.trim() ?? "",
+          ] as const,
+      ),
+    );
   const relatedAssignments = assignments
-    .filter(([caseId]) => ["case-1", "case-2", "case-8", "case-9"].includes(caseId))
+    .filter(([caseId]) =>
+      ["case-1", "case-2", "case-8", "case-9"].includes(caseId),
+    )
     .map(([, split]) => split);
   expect(relatedAssignments).toHaveLength(4);
   expect(new Set(relatedAssignments).size).toBe(1);
@@ -1234,36 +1703,63 @@ test("installed browser authors exact decision source and previews imports throu
     await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Apply split" }).click();
-  await expect(page.getByRole("button", { name: "Retry the same split request" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry the same split request" }),
+  ).toBeVisible();
   expect(firstSplitCommitStatus).toBe(200);
   expect(splitCommitBodies).toHaveLength(1);
-  expect(splitCommitBodies[0].preview_document_source).toBe(splitPreview.preview_document_source);
-  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+  expect(splitCommitBodies[0].preview_document_source).toBe(
+    splitPreview.preview_document_source,
+  );
+  await expect(
+    page.getByRole("button", { name: "Close", exact: true }),
+  ).toBeDisabled();
   const splitHashBeforeRouteAttempt = page.url();
-  await page.evaluate((hash) => { window.location.hash = hash; }, `#/p/${registrationId}/d/${decisionId}`);
-  const splitUnknownGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await page.evaluate((hash) => {
+    window.location.hash = hash;
+  }, `#/p/${registrationId}/d/${decisionId}`);
+  const splitUnknownGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
   await expect(splitUnknownGuard).toBeVisible();
-  await expect(splitUnknownGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
+  await expect(
+    splitUnknownGuard.getByRole("button", { name: "Discard changes" }),
+  ).toBeDisabled();
   await splitUnknownGuard.getByRole("button", { name: "Keep editing" }).click();
   await expect(page).toHaveURL(splitHashBeforeRouteAttempt);
   expect(splitCommitBodies).toHaveLength(1);
-  await page.getByRole("button", { name: "Retry the same split request" }).click();
+  await page
+    .getByRole("button", { name: "Retry the same split request" })
+    .click();
   await expect.poll(() => splitCommitResults.length).toBe(2);
-  await expect(page.getByRole("status").filter({ hasText: "Saved new dataset revision" })).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Saved new dataset revision" }),
+  ).toBeVisible();
   expect(splitCommitBodies[1]).toEqual(splitCommitBodies[0]);
-  expect(splitCommitResults.map((result) => result.replayed)).toEqual([false, true]);
+  expect(splitCommitResults.map((result) => result.replayed)).toEqual([
+    false,
+    true,
+  ]);
   const splitReceipt = splitCommitResults[1];
   const splitDatasetRead = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   expect(splitDatasetRead.status()).toBe(200);
-  expect((await splitDatasetRead.json()).data.record.revision_id).toBe((splitReceipt.snapshot as { id: string }).id);
+  expect((await splitDatasetRead.json()).data.record.revision_id).toBe(
+    (splitReceipt.snapshot as { id: string }).id,
+  );
   const casesAfterSplitReplay = await page.request.get(
     `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases?limit=100`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
-  expect((await casesAfterSplitReplay.json()).data.total).toBe(String((splitReceipt.snapshot as { cases: unknown[] }).cases.length));
+  expect((await casesAfterSplitReplay.json()).data.total).toBe(
+    String((splitReceipt.snapshot as { cases: unknown[] }).cases.length),
+  );
   await page.unroute("**/splits/commit");
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
@@ -1272,100 +1768,168 @@ test("installed browser authors exact decision source and previews imports throu
   await page.getByRole("checkbox", { name: "Option B" }).check();
   await page.getByRole("button", { name: "Save expected answer" }).click();
   await expect(page.getByText("Applicable · human")).toBeVisible();
-  await page.getByRole("navigation", { name: "Workspace" })
+  await page
+    .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: decisionName, exact: true })
     .click();
   await page.getByRole("button", { name: "+ Add option" }).click();
   const optionNamesForRemoval = page.getByLabel("Option name");
   await expect(optionNamesForRemoval).toHaveCount(3);
   await optionNamesForRemoval.nth(2).fill("Option C");
-  const removalSetupTransform = page.waitForResponse((response) =>
-    response.url().endsWith("/editor-transform") && response.request().method() === "POST",
+  const removalSetupTransform = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-transform") &&
+      response.request().method() === "POST",
   );
-  const removalSetupSave = page.waitForResponse((response) =>
-    response.url().endsWith("/draft") && response.request().method() === "PUT",
+  const removalSetupSave = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
   );
   await optionNamesForRemoval.nth(2).press("Tab");
   await removalSetupTransform;
   await removalSetupSave;
 
   await page.getByRole("button", { name: "Remove option Option A" }).click();
-  const referencedImpact = page.getByRole("dialog", { name: "Remove Option A?" })
+  const referencedImpact = page
+    .getByRole("dialog", { name: "Remove Option A?" })
     .getByRole("list", { name: "Affected references" });
   await expect(referencedImpact).toContainText("seed-1");
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Cancel" })
+    .click();
 
   await page.getByRole("button", { name: "Remove option Option C" }).click();
-  const unreferencedImpact = page.getByRole("dialog", { name: "Remove Option C?" });
-  await expect(unreferencedImpact).toContainText("The service reported no affected references.");
-  await unreferencedImpact.getByRole("button", { name: "Remove option from draft" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible();
+  const unreferencedImpact = page.getByRole("dialog", {
+    name: "Remove Option C?",
+  });
+  await expect(unreferencedImpact).toContainText(
+    "The service reported no affected references.",
+  );
+  await unreferencedImpact
+    .getByRole("button", { name: "Remove option from draft" })
+    .click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Draft saved" }),
+  ).toBeVisible();
   await expect(page.getByLabel("Option name")).toHaveCount(2);
 
   await page.getByRole("button", { name: "Remove option Option A" }).click();
-  const uncomputableImpact = page.getByRole("dialog", { name: "Remove Option A?" });
-  await expect(uncomputableImpact).toContainText("The service could not compute affected references for this invalid definition.");
-  await expect(uncomputableImpact.getByRole("list", { name: "Definition validation advice" }).locator("code").first()).toBeVisible();
-  await expect(uncomputableImpact.getByRole("list", { name: "Affected references" })).toHaveCount(0);
+  const uncomputableImpact = page.getByRole("dialog", {
+    name: "Remove Option A?",
+  });
+  await expect(uncomputableImpact).toContainText(
+    "The service could not compute affected references for this invalid definition.",
+  );
+  await expect(
+    uncomputableImpact
+      .getByRole("list", { name: "Definition validation advice" })
+      .locator("code")
+      .first(),
+  ).toBeVisible();
+  await expect(
+    uncomputableImpact.getByRole("list", { name: "Affected references" }),
+  ).toHaveCount(0);
   await uncomputableImpact.getByRole("button", { name: "Cancel" }).click();
 
   await enterPhase("Decision archive recovery and provider safety controls");
   await page.getByRole("button", { name: "Archive decision" }).click();
-  const archiveDialog = page.getByRole("dialog", { name: "Archive this decision?" });
+  const archiveDialog = page.getByRole("dialog", {
+    name: "Archive this decision?",
+  });
   await expect(archiveDialog).toBeVisible();
   const archiveBodies: Array<Record<string, unknown>> = [];
   await page.route(`**/decisions/${decisionId}/archive`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
-    archiveBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    archiveBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
     const response = await route.fetch();
     if (archiveBodies.length === 1) {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "{}",
+      });
       return;
     }
     await route.fulfill({ response });
   });
-  await archiveDialog.getByRole("button", { name: "Archive decision", exact: true }).click();
-  await expect(archiveDialog.getByRole("button", { name: "Retry same archive action" })).toBeVisible();
-  await archiveDialog.getByRole("button", { name: "Retry same archive action" }).click();
+  await archiveDialog
+    .getByRole("button", { name: "Archive decision", exact: true })
+    .click();
+  await expect(
+    archiveDialog.getByRole("button", { name: "Retry same archive action" }),
+  ).toBeVisible();
+  await archiveDialog
+    .getByRole("button", { name: "Retry same archive action" })
+    .click();
   await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
   expect(archiveBodies).toHaveLength(2);
   expect(archiveBodies[1]).toEqual(archiveBodies[0]);
   await page.unroute(`**/decisions/${decisionId}/archive`);
-  const archivedRow = page.getByRole("table", { name: "Archived decisions" }).getByRole("row", { name: new RegExp(decisionName) });
+  const archivedRow = page
+    .getByRole("table", { name: "Archived decisions" })
+    .getByRole("row", { name: new RegExp(decisionName) });
   await expect(archivedRow).toBeVisible();
   const retainedRevisions = await page.request.get(
     `/api/v1/projects/${registrationId}/decisions/${decisionId}/revisions?limit=50`,
-    { headers: { Origin: origin, "X-Deykit-Capability": capability as string } },
+    {
+      headers: { Origin: origin, "X-Deykit-Capability": capability as string },
+    },
   );
   expect((await retainedRevisions.json()).data.items).toHaveLength(3);
-  await archivedRow.getByRole("button", { name: "Restore", exact: true }).click();
-  await expect(page.getByRole("table", { name: "Project decisions" })).toContainText(decisionName);
+  await archivedRow
+    .getByRole("button", { name: "Restore", exact: true })
+    .click();
+  await expect(
+    page.getByRole("table", { name: "Project decisions" }),
+  ).toContainText(decisionName);
 
   await page.getByRole("button", { name: "Providers", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
   await page.getByRole("button", { name: "Add provider profile" }).click();
-  await expect(page.getByRole("heading", { name: "New profile" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "New profile" }),
+  ).toBeVisible();
   await expect(page.getByLabel("Adapter")).toHaveValue("jev");
   await page.getByLabel("Requested model ID").fill("jev-latest");
-  await page.getByLabel("Destination").fill("https://api.typesafe.ai/v1/systemone");
+  await page
+    .getByLabel("Destination")
+    .fill("https://api.typesafe.ai/v1/systemone");
   await page.getByRole("button", { name: "Save profile" }).click();
-  await expect(page.getByText("Not configured · Unavailable", { exact: false })).toBeVisible();
-  await expect(page.getByText("Explicit network check · 0 inference calls.")).toBeVisible();
+  await expect(
+    page.getByText("Not configured · Unavailable", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Explicit network check · 0 inference calls."),
+  ).toBeVisible();
   const environmentName = "M08_FAKE_ENV";
   await page.getByLabel("Environment variable name").fill(environmentName);
-  await page.getByRole("button", { name: "Attach environment reference" }).click();
+  await page
+    .getByRole("button", { name: "Attach environment reference" })
+    .click();
   await expect(page.getByText(environmentName)).toHaveCount(0);
-  await expect(page.getByText("Configured · Available", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("Configured · Available", { exact: false }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Refresh model list" }).click();
-  await expect(page.getByText("fake-offline-model", { exact: true })).toBeVisible();
-  await expect(page.getByText("1 models returned · network checked · 0 inference calls")).toBeVisible();
+  await expect(
+    page.getByText("fake-offline-model", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("1 models returned · network checked · 0 inference calls"),
+  ).toBeVisible();
 
   const providerProfilesResponse = await page.request.get(
     `/api/v1/projects/${registrationId}/providers?limit=100`,
     { headers: authorizedHeaders },
   );
   expect(providerProfilesResponse.status()).toBe(200);
-  const configuredProvider = (await providerProfilesResponse.json()).data.items.find(
+  const configuredProvider = (
+    await providerProfilesResponse.json()
+  ).data.items.find(
     (item: { adapter: string; requested_model: string }) =>
       item.adapter === "jev" && item.requested_model === "jev-latest",
   );
@@ -1373,37 +1937,62 @@ test("installed browser authors exact decision source and previews imports throu
   const credentialValue = "synthetic-installed-os-credential-never-real";
   const credentialBodies: Array<Record<string, unknown>> = [];
   let firstCredentialStatus: number | undefined;
-  await page.route(`**/providers/${configuredProvider.id}/credential-os-store`, async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    credentialBodies.push(route.request().postDataJSON() as Record<string, unknown>);
-    const response = await route.fetch();
-    if (credentialBodies.length === 1) {
-      firstCredentialStatus = response.status();
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
-      return;
-    }
-    await route.fulfill({ response });
-  });
-  const secretInput = page.getByLabel("Store a credential in the operating system");
+  await page.route(
+    `**/providers/${configuredProvider.id}/credential-os-store`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      credentialBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (credentialBodies.length === 1) {
+        firstCredentialStatus = response.status();
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  const secretInput = page.getByLabel(
+    "Store a credential in the operating system",
+  );
   await secretInput.fill(credentialValue);
   await page.getByRole("button", { name: "Store credential" }).click();
-  await expect(page.getByRole("button", { name: "Retry the same credential request" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry the same credential request" }),
+  ).toBeVisible();
   await expect(secretInput).toHaveValue("");
   await expect(secretInput).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Store credential" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Store credential" }),
+  ).toBeDisabled();
   expect(await page.locator("body").innerText()).not.toContain(credentialValue);
-  await page.getByRole("button", { name: "Retry the same credential request" }).click();
-  await expect(page.getByText("Configured · Available", { exact: false })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Retry the same credential request" })
+    .click();
+  await expect(
+    page.getByText("Configured · Available", { exact: false }),
+  ).toBeVisible();
   expect(firstCredentialStatus).toBe(200);
   expect(credentialBodies).toHaveLength(2);
   expect(credentialBodies[1]).toEqual(credentialBodies[0]);
   expect(typeof credentialBodies[0].credential_value).toBe("string");
-  expect((credentialBodies[0].credential_value as string).length).toBe(credentialValue.length);
+  expect((credentialBodies[0].credential_value as string).length).toBe(
+    credentialValue.length,
+  );
   expect(await page.locator("body").innerText()).not.toContain(credentialValue);
-  await page.unroute(`**/providers/${configuredProvider.id}/credential-os-store`);
+  await page.unroute(
+    `**/providers/${configuredProvider.id}/credential-os-store`,
+  );
   await captureScreenshot("provider-setup.png");
 
-  await enterPhase("Demo fixture profile safety and authored binding verification");
+  await enterPhase(
+    "Demo fixture profile safety and authored binding verification",
+  );
   await page.getByRole("button", { name: "Fixtures", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Fixtures" })).toBeVisible();
   await captureScreenshot("fixture-setup.png");
@@ -1411,22 +2000,36 @@ test("installed browser authors exact decision source and previews imports throu
   // Inspect the packaged authored fixture through the installed UI and API.
   // The test never invokes provider networking or requests raw-source display.
   await page.getByRole("button", { name: "Projects", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Welcome to deykit." })).toBeVisible();
-  await page.getByRole("button", { name: "Try support demo", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
   const fixtureDemoPath = testInfo.outputPath("fixture-support-demo");
   await page.getByLabel("Project folder path").fill(fixtureDemoPath);
-  await page.getByRole("dialog").getByRole("button", { name: "Try support demo", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Sandbox", exact: true })).toBeVisible();
-  const fixtureRegistrationId = new URL(page.url()).hash.match(/^#\/p\/([A-Za-z0-9_-]+)/)?.[1] as string;
-  const fixtureHeaders = { Origin: origin, "X-Deykit-Capability": capability as string };
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
+  const fixtureRegistrationId = new URL(page.url()).hash.match(
+    /^#\/p\/([A-Za-z0-9_-]+)/,
+  )?.[1] as string;
+  const fixtureHeaders = {
+    Origin: origin,
+    "X-Deykit-Capability": capability as string,
+  };
   const fixtureProvidersResponse = await page.request.get(
     `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
     { headers: fixtureHeaders },
   );
   expect(fixtureProvidersResponse.status()).toBe(200);
-  const fixtureProvider = (await fixtureProvidersResponse.json()).data.items.find(
-    (item: { adapter: string }) => item.adapter === "fixture",
-  );
+  const fixtureProvider = (
+    await fixtureProvidersResponse.json()
+  ).data.items.find((item: { adapter: string }) => item.adapter === "fixture");
   expect(fixtureProvider).toMatchObject({
     requested_model: expect.stringMatching(/^authored-/),
     destination: "fixture:jev-choice",
@@ -1452,22 +2055,46 @@ test("installed browser authors exact decision source and previews imports throu
   }
   await page.getByRole("button", { name: "Providers", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
-  await page.getByRole("button", { name: fixtureProvider.id, exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Authored fixture profile" })).toBeVisible();
-  await expect(page.locator(".fixture-provider")).toContainText(fixtureProvider.requested_model);
+  await page
+    .getByRole("button", { name: fixtureProvider.id, exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Authored fixture profile" }),
+  ).toBeVisible();
+  await expect(page.locator(".fixture-provider")).toContainText(
+    fixtureProvider.requested_model,
+  );
   await expect(page.getByLabel("Environment variable name")).toHaveCount(0);
-  await expect(page.getByLabel("Store a credential in the operating system")).toHaveCount(0);
+  await expect(
+    page.getByLabel("Store a credential in the operating system"),
+  ).toHaveCount(0);
   await expect(page.getByLabel("Destination")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Refresh model list" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Refresh model list" }),
+  ).toHaveCount(0);
   await captureScreenshot("fixture-provider-safe-details.png");
   await page.getByRole("button", { name: "Open fixture library" }).click();
-  await expect(page.getByRole("heading", { name: "Fixture library" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Fixtures", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Fixture library" })).toBeVisible();
-  await page.getByRole("button", { name: fixtureSummary.name, exact: true }).click();
-  await expect(page.getByRole("heading", { name: fixtureSummary.name, exact: true })).toBeVisible();
-  await expect(page.getByRole("table", { name: "Exact authored case bindings" })).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: "Show exact stored request source text" })).not.toBeChecked();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: fixtureSummary.name, exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: fixtureSummary.name, exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("table", { name: "Exact authored case bindings" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Show exact stored request source text",
+    }),
+  ).not.toBeChecked();
   const fixtureDetail = await page.request.get(
     `/api/v1/projects/${fixtureRegistrationId}/fixtures/${fixtureSummary.id}?include_requests=false`,
     { headers: fixtureHeaders },
@@ -1491,16 +2118,25 @@ test("installed browser authors exact decision source and previews imports throu
       fixtureSummary.id,
     ],
     { encoding: "utf8" },
-  ).trimEnd().split("\n");
+  )
+    .trimEnd()
+    .split("\n");
   await page.getByLabel("Decision").selectOption(fixtureSummary.decision_id);
   await page.getByLabel("Dataset").selectOption(fixtureSummary.dataset_id);
   await page.getByRole("button", { name: "Author fixture set" }).click();
   await page.getByLabel("Fixture set name").fill("Browser authored exact copy");
   await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
-  await page.getByLabel("Strict binding source lines").fill(bindingSources.join("\n"));
+  await page
+    .getByLabel("Strict binding source lines")
+    .fill(bindingSources.join("\n"));
   await page.getByRole("button", { name: "Create authored set" }).click();
-  await expect(page.getByRole("heading", { name: "Browser authored exact copy" })).toBeVisible();
-  const createdFixtureId = await page.locator(".fixture-detail code").first().textContent();
+  await expect(
+    page.getByRole("heading", { name: "Browser authored exact copy" }),
+  ).toBeVisible();
+  const createdFixtureId = await page
+    .locator(".fixture-detail code")
+    .first()
+    .textContent();
   expect(createdFixtureId).toMatch(/^fixture-[A-Za-z0-9_-]+$/);
   const createdFixture = await page.request.get(
     `/api/v1/projects/${fixtureRegistrationId}/fixtures/${createdFixtureId as string}?include_requests=false`,
@@ -1514,22 +2150,36 @@ test("installed browser authors exact decision source and previews imports throu
     dataset_id: fixtureSummary.dataset_id,
     model_identity: fixtureSummary.model_identity,
   });
-  expect(createdFixtureData.bindings.map((binding: { request_hash: string }) => binding.request_hash)).toEqual(
-    fixtureSummary.bindings.map((binding: { request_hash: string }) => binding.request_hash),
+  expect(
+    createdFixtureData.bindings.map(
+      (binding: { request_hash: string }) => binding.request_hash,
+    ),
+  ).toEqual(
+    fixtureSummary.bindings.map(
+      (binding: { request_hash: string }) => binding.request_hash,
+    ),
   );
   expect(createdFixtureData.requests).toEqual([]);
 
   await page.getByRole("button", { name: "Author fixture set" }).click();
-  await page.getByLabel("Fixture set name").fill("Browser retained fixture request");
+  await page
+    .getByLabel("Fixture set name")
+    .fill("Browser retained fixture request");
   await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
-  await page.getByLabel("Strict binding source lines").fill(bindingSources.join("\n"));
+  await page
+    .getByLabel("Strict binding source lines")
+    .fill(bindingSources.join("\n"));
   const fixtureCreateBodies: Array<Record<string, unknown>> = [];
   const fixtureCreateResults: Array<Record<string, unknown>> = [];
   await page.route("**/api/v1/projects/*/fixtures", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
-    fixtureCreateBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    fixtureCreateBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
     const response = await route.fetch();
-    fixtureCreateResults.push((await response.json()).data as Record<string, unknown>);
+    fixtureCreateResults.push(
+      (await response.json()).data as Record<string, unknown>,
+    );
     if (fixtureCreateBodies.length === 1) {
       await route.abort("failed");
       return;
@@ -1537,16 +2187,33 @@ test("installed browser authors exact decision source and previews imports throu
     await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Create authored set" }).click();
-  await expect(page.getByRole("button", { name: "Retry same create" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
-  await page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Examples", exact: true }).click();
-  const fixtureUnknownGuard = page.getByRole("dialog", { name: "Unsaved changes" });
+  await expect(
+    page.getByRole("button", { name: "Retry same create" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Close", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Examples", exact: true })
+    .click();
+  const fixtureUnknownGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
   await expect(fixtureUnknownGuard).toBeVisible();
-  await expect(fixtureUnknownGuard.getByRole("button", { name: "Discard changes" })).toBeDisabled();
-  await fixtureUnknownGuard.getByRole("button", { name: "Keep editing" }).click();
-  await expect(page.getByRole("heading", { name: "Fixture library" })).toBeVisible();
+  await expect(
+    fixtureUnknownGuard.getByRole("button", { name: "Discard changes" }),
+  ).toBeDisabled();
+  await fixtureUnknownGuard
+    .getByRole("button", { name: "Keep editing" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Retry same create" }).click();
-  await expect(page.getByRole("heading", { name: "Browser retained fixture request" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Browser retained fixture request" }),
+  ).toBeVisible();
   expect(fixtureCreateBodies).toHaveLength(2);
   expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
   expect(fixtureCreateResults).toHaveLength(2);
@@ -1555,16 +2222,24 @@ test("installed browser authors exact decision source and previews imports throu
   await enterPhase("Responsive 320px and reduced-motion review");
   await page.setViewportSize({ width: 320, height: 800 });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
-    await page.evaluate(() => window.innerWidth) + 1,
-  );
+  expect(
+    await page.evaluate(
+      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual((await page.evaluate(() => window.innerWidth)) + 1);
   await page.keyboard.press("Tab");
   let visibleKeyboardStops = 0;
   for (let index = 0; index < 12; index += 1) {
     const visible = await page.evaluate(() => {
       const active = document.activeElement;
-      return active instanceof HTMLElement && active !== document.body && active.getClientRects().length > 0;
+      return (
+        active instanceof HTMLElement &&
+        active !== document.body &&
+        active.getClientRects().length > 0
+      );
     });
     expect(visible).toBe(true);
     visibleKeyboardStops += 1;
@@ -1573,10 +2248,20 @@ test("installed browser authors exact decision source and previews imports throu
   expect(visibleKeyboardStops).toBe(12);
   await captureScreenshot("authoring-narrow-320.png");
 
-  expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(true);
-  expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(true);
+  expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(
+    true,
+  );
+  expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(
+    true,
+  );
   expect(page.url()).not.toContain(capability as string);
-  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
-  expect(await page.evaluate(() => (document as Document & { cookie: string }).cookie)).toBe("");
+  expect(
+    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
+  ).toEqual([0, 0]);
+  expect(
+    await page.evaluate(
+      () => (document as Document & { cookie: string }).cookie,
+    ),
+  ).toBe("");
   await enterPhase("Connected authoring workflow complete");
 });
