@@ -332,7 +332,8 @@ it("does not publish a case page from a different dataset version", async () => 
     null,
   );
 
-  expect(await screen.findByRole("alert").textContent).toContain(
+  const alert = await screen.findByRole("alert");
+  expect(alert.textContent).toContain(
     "The operation could not be completed. Your changes have been kept.",
   );
   expect(
