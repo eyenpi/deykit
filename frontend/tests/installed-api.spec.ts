@@ -3863,9 +3863,9 @@ test("installed browser authors exact decision source and previews imports throu
     await route.fulfill({ response });
   });
   await page.getByRole("button", { name: "Apply split" }).click();
-  await expect.poll(() => firstSplitCommitAborted, { timeout: 15_000 }).toBe(
-    true,
-  );
+  await expect
+    .poll(() => firstSplitCommitAborted, { timeout: 15_000 })
+    .toBe(true);
   expect(firstSplitCommitStatus).toBe(200);
   await expect(
     page.getByRole("button", { name: "Retry the same split request" }),
@@ -4043,9 +4043,7 @@ test("installed browser authors exact decision source and previews imports throu
   await archiveDialog
     .getByRole("button", { name: "Archive decision", exact: true })
     .click();
-  await expect
-    .poll(() => firstArchiveStatus, { timeout: 15_000 })
-    .toBe(200);
+  await expect.poll(() => firstArchiveStatus, { timeout: 15_000 }).toBe(200);
   await expect(
     archiveDialog.getByRole("button", { name: "Retry same archive action" }),
   ).toBeVisible();
@@ -4171,9 +4169,7 @@ test("installed browser authors exact decision source and previews imports throu
   );
   await secretInput.fill(credentialValue);
   await page.getByRole("button", { name: "Store credential" }).click();
-  await expect
-    .poll(() => firstCredentialStatus, { timeout: 15_000 })
-    .toBe(200);
+  await expect.poll(() => firstCredentialStatus, { timeout: 15_000 }).toBe(200);
   await expect(
     page.getByRole("button", { name: "Retry the same credential request" }),
   ).toBeVisible();
