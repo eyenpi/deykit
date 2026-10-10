@@ -387,9 +387,9 @@ class ExecutionSupervisor:
     async def shutdown(self) -> None:
         self._admitting = False
         preparing = tuple(self._preparing)
-        for task in preparing:
-            if task in self._preparing and not task.done():
-                task.cancel()
+        for preparing_task in preparing:
+            if preparing_task in self._preparing and not preparing_task.done():
+                preparing_task.cancel()
         if preparing:
             await asyncio.gather(*preparing, return_exceptions=True)
 
@@ -399,16 +399,27 @@ class ExecutionSupervisor:
         loop = asyncio.get_running_loop()
         retry_deadline = loop.time() + _CANCEL_RETRY_BUDGET_SECONDS
         targets: list[_SupervisorTarget] = []
-        for (registration_id, run_id), (registration, service) in tuple(self._runs.items()):
-            task = self._run_tasks.get((registration_id, run_id))
-            if registration.id == registration_id and task is not None:
-                targets.append(("run", registration_id, run_id, registration, service, task))
-        for (registration_id, group_id), (registration, service, _kind) in tuple(
+        for (registration_id, run_id), (run_registration, run_service) in tuple(self._runs.items()):
+            run_task = self._run_tasks.get((registration_id, run_id))
+            if run_registration.id == registration_id and run_task is not None:
+                targets.append(
+                    ("run", registration_id, run_id, run_registration, run_service, run_task)
+                )
+        for (registration_id, group_id), (group_registration, group_service, _kind) in tuple(
             self._groups.items()
         ):
-            task = self._group_tasks.get((registration_id, group_id))
-            if registration.id == registration_id and task is not None:
-                targets.append(("group", registration_id, group_id, registration, service, task))
+            group_task = self._group_tasks.get((registration_id, group_id))
+            if group_registration.id == registration_id and group_task is not None:
+                targets.append(
+                    (
+                        "group",
+                        registration_id,
+                        group_id,
+                        group_registration,
+                        group_service,
+                        group_task,
+                    )
+                )
 
         def is_current(target: _SupervisorTarget) -> bool:
             category, registration_id, resource_id, _registration, _service, task = target
