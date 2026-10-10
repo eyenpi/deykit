@@ -3322,35 +3322,34 @@ test("installed browser authors exact decision source and previews imports throu
         // Keep diagnostics limited to safe API identifiers and status.
       }
     }
-    expect(
-      status,
-      JSON.stringify({ operation, status, code, reason }),
-    ).toBe(200);
+    expect(status, JSON.stringify({ operation, status, code, reason })).toBe(
+      200,
+    );
     return response;
   };
   const readCaseOne = async () =>
     expectSuccessfulRead(
       await page.request.get(
-      `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
-      {
-        headers: {
-          Origin: origin,
-          "X-Deykit-Capability": capability as string,
+        `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/case-1`,
+        {
+          headers: {
+            Origin: origin,
+            "X-Deykit-Capability": capability as string,
+          },
         },
-      },
       ),
       "case_read",
     );
   const readCaseOneLabel = async () =>
     expectSuccessfulRead(
       await page.request.get(
-      `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/case-1`,
-      {
-        headers: {
-          Origin: origin,
-          "X-Deykit-Capability": capability as string,
+        `/api/v1/projects/${registrationId}/decisions/${decisionId}/datasets/${datasetId}/labels/case-1`,
+        {
+          headers: {
+            Origin: origin,
+            "X-Deykit-Capability": capability as string,
+          },
         },
-      },
       ),
       "case_label_read",
     );
@@ -3641,9 +3640,9 @@ test("installed browser authors exact decision source and previews imports throu
     caseEditBodies[0].expected_case_etag,
   );
   await page.unroute("**/cases/case-1");
-  await expect(
-    page.getByRole("dialog", { name: "Edit case-1" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Edit case-1" })).toHaveCount(
+    0,
+  );
   await expect(
     page.getByLabel("Complete example input source", { exact: true }),
   ).toHaveText('{"case":1,"changed":true}');
