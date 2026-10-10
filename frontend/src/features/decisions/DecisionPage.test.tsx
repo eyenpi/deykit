@@ -485,7 +485,9 @@ it("does not continue an old drain after the same page is reused for another dec
   const priorDraftAck = new Promise<ApiResult<DraftReceipt>>((resolve) => {
     releasePriorDraft = resolve;
   });
-  let updateCount = 0;
+  const updateRequests: Array<
+    Parameters<DecisionAuthoringOperations["updateDraft"]>[0]
+  > = [];
   const transformEditor = vi.fn(async () =>
     apiResult(transformReview(source1, "First represented")),
   );
@@ -497,10 +499,16 @@ it("does not continue an old drain after the same page is reused for another dec
           decisionId: targetDecisionId,
         }),
       ),
-    updateDraft: async ({ body }) => {
-      updateCount += 1;
-      if (updateCount === 1) return priorDraftAck;
-      return apiResult(draftReceipt(body.editor_source, "draft-next"));
+    updateDraft: async (request) => {
+      updateRequests.push(request);
+      if (updateRequests.length === 1) return priorDraftAck;
+      return apiResult(
+        draftReceipt(
+          request.body.editor_source,
+          "draft-next",
+          request.decisionId,
+        ),
+      );
     },
     transformEditor,
     saveRevision,
@@ -512,7 +520,14 @@ it("does not continue an old drain after the same page is reused for another dec
   await advanceTransformDelay();
   await editQuestion("Second queued");
   fireEvent.click(screen.getByRole("button", { name: "Save version" }));
-  expect(updateCount).toBe(1);
+  expect(updateRequests).toHaveLength(1);
+
+  const rawSource = '{ "new-page-only": 9007199254740993 }';
+  fireEvent.click(screen.getByText("Advanced editor source"));
+  fireEvent.change(screen.getByRole("textbox", { name: "Decision source" }), {
+    target: { value: rawSource },
+  });
+  expectTextboxValue("Decision source", rawSource);
 
   mounted.rerenderDecision("decision-2");
   await waitFor(() =>
@@ -527,5 +542,16 @@ it("does not continue an old drain after the same page is reused for another dec
   expect(transformEditor).toHaveBeenCalledTimes(1);
   expect(saveRevision).not.toHaveBeenCalled();
   expectTextboxValue("Question", "Start");
-  expect(updateCount).toBe(1);
+  expect(updateRequests).toHaveLength(1);
+
+  await editQuestion("New page edit");
+  await advanceTransformDelay();
+  await waitFor(() => expect(updateRequests).toHaveLength(2));
+  expect(updateRequests[1]?.decisionId).toBe("decision-2");
+  expect(updateRequests[1]?.body).toMatchObject({
+    editor_source: source1,
+    expected_etag: "draft-decision-2",
+  });
+  expect(transformEditor).toHaveBeenCalledTimes(2);
+  expect(saveRevision).not.toHaveBeenCalled();
 });

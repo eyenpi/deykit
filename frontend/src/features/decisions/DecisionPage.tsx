@@ -9,7 +9,10 @@ import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import { DraftAutosaveController } from "./draft-autosave";
 import type { DraftSaveStatus } from "./draft-autosave";
-import { isOutcomeUnknown } from "../../workspace/mutation-controller";
+import {
+  isOutcomeUnknown,
+  QueuedMutationNotAdmitted,
+} from "../../workspace/mutation-controller";
 
 type DecisionDTO = ApiOperationData<"readDecision">;
 type EditorForm = NonNullable<
@@ -338,9 +341,16 @@ export function DecisionPage({
         pageAutosave = new DraftAutosaveController(
           result.data.draft.etag,
           async (request) => {
+            if (
+              !active ||
+              pageLoadLifetime.current !== lifetime ||
+              autosave.current !== pageAutosave
+            )
+              throw new QueuedMutationNotAdmitted();
             const saved = await operations.updateDraft({
               registrationId,
               decisionId,
+              signal: controller.signal,
               body: {
                 schema_version: 1,
                 editor_source: request.editorSource,
