@@ -1542,23 +1542,17 @@ test("installed browser authors exact decision source and previews imports throu
     signalVersionContextRead = resolve;
   });
   let versionContextReadData: unknown;
-  await page.route(
-    `**/decisions/${decisionId}`,
-    async (route) => {
-      if (route.request().method() !== "GET") return route.continue();
-      const response = await route.fetch();
-      versionContextReadData = await response.json();
-      signalVersionContextRead();
-      await versionContextReadGate;
-      await route.fulfill({ response });
-    },
-  );
+  await page.route(`**/decisions/${decisionId}`, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    versionContextReadData = await response.json();
+    signalVersionContextRead();
+    await versionContextReadGate;
+    await route.fulfill({ response });
+  });
   const heldRefreshDraftWrites: Request[] = [];
   const captureHeldRefreshDraftWrite = (request: Request) => {
-    if (
-      request.url().endsWith("/draft") &&
-      request.method() === "PUT"
-    )
+    if (request.url().endsWith("/draft") && request.method() === "PUT")
       heldRefreshDraftWrites.push(request);
   };
   page.on("request", captureHeldRefreshDraftWrite);
@@ -1574,7 +1568,8 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(rawSourceEditor).toHaveValue(sourceDuringHeldRefresh);
   const heldSourceDraftResponse = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/draft") && response.request().method() === "PUT",
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
   );
   releaseVersionContextRead();
   const replayedVersionResponse = await versionReplayResponse;
@@ -1611,7 +1606,9 @@ test("installed browser authors exact decision source and previews imports throu
     expected_etag: versionContextDraft.etag,
   });
   const heldSourceDraftData = (await heldSourceDraftReceipt.json()).data;
-  expect(heldSourceDraftData.record.editor_source).toBe(sourceDuringHeldRefresh);
+  expect(heldSourceDraftData.record.editor_source).toBe(
+    sourceDuringHeldRefresh,
+  );
   expect(typeof heldSourceDraftData.etag).toBe("string");
   const postVersionDraftEtag = heldSourceDraftData.etag as string;
   page.off("request", captureHeldRefreshDraftWrite);
@@ -1658,15 +1655,12 @@ test("installed browser authors exact decision source and previews imports throu
     }
     await route.continue();
   });
-  await page.route(
-    `**/decisions/${decisionId}/revisions`,
-    async (route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      const response = await route.fetch();
-      if (response.status() === 200) failNextVersionContextRead = true;
-      await route.fulfill({ response });
-    },
-  );
+  await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    if (response.status() === 200) failNextVersionContextRead = true;
+    await route.fulfill({ response });
+  });
   await page
     .getByLabel("Version note (optional)")
     .fill("Version receipt with recoverable context read");
@@ -1729,16 +1723,12 @@ test("installed browser authors exact decision source and previews imports throu
       body: JSON.stringify(envelope),
     });
   });
-  await page.route(
-    `**/decisions/${decisionId}/revisions`,
-    async (route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      const response = await route.fetch();
-      if (response.status() === 200)
-        provideIncompatibleVersionContext = true;
-      await route.fulfill({ response });
-    },
-  );
+  await page.route(`**/decisions/${decisionId}/revisions`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    if (response.status() === 200) provideIncompatibleVersionContext = true;
+    await route.fulfill({ response });
+  });
   const incompatibleVersionReceipt = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
@@ -1762,7 +1752,8 @@ test("installed browser authors exact decision source and previews imports throu
   );
   const deliberatelyReappliedDraft = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/draft") && response.request().method() === "PUT",
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
   );
   await page
     .getByRole("button", { name: "Review current and reapply my source" })

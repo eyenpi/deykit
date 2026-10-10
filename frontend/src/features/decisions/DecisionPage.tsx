@@ -497,10 +497,10 @@ export function DecisionPage({
   const navigationBlockedMessage = versionBaselinePending.current
     ? "A version was saved, but its draft context is unresolved. Refresh or review it before leaving this decision."
     : unresolvedWrite
-    ? "A write may have completed. Keep editing and retry its original request before leaving this decision."
-    : working || renameWorking
-      ? "A write is still in progress. Keep this decision open until it finishes."
-      : undefined;
+      ? "A write may have completed. Keep editing and retry its original request before leaving this decision."
+      : working || renameWorking
+        ? "A write is still in progress. Keep this decision open until it finishes."
+        : undefined;
   const decisionIsDirtyNow = () =>
     draftDirtyRef.current ||
     hasPendingEditorWork() ||
@@ -943,12 +943,17 @@ export function DecisionPage({
       recordRef.current = refreshed.data;
       setRecord(refreshed.data);
       draftEtagRef.current = refreshed.data.draft.etag;
-      controller.reapplyAfterReview(refreshed.data.draft.etag, sourceRef.current);
+      controller.reapplyAfterReview(
+        refreshed.data.draft.etag,
+        sourceRef.current,
+      );
       setDraftDirtyNow(true);
       versionBaselineContext.current = undefined;
       versionBaselinePending.current = false;
       setVersionBaselineIssue(undefined);
-      setNotice("Current draft reviewed. Your retained edits can now be saved.");
+      setNotice(
+        "Current draft reviewed. Your retained edits can now be saved.",
+      );
     } catch (cause) {
       setVersionBaselineIssue({
         kind: "read-failed",
@@ -1046,10 +1051,7 @@ export function DecisionPage({
       if (composingSource.current || compositionCommitPending.current)
         throw new VersionPreflightError("composing-before-mutation");
       if (!entryOutcomeUnknown) {
-        if (
-          !contextForFreshRequest ||
-          !controller.holdVersionBaseline()
-        )
+        if (!contextForFreshRequest || !controller.holdVersionBaseline())
           throw new VersionPreflightError("draft-controller-not-ready");
         versionBaselineContext.current = contextForFreshRequest;
       }
@@ -1382,11 +1384,11 @@ export function DecisionPage({
               ? "Saving version…"
               : versionBaselinePending.current
                 ? "Refreshing saved draft…"
-              : versionOutcomeUnknown
-                ? versionRequest.current
-                  ? "Retry same version save"
-                  : "Original version save unavailable"
-                : "Save version"}
+                : versionOutcomeUnknown
+                  ? versionRequest.current
+                    ? "Retry same version save"
+                    : "Original version save unavailable"
+                  : "Save version"}
           </button>
         </div>
         {editError && <ErrorSummary message={editError} />}

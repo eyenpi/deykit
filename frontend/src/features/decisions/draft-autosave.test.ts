@@ -238,7 +238,7 @@ describe("draft autosave sequencing", () => {
     );
 
     expect(controller.holdVersionBaseline()).toBe(true);
-    controller.reapplyAfterReview("draft-after-external-change", "{  \"n\":1 }");
+    controller.reapplyAfterReview("draft-after-external-change", '{  "n":1 }');
     expect(calls).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(500);
     await controller.flush();
