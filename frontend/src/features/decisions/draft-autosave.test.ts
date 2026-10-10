@@ -141,4 +141,115 @@ describe("draft autosave sequencing", () => {
     expect(controller.status.kind).toBe("failed");
     controller.dispose();
   });
+
+  it("holds newer typing until a committed version supplies its new draft ETag", async () => {
+    vi.useFakeTimers();
+    const calls: Array<{
+      editorSource: string;
+      expectedDraftEtag: string;
+      operationId: string;
+    }> = [];
+    let nextOperation = 0;
+    const controller = new DraftAutosaveController(
+      "draft-before-version",
+      async (request) => {
+        calls.push(request);
+        return { etag: `draft-after-save-${calls.length}` };
+      },
+      () => undefined,
+      () => `op-${++nextOperation}`,
+    );
+
+    expect(controller.holdVersionBaseline()).toBe(true);
+    controller.edit('{"newer":true}');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls).toHaveLength(0);
+
+    expect(
+      controller.adoptVersionBaseline(
+        "draft-before-version",
+        "draft-after-version",
+      ),
+    ).toBe(true);
+    await vi.advanceTimersByTimeAsync(500);
+    await controller.flush();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      editorSource: '{"newer":true}',
+      expectedDraftEtag: "draft-after-version",
+      operationId: "op-1",
+    });
+    controller.dispose();
+  });
+
+  it("refuses a version hold while a draft write is in flight and recovers after it settles", async () => {
+    vi.useFakeTimers();
+    let releaseDraft!: () => void;
+    const draftBarrier = new Promise<void>((resolve) => {
+      releaseDraft = resolve;
+    });
+    const calls: Array<{
+      editorSource: string;
+      expectedDraftEtag: string;
+      operationId: string;
+    }> = [];
+    const controller = new DraftAutosaveController(
+      "draft-before-version",
+      async (request) => {
+        calls.push(request);
+        if (calls.length === 1) await draftBarrier;
+        return { etag: `draft-${calls.length}` };
+      },
+      () => undefined,
+      () => "stable-operation",
+    );
+
+    controller.edit("committed draft");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(calls).toHaveLength(1);
+    expect(controller.holdVersionBaseline()).toBe(false);
+    releaseDraft();
+    await controller.flush();
+    expect(controller.holdVersionBaseline()).toBe(true);
+    expect(
+      controller.adoptVersionBaseline("draft-before-version", "draft-next"),
+    ).toBe(false);
+    expect(calls).toHaveLength(1);
+    controller.releaseVersionBaseline();
+    controller.dispose();
+  });
+
+  it("reapplies the retained opaque source only after deliberate version review", async () => {
+    vi.useFakeTimers();
+    const calls: Array<{
+      editorSource: string;
+      expectedDraftEtag: string;
+      operationId: string;
+    }> = [];
+    const controller = new DraftAutosaveController(
+      "draft-before-version",
+      async (request) => {
+        calls.push(request);
+        return { etag: "draft-after-reapply" };
+      },
+      () => undefined,
+      () => "review-reapply-operation",
+    );
+
+    expect(controller.holdVersionBaseline()).toBe(true);
+    controller.reapplyAfterReview("draft-after-external-change", "{  \"n\":1 }");
+    expect(calls).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(500);
+    await controller.flush();
+
+    expect(calls).toEqual([
+      {
+        editorSource: '{  "n":1 }',
+        expectedDraftEtag: "draft-after-external-change",
+        operationId: "review-reapply-operation",
+      },
+    ]);
+    controller.dispose();
+  });
 });

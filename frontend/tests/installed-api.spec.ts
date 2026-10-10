@@ -1512,12 +1512,71 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeVisible();
   expect(revisionSaveBodies).toHaveLength(1);
   await versionEditor.dispatchEvent("compositionend", { data: "" });
+  const rawSourceEditor = page.getByLabel("Decision source");
+  if (!(await rawSourceEditor.isVisible()))
+    await page.locator(".advanced-source > summary").click();
+  await expect(rawSourceEditor).toBeVisible();
+  await page.clock.install();
+  const sourceBeforeHeldRefresh = await rawSourceEditor.inputValue();
+  const sourceDuringHeldRefresh = `${sourceBeforeHeldRefresh} `;
+  const projectionAfterVersionEdit = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/editor-projection") &&
+      response.request().method() === "POST",
+  );
+  await rawSourceEditor.focus();
+  await rawSourceEditor.dispatchEvent("compositionstart", { data: "" });
+  await rawSourceEditor.fill(sourceDuringHeldRefresh);
+  await rawSourceEditor.dispatchEvent("compositionend", { data: "" });
+  await page.clock.runFor(1);
+  const projectedVersionEdit = await projectionAfterVersionEdit;
+  expect(projectedVersionEdit.status()).toBe(200);
+  await expect(rawSourceEditor).toHaveValue(sourceDuringHeldRefresh);
+
+  let releaseVersionContextRead!: () => void;
+  let signalVersionContextRead!: () => void;
+  const versionContextReadGate = new Promise<void>((resolve) => {
+    releaseVersionContextRead = resolve;
+  });
+  const versionContextReadStarted = new Promise<void>((resolve) => {
+    signalVersionContextRead = resolve;
+  });
+  let versionContextReadData: unknown;
+  await page.route(
+    `**/decisions/${decisionId}`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      versionContextReadData = await response.json();
+      signalVersionContextRead();
+      await versionContextReadGate;
+      await route.fulfill({ response });
+    },
+  );
+  const heldRefreshDraftWrites: Request[] = [];
+  const captureHeldRefreshDraftWrite = (request: Request) => {
+    if (
+      request.url().endsWith("/draft") &&
+      request.method() === "PUT"
+    )
+      heldRefreshDraftWrites.push(request);
+  };
+  page.on("request", captureHeldRefreshDraftWrite);
   const versionReplayResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
       response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Retry same version save" }).click();
+  await versionContextReadStarted;
+  await page.clock.runFor(500);
+  expect(heldRefreshDraftWrites).toHaveLength(0);
+  await expect(rawSourceEditor).toHaveValue(sourceDuringHeldRefresh);
+  const heldSourceDraftResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") && response.request().method() === "PUT",
+  );
+  releaseVersionContextRead();
   const replayedVersionResponse = await versionReplayResponse;
   expect(replayedVersionResponse.status()).toBe(200);
   const replayedVersionData = (await replayedVersionResponse.json()).data;
@@ -1530,6 +1589,200 @@ test("installed browser authors exact decision source and previews imports throu
   );
   expect(revisionSaveBodies).toHaveLength(2);
   expect(revisionSaveBodies[1]).toEqual(revisionSaveBodies[0]);
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeEnabled();
+  await page.clock.runFor(500);
+  const heldSourceDraftReceipt = await heldSourceDraftResponse;
+  expect(heldSourceDraftReceipt.status()).toBe(200);
+  expect(heldRefreshDraftWrites).toHaveLength(1);
+  const versionContextEnvelope = isRecord(versionContextReadData)
+    ? versionContextReadData
+    : {};
+  const versionContextData = isRecord(versionContextEnvelope.data)
+    ? versionContextEnvelope.data
+    : {};
+  const versionContextDraft = isRecord(versionContextData.draft)
+    ? versionContextData.draft
+    : {};
+  expect(typeof versionContextDraft.etag).toBe("string");
+  expect(heldSourceDraftReceipt.request().postDataJSON()).toMatchObject({
+    editor_source: sourceDuringHeldRefresh,
+    expected_etag: versionContextDraft.etag,
+  });
+  const heldSourceDraftData = (await heldSourceDraftReceipt.json()).data;
+  expect(heldSourceDraftData.record.editor_source).toBe(sourceDuringHeldRefresh);
+  expect(typeof heldSourceDraftData.etag).toBe("string");
+  const postVersionDraftEtag = heldSourceDraftData.etag as string;
+  page.off("request", captureHeldRefreshDraftWrite);
+  await page.unroute(`**/decisions/${decisionId}`);
+  await page.clock.uninstall();
+  await page.unroute(`**/decisions/${decisionId}/revisions`);
+
+  await page
+    .getByLabel("Version note (optional)")
+    .fill("Fresh save after version baseline advance");
+  const nextVersionResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  const nextVersionReceipt = await nextVersionResponse;
+  expect(nextVersionReceipt.status()).toBe(200);
+  expect(
+    (nextVersionReceipt.request().postDataJSON() as Record<string, unknown>)
+      .expected_draft_etag,
+  ).toBe(postVersionDraftEtag);
+  await nextVersionReceipt.body();
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeEnabled();
+
+  await enterPhase("Known version receipt survives failed context refresh");
+  let failNextVersionContextRead = false;
+  let recoveryVersionPosts = 0;
+  const countRecoveryVersionPost = (request: Request) => {
+    if (
+      request.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      request.method() === "POST"
+    )
+      recoveryVersionPosts += 1;
+  };
+  page.on("request", countRecoveryVersionPost);
+  await page.route(`**/decisions/${decisionId}`, async (route) => {
+    if (route.request().method() === "GET" && failNextVersionContextRead) {
+      failNextVersionContextRead = false;
+      await route.abort("failed");
+      return;
+    }
+    await route.continue();
+  });
+  await page.route(
+    `**/decisions/${decisionId}/revisions`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      if (response.status() === 200) failNextVersionContextRead = true;
+      await route.fulfill({ response });
+    },
+  );
+  await page
+    .getByLabel("Version note (optional)")
+    .fill("Version receipt with recoverable context read");
+  const versionWithFailedRead = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  const knownVersionWithFailedRead = await versionWithFailedRead;
+  expect(knownVersionWithFailedRead.status()).toBe(200);
+  await knownVersionWithFailedRead.body();
+  await expect(
+    page.getByText(/Version saved; refresh its draft context/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry same version save" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeDisabled();
+  expect(recoveryVersionPosts).toBe(1);
+  const recoveryReadResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}`) &&
+      response.request().method() === "GET",
+  );
+  await page
+    .getByRole("button", { name: "Refresh saved version context" })
+    .click();
+  const recoveredVersionContext = await recoveryReadResponse;
+  expect(recoveredVersionContext.status()).toBe(200);
+  await recoveredVersionContext.body();
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeEnabled();
+  expect(recoveryVersionPosts).toBe(1);
+  page.off("request", countRecoveryVersionPost);
+  await page.unroute(`**/decisions/${decisionId}`);
+  await page.unroute(`**/decisions/${decisionId}/revisions`);
+
+  await enterPhase("Incompatible version context preserves local source");
+  let provideIncompatibleVersionContext = false;
+  await page.route(`**/decisions/${decisionId}`, async (route) => {
+    if (
+      route.request().method() !== "GET" ||
+      !provideIncompatibleVersionContext
+    )
+      return route.continue();
+    provideIncompatibleVersionContext = false;
+    const response = await route.fetch();
+    const envelope = await response.json();
+    envelope.data.draft.etag = "external-draft-etag";
+    envelope.data.draft.record.editor_source = "external draft source";
+    envelope.data.draft.record.base_revision_id = "external-revision";
+    envelope.data.decision.record.latest_revision_id = "external-revision";
+    await route.fulfill({
+      status: response.status(),
+      contentType: "application/json",
+      body: JSON.stringify(envelope),
+    });
+  });
+  await page.route(
+    `**/decisions/${decisionId}/revisions`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      if (response.status() === 200)
+        provideIncompatibleVersionContext = true;
+      await route.fulfill({ response });
+    },
+  );
+  const incompatibleVersionReceipt = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}/revisions`) &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Save version", exact: true }).click();
+  const savedWithIncompatibleContext = await incompatibleVersionReceipt;
+  expect(savedWithIncompatibleContext.status()).toBe(200);
+  await savedWithIncompatibleContext.body();
+  await expect(
+    page.getByText(/current draft or decision changed/),
+  ).toBeVisible();
+  await expect(rawSourceEditor).toHaveValue(sourceDuringHeldRefresh);
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeDisabled();
+  const deliberateReviewRead = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/decisions/${decisionId}`) &&
+      response.request().method() === "GET",
+  );
+  const deliberatelyReappliedDraft = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") && response.request().method() === "PUT",
+  );
+  await page
+    .getByRole("button", { name: "Review current and reapply my source" })
+    .click();
+  const reviewedCurrentContext = await deliberateReviewRead;
+  expect(reviewedCurrentContext.status()).toBe(200);
+  const reviewedCurrentData = (await reviewedCurrentContext.json()).data;
+  const deliberateDraftReceipt = await deliberatelyReappliedDraft;
+  expect(deliberateDraftReceipt.status()).toBe(200);
+  expect(deliberateDraftReceipt.request().postDataJSON()).toMatchObject({
+    editor_source: sourceDuringHeldRefresh,
+    expected_etag: reviewedCurrentData.draft.etag,
+  });
+  expect((await deliberateDraftReceipt.json()).data.record.editor_source).toBe(
+    sourceDuringHeldRefresh,
+  );
+  await expect(
+    page.getByRole("button", { name: "Save version", exact: true }),
+  ).toBeEnabled();
+  await page.unroute(`**/decisions/${decisionId}`);
   await page.unroute(`**/decisions/${decisionId}/revisions`);
 
   const rejectedVersionBodies: Array<Record<string, unknown>> = [];

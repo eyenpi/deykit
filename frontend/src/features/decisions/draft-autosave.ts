@@ -72,6 +72,7 @@ export class DraftAutosaveController {
   #sequence = 0;
   #status: DraftSaveStatus = { kind: "idle" };
   #stopped = false;
+  #versionBaselineHeld = false;
 
   constructor(
     initialEtag: string,
@@ -93,12 +94,56 @@ export class DraftAutosaveController {
     this.#sequence += 1;
     this.#latest = { source, sequence: this.#sequence };
     if (this.#stopped) return;
-    if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#setStatus({ kind: "idle" });
-    this.#timer = setTimeout(() => {
-      this.#timer = undefined;
-      void this.#drain();
-    }, 500);
+    if (this.#timer !== undefined) clearTimeout(this.#timer);
+    this.#timer = undefined;
+    this.#scheduleLatest();
+  }
+
+  /** Holds unsent drafts while a version commit may advance the draft ETag. */
+  holdVersionBaseline(): boolean {
+    if (
+      this.#versionBaselineHeld ||
+      this.#inFlight ||
+      this.#retryFlight ||
+      this.#timer !== undefined ||
+      this.#latest ||
+      this.#stopped ||
+      this.#status.kind === "failed" ||
+      this.#status.kind === "conflict" ||
+      this.#status.kind === "outcome-unknown"
+    )
+      return false;
+    this.#versionBaselineHeld = true;
+    return true;
+  }
+
+  /** Releases an uncommitted version hold without changing its draft ETag. */
+  releaseVersionBaseline(): boolean {
+    if (!this.#versionBaselineHeld) return false;
+    this.#versionBaselineHeld = false;
+    this.#scheduleLatest();
+    return true;
+  }
+
+  /** Adopts an authoritative post-version ETag while preserving newer typing. */
+  adoptVersionBaseline(previousEtag: string, nextEtag: string): boolean {
+    if (
+      !this.#versionBaselineHeld ||
+      this.#baseEtag !== previousEtag ||
+      this.#inFlight ||
+      this.#retryFlight ||
+      this.#timer !== undefined ||
+      this.#stopped ||
+      this.#status.kind === "failed" ||
+      this.#status.kind === "conflict" ||
+      this.#status.kind === "outcome-unknown"
+    )
+      return false;
+    this.#baseEtag = nextEtag;
+    this.#versionBaselineHeld = false;
+    this.#scheduleLatest();
+    return true;
   }
 
   async flush(): Promise<void> {
@@ -143,16 +188,19 @@ export class DraftAutosaveController {
   }
 
   /** Reapply retained editor text after a deliberate read/review of current state. */
-  reapplyAfterReview(currentEtag: string): void {
+  reapplyAfterReview(currentEtag: string, retainedSource?: string): void {
     this.#baseEtag = currentEtag;
     this.#stopped = false;
+    this.#versionBaselineHeld = false;
+    if (!this.#latest && retainedSource !== undefined) {
+      this.#sequence += 1;
+      this.#latest = { source: retainedSource, sequence: this.#sequence };
+    }
     if (!this.#latest) return;
     this.#setStatus({ kind: "idle" });
     if (this.#timer !== undefined) clearTimeout(this.#timer);
-    this.#timer = setTimeout(() => {
-      this.#timer = undefined;
-      void this.#drain();
-    }, 500);
+    this.#timer = undefined;
+    this.#scheduleLatest();
   }
 
   dispose(): void {
@@ -161,6 +209,7 @@ export class DraftAutosaveController {
   }
 
   async #drain(): Promise<void> {
+    if (this.#versionBaselineHeld) return;
     if (this.#inFlight) {
       await this.#inFlight;
       if (this.#stopped || !this.#latest) return;
@@ -214,5 +263,14 @@ export class DraftAutosaveController {
   #setStatus(status: DraftSaveStatus): void {
     this.#status = status;
     this.#listen(status);
+  }
+
+  #scheduleLatest(): void {
+    if (this.#stopped || this.#versionBaselineHeld || !this.#latest) return;
+    if (this.#timer !== undefined) clearTimeout(this.#timer);
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined;
+      void this.#drain();
+    }, 500);
   }
 }

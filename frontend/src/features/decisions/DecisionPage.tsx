@@ -29,6 +29,8 @@ type VersionPreflightReason =
   | "editor-changed"
   | "editor-changed-during-draft-save"
   | "draft-unsaved"
+  | "draft-controller-not-ready"
+  | "saved-version-context-pending"
   | "editor-changed-during-read"
   | "saved-draft-mismatch"
   | "composing-before-mutation";
@@ -51,6 +53,10 @@ const VERSION_PREFLIGHT_MESSAGES: Record<VersionPreflightReason, string> = {
   "editor-changed-during-draft-save":
     "The editor changed while saving its draft. No version was saved.",
   "draft-unsaved": "The latest draft is not saved. No version was saved.",
+  "draft-controller-not-ready":
+    "The draft is not ready for a version save. Review its save status before continuing.",
+  "saved-version-context-pending":
+    "A version was saved. Refresh or review its draft context before saving another version.",
   "editor-changed-during-read":
     "The editor changed while checking the saved draft. No version was saved.",
   "saved-draft-mismatch":
@@ -64,6 +70,17 @@ class VersionPreflightError extends Error {
     this.name = "VersionPreflightError";
   }
 }
+type VersionBaselineContext = {
+  request: ApiOperationBody<"saveDecisionRevision">;
+  editorSource: string;
+  generation: number;
+  sourceSequence: number;
+  revisionId?: string;
+};
+type VersionBaselineIssue = {
+  kind: "refreshing" | "read-failed" | "incompatible" | "controller-not-ready";
+  message?: string;
+};
 type QueuedTransform = {
   edit: EditorEdit;
   sequence: number;
@@ -115,6 +132,8 @@ export function DecisionPage({
   const [, setCompositionBoundary] = useState(0);
   const [renameWorking, setRenameWorking] = useState(false);
   const [versionOutcomeUnknown, setVersionOutcomeUnknown] = useState(false);
+  const [versionBaselineIssue, setVersionBaselineIssue] =
+    useState<VersionBaselineIssue>();
   const [renameOutcomeUnknown, setRenameOutcomeUnknown] = useState(false);
   const [archiveOutcomeUnknown, setArchiveOutcomeUnknown] = useState(false);
   const [note, setNote] = useState("");
@@ -164,6 +183,10 @@ export function DecisionPage({
   const versionRequest = useRef<
     ApiOperationBody<"saveDecisionRevision"> | undefined
   >(undefined);
+  const versionBaselineContext = useRef<VersionBaselineContext | undefined>(
+    undefined,
+  );
+  const versionBaselinePending = useRef(false);
   const renameRequest = useRef<ApiOperationBody<"renameDecision"> | undefined>(
     undefined,
   );
@@ -471,7 +494,9 @@ export function DecisionPage({
     renameOutcomeUnknown ||
     archiveOutcomeUnknown ||
     draftStatus.kind === "outcome-unknown";
-  const navigationBlockedMessage = unresolvedWrite
+  const navigationBlockedMessage = versionBaselinePending.current
+    ? "A version was saved, but its draft context is unresolved. Refresh or review it before leaving this decision."
+    : unresolvedWrite
     ? "A write may have completed. Keep editing and retry its original request before leaving this decision."
     : working || renameWorking
       ? "A write is still in progress. Keep this decision open until it finishes."
@@ -479,6 +504,7 @@ export function DecisionPage({
   const decisionIsDirtyNow = () =>
     draftDirtyRef.current ||
     hasPendingEditorWork() ||
+    versionBaselinePending.current ||
     unresolvedWrite ||
     working ||
     renameWorking ||
@@ -802,10 +828,147 @@ export function DecisionPage({
     }
   }
 
+  function versionReadMatchesReceipt(
+    data: DecisionDTO,
+    context: VersionBaselineContext,
+  ): boolean {
+    const revisionId = context.revisionId;
+    return (
+      revisionId !== undefined &&
+      data.draft.record.editor_source === context.editorSource &&
+      data.draft.record.base_revision_id === revisionId &&
+      data.decision.record.latest_revision_id === revisionId
+    );
+  }
+
+  async function refreshSavedVersionContext(alreadyLocked = false) {
+    const context = versionBaselineContext.current;
+    const controller = autosave.current;
+    if (
+      !context?.revisionId ||
+      !controller ||
+      (!alreadyLocked && actionLock.current)
+    )
+      return;
+    if (composingSource.current || compositionCommitPending.current) {
+      setVersionBaselineIssue({
+        kind: "controller-not-ready",
+        message:
+          "Finish composing the editor source before refreshing the saved version context.",
+      });
+      return;
+    }
+    if (!alreadyLocked) {
+      actionLock.current = true;
+      setWorking(true);
+      setSourceControlsLockedNow(true);
+    }
+    setVersionBaselineIssue({ kind: "refreshing" });
+    try {
+      const refreshed = await operations.read({ registrationId, decisionId });
+      if (!versionReadMatchesReceipt(refreshed.data, context)) {
+        setVersionBaselineIssue({
+          kind: "incompatible",
+          message:
+            "Version saved; the current draft or decision changed. Review current state before reapplying your edits.",
+        });
+        return;
+      }
+      if (
+        autosave.current !== controller ||
+        draftEtagRef.current !== context.request.expected_draft_etag ||
+        !controller.adoptVersionBaseline(
+          context.request.expected_draft_etag,
+          refreshed.data.draft.etag,
+        )
+      ) {
+        setVersionBaselineIssue({
+          kind: "controller-not-ready",
+          message:
+            "Version saved; the draft controller still has unresolved work. Review its save status before refreshing again.",
+        });
+        return;
+      }
+      draftEtagRef.current = refreshed.data.draft.etag;
+      recordRef.current = refreshed.data;
+      setRecord(refreshed.data);
+      versionBaselineContext.current = undefined;
+      versionBaselinePending.current = false;
+      setVersionBaselineIssue(undefined);
+      if (
+        sourceRef.current === context.editorSource &&
+        sourceSequence.current === context.sourceSequence &&
+        editGeneration.current === context.generation &&
+        representedGeneration.current === context.generation &&
+        !hasPendingEditorWork()
+      )
+        setDraftDirtyNow(false);
+    } catch (cause) {
+      setVersionBaselineIssue({
+        kind: "read-failed",
+        message: `Version saved; refresh its draft context before continuing saves. ${safeMessage(cause)}`,
+      });
+    } finally {
+      if (!alreadyLocked) {
+        setSourceControlsLockedNow(false);
+        actionLock.current = false;
+        setWorking(false);
+      }
+    }
+  }
+
+  async function reviewAndReapplySavedVersionSource() {
+    const controller = autosave.current;
+    if (!versionBaselineContext.current?.revisionId || !controller) return;
+    if (
+      composingSource.current ||
+      compositionCommitPending.current ||
+      hasPendingEditorWork() ||
+      editGeneration.current !== representedGeneration.current
+    ) {
+      setVersionBaselineIssue({
+        kind: "controller-not-ready",
+        message:
+          "Finish composing or applying the current editor changes before reviewing and reapplying them.",
+      });
+      return;
+    }
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setWorking(true);
+    setSourceControlsLockedNow(true);
+    try {
+      const refreshed = await operations.read({ registrationId, decisionId });
+      if (autosave.current !== controller) return;
+      recordRef.current = refreshed.data;
+      setRecord(refreshed.data);
+      draftEtagRef.current = refreshed.data.draft.etag;
+      controller.reapplyAfterReview(refreshed.data.draft.etag, sourceRef.current);
+      setDraftDirtyNow(true);
+      versionBaselineContext.current = undefined;
+      versionBaselinePending.current = false;
+      setVersionBaselineIssue(undefined);
+      setNotice("Current draft reviewed. Your retained edits can now be saved.");
+    } catch (cause) {
+      setVersionBaselineIssue({
+        kind: "read-failed",
+        message: `Version saved; the current draft could not be reviewed. ${safeMessage(cause)}`,
+      });
+    } finally {
+      setSourceControlsLockedNow(false);
+      actionLock.current = false;
+      setWorking(false);
+    }
+  }
+
   async function saveRevision() {
     const current = recordRef.current;
     const controller = autosave.current;
     if (!current || !controller || actionLock.current) return;
+    if (versionBaselinePending.current) {
+      setEditError(VERSION_PREFLIGHT_MESSAGES["saved-version-context-pending"]);
+      return;
+    }
     const entryRequest = versionRequest.current;
     const entryOutcomeUnknown = versionOutcomeUnknown;
     actionLock.current = true;
@@ -820,9 +983,11 @@ export function DecisionPage({
       if (composingSource.current || compositionCommitPending.current)
         throw new VersionPreflightError("composing-before-save");
       let request: ApiOperationBody<"saveDecisionRevision">;
-      let refreshedRecord = current;
+      let contextForFreshRequest: VersionBaselineContext | undefined;
       if (entryOutcomeUnknown) {
         if (!entryRequest)
+          throw new VersionPreflightError("original-save-unavailable");
+        if (!versionBaselineContext.current)
           throw new VersionPreflightError("original-save-unavailable");
         request = entryRequest;
         attemptedRequest = request;
@@ -864,7 +1029,6 @@ export function DecisionPage({
           refreshed.data.draft.etag !== draftEtagRef.current
         )
           throw new VersionPreflightError("saved-draft-mismatch");
-        refreshedRecord = refreshed.data;
         request = {
           schema_version: 1,
           expected_decision_etag: refreshed.data.decision.etag,
@@ -872,10 +1036,23 @@ export function DecisionPage({
           operation_id: operationId(),
           ...(noteSnapshot ? { note: noteSnapshot } : {}),
         };
-        versionRequest.current = request;
+        contextForFreshRequest = {
+          request,
+          editorSource,
+          generation,
+          sourceSequence: sequence,
+        };
       }
       if (composingSource.current || compositionCommitPending.current)
         throw new VersionPreflightError("composing-before-mutation");
+      if (!entryOutcomeUnknown) {
+        if (
+          !contextForFreshRequest ||
+          !controller.holdVersionBaseline()
+        )
+          throw new VersionPreflightError("draft-controller-not-ready");
+        versionBaselineContext.current = contextForFreshRequest;
+      }
       attemptedRequest = request;
       versionRequest.current = request;
       phase = "mutating";
@@ -889,15 +1066,31 @@ export function DecisionPage({
       versionRequest.current = undefined;
       setVersionOutcomeUnknown(false);
       setNote("");
-      recordRef.current = refreshedRecord;
-      setRecord(refreshedRecord);
       setNotice(`Saved version ${committedRevisionId}.`);
+      const context = versionBaselineContext.current;
+      if (context) {
+        context.revisionId = committedRevisionId;
+        versionBaselinePending.current = true;
+        setVersionBaselineIssue({ kind: "refreshing" });
+        await refreshSavedVersionContext(true);
+      } else {
+        versionBaselinePending.current = true;
+        setVersionBaselineIssue({
+          kind: "controller-not-ready",
+          message:
+            "Version saved; its draft context is unavailable. Review current state before continuing.",
+        });
+      }
     } catch (cause) {
       if (phase === "preflight") {
         if (entryOutcomeUnknown) {
           versionRequest.current = entryRequest;
           setVersionOutcomeUnknown(true);
         } else {
+          controller.releaseVersionBaseline();
+          versionBaselineContext.current = undefined;
+          versionBaselinePending.current = false;
+          setVersionBaselineIssue(undefined);
           versionRequest.current = undefined;
           setVersionOutcomeUnknown(false);
         }
@@ -911,6 +1104,10 @@ export function DecisionPage({
           versionRequest.current = attemptedRequest;
           setVersionOutcomeUnknown(true);
         } else {
+          controller.releaseVersionBaseline();
+          versionBaselineContext.current = undefined;
+          versionBaselinePending.current = false;
+          setVersionBaselineIssue(undefined);
           versionRequest.current = undefined;
           setVersionOutcomeUnknown(false);
         }
@@ -1175,12 +1372,16 @@ export function DecisionPage({
             type="button"
             className="primary"
             disabled={
-              working || (versionOutcomeUnknown && !versionRequest.current)
+              working ||
+              versionBaselinePending.current ||
+              (versionOutcomeUnknown && !versionRequest.current)
             }
             onClick={() => void saveRevision()}
           >
             {working
               ? "Saving version…"
+              : versionBaselinePending.current
+                ? "Refreshing saved draft…"
               : versionOutcomeUnknown
                 ? versionRequest.current
                   ? "Retry same version save"
@@ -1207,6 +1408,40 @@ export function DecisionPage({
           <p className="save-status" role="status">
             {notice}
           </p>
+        )}
+        {versionBaselineIssue && (
+          <section
+            className="warning-summary"
+            aria-label="Saved version draft context"
+          >
+            <p>
+              {versionBaselineIssue.message ??
+                "Refreshing the saved version draft context…"}
+            </p>
+            {versionBaselineIssue.kind !== "refreshing" && (
+              <button
+                type="button"
+                disabled={working}
+                onClick={() => void refreshSavedVersionContext()}
+              >
+                Refresh saved version context
+              </button>
+            )}
+            {(versionBaselineIssue.kind === "incompatible" ||
+              versionBaselineIssue.kind === "controller-not-ready") && (
+              <button
+                type="button"
+                disabled={
+                  working ||
+                  composingSource.current ||
+                  compositionCommitPending.current
+                }
+                onClick={() => void reviewAndReapplySavedVersionSource()}
+              >
+                Review current and reapply my source
+              </button>
+            )}
+          </section>
         )}
         {draftStatus.kind === "failed" && (
           <ErrorSummary message={draftStatus.message} />
