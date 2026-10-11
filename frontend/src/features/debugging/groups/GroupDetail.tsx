@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { safeMessage } from "../../../api/client";
 import type { ApiOperationBody, ApiOperationData } from "../../../api/client";
 import { ErrorSummary, LoadingState } from "../../../components/States";
@@ -28,6 +28,23 @@ type ResumeBody = ApiOperationBody<"resumeChoiceOrder">;
 type ResumeReceipt = ApiOperationData<"resumeChoiceOrder">;
 type ResumePreview = ApiOperationData<"previewChoiceOrderResume">;
 type GroupProgress = DiagnosticView["group"] | CheckView["group"];
+type GroupPollingCoordinator = {
+  token: number;
+  epoch: number;
+  gateway: WorkspaceGateway;
+  registrationId: string;
+  kind: "diagnostic" | "check";
+  groupId: string;
+  routeSnapshotId?: string;
+  controller?: AbortController;
+  timer?: number;
+  inFlight?: Promise<void>;
+  refreshRequested: boolean;
+  disposed: boolean;
+  generation: number;
+  progressReceiptRevision: number;
+  requestRefresh: () => void;
+};
 type CancelIntent = {
   registrationId: string;
   groupId: string;
@@ -47,6 +64,26 @@ function readMutationState<Request, Receipt>(
   mutation: RetainedMutation<Request, Receipt> | undefined,
 ): MutationState<Receipt> | undefined {
   return mutation?.state;
+}
+
+const SETTLED_MEMBER_STATES = new Set([
+  "cancelled",
+  "completed",
+  "completed_with_errors",
+  "budget_exhausted",
+  "interrupted",
+  "preflight_failed",
+]);
+
+function isSettledGroup(group: GroupProgress | undefined): boolean {
+  return Boolean(
+    group &&
+    group.members.length > 0 &&
+    group.members.every(
+      (member) =>
+        !member.execution_active && SETTLED_MEMBER_STATES.has(member.state),
+    ),
+  );
 }
 
 export type GroupReportTarget = {
@@ -92,8 +129,6 @@ export function GroupDetail({
     kind: "idle",
   });
   const [actionBusy, setActionBusy] = useState(false);
-  const readGeneration = useRef(0);
-  const snapshotGeneration = useRef(0);
   const snapshotReadGeneration = useRef(0);
   const scope = `${project.id}:${kind}:${groupId}`;
   const mounted = useRef(true);
@@ -103,14 +138,18 @@ export function GroupDetail({
   const cancelCallbackScopeToken = useRef<number | undefined>(undefined);
   const resumeCallbackScopeToken = useRef<number | undefined>(undefined);
   const scopeToken = useRef(0);
-  const tokenScope = useRef({ scope, gateway });
+  const tokenScope = useRef({ scope, gateway, snapshotId });
   if (
     tokenScope.current.scope !== scope ||
-    tokenScope.current.gateway !== gateway
+    tokenScope.current.gateway !== gateway ||
+    tokenScope.current.snapshotId !== snapshotId
   ) {
-    tokenScope.current = { scope, gateway };
+    tokenScope.current = { scope, gateway, snapshotId };
     scopeToken.current += 1;
   }
+  const pollingCoordinator = useRef<GroupPollingCoordinator | undefined>(
+    undefined,
+  );
   const resumeReviewGeneration = useRef(0);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -259,85 +298,174 @@ export function GroupDetail({
     };
   }, [scope, snapshotId]);
 
-  const refreshProgress = useCallback(
-    async (signal?: AbortSignal) => {
-      const generation = ++readGeneration.current;
-      try {
-        const request = { registrationId: project.id, groupId, signal };
-        const result =
-          kind === "diagnostic"
-            ? await gateway.debugging.diagnostics.read(request)
-            : await gateway.debugging.checks.read(request);
-        if (signal?.aborted || generation !== readGeneration.current) return;
-        if (
-          result.data.group.group_id !== groupId ||
-          result.data.group.kind !==
-            (kind === "diagnostic" ? "choice_order" : "regression_check")
-        )
-          throw new Error(
-            "The service returned progress for a different group.",
-          );
-        setProgress(result.data.group);
-        setProgressError(undefined);
-      } catch (cause) {
-        if (!signal?.aborted && generation === readGeneration.current)
-          setProgressError(safeMessage(cause));
-      } finally {
-        if (generation === readGeneration.current) setLoading(false);
-      }
-    },
-    [gateway, groupId, kind, project.id],
-  );
-
-  const refreshSnapshots = useCallback(
-    async (signal?: AbortSignal) => {
-      const generation = ++snapshotGeneration.current;
-      try {
-        const request = { registrationId: project.id, groupId, signal };
-        const result =
-          kind === "diagnostic"
-            ? await gateway.debugging.diagnostics.listSnapshots(request)
-            : await gateway.debugging.checks.listSnapshots(request);
-        if (signal?.aborted || generation !== snapshotGeneration.current)
-          return;
-        const next = result.data;
-        if (next.some((item) => item.group_id !== groupId))
-          throw new Error(
-            "The service returned a snapshot from a different group.",
-          );
-        setSnapshots(next);
-        setSnapshotsError(undefined);
-        setSelectedSnapshotId(
-          (current) => current ?? snapshotId ?? next.at(-1)?.id ?? null,
-        );
-      } catch (cause) {
-        if (!signal?.aborted && generation === snapshotGeneration.current)
-          setSnapshotsError(safeMessage(cause));
-      }
-    },
-    [gateway, groupId, kind, project.id, snapshotId],
-  );
-
   useEffect(() => {
     mounted.current = true;
-    const controller = new AbortController();
-    void refreshProgress(controller.signal);
-    void refreshSnapshots(controller.signal);
-    const timer = window.setInterval(() => {
-      if (!controller.signal.aborted) {
-        void refreshProgress(controller.signal);
-        void refreshSnapshots(controller.signal);
-      }
-    }, 2500);
-    return () => {
-      controller.abort();
-      mounted.current = false;
-      readGeneration.current += 1;
-      snapshotGeneration.current += 1;
-      snapshotReadGeneration.current += 1;
-      window.clearInterval(timer);
+    const coordinator: GroupPollingCoordinator = {
+      token: scopeToken.current,
+      epoch: renderEpoch.current,
+      gateway,
+      registrationId: project.id,
+      kind,
+      groupId,
+      routeSnapshotId: snapshotId,
+      refreshRequested: false,
+      disposed: false,
+      generation: 0,
+      progressReceiptRevision: 0,
+      requestRefresh: () => {},
     };
-  }, [refreshProgress, refreshSnapshots]);
+    const isCurrent = () =>
+      mounted.current &&
+      !coordinator.disposed &&
+      pollingCoordinator.current === coordinator &&
+      scopeToken.current === coordinator.token &&
+      renderEpoch.current === coordinator.epoch;
+
+    const requestRefresh = () => {
+      if (!isCurrent()) return;
+      if (coordinator.inFlight) {
+        coordinator.refreshRequested = true;
+        return;
+      }
+      if (coordinator.timer !== undefined) {
+        window.clearTimeout(coordinator.timer);
+        coordinator.timer = undefined;
+      }
+
+      const generation = ++coordinator.generation;
+      const controller = new AbortController();
+      coordinator.controller = controller;
+      const progressRevision = coordinator.progressReceiptRevision;
+      const request = {
+        registrationId: coordinator.registrationId,
+        groupId: coordinator.groupId,
+        signal: controller.signal,
+      };
+
+      coordinator.inFlight = Promise.resolve().then(async () => {
+        try {
+          try {
+            const result =
+              coordinator.kind === "diagnostic"
+                ? await coordinator.gateway.debugging.diagnostics.read(request)
+                : await coordinator.gateway.debugging.checks.read(request);
+            if (!isCurrent() || generation !== coordinator.generation) return;
+            if (
+              result.data.group.group_id !== coordinator.groupId ||
+              result.data.group.kind !==
+                (coordinator.kind === "diagnostic"
+                  ? "choice_order"
+                  : "regression_check")
+            )
+              throw new Error(
+                "The service returned progress for a different group.",
+              );
+            if (progressRevision === coordinator.progressReceiptRevision) {
+              setProgress(result.data.group);
+              setProgressError(undefined);
+            }
+          } catch (cause) {
+            if (
+              isCurrent() &&
+              generation === coordinator.generation &&
+              progressRevision === coordinator.progressReceiptRevision &&
+              !controller.signal.aborted
+            )
+              setProgressError(safeMessage(cause));
+          } finally {
+            if (
+              isCurrent() &&
+              generation === coordinator.generation &&
+              progressRevision === coordinator.progressReceiptRevision
+            )
+              setLoading(false);
+          }
+
+          if (!isCurrent() || generation !== coordinator.generation) return;
+          try {
+            const result =
+              coordinator.kind === "diagnostic"
+                ? await coordinator.gateway.debugging.diagnostics.listSnapshots(
+                    request,
+                  )
+                : await coordinator.gateway.debugging.checks.listSnapshots(
+                    request,
+                  );
+            if (!isCurrent() || generation !== coordinator.generation) return;
+            const next = result.data;
+            if (next.some((item) => item.group_id !== coordinator.groupId))
+              throw new Error(
+                "The service returned a snapshot from a different group.",
+              );
+            setSnapshots(next);
+            setSnapshotsError(undefined);
+            setSelectedSnapshotId(
+              (current) =>
+                current ??
+                coordinator.routeSnapshotId ??
+                next.at(-1)?.id ??
+                null,
+            );
+          } catch (cause) {
+            if (
+              isCurrent() &&
+              generation === coordinator.generation &&
+              !controller.signal.aborted
+            )
+              setSnapshotsError(safeMessage(cause));
+          }
+        } finally {
+          if (generation === coordinator.generation) {
+            coordinator.inFlight = undefined;
+            coordinator.controller = undefined;
+            if (!isCurrent()) return;
+            if (coordinator.refreshRequested) {
+              coordinator.refreshRequested = false;
+              requestRefresh();
+            } else {
+              coordinator.timer = window.setTimeout(() => {
+                coordinator.timer = undefined;
+                requestRefresh();
+              }, 2500);
+            }
+          }
+        }
+      });
+    };
+    coordinator.requestRefresh = requestRefresh;
+    pollingCoordinator.current = coordinator;
+    requestRefresh();
+
+    return () => {
+      coordinator.disposed = true;
+      coordinator.refreshRequested = false;
+      if (coordinator.timer !== undefined)
+        window.clearTimeout(coordinator.timer);
+      coordinator.controller?.abort();
+      if (pollingCoordinator.current === coordinator)
+        pollingCoordinator.current = undefined;
+      mounted.current = false;
+      snapshotReadGeneration.current += 1;
+    };
+  }, [gateway, groupId, kind, project.id, scope, snapshotId]);
+
+  function refreshAfterReceipt(progressReceipt?: GroupProgress) {
+    const coordinator = pollingCoordinator.current;
+    if (
+      !coordinator ||
+      coordinator.disposed ||
+      coordinator.token !== scopeToken.current ||
+      coordinator.epoch !== renderEpoch.current ||
+      scopeRef.current !== scope
+    )
+      return;
+    coordinator.progressReceiptRevision += 1;
+    if (progressReceipt) {
+      setProgress(progressReceipt);
+      setProgressError(undefined);
+    }
+    coordinator.requestRefresh();
+  }
 
   useEffect(() => {
     if (!selectedSnapshotId) {
@@ -347,6 +475,16 @@ export function GroupDetail({
     }
     const controller = new AbortController();
     const generation = ++snapshotReadGeneration.current;
+    const readScopeToken = scopeToken.current;
+    const readRenderEpoch = renderEpoch.current;
+    const readScope = scope;
+    const isCurrentSnapshotRead = () =>
+      mounted.current &&
+      !controller.signal.aborted &&
+      generation === snapshotReadGeneration.current &&
+      scopeToken.current === readScopeToken &&
+      renderEpoch.current === readRenderEpoch &&
+      scopeRef.current === readScope;
     setSnapshot(undefined);
     setSnapshotError(undefined);
     void (async () => {
@@ -361,11 +499,7 @@ export function GroupDetail({
           kind === "diagnostic"
             ? await gateway.debugging.diagnostics.readSnapshot(request)
             : await gateway.debugging.checks.readSnapshot(request);
-        if (
-          controller.signal.aborted ||
-          generation !== snapshotReadGeneration.current
-        )
-          return;
+        if (!isCurrentSnapshotRead()) return;
         if (
           result.data.snapshot.id !== selectedSnapshotId ||
           result.data.snapshot.group_id !== groupId
@@ -375,11 +509,7 @@ export function GroupDetail({
           );
         setSnapshot(result.data);
       } catch (cause) {
-        if (
-          !controller.signal.aborted &&
-          generation === snapshotReadGeneration.current
-        )
-          setSnapshotError(safeMessage(cause));
+        if (isCurrentSnapshotRead()) setSnapshotError(safeMessage(cause));
       }
     })();
     return () => controller.abort();
@@ -409,9 +539,8 @@ export function GroupDetail({
       cancelCallbackScopeToken.current === dispatchScopeToken &&
       scopeRef.current === scope
     ) {
-      setProgress(receipt.receipt);
       setResumePreview(undefined);
-      void refreshSnapshots();
+      refreshAfterReceipt(receipt.receipt);
     }
   }
 
@@ -427,9 +556,8 @@ export function GroupDetail({
       cancelCallbackScopeToken.current === dispatchScopeToken &&
       scopeRef.current === scope
     ) {
-      setProgress(receipt.receipt);
       setResumePreview(undefined);
-      void refreshSnapshots();
+      refreshAfterReceipt(receipt.receipt);
     }
   }
 
@@ -510,8 +638,7 @@ export function GroupDetail({
       scopeRef.current === scope
     ) {
       setResumePreview(undefined);
-      void refreshProgress();
-      void refreshSnapshots();
+      refreshAfterReceipt();
     }
   }
 
@@ -528,8 +655,7 @@ export function GroupDetail({
       scopeRef.current === scope
     ) {
       setResumePreview(undefined);
-      void refreshProgress();
-      void refreshSnapshots();
+      refreshAfterReceipt();
     }
   }
 
@@ -584,15 +710,7 @@ export function GroupDetail({
           <h2 id="group-current-progress">Current progress</h2>
           <dl>
             <dt>State</dt>
-            <dd>
-              {progress.members.every((member) =>
-                ["completed", "failed", "cancelled", "interrupted"].includes(
-                  member.state,
-                ),
-              )
-                ? "Settled"
-                : "Running"}
-            </dd>
+            <dd>{isSettledGroup(progress) ? "Settled" : "Running"}</dd>
             <dt>Independent cases</dt>
             <dd>{progress.independent_case_count}</dd>
             <dt>Initial requests</dt>

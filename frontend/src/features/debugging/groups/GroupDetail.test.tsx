@@ -206,10 +206,10 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
   const navigate = vi.spyOn(navigation, "navigate").mockResolvedValue(true);
-  const pollingCallbacks: Array<Exclude<TimerHandler, string>> = [];
+  const pollingCallbacks: Array<() => void> = [];
   const pollingDelays: number[] = [];
-  const nativeSetInterval = window.setInterval;
-  const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((
+  const nativeSetTimeout = window.setTimeout;
+  const timeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation(((
     handler: TimerHandler,
     delay?: number,
   ) => {
@@ -221,8 +221,8 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
       pollingCallbacks.push(() => handler());
       return -1;
     }
-    return nativeSetInterval.call(window, () => handler(), delay);
-  }) as typeof window.setInterval);
+    return nativeSetTimeout.call(window, () => handler(), delay);
+  }) as typeof window.setTimeout);
   const view = render(
     <GroupDetail
       project={project}
@@ -249,7 +249,7 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   );
   expect(screen.getAllByText("result-1").length).toBeGreaterThan(1);
 
-  expect(pollingDelays).toContain(2500);
+  await waitFor(() => expect(pollingDelays).toContain(2500));
   expect(pollingCallbacks).toHaveLength(1);
   await act(async () => {
     pollingCallbacks[0]?.call(window);
@@ -274,7 +274,7 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   );
 
   view.unmount();
-  intervalSpy.mockRestore();
+  timeoutSpy.mockRestore();
   navigation.dispose();
 });
 
@@ -719,7 +719,7 @@ it("does not publish an old cancellation receipt into a later A-to-B-to-A group 
 
   view.rerender(<GroupDetail {...props} groupId="group-2" />);
   view.rerender(<GroupDetail {...props} groupId="group-1" />);
-  await waitFor(() => expect(listSnapshots).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(listSnapshots).toHaveBeenCalledTimes(2));
   await act(async () => {
     resolveCancel?.({
       data: { ...progress, group_id: "group-1" },
@@ -727,6 +727,6 @@ it("does not publish an old cancellation receipt into a later A-to-B-to-A group 
     } as CancelResponse);
   });
   expect(screen.queryByText("Cancellation receipt received.")).toBeNull();
-  expect(listSnapshots).toHaveBeenCalledTimes(3);
+  expect(listSnapshots).toHaveBeenCalledTimes(2);
   navigation.dispose();
 });
