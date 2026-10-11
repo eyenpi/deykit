@@ -600,6 +600,7 @@ export async function runReportsWorkflow(
           await exerciseKnownReportDownloadFailures(
             page,
             registrationId,
+            target.id,
             reportId,
             {
               json: {
@@ -967,6 +968,7 @@ export async function runReportsWorkflow(
 async function exerciseKnownReportDownloadFailures(
   page: Page,
   registrationId: string,
+  runId: string,
   reportId: string,
   expectedArtifacts: Record<
     "json" | "markdown",
@@ -1202,7 +1204,7 @@ async function exerciseKnownReportDownloadFailures(
           .filter({ has: page.getByText(reportId, { exact: true }) });
         await expect(reportRow).toHaveCount(1);
         const targetButton = reportRow.getByRole("button", {
-          name: `run: ${qualification.seedMetadata.run_id}`,
+          name: `run: ${runId}`,
           exact: true,
         });
         await expect(targetButton).toHaveCount(1);
