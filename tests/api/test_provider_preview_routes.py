@@ -408,6 +408,40 @@ def test_run_and_choice_order_previews_are_protected_and_do_not_create_runs(
                 assert run.status_code == 200, run.text
                 assert run.json()["data"]["dry_run"] is True
                 assert len(run.json()["data"]["review_context_hash"]) == 64
+                reviewed = run.json()["data"]
+                assert reviewed["review_context"]["definition_source"] == "draft"
+                assert len(reviewed["review_context"]["source_context_hash"]) == 64
+                assert reviewed["review_context"]["source_records"]
+                assert all(
+                    set(record) == {"collection", "scope", "resource_id", "etag", "body_hash"}
+                    for record in reviewed["review_context"]["source_records"]
+                )
+                assert all(
+                    item["request_source"] is None
+                    for item in reviewed["case_reviews"]
+                )
+                revealed = await client.post(
+                    f"/api/v1/projects/{registration_id}/runs/preview?include_request=true",
+                    headers=headers,
+                    json={"schema_version": 1, "request": request},
+                )
+                assert revealed.status_code == 200, revealed.text
+                revealed_data = revealed.json()["data"]
+                assert revealed_data["review_context_hash"] == reviewed[
+                    "review_context_hash"
+                ]
+                assert any(
+                    item["request_source"] is not None
+                    and item["request_source_redacted"] is False
+                    for item in revealed_data["case_reviews"]
+                )
+                assert all(
+                    hashlib.sha256(item["request_source"].encode("utf-8")).hexdigest()
+                    == item["request_hash"]
+                    for item in revealed_data["case_reviews"]
+                    if item["request_source"] is not None
+                    and item["request_source_redacted"] is False
+                )
 
                 group = await client.post(
                     f"/api/v1/projects/{registration_id}/diagnostics/choice-order/preview",
@@ -425,6 +459,10 @@ def test_run_and_choice_order_previews_are_protected_and_do_not_create_runs(
                 assert group.json()["data"]["dry_run"] is True
                 assert len(group.json()["data"]["members"]) == 2
                 assert group.json()["data"]["seed"] == "9007199254740993"
+                assert all(
+                    "review_context" not in member["preview"]
+                    for member in group.json()["data"]["members"]
+                )
                 registration = app.app.state.project_registry.require(registration_id)
                 assert registration.source.list_ids("runs") == ()
                 assert registration.source.list_ids("execution_groups") == ()
