@@ -1,7 +1,7 @@
 """Focused acknowledgement and disconnect behavior for durable HTTP workers."""
 
 import asyncio
-from threading import Event
+from threading import Event, get_ident
 from types import SimpleNamespace
 
 import pytest
@@ -145,20 +145,32 @@ class _EvaluationService:
 
 class _GroupLifecycle:
     def __init__(self) -> None:
+        self.test_loop = asyncio.get_running_loop()
         self.started = asyncio.Event()
-        self.release_ack = asyncio.Event()
+        self.release_ack = Event()
         self.acknowledged = asyncio.Event()
-        self.finished = asyncio.Event()
+        self.finished = Event()
         self.loop = None
         self.cancelled_ids = []
         self.ack_index = 0
         self.replay_operations = set()
+        self.start_calls = 0
+        self.worker_thread_ids: list[int] = []
+        self.worker_loops: list[asyncio.AbstractEventLoop] = []
+
+    @staticmethod
+    async def _wait_thread_event(event: Event) -> None:
+        while not event.is_set():
+            await asyncio.sleep(0.001)
 
     async def _ack(self, callback, operation_id) -> None:
         self.loop = asyncio.get_running_loop()
-        self.started.set()
+        self.worker_thread_ids.append(get_ident())
+        self.worker_loops.append(self.loop)
+        self.start_calls += 1
+        self.test_loop.call_soon_threadsafe(self.started.set)
         replayed = operation_id.startswith("replay-") or operation_id in self.replay_operations
-        await self.release_ack.wait()
+        await self._wait_thread_event(self.release_ack)
         self.ack_index += 1
         await callback(
             GroupAcknowledged(
@@ -170,9 +182,9 @@ class _GroupLifecycle:
                 ("member-a", "member-b"),
             )
         )
-        self.acknowledged.set()
+        self.test_loop.call_soon_threadsafe(self.acknowledged.set)
         if not replayed:
-            await self.finished.wait()
+            await self._wait_thread_event(self.finished)
 
     async def _resume(self, callback, operation_id) -> None:
         await self._ack(callback, operation_id)
@@ -181,7 +193,7 @@ class _GroupLifecycle:
         del operation_id
         self.cancelled_ids.append(group_id)
         assert self.loop is not None
-        self.loop.call_soon_threadsafe(self.finished.set)
+        self.finished.set()
 
 
 class _DiagnosticLifecycle(_GroupLifecycle, DiagnosticService):
@@ -663,6 +675,167 @@ def test_replay_only_acknowledgement_does_not_claim_external_owner(method, kind)
         assert supervisor._groups == {}
         assert supervisor._run_tasks == {}
         assert supervisor._group_tasks == {}
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("kind", ["choice_order", "regression_check"])
+def test_group_capacity_is_reserved_before_service_start_and_released_after_join(kind):
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+        registration_ids = [f"project-{index}" for index in range(5)]
+        services = [
+            _DiagnosticLifecycle() if kind == "choice_order" else _CheckLifecycle()
+            for _ in range(5)
+        ]
+        started_loop = asyncio.get_running_loop()
+        waiters = [
+            asyncio.create_task(
+                supervisor.start_group(
+                    _registration(registration_ids[index]),
+                    services[index],
+                    kind,
+                    _group_request(kind),
+                    operation_id=f"capacity-{index}",
+                    expected_review_context_hash="c" * 64,
+                )
+            )
+            for index in range(4)
+        ]
+        for service in services[:4]:
+            await asyncio.wait_for(service.started.wait(), timeout=5)
+
+        assert supervisor._group_capacity._value == 0
+        assert all(service.start_calls == 1 for service in services[:4])
+        assert all(service.worker_thread_ids[0] != get_ident() for service in services[:4])
+        assert all(service.worker_loops[0] is not started_loop for service in services[:4])
+        assert all(not waiter.done() for waiter in waiters)
+        assert await asyncio.wait_for(asyncio.to_thread(lambda: "api-pool-responsive"), 1) == (
+            "api-pool-responsive"
+        )
+
+        with pytest.raises(ServiceFailure) as exhausted:
+            await supervisor.start_group(
+                _registration(registration_ids[4]),
+                services[4],
+                kind,
+                _group_request(kind),
+                operation_id="capacity-fifth",
+                expected_review_context_hash="d" * 64,
+            )
+        assert exhausted.value.error.code == "preflight_failed"
+        assert exhausted.value.error.reason == "owned_group_capacity"
+        assert services[4].start_calls == 0
+        assert supervisor._groups == {}
+
+        for service in services[:4]:
+            service.release_ack.set()
+            await asyncio.wait_for(service.acknowledged.wait(), timeout=5)
+        await asyncio.wait_for(asyncio.gather(*waiters), timeout=5)
+        assert len(supervisor._groups) == 4
+
+        await asyncio.wait_for(supervisor.shutdown(), timeout=5)
+        assert supervisor._group_capacity._value == 4
+        assert supervisor._tasks == set()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("kind", ["choice_order", "regression_check"])
+def test_group_worker_cancellation_before_ack_is_published_and_joined(kind):
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+        service = _DiagnosticLifecycle() if kind == "choice_order" else _CheckLifecycle()
+        waiter = asyncio.create_task(
+            supervisor.start_group(
+                _registration(),
+                service,
+                kind,
+                _group_request(kind),
+                operation_id=f"pre-ack-{kind}",
+                expected_review_context_hash="f" * 64,
+            )
+        )
+        await asyncio.wait_for(service.started.wait(), timeout=5)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        worker = next(iter(supervisor._tasks))
+        assert worker is not None and not worker.done()
+
+        await asyncio.wait_for(supervisor.shutdown(), timeout=5)
+
+        assert service.ack_index == 0
+        assert supervisor._groups == {}
+        assert supervisor._group_tasks == {}
+        assert supervisor._tasks == set()
+        assert worker.done()
+        assert supervisor._group_capacity._value == 4
+
+    asyncio.run(scenario())
+
+
+def test_group_submission_failure_releases_reserved_capacity(monkeypatch):
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+
+        def fail_submission(coroutine, acknowledged):
+            del acknowledged
+            coroutine.close()
+            raise RuntimeError("submission_failed")
+
+        monkeypatch.setattr(supervisor, "_start_task", fail_submission)
+        with pytest.raises(RuntimeError, match="submission_failed"):
+            await supervisor.start_group(
+                _registration(),
+                _DiagnosticLifecycle(),
+                "choice_order",
+                _group_request("choice_order"),
+                operation_id="submission-failure",
+                expected_review_context_hash="e" * 64,
+            )
+        assert supervisor._group_capacity._value == 4
+        await supervisor.shutdown()
+
+    asyncio.run(scenario())
+
+
+def test_group_service_factory_failure_releases_reserved_capacity_once(monkeypatch):
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+        service = _DiagnosticLifecycle()
+        calls = 0
+
+        async def fail_start(
+            request,
+            *,
+            operation_id,
+            expected_review_context_hash,
+            on_created,
+        ):
+            nonlocal calls
+            del request, operation_id, expected_review_context_hash, on_created
+            calls += 1
+            raise RuntimeError("operation_factory_failed")
+
+        monkeypatch.setattr(service, "start", fail_start)
+        with pytest.raises(ServiceFailure) as failure:
+            await asyncio.wait_for(
+                supervisor.start_group(
+                    _registration(),
+                    service,
+                    "choice_order",
+                    _group_request("choice_order"),
+                    operation_id="factory-failure",
+                    expected_review_context_hash="a" * 64,
+                ),
+                timeout=5,
+            )
+        assert failure.value.error.reason == "execution_failed"
+        assert calls == 1
+        await asyncio.wait_for(supervisor.shutdown(), timeout=5)
+        assert supervisor._group_capacity._value == 4
+        assert supervisor._tasks == set()
 
     asyncio.run(scenario())
 

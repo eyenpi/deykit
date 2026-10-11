@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -19,10 +21,26 @@ from deykit.runner.planner import RunRequest
 from deykit.runner.views import RunCreated, RunResumed
 
 from .registry import Registration
+from .runtime import TrackedWorkers
 
 _CANCEL_RETRY_BUDGET_SECONDS = 5.0
 _CANCEL_RETRY_DELAYS_SECONDS = (0.01, 0.05, 0.1, 0.2, 0.25)
+_GROUP_WORKER_CAPACITY = 4
 _SupervisorTarget = tuple[Literal["run", "group"], str, str, Registration, Any, asyncio.Task[Any]]
+
+
+class _GroupCapacityReservation:
+    def __init__(self, capacity: threading.BoundedSemaphore) -> None:
+        self._capacity = capacity
+        self._lock = threading.Lock()
+        self._released = False
+
+    def release(self) -> None:
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        self._capacity.release()
 
 
 @dataclass(frozen=True)
@@ -50,7 +68,13 @@ class GroupAccepted:
 class ExecutionSupervisor:
     """Own execution tasks after their callers disconnect or stop awaiting."""
 
-    def __init__(self) -> None:
+    def __init__(self, workers: TrackedWorkers | None = None) -> None:
+        self._workers = workers or TrackedWorkers()
+        self._group_capacity = threading.BoundedSemaphore(_GROUP_WORKER_CAPACITY)
+        self._group_executor = ThreadPoolExecutor(
+            max_workers=_GROUP_WORKER_CAPACITY,
+            thread_name_prefix="deykit-group-worker",
+        )
         self._tasks: set[asyncio.Task[Any]] = set()
         self._preparing: set[asyncio.Task[Any]] = set()
         self._admitting = True
@@ -66,12 +90,25 @@ class ExecutionSupervisor:
         self._run_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
         self._group_tasks: dict[tuple[str, str], asyncio.Task[Any]] = {}
 
+    def _reserve_group_worker(self) -> _GroupCapacityReservation:
+        if not self._admitting:
+            raise ServiceFailure(ServiceError(code="preflight_failed", reason="service_stopping"))
+        if not self._group_capacity.acquire(blocking=False):
+            raise ServiceFailure(
+                ServiceError(code="preflight_failed", reason="owned_group_capacity")
+            )
+        return _GroupCapacityReservation(self._group_capacity)
+
     def _start_task(
         self,
         coroutine: Coroutine[Any, Any, Any],
         acknowledged: asyncio.Future[Any],
     ) -> asyncio.Task[Any]:
-        task = asyncio.create_task(coroutine)
+        try:
+            task = asyncio.create_task(coroutine)
+        except BaseException:
+            coroutine.close()
+            raise
         self._tasks.add(task)
         self._preparing.add(task)
         task.add_done_callback(lambda completed: self._consume(completed, acknowledged))
@@ -250,8 +287,7 @@ class ExecutionSupervisor:
         operation_id: str,
         expected_review_context_hash: str,
     ) -> GroupAccepted:
-        if not self._admitting:
-            raise ServiceFailure(ServiceError(code="preflight_failed", reason="service_stopping"))
+        reservation = self._reserve_group_worker()
         loop = asyncio.get_running_loop()
         acknowledged: asyncio.Future[GroupAcknowledged] = loop.create_future()
         acknowledged.add_done_callback(self._consume_future)
@@ -269,26 +305,36 @@ class ExecutionSupervisor:
                 acknowledged.set_result(event)
             await handoff.wait()
 
+        async def on_created_from_worker(event: GroupAcknowledged) -> None:
+            callback_future = asyncio.run_coroutine_threadsafe(callback(event), loop)
+            await asyncio.wrap_future(callback_future)
+
+        async def run_group() -> None:
+            if kind == "choice_order":
+                assert isinstance(service, DiagnosticService) and isinstance(
+                    request, ChoiceOrderRequest
+                )
+                await service.start(
+                    request,
+                    operation_id=operation_id,
+                    expected_review_context_hash=expected_review_context_hash,
+                    on_created=on_created_from_worker,
+                )
+            else:
+                assert isinstance(service, CheckService) and isinstance(request, CheckRequest)
+                await service.start(
+                    request,
+                    operation_id=operation_id,
+                    expected_review_context_hash=expected_review_context_hash,
+                    on_created=on_created_from_worker,
+                )
+
         async def execute() -> None:
             try:
-                if kind == "choice_order":
-                    assert isinstance(service, DiagnosticService) and isinstance(
-                        request, ChoiceOrderRequest
-                    )
-                    await service.start(
-                        request,
-                        operation_id=operation_id,
-                        expected_review_context_hash=expected_review_context_hash,
-                        on_created=callback,
-                    )
-                else:
-                    assert isinstance(service, CheckService) and isinstance(request, CheckRequest)
-                    await service.start(
-                        request,
-                        operation_id=operation_id,
-                        expected_review_context_hash=expected_review_context_hash,
-                        on_created=callback,
-                    )
+                await self._workers.run_owned_async(
+                    run_group,
+                    executor=self._group_executor,
+                )
             except Exception as error:
                 self._pre_ack(acknowledged, error)
             except asyncio.CancelledError:
@@ -300,7 +346,13 @@ class ExecutionSupervisor:
                 )
                 raise
 
-        task_holder.append(self._start_task(execute(), acknowledged))
+        try:
+            task = self._start_task(execute(), acknowledged)
+            task.add_done_callback(lambda _completed: reservation.release())
+            task_holder.append(task)
+        except BaseException:
+            reservation.release()
+            raise
         try:
             event = await asyncio.shield(acknowledged)
             return GroupAccepted(
@@ -327,8 +379,7 @@ class ExecutionSupervisor:
         operation_id: str,
         retry_unknown: bool,
     ) -> GroupAccepted:
-        if not self._admitting:
-            raise ServiceFailure(ServiceError(code="preflight_failed", reason="service_stopping"))
+        reservation = self._reserve_group_worker()
         loop = asyncio.get_running_loop()
         acknowledged: asyncio.Future[GroupAcknowledged] = loop.create_future()
         acknowledged.add_done_callback(self._consume_future)
@@ -346,24 +397,34 @@ class ExecutionSupervisor:
                 acknowledged.set_result(event)
             await handoff.wait()
 
+        async def on_resumed_from_worker(event: GroupAcknowledged) -> None:
+            callback_future = asyncio.run_coroutine_threadsafe(callback(event), loop)
+            await asyncio.wrap_future(callback_future)
+
+        async def run_group() -> None:
+            if kind == "choice_order":
+                assert isinstance(service, DiagnosticService)
+                await service.resume(
+                    group_id,
+                    operation_id=operation_id,
+                    retry_unknown=retry_unknown,
+                    on_resumed=on_resumed_from_worker,
+                )
+            else:
+                assert isinstance(service, CheckService)
+                await service.resume(
+                    group_id,
+                    operation_id=operation_id,
+                    retry_unknown=retry_unknown,
+                    on_resumed=on_resumed_from_worker,
+                )
+
         async def execute() -> None:
             try:
-                if kind == "choice_order":
-                    assert isinstance(service, DiagnosticService)
-                    await service.resume(
-                        group_id,
-                        operation_id=operation_id,
-                        retry_unknown=retry_unknown,
-                        on_resumed=callback,
-                    )
-                else:
-                    assert isinstance(service, CheckService)
-                    await service.resume(
-                        group_id,
-                        operation_id=operation_id,
-                        retry_unknown=retry_unknown,
-                        on_resumed=callback,
-                    )
+                await self._workers.run_owned_async(
+                    run_group,
+                    executor=self._group_executor,
+                )
             except Exception as error:
                 self._pre_ack(acknowledged, error)
             except asyncio.CancelledError:
@@ -375,7 +436,13 @@ class ExecutionSupervisor:
                 )
                 raise
 
-        task_holder.append(self._start_task(execute(), acknowledged))
+        try:
+            task = self._start_task(execute(), acknowledged)
+            task.add_done_callback(lambda _completed: reservation.release())
+            task_holder.append(task)
+        except BaseException:
+            reservation.release()
+            raise
         try:
             event = await asyncio.shield(acknowledged)
             return GroupAccepted(
@@ -499,6 +566,7 @@ class ExecutionSupervisor:
                 await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
             else:
                 await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.to_thread(self._group_executor.shutdown, wait=True)
         if cancellation_failures:
             raise ServiceFailure(
                 ServiceError(code="internal_error", reason="shutdown_cancel_failed")

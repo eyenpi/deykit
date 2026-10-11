@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
+import time
+from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -40,6 +43,20 @@ from deykit.storage.records import IMMUTABLE, SCOPES, TYPES, key_path, path_key,
 
 FaultHook = Callable[[str], None]
 IndexUpdater = Callable[[tuple[StoredRecord, ...]], None]
+API_SOURCE_ADMISSION_TIMEOUT_SECONDS = 5.0
+
+
+def _validate_admission_timeout(value: float | None) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("invalid_source_admission_timeout")
+    try:
+        valid = math.isfinite(value) and value >= 0
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise ValueError("invalid_source_admission_timeout")
 
 
 @dataclass(frozen=True)
@@ -85,21 +102,33 @@ class FileProjectSource:
         create: bool = False,
         fault_hook: FaultHook | None = None,
         index_updater: IndexUpdater | None = None,
+        admission_timeout_seconds: float | None = None,
     ) -> None:
-        self._initialize(SafeFiles(root, create=create), fault_hook, index_updater)
+        _validate_admission_timeout(admission_timeout_seconds)
+        self._initialize(
+            SafeFiles(root, create=create),
+            fault_hook,
+            index_updater,
+            admission_timeout_seconds,
+        )
 
     def _initialize(
         self,
         files: SafeFiles,
         fault_hook: FaultHook | None,
         index_updater: IndexUpdater | None,
+        admission_timeout_seconds: float | None = None,
     ) -> None:
+        _validate_admission_timeout(admission_timeout_seconds)
         self.files = files
         self.root = self.files.root
         self._hook = fault_hook or (lambda _: None)
         self._index = index_updater or SourceIndex(self.files).rebuild
         self._mutex = threading.RLock()
         self._local = threading.local()
+        self._admission_timeout_seconds = admission_timeout_seconds
+        self._admission_condition = threading.Condition()
+        self._admission_waiters: deque[object] = deque()
         self.last_index_error: str | None = None
 
     @classmethod
@@ -109,9 +138,11 @@ class FileProjectSource:
         *,
         fault_hook: FaultHook | None = None,
         index_updater: IndexUpdater | None = None,
+        admission_timeout_seconds: float | None = None,
     ) -> FileProjectSource:
+        _validate_admission_timeout(admission_timeout_seconds)
         source = cls.__new__(cls)
-        source._initialize(files, fault_hook, index_updater)
+        source._initialize(files, fault_hook, index_updater, admission_timeout_seconds)
         return source
 
     def close(self) -> None:
@@ -125,31 +156,73 @@ class FileProjectSource:
 
     @contextmanager
     def consistent_read(self) -> Iterator[FileProjectSource]:
-        if not self._mutex.acquire(blocking=False):
-            fail("source_busy", "conflict")
         try:
             depth = getattr(self._local, "source_depth", 0)
             if depth:
+                if not self._mutex.acquire(blocking=False):
+                    fail("source_busy", "conflict")
                 self._local.source_depth = depth + 1
                 try:
                     self._recover()
                     yield self
                 finally:
                     self._local.source_depth = depth
+                    self._mutex.release()
             else:
-                with acquire(self.files, "source.lock"):
-                    self._local.source_depth = 1
+                with self._admission_ticket():
+                    if not self._mutex.acquire(blocking=False):
+                        fail("source_busy", "conflict")
                     try:
-                        self._recover()
-                        yield self
+                        with acquire(self.files, "source.lock"):
+                            self._local.source_depth = 1
+                            try:
+                                self._recover()
+                                yield self
+                            finally:
+                                self._local.source_depth = 0
                     finally:
-                        self._local.source_depth = 0
+                        self._mutex.release()
         except OSError:
             fail("storage_io", "internal_error")
         except JsonError as error:
             fail(error.code)
+
+    @contextmanager
+    def _admission_ticket(self) -> Iterator[None]:
+        timeout = self._admission_timeout_seconds
+        if timeout is None:
+            yield
+            return
+        ticket = object()
+        deadline = time.monotonic() + timeout
+        with self._admission_condition:
+            self._admission_waiters.append(ticket)
+            self._admission_condition.notify_all()
+            waited = False
+            try:
+                while True:
+                    if self._admission_waiters[0] is ticket:
+                        if waited and time.monotonic() >= deadline:
+                            fail("source_busy", "conflict")
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        fail("source_busy", "conflict")
+                    self._admission_condition.wait(remaining)
+                    waited = True
+            except BaseException:
+                self._admission_waiters.remove(ticket)
+                self._admission_condition.notify_all()
+                raise
+        try:
+            yield
         finally:
-            self._mutex.release()
+            with self._admission_condition:
+                if self._admission_waiters and self._admission_waiters[0] is ticket:
+                    self._admission_waiters.popleft()
+                else:
+                    self._admission_waiters.remove(ticket)
+                self._admission_condition.notify_all()
 
     def _read(self, key: ResourceKey) -> StoredRecord | None:
         body = self.files.read(key_path(key))

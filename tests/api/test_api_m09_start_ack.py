@@ -1,6 +1,7 @@
 """Actual ASGI regression for a frozen standalone run without durable readiness."""
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -291,8 +292,8 @@ def test_http_group_start_acknowledges_before_held_execution_preparation_and_rep
     tmp_path: Path, monkeypatch
 ) -> None:
     context = _app(tmp_path)
-    execution_started = asyncio.Event()
-    release_execution = asyncio.Event()
+    execution_started = threading.Event()
+    release_execution = threading.Event()
     accepted_tasks: list[asyncio.Task[Any]] = []
     execution_calls = 0
 
@@ -318,7 +319,7 @@ def test_http_group_start_acknowledges_before_held_execution_preparation_and_rep
         # supervisor has built and returned the durable acceptance receipt.
         assert accepted_tasks and accepted_tasks[-1].done()
         execution_started.set()
-        await release_execution.wait()
+        assert release_execution.wait(30), "held execution preparation was not released"
         return await original_execute(self, group, segment, deadline=deadline)
 
     monkeypatch.setattr(ExecutionSupervisor, "start_group", tracked_start_group)
@@ -362,7 +363,9 @@ def test_http_group_start_acknowledges_before_held_execution_preparation_and_rep
                         timeout=12,
                     )
                     assert first.status_code == 202, first.text
-                    await asyncio.wait_for(execution_started.wait(), timeout=5)
+                    assert await asyncio.to_thread(execution_started.wait, 5), (
+                        "held execution preparation did not start"
+                    )
                     first_data = first.json()["data"]
                     assert first_data["replayed"] is False
                     assert first_data["member_run_ids"]

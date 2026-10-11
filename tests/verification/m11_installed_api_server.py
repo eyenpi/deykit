@@ -16,6 +16,7 @@ import os
 import signal
 import socket
 import stat
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -48,6 +49,9 @@ from deykit.runner.ports import Backend, BackendFactory
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.source import API_SOURCE_ADMISSION_TIMEOUT_SECONDS
+
+_WITNESS_LOCK = threading.RLock()
 
 
 class QualificationClock:
@@ -116,10 +120,25 @@ class DispatchWitness:
     for_case_by_case: dict[str, int] = field(default_factory=dict)
     dispatch_by_case: dict[str, int] = field(default_factory=dict)
     publish: Callable[[], None] | None = None
+    lock: Any = field(default_factory=lambda: _WITNESS_LOCK, repr=False)
+
+    def record_dispatch(self, case_id: str) -> None:
+        with self.lock:
+            self.dispatch_calls += 1
+            self.dispatch_by_case[case_id] = self.dispatch_by_case.get(case_id, 0) + 1
+        self.changed()
+
+    def record_for_case(self, case_id: str) -> None:
+        with self.lock:
+            self.for_case_calls += 1
+            self.for_case_by_case[case_id] = self.for_case_by_case.get(case_id, 0) + 1
+        self.changed()
 
     def changed(self) -> None:
-        if self.publish is not None:
-            self.publish()
+        with self.lock:
+            publish = self.publish
+        if publish is not None:
+            publish()
 
 
 class WitnessTransport:
@@ -135,11 +154,7 @@ class WitnessTransport:
     async def dispatch(
         self, request: CompiledRequest, *, timeout_seconds: float
     ) -> DispatchOutcome:
-        self._witness.dispatch_calls += 1
-        self._witness.dispatch_by_case[self._case_id] = (
-            self._witness.dispatch_by_case.get(self._case_id, 0) + 1
-        )
-        self._witness.changed()
+        self._witness.record_dispatch(self._case_id)
         control = os.environ.get("DEYKIT_FIXTURE_CONTROL_DIRECTORY")
         if control is not None:
             directory = Path(control)
@@ -174,18 +189,21 @@ class WitnessBackend:
         return self._fixture.preflight(decision_id, dataset_id, definition)
 
     def for_case(self, case_id: str) -> ProviderTransport:
-        self._witness.for_case_calls += 1
-        self._witness.for_case_by_case[case_id] = self._witness.for_case_by_case.get(case_id, 0) + 1
-        self._witness.changed()
+        self._witness.record_for_case(case_id)
         return WitnessTransport(self._fixture.for_case(case_id), self._witness, case_id)
 
 
 class OfflineBackendFactory:
     """Use the production fixture resolver and reject live adapters before credential use."""
 
-    def __init__(self, source: ApiProjectSource, clock: QualificationClock) -> None:
+    def __init__(
+        self,
+        source: ApiProjectSource,
+        clock: QualificationClock,
+        witness_lock: Any | None = None,
+    ) -> None:
         self._delegate = ProviderBackends(source, clock)
-        self._dispatch = DispatchWitness()
+        self._dispatch = DispatchWitness(lock=witness_lock or _WITNESS_LOCK)
 
     @property
     def witness(self) -> DispatchWitness:
@@ -494,11 +512,16 @@ class QualificationServer(uvicorn.Server):
             "supervisor_run_tasks_empty": not supervisor._run_tasks,
             "supervisor_group_tasks_empty": not supervisor._group_tasks,
         }
-        fixture_dispatch_by_case: Counter[str] = Counter()
-        for_case_by_case: Counter[str] = Counter()
-        for item in self._backends:
-            fixture_dispatch_by_case.update(item.witness.dispatch_by_case)
-            for_case_by_case.update(item.witness.for_case_by_case)
+        with _WITNESS_LOCK:
+            fixture_dispatch_by_case: Counter[str] = Counter()
+            for_case_by_case: Counter[str] = Counter()
+            fixture_dispatch_calls = 0
+            for_case_calls = 0
+            for item in self._backends:
+                fixture_dispatch_calls += item.witness.dispatch_calls
+                for_case_calls += item.witness.for_case_calls
+                fixture_dispatch_by_case.update(item.witness.dispatch_by_case)
+                for_case_by_case.update(item.witness.for_case_by_case)
         witness = {
             "lifespan_startup_completed": self._lifespan.startup_completed,
             "lifespan_startup_error": self._lifespan.startup_error,
@@ -524,11 +547,11 @@ class QualificationServer(uvicorn.Server):
             "model_timeouts": self._model_lister.timeouts,
             "model_list_inference_calls_contract": 0,
             "model_list_timeouts": self._model_lister.timeouts,
-            "fixture_dispatch_calls": sum(item.witness.dispatch_calls for item in self._backends),
+            "fixture_dispatch_calls": fixture_dispatch_calls,
             "fixture_dispatch_by_case": dict(sorted(fixture_dispatch_by_case.items())),
             "live_dispatch_calls": 0,
             "all_resolved_backends_fixture_only": True,
-            "for_case_calls": sum(item.witness.for_case_calls for item in self._backends),
+            "for_case_calls": for_case_calls,
             "for_case_by_case": dict(sorted(for_case_by_case.items())),
             "jev_api_key_present": "JEV_API_KEY" in os.environ,
         }
@@ -554,29 +577,31 @@ def _dependencies(
         if control is not None:
             path = Path(control) / "counts.json"
             temporary = path.with_suffix(".tmp")
-            fixture_dispatch_by_case: Counter[str] = Counter()
-            for_case_by_case: Counter[str] = Counter()
-            for factory in backend_factories:
-                fixture_dispatch_by_case.update(factory.witness.dispatch_by_case)
-                for_case_by_case.update(factory.witness.for_case_by_case)
-            _write_json(
-                temporary,
-                {
-                    "fixture_dispatch_calls": sum(
-                        f.witness.dispatch_calls for f in backend_factories
-                    ),
-                    "for_case_calls": sum(f.witness.for_case_calls for f in backend_factories),
+            with _WITNESS_LOCK:
+                fixture_dispatch_by_case: Counter[str] = Counter()
+                for_case_by_case: Counter[str] = Counter()
+                fixture_dispatch_calls = 0
+                for_case_calls = 0
+                for factory in backend_factories:
+                    fixture_dispatch_calls += factory.witness.dispatch_calls
+                    for_case_calls += factory.witness.for_case_calls
+                    fixture_dispatch_by_case.update(factory.witness.dispatch_by_case)
+                    for_case_by_case.update(factory.witness.for_case_by_case)
+                snapshot = {
+                    "fixture_dispatch_calls": fixture_dispatch_calls,
+                    "for_case_calls": for_case_calls,
                     "fixture_dispatch_by_case": dict(sorted(fixture_dispatch_by_case.items())),
                     "for_case_by_case": dict(sorted(for_case_by_case.items())),
                     "live_dispatch_calls": 0,
-                },
-            )
-            temporary.replace(path)
+                }
+                _write_json(temporary, snapshot)
+                temporary.replace(path)
 
     def backend_factory(source: ApiProjectSource, selected_clock: Any) -> BackendFactory:
-        factory = OfflineBackendFactory(source, selected_clock)
-        backend_factories.append(factory)
-        factory.witness.publish = publish_counts
+        factory = OfflineBackendFactory(source, selected_clock, _WITNESS_LOCK)
+        with _WITNESS_LOCK:
+            backend_factories.append(factory)
+            factory.witness.publish = publish_counts
         publish_counts()
         return factory
 
@@ -585,10 +610,16 @@ def _dependencies(
     dependencies = ApiDependencies(
         clock=clock,
         id_factory=ids,
-        source_factory=lambda path, create: FileProjectSource(path, create=create),
+        source_factory=lambda path, create: FileProjectSource(
+            path,
+            create=create,
+            admission_timeout_seconds=API_SOURCE_ADMISSION_TIMEOUT_SECONDS,
+        ),
         recent_store=RecentProjectsStore(clock, workspace / "recent-projects.json"),
         demo_staging_factory=DemoStagingSource,
-        demo_destination_factory=FileDemoDestinationFactory(),
+        demo_destination_factory=FileDemoDestinationFactory(
+            admission_timeout_seconds=API_SOURCE_ADMISSION_TIMEOUT_SECONDS
+        ),
         provider_operations_factory=lambda source: create_provider_operations(
             source,
             environment={"M08_FAKE_ENV": "nonsecret-fake-environment-value"},
