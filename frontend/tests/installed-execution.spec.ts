@@ -301,8 +301,8 @@ test("installed browser reviews and inspects fixture execution", async ({
       .getByLabel(/^Lifetime (?:request cap|attempts per case)/)
       .fill("12");
     await reviewDialog.getByLabel("Concurrency").fill("1");
-    await reviewDialog.getByLabel(/^Timeout seconds/).fill("5");
-    await reviewDialog.getByLabel(/^Deadline seconds/).fill("30");
+    await reviewDialog.getByLabel(/^Timeout seconds/).fill("30");
+    await reviewDialog.getByLabel(/^Deadline seconds/).fill("120");
     await reviewDialog
       .getByLabel("Rate/overload retries per case (0–1)")
       .fill("0");
@@ -464,6 +464,8 @@ test("installed browser reviews and inspects fixture execution", async ({
         settings: {
           max_attempts: 12,
           concurrency: 1,
+          timeout_seconds: 30,
+          deadline_seconds: 120,
           max_retries_per_case: 0,
         },
       },
