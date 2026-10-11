@@ -479,12 +479,28 @@ export function App({
               decisionId: decision.id,
             });
           }}
-          onArchiveChanged={() => {
-            void refreshProject();
-            void navigation.navigate({
+          onArchiveChanged={async () => {
+            const moved = await navigation.navigate({
               kind: "overview",
               registrationId: project.id,
             });
+            if (!moved) return;
+            try {
+              await refreshProject(project.id);
+              const currentRoute = navigation.current;
+              if (
+                currentRoute.kind === "overview" &&
+                currentRoute.registrationId === project.id
+              )
+                setProjectError(undefined);
+            } catch (cause) {
+              const currentRoute = navigation.current;
+              if (
+                currentRoute.kind === "overview" &&
+                currentRoute.registrationId === project.id
+              )
+                setProjectError(safeMessage(cause));
+            }
           }}
         />
       ) : route.kind === "decision-history" && decision ? (

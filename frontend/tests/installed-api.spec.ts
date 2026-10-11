@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import type { APIResponse, Request, Response } from "@playwright/test";
+import type {
+  APIResponse,
+  Page,
+  Request,
+  Response,
+  TestInfo,
+} from "@playwright/test";
 import type { ApiOperationData } from "../src/api/client";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
@@ -35,6 +41,791 @@ function safeRoutePattern(pathname: string): string {
       /^\{[a-z_]+\}$/.test(segment) ? `:${segment.slice(1, -1)}` : segment,
     )
     .join("/");
+}
+
+type InstalledProviderFixtureTail = {
+  page: Page;
+  testInfo: TestInfo;
+  registrationId: string;
+  projectName: string;
+  capability: string;
+  origin: string;
+  apiResponses: string[];
+  enterPhase: (name: string) => Promise<void>;
+  recordProjectNavigationFacts: (facts: {
+    start_hash: boolean;
+    welcome_heading_present: boolean;
+    fixture_heading_present: boolean;
+    guard_dialog_present: boolean;
+    alert_present: boolean;
+  }) => Promise<void>;
+  captureScreenshot: (name: string) => Promise<void>;
+  expectDirectDataEnvelope: (
+    response: APIResponse | Response,
+    path: string,
+  ) => Promise<void>;
+};
+
+async function runInstalledProviderFixtureTail({
+  page,
+  testInfo,
+  registrationId,
+  projectName,
+  capability,
+  origin,
+  apiResponses,
+  enterPhase,
+  recordProjectNavigationFacts,
+  captureScreenshot,
+  expectDirectDataEnvelope,
+}: InstalledProviderFixtureTail) {
+  const authorizedHeaders = {
+    Origin: origin,
+    "X-Deykit-Capability": capability,
+  };
+  await expect(
+    page.getByRole("heading", { name: projectName, exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
+  await page.getByRole("button", { name: "Add provider profile" }).click();
+  await expect(
+    page.getByRole("heading", { name: "New profile" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Adapter")).toHaveValue("jev");
+  await page.getByLabel("Requested model ID").fill("jev-latest");
+  await page
+    .getByLabel("Destination")
+    .fill("https://api.typesafe.ai/v1/systemone");
+  const providerProfileSave = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "PUT" &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
+        /^\/api\/v1\/projects\/[^/]+\/providers\/[^/]+$/.test(pathname)
+      );
+    },
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "Save profile" }).click();
+  const providerProfileReceipt = await providerProfileSave;
+  expect(providerProfileReceipt.status()).toBe(200);
+  await providerProfileReceipt.body();
+  await expect(
+    page.getByText("Not configured · Unavailable", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Explicit network check · 0 inference calls."),
+  ).toBeVisible();
+  const environmentName = "M08_FAKE_ENV";
+  await page.getByLabel("Environment variable name").fill(environmentName);
+  const environmentCredentialResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "POST" &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
+        pathname.endsWith("/credential-environment")
+      );
+    },
+    { timeout: 15_000 },
+  );
+  await page
+    .getByRole("button", { name: "Attach environment reference" })
+    .click();
+  const environmentCredentialReceipt = await environmentCredentialResponse;
+  expect(environmentCredentialReceipt.status()).toBe(200);
+  await environmentCredentialReceipt.body();
+  await expect(page.getByText(environmentName)).toHaveCount(0);
+  await expect(
+    page.getByText("Configured · Available", { exact: false }),
+  ).toBeVisible();
+  const modelListResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "POST" &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
+        pathname.endsWith("/models")
+      );
+    },
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "Refresh model list" }).click();
+  const modelListReceipt = await modelListResponse;
+  expect(modelListReceipt.status()).toBe(200);
+  await modelListReceipt.body();
+  await expect(
+    page.getByText("fake-offline-model", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("1 models returned · network checked · 0 inference calls"),
+  ).toBeVisible();
+
+  const providerProfilesResponse = await page.request.get(
+    `/api/v1/projects/${registrationId}/providers?limit=100`,
+    { headers: authorizedHeaders },
+  );
+  await expectDirectDataEnvelope(
+    providerProfilesResponse,
+    new URL(providerProfilesResponse.url()).pathname,
+  );
+  const providerProfiles: {
+    data: ApiOperationData<"listProviderProfiles">;
+  } = await providerProfilesResponse.json();
+  const configuredProvider = providerProfiles.data.items.find(
+    (item) => item.adapter === "jev" && item.requested_model === "jev-latest",
+  );
+  if (!configuredProvider)
+    throw new Error("The saved provider profile was not listed.");
+  const credentialValue = "synthetic-installed-os-credential-never-real";
+  const credentialBodies: Array<Record<string, unknown>> = [];
+  let firstCredentialStatus: number | undefined;
+  await page.route(
+    `**/providers/${configuredProvider.id}/credential-os-store`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      credentialBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (credentialBodies.length === 1) {
+        firstCredentialStatus = response.status();
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  const secretInput = page.getByLabel(
+    "Store a credential in the operating system",
+  );
+  await secretInput.fill(credentialValue);
+  await page.getByRole("button", { name: "Store credential" }).click();
+  await expect.poll(() => firstCredentialStatus, { timeout: 15_000 }).toBe(200);
+  await expect(
+    page.getByRole("button", { name: "Retry the same credential request" }),
+  ).toBeVisible();
+  await expect
+    .poll(async () => (await secretInput.inputValue()) === "")
+    .toBe(true);
+  await expect(secretInput).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Store credential" }),
+  ).toBeDisabled();
+  expect(
+    !(await page.locator("body").innerText()).includes(credentialValue),
+  ).toBe(true);
+  const credentialReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/credential-os-store") &&
+      response.request().method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "Retry the same credential request" })
+    .click();
+  const credentialResponse = await credentialReplayResponse;
+  expect(credentialResponse.status()).toBe(200);
+  await credentialResponse.body();
+  const credentialResult = (await credentialResponse.json())
+    .data as ApiOperationData<"setOSStoreCredential">;
+  await expect(
+    page.getByRole("button", { name: "Retry the same credential request" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Configured · Available", { exact: false }),
+  ).toBeVisible();
+  expect(firstCredentialStatus).toBe(200);
+  expect(credentialBodies).toHaveLength(2);
+  const originalCredentialBody = credentialBodies[0];
+  const replayedCredentialBody = credentialBodies[1];
+  expect(credentialResult.operation_id).toBe(
+    originalCredentialBody.operation_id,
+  );
+  expect(credentialResult.replayed).toBe(true);
+  expect(credentialResult.profile.id).toBe(configuredProvider.id);
+  const originalCredential = originalCredentialBody.credential_value;
+  const replayedCredential = replayedCredentialBody.credential_value;
+  expect(
+    typeof originalCredential === "string" &&
+      typeof replayedCredential === "string" &&
+      originalCredential === replayedCredential &&
+      originalCredential === credentialValue,
+  ).toBe(true);
+  const nonSecretCredentialFields = (body: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(body).filter(([field]) => field !== "credential_value"),
+    );
+  expect(nonSecretCredentialFields(replayedCredentialBody)).toEqual(
+    nonSecretCredentialFields(originalCredentialBody),
+  );
+  expect(
+    !(await page.locator("body").innerText()).includes(credentialValue),
+  ).toBe(true);
+  await page.unroute(
+    `**/providers/${configuredProvider.id}/credential-os-store`,
+  );
+  await captureScreenshot("provider-setup.png");
+
+  await enterPhase(
+    "Demo fixture profile safety and authored binding verification",
+  );
+  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
+  await captureScreenshot("fixture-setup.png");
+
+  // Inspect the packaged authored fixture through the installed UI and API.
+  // The test never invokes provider networking or requests raw-source display.
+  await enterPhase("Switching from Fixtures to Projects");
+  await page.getByRole("button", { name: "Projects", exact: true }).click();
+  const welcomeHeading = page.getByRole("heading", {
+    name: "Welcome to deykit.",
+  });
+  try {
+    await expect(welcomeHeading).toBeVisible();
+  } catch (error) {
+    await recordProjectNavigationFacts(
+      await captureProjectNavigationFacts(page),
+    );
+    throw error;
+  }
+  await recordProjectNavigationFacts(await captureProjectNavigationFacts(page));
+  await page.getByRole("button", { name: /^Try support demo/ }).click();
+  const fixtureDemoPath = testInfo.outputPath("fixture-support-demo");
+  await page.getByLabel("Project folder path").fill(fixtureDemoPath);
+  const fixtureDemoSubmit = page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Try support demo", exact: true });
+  let openedRegistrationId: string | undefined;
+  let openedArchiveRead: Promise<Response> | undefined;
+  const fixtureDemoReply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/projects/demo") &&
+      response.request().method() === "POST",
+    { timeout: 15_000 },
+  );
+  await enterPhase("Fixture demo Overview archive admission");
+  await page.route("**/api/v1/projects/demo", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    if (response.status() === 200) {
+      const envelope: {
+        data: ApiOperationData<"createAuthoredDemo">;
+      } = await response.json();
+      const registrationId = envelope.data.registration.registration_id;
+      if (/^[A-Za-z0-9_-]+$/.test(registrationId)) {
+        openedRegistrationId = registrationId;
+        openedArchiveRead = page.waitForResponse(
+          (candidate) => {
+            const url = new URL(candidate.url());
+            return (
+              candidate.request().method() === "GET" &&
+              url.pathname === `/api/v1/projects/${registrationId}/decisions` &&
+              url.searchParams.get("include_archived") === "true" &&
+              url.searchParams.get("limit") === "50"
+            );
+          },
+          { timeout: 0 },
+        );
+        void openedArchiveRead.catch(() => undefined);
+      }
+    }
+    await route.fulfill({ response });
+  });
+  await fixtureDemoSubmit.click();
+  const fixtureDemoResponse = await fixtureDemoReply;
+  await expectDirectDataEnvelope(
+    fixtureDemoResponse,
+    new URL(fixtureDemoResponse.url()).pathname,
+  );
+  const fixtureDemoEnvelope: {
+    data: ApiOperationData<"createAuthoredDemo">;
+  } = await fixtureDemoResponse.json();
+  const fixtureRegistrationId =
+    fixtureDemoEnvelope.data.registration.registration_id;
+  expect(fixtureRegistrationId).toMatch(/^[A-Za-z0-9_-]+$/);
+  expect(openedRegistrationId).toBe(fixtureRegistrationId);
+  if (!openedArchiveRead)
+    throw new Error("The fixture demo Overview read was not observed.");
+  const fixtureArchiveResponsePromise = openedArchiveRead;
+  const fixtureOverviewReadiness = (async () => {
+    const response = await fixtureArchiveResponsePromise;
+    await expectDirectDataEnvelope(response, new URL(response.url()).pathname);
+    await response.body();
+    const envelope: {
+      data: ApiOperationData<"listDecisions">;
+    } = await response.json();
+    expect(
+      envelope.data.items.every((item) => !item.decision.record.archived),
+    ).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: "Sandbox", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No archived decisions.", { exact: true }),
+    ).toBeVisible();
+  })();
+  void fixtureOverviewReadiness.catch(() => undefined);
+  const fixtureOverviewTimeout = new Error(
+    "The fixture demo Overview read did not settle.",
+  );
+  let fixtureOverviewTimer: ReturnType<typeof setTimeout> | undefined;
+  const fixtureOverviewDeadline = new Promise<never>((_, reject) => {
+    fixtureOverviewTimer = setTimeout(
+      () => reject(fixtureOverviewTimeout),
+      15_000,
+    );
+  });
+  try {
+    await Promise.race([fixtureOverviewReadiness, fixtureOverviewDeadline]);
+  } catch (error) {
+    try {
+      await recordProjectNavigationFacts(
+        await captureProjectNavigationFacts(page),
+      );
+    } catch {
+      // Preserve the actual readiness failure if progress cannot be written.
+    }
+    throw error;
+  } finally {
+    if (fixtureOverviewTimer !== undefined) clearTimeout(fixtureOverviewTimer);
+  }
+  await enterPhase("Fixture demo Overview ready");
+  await page.unroute("**/api/v1/projects/demo");
+  const fixtureHeaders = authorizedHeaders;
+  const fixtureProvidersResponse = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    fixtureProvidersResponse,
+    new URL(fixtureProvidersResponse.url()).pathname,
+  );
+  const fixtureProviderList: {
+    data: ApiOperationData<"listProviderProfiles">;
+  } = await fixtureProvidersResponse.json();
+  const fixtureProvider = fixtureProviderList.data.items.find(
+    (item) => item.adapter === "fixture",
+  );
+  if (!fixtureProvider)
+    throw new Error("The authored fixture provider was not listed.");
+  expect(fixtureProvider).toMatchObject({
+    requested_model: expect.stringMatching(/^authored-/),
+    destination: "fixture:jev-choice",
+    evidence_mode: "authored_fixture",
+  });
+  const fixturePage = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/fixtures?limit=50`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    fixturePage,
+    new URL(fixturePage.url()).pathname,
+  );
+  const fixturePageEnvelope: {
+    data: ApiOperationData<"listFixtureSets">;
+  } = await fixturePage.json();
+  const fixtureSummary = fixturePageEnvelope.data.items[0];
+  if (!fixtureSummary)
+    throw new Error("The authored fixture set was not listed.");
+  expect(fixtureSummary).toMatchObject({
+    decision_id: expect.any(String),
+    dataset_id: expect.any(String),
+    model_identity: expect.stringMatching(/^authored-/),
+  });
+  expect(Number(fixtureSummary.binding_count)).toBeGreaterThan(0);
+  expect(fixtureSummary.bindings.length).toBeGreaterThan(0);
+  for (const binding of fixtureSummary.bindings) {
+    expect(binding.case_id).toEqual(expect.any(String));
+    expect(binding.request_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(binding.model_identity).toBe(fixtureSummary.model_identity);
+  }
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
+  await page
+    .getByRole("button", { name: fixtureProvider.id, exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Authored fixture profile" }),
+  ).toBeVisible();
+  await expect(page.locator(".fixture-provider")).toContainText(
+    fixtureProvider.requested_model,
+  );
+  await expect(page.getByLabel("Environment variable name")).toHaveCount(0);
+  await expect(
+    page.getByLabel("Store a credential in the operating system"),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Destination")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Refresh model list" }),
+  ).toHaveCount(0);
+  await captureScreenshot("fixture-provider-safe-details.png");
+  await page.getByRole("button", { name: "Open fixture library" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: fixtureSummary.name, exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: fixtureSummary.name, exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("table", { name: "Exact authored case bindings" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Show exact stored request source text",
+    }),
+  ).not.toBeChecked();
+  const fixtureDetail = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${fixtureSummary.id}?include_requests=false`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    fixtureDetail,
+    new URL(fixtureDetail.url()).pathname,
+  );
+  const hiddenFixtureDetail = (await fixtureDetail.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(hiddenFixtureDetail.id).toBe(fixtureSummary.id);
+  expect(hiddenFixtureDetail.decision_id).toBe(fixtureSummary.decision_id);
+  expect(hiddenFixtureDetail.dataset_id).toBe(fixtureSummary.dataset_id);
+  expect(hiddenFixtureDetail.model_identity).toBe(
+    fixtureSummary.model_identity,
+  );
+  expect(hiddenFixtureDetail.requests.length === 0).toBe(true);
+  await expect(page.getByLabel(/^Stored request source \d+$/)).toHaveCount(0);
+  await captureScreenshot("fixture-exact-bindings.png");
+
+  const fixtureRequestsVisibleResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
+      new URL(response.url()).searchParams.get("include_requests") === "true" &&
+      response.request().method() === "GET",
+  );
+  await page
+    .getByRole("checkbox", { name: "Show exact stored request source text" })
+    .check();
+  const fixtureRequestsVisible = await fixtureRequestsVisibleResponse;
+  expect(fixtureRequestsVisible.status()).toBe(200);
+  const revealedFixture = (await fixtureRequestsVisible.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  const requestSourceTextboxes = page.getByLabel(/^Stored request source \d+$/);
+  const fixtureRequestsHiddenResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
+      new URL(response.url()).searchParams.get("include_requests") ===
+        "false" &&
+      response.request().method() === "GET",
+  );
+  let revealedSourceMatches: boolean[] = [];
+  let revealedSourcesAreReadOnly: boolean[] = [];
+  let fixtureRequestsHidden: Response;
+  try {
+    expect(revealedFixture.requests.length).toBeGreaterThan(0);
+    await expect(requestSourceTextboxes).toHaveCount(
+      revealedFixture.requests.length,
+    );
+    revealedSourceMatches = await Promise.all(
+      revealedFixture.requests.map(async (request, index) => {
+        const textbox = page.getByLabel(`Stored request source ${index + 1}`, {
+          exact: true,
+        });
+        return (await textbox.inputValue()) === request;
+      }),
+    );
+    revealedSourcesAreReadOnly = await Promise.all(
+      revealedFixture.requests.map(async (_, index) =>
+        requestSourceTextboxes
+          .nth(index)
+          .evaluate(
+            (element) =>
+              element instanceof HTMLTextAreaElement && element.readOnly,
+          ),
+      ),
+    );
+  } finally {
+    await page
+      .getByRole("checkbox", {
+        name: "Show exact stored request source text",
+      })
+      .uncheck();
+    fixtureRequestsHidden = await fixtureRequestsHiddenResponse;
+  }
+  const hiddenFixture = (await fixtureRequestsHidden.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(revealedSourceMatches.every(Boolean)).toBe(true);
+  expect(revealedSourcesAreReadOnly.every(Boolean)).toBe(true);
+  expect(fixtureRequestsHidden.status()).toBe(200);
+  expect(hiddenFixture.requests.length === 0).toBe(true);
+  await expect(requestSourceTextboxes).toHaveCount(0);
+
+  const bindingSources = execFileSync(
+    "python",
+    [
+      "-I",
+      "-c",
+      "import sys; from pathlib import Path; from deykit.contracts.codec import dump_record, load_record; from deykit.contracts.records import FixtureSet; record = load_record(FixtureSet, (Path(sys.argv[1]) / 'source' / 'fixtures' / (sys.argv[2] + '.json')).read_bytes()); print('\\n'.join(dump_record(binding).decode('utf-8') for binding in record.bindings))",
+      fixtureDemoPath,
+      fixtureSummary.id,
+    ],
+    { cwd: fixtureDemoPath, encoding: "utf8" },
+  )
+    .trimEnd()
+    .split("\n");
+  await enterPhase("Create normal authored fixture");
+  await page.getByLabel("Decision").selectOption(fixtureSummary.decision_id);
+  await page.getByLabel("Dataset").selectOption(fixtureSummary.dataset_id);
+  await page.getByRole("button", { name: "Author fixture set" }).click();
+  await page.getByLabel("Fixture set name").fill("Browser authored exact copy");
+  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
+  await page
+    .getByLabel("Strict binding source lines")
+    .fill(bindingSources.join("\n"));
+  const initialFixtureCreate = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${fixtureRegistrationId}/fixtures` &&
+      response.request().method() === "POST",
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "Create authored set" }).click();
+  const initialFixtureReceipt = await initialFixtureCreate;
+  expect(initialFixtureReceipt.status()).toBe(200);
+  await initialFixtureReceipt.body();
+  await expect(
+    page.getByRole("heading", { name: "Browser authored exact copy" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Authored fixture sets" })
+      .getByRole("button", {
+        name: "Browser authored exact copy",
+        exact: true,
+      }),
+  ).toBeVisible({ timeout: 15_000 });
+  const createdFixtureId = await page
+    .locator(".fixture-detail code")
+    .first()
+    .textContent();
+  if (typeof createdFixtureId !== "string")
+    throw new Error("The created fixture ID was not displayed.");
+  expect(createdFixtureId).toMatch(/^fixture-[A-Za-z0-9_-]+$/);
+  const createdFixture = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${createdFixtureId}?include_requests=false`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    createdFixture,
+    new URL(createdFixture.url()).pathname,
+  );
+  const createdFixtureData = (await createdFixture.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(createdFixtureData).toMatchObject({
+    name: "Browser authored exact copy",
+    decision_id: fixtureSummary.decision_id,
+    dataset_id: fixtureSummary.dataset_id,
+    model_identity: fixtureSummary.model_identity,
+  });
+  expect(
+    createdFixtureData.bindings.map(
+      (binding: { request_hash: string }) => binding.request_hash,
+    ),
+  ).toEqual(
+    fixtureSummary.bindings.map(
+      (binding: { request_hash: string }) => binding.request_hash,
+    ),
+  );
+  expect(createdFixtureData.requests.length === 0).toBe(true);
+
+  await page.getByRole("button", { name: "Author fixture set" }).click();
+  await page
+    .getByLabel("Fixture set name")
+    .fill("Browser retained fixture request");
+  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
+  await page
+    .getByLabel("Strict binding source lines")
+    .fill(bindingSources.join("\n"));
+  await enterPhase("Recover retained fixture create");
+  const fixtureCreateBodies: Array<Record<string, unknown>> = [];
+  const fixtureCreateResults: ApiOperationData<"createFixtureSet">[] = [];
+  let firstFixtureCreateStatus: number | undefined;
+  let firstFixtureCreateAborted = false;
+  await page.route("**/api/v1/projects/*/fixtures", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    fixtureCreateBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    const response = await route.fetch();
+    fixtureCreateResults.push(
+      (await response.json()).data as ApiOperationData<"createFixtureSet">,
+    );
+    if (fixtureCreateBodies.length === 1) {
+      firstFixtureCreateStatus = response.status();
+      await route.abort("failed");
+      firstFixtureCreateAborted = true;
+      return;
+    }
+    await route.fulfill({ response });
+  });
+  await page.getByRole("button", { name: "Create authored set" }).click();
+  await expect
+    .poll(() => firstFixtureCreateAborted, { timeout: 15_000 })
+    .toBe(true);
+  expect(firstFixtureCreateStatus).toBe(200);
+  await expect(
+    page.getByRole("button", { name: "Retry same create" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Close", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Projects", exact: true })
+    .click();
+  const fixtureUnknownGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(fixtureUnknownGuard).toBeVisible();
+  await expect(
+    fixtureUnknownGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await fixtureUnknownGuard
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
+  const fixtureReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/fixtures") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Retry same create" }).click();
+  const fixtureResponse = await fixtureReplayResponse;
+  expect(fixtureResponse.status()).toBe(200);
+  await fixtureResponse.body();
+  await expect(
+    page.getByRole("button", { name: "Retry same create" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Browser retained fixture request" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Authored fixture sets" })
+      .getByRole("button", {
+        name: "Browser retained fixture request",
+        exact: true,
+      }),
+  ).toBeVisible({ timeout: 15_000 });
+  expect(fixtureCreateBodies).toHaveLength(2);
+  expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
+  expect(fixtureCreateResults).toHaveLength(2);
+  expect(fixtureCreateResults.map((result) => result.replayed)).toEqual([
+    false,
+    true,
+  ]);
+  expect(fixtureCreateResults[1].operation_id).toBe(
+    fixtureCreateResults[0].operation_id,
+  );
+  expect(fixtureCreateResults[1].fixture.id).toBe(
+    fixtureCreateResults[0].fixture.id,
+  );
+  expect(fixtureCreateResults[1].fixture.name).toBe(
+    "Browser retained fixture request",
+  );
+  await page.unroute("**/api/v1/projects/*/fixtures");
+
+  await enterPhase("Responsive 320px and reduced-motion review");
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await page.evaluate(
+      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual((await page.evaluate(() => window.innerWidth)) + 1);
+  const menuButton = page.getByRole("button", { name: "Menu", exact: true });
+  await menuButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
+  const workspaceProjects = page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Projects", exact: true });
+  await expect(workspaceProjects).toBeFocused();
+  let visibleKeyboardStops = 0;
+  for (let index = 0; index < 12; index += 1) {
+    const visible = await page.evaluate(() => {
+      const active = document.activeElement;
+      return (
+        active instanceof HTMLElement &&
+        active !== document.body &&
+        active.getClientRects().length > 0
+      );
+    });
+    expect(visible).toBe(true);
+    visibleKeyboardStops += 1;
+    await page.keyboard.press("Tab");
+  }
+  expect(visibleKeyboardStops).toBe(12);
+  await workspaceProjects.focus();
+  await page.keyboard.press("Escape");
+  await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+  await expect(menuButton).toBeFocused();
+  await captureScreenshot("authoring-narrow-320.png");
+
+  expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(
+    true,
+  );
+  expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(
+    true,
+  );
+  expect(!page.url().includes(capability as string)).toBe(true);
+  expect(
+    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
+  ).toEqual([0, 0]);
+  expect(
+    (await page.evaluate(
+      () => (document as Document & { cookie: string }).cookie,
+    )) === "",
+  ).toBe(true);
+  await enterPhase("Connected authoring workflow complete");
+}
+
+async function captureProjectNavigationFacts(page: Page) {
+  const [startHash, welcomeHeading, fixtureHeading, guardDialog, alert] =
+    await Promise.all([
+      page.evaluate(() => window.location.hash === "#/"),
+      page.getByRole("heading", { name: "Welcome to deykit." }).count(),
+      page.getByRole("heading", { name: "Fixture library" }).count(),
+      page.getByRole("dialog", { name: "Unsaved changes" }).count(),
+      page.getByRole("alert").count(),
+    ]);
+  return {
+    start_hash: startHash,
+    welcome_heading_present: welcomeHeading > 0,
+    fixture_heading_present: fixtureHeading > 0,
+    guard_dialog_present: guardDialog > 0,
+    alert_present: alert > 0,
+  };
 }
 
 test("installed history retains a pending revision restore through Back and exact retry", async ({
@@ -163,6 +954,620 @@ test("installed history retains a pending revision restore through Back and exac
   } finally {
     releaseReply();
   }
+});
+
+test("installed authoring tail covers archive restore, providers, and fixtures", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  page.setDefaultTimeout(10_000);
+  const demoPath = testInfo.outputPath("focused-archive-restore-demo");
+  const progressPath = testInfo.outputPath("authoring-progress.json");
+  const screenshots: string[] = [];
+  const apiFailures: Array<{
+    route_pattern: string;
+    status: number;
+    code: string | null;
+    reason: string | null;
+  }> = [];
+  const apiResponses: string[] = [];
+  const pendingReads = new Map<Request, string>();
+  let stage = "demo setup";
+  let listRequestSeen = false;
+  let listQueryMatches = false;
+  let archiveListRequestSeen = false;
+  let archiveListQueryMatches = false;
+  let archiveListStatus = 0;
+  let archiveListBodyComplete = false;
+  let archiveTargetListed = false;
+  let archiveRowVisible = false;
+  let archiveHeadingVisible = false;
+  let archiveTableVisible = false;
+  let navigationPromptVisible = false;
+  let firstArchiveStatus = 0;
+  let restoreStatus = 0;
+  let firstRestoreStatus = 0;
+  let restoreOverviewStatus = 0;
+  let restoreOverviewBodyComplete = false;
+  let restoredTargetListed = false;
+  let restoredActiveRowVisible = false;
+  let archivedRowAbsent = false;
+  let restoreRetryPresent = false;
+  let archiveRequestsIdentical = false;
+  let restoreRequestsIdentical = false;
+  let archiveReceiptsIdentical = false;
+  let restoreReceiptsIdentical = false;
+  let saveAndDiscardWereBlocked = false;
+  let projectNavigationFacts:
+    Awaited<ReturnType<typeof captureProjectNavigationFacts>> | undefined;
+  const pendingRouteCategories = new Set<string>();
+
+  function decisionListQueryMatches(request: Request): boolean {
+    const url = new URL(request.url());
+    return (
+      url.searchParams.get("include_archived") === "true" &&
+      url.searchParams.get("limit") === "50"
+    );
+  }
+
+  page.on("request", (request) => {
+    apiResponses.push(request.url());
+    if (request.method() !== "GET") return;
+    const url = new URL(request.url());
+    const routePattern = safeRoutePattern(url.pathname);
+    if (
+      routePattern !== "/api/v1/projects/:registration_id/decisions" &&
+      routePattern !== "/api/v1/projects/:registration_id/overview"
+    )
+      return;
+    pendingReads.set(request, routePattern);
+    pendingRouteCategories.add(routePattern);
+    if (routePattern === "/api/v1/projects/:registration_id/decisions") {
+      if (stage === "demo setup") {
+        listRequestSeen = true;
+        listQueryMatches = decisionListQueryMatches(request);
+      }
+      if (stage === "archive retry") {
+        archiveListRequestSeen = true;
+        archiveListQueryMatches = decisionListQueryMatches(request);
+      }
+    }
+  });
+  function settleRead(request: Request) {
+    const routePattern = pendingReads.get(request);
+    if (!routePattern) return;
+    pendingReads.delete(request);
+    if (![...pendingReads.values()].includes(routePattern))
+      pendingRouteCategories.delete(routePattern);
+  }
+  page.on("response", (response) => {
+    if (!pendingReads.has(response.request())) return;
+    void response.body().then(
+      () => settleRead(response.request()),
+      () => settleRead(response.request()),
+    );
+  });
+  page.on("requestfailed", (request) => settleRead(request));
+
+  async function recordSafeProgress() {
+    await writeFile(
+      progressPath,
+      `${JSON.stringify(
+        {
+          qualification_scope: "focused archive restore provider fixture tail",
+          stage,
+          list_request_seen: listRequestSeen,
+          list_query_matches: listQueryMatches,
+          archive_list_request_seen: archiveListRequestSeen,
+          archive_list_query_matches: archiveListQueryMatches,
+          archive_list_status: archiveListStatus,
+          archive_list_body_complete: archiveListBodyComplete,
+          first_archive_status: firstArchiveStatus,
+          archive_target_listed: archiveTargetListed,
+          archive_row_visible: archiveRowVisible,
+          archive_heading_visible: archiveHeadingVisible,
+          archive_table_visible: archiveTableVisible,
+          navigation_prompt_visible: navigationPromptVisible,
+          restore_status: restoreStatus,
+          first_restore_status: firstRestoreStatus,
+          restore_overview_status: restoreOverviewStatus,
+          restore_overview_body_complete: restoreOverviewBodyComplete,
+          restored_target_listed: restoredTargetListed,
+          restored_active_row_visible: restoredActiveRowVisible,
+          archived_row_absent: archivedRowAbsent,
+          restore_retry_present: restoreRetryPresent,
+          archive_requests_identical: archiveRequestsIdentical,
+          restore_requests_identical: restoreRequestsIdentical,
+          archive_receipts_identical: archiveReceiptsIdentical,
+          restore_receipts_identical: restoreReceiptsIdentical,
+          save_and_discard_were_blocked: saveAndDiscardWereBlocked,
+          project_navigation_facts: projectNavigationFacts,
+          pending_route_categories: [...pendingRouteCategories].sort(),
+          api_failures: apiFailures,
+          screenshots,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  }
+
+  async function recordSafeFailure(
+    response: APIResponse | Response,
+    path?: string,
+  ) {
+    if (response.status() === 200) return;
+    const body: unknown = await response.json().catch(() => undefined);
+    const error = isRecord(body) ? body.error : undefined;
+    const details = isRecord(error) ? error : undefined;
+    apiFailures.push({
+      route_pattern: safeRoutePattern(path ?? new URL(response.url()).pathname),
+      status: response.status(),
+      code: safeErrorIdentifier(details?.code),
+      reason: safeErrorIdentifier(details?.reason),
+    });
+    await recordSafeProgress();
+  }
+
+  async function captureSafeScreenshot(name: string) {
+    const path = testInfo.outputPath(name);
+    await page.screenshot({ path, fullPage: true });
+    await testInfo.attach(name, { path, contentType: "image/png" });
+    screenshots.push(name);
+    await recordSafeProgress();
+  }
+
+  const anyDecisionListRead = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      /^\/api\/v1\/projects\/[^/]+\/decisions$/.test(
+        new URL(response.url()).pathname,
+      ),
+    { timeout: 0 },
+  );
+  void anyDecisionListRead.catch(() => undefined);
+  const demoReply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/projects/demo") &&
+      response.request().method() === "POST",
+  );
+  const bootstrapReply = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/session/bootstrap",
+    { timeout: 10_000 },
+  );
+  await page.goto("/");
+  const bootstrapResponse = await bootstrapReply;
+  await recordSafeFailure(bootstrapResponse);
+  expect(bootstrapResponse.status()).toBe(200);
+  const bootstrapEnvelope: unknown = await bootstrapResponse.json();
+  if (
+    !isRecord(bootstrapEnvelope) ||
+    !isRecord(bootstrapEnvelope.data) ||
+    typeof bootstrapEnvelope.data.capability !== "string"
+  )
+    throw new Error("The local session capability was not initialized.");
+  const capability = bootstrapEnvelope.data.capability;
+  await page.getByRole("button", { name: "Try support demo" }).click();
+  await page.getByLabel("Project folder path").fill(demoPath);
+  const demoSubmit = page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Try support demo", exact: true });
+  await demoSubmit.click();
+  const demoResponse = await demoReply;
+  await recordSafeFailure(demoResponse);
+  expect(demoResponse.status()).toBe(200);
+  const demoEnvelope: {
+    data: { registration: { registration_id: string } };
+  } = await demoResponse.json();
+  const registrationId = demoEnvelope.data.registration.registration_id;
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
+  const initialDecisionListResponse = await anyDecisionListRead;
+  await recordSafeFailure(initialDecisionListResponse);
+  expect(initialDecisionListResponse.status()).toBe(200);
+  const initialDecisionListUrl = new URL(initialDecisionListResponse.url());
+  listQueryMatches =
+    initialDecisionListUrl.searchParams.get("include_archived") === "true" &&
+    initialDecisionListUrl.searchParams.get("limit") === "50";
+  expect(listRequestSeen).toBe(true);
+  expect(listQueryMatches).toBe(true);
+  await initialDecisionListResponse.body();
+  const initialDecisionListEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"listDecisions">;
+  } = await initialDecisionListResponse.json();
+  expect(initialDecisionListEnvelope.schema_version).toBe(1);
+  const target = initialDecisionListEnvelope.data.items.find(
+    (item) =>
+      item.decision.record.name === "Content category" &&
+      item.decision.record.archived === false,
+  );
+  if (!target) throw new Error("The support demo decision was not listed.");
+  const decisionId = target.decision.record.id;
+  await captureSafeScreenshot("focused-overview-before-archive.png");
+  await page
+    .getByRole("region", { name: "Project decisions" })
+    .getByRole("button", { name: "Content category", exact: true })
+    .click();
+  await expect(page.getByLabel("Decision name")).toHaveValue(
+    "Content category",
+  );
+  await page.getByRole("button", { name: "Archive decision" }).click();
+  const archiveDialog = page.getByRole("dialog", {
+    name: "Archive this decision?",
+  });
+  await expect(archiveDialog).toBeVisible();
+  const archiveBodies: Array<Record<string, unknown>> = [];
+  let firstArchiveReceipt: ApiOperationData<"archiveDecision"> | undefined;
+  await page.route(
+    `**/projects/${registrationId}/decisions/${decisionId}/archive`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      archiveBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (archiveBodies.length === 1) {
+        firstArchiveStatus = response.status();
+        if (firstArchiveStatus !== 200) return route.fulfill({ response });
+        const envelope: {
+          data: ApiOperationData<"archiveDecision">;
+        } = await response.json();
+        firstArchiveReceipt = envelope.data;
+        expect(
+          firstArchiveReceipt.record.id === decisionId &&
+            firstArchiveReceipt.record.archived,
+        ).toBe(true);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  await archiveDialog
+    .getByRole("button", { name: "Archive decision", exact: true })
+    .click();
+  await expect.poll(() => firstArchiveStatus, { timeout: 15_000 }).toBe(200);
+  const retryArchive = archiveDialog.getByRole("button", {
+    name: "Retry same archive action",
+    exact: true,
+  });
+  await expect(retryArchive).toBeVisible();
+  stage = "archive retry";
+  const anyArchiveListRead = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions`,
+    { timeout: 0 },
+  );
+  const exactArchiveListRead = page.waitForResponse(
+    (response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.pathname === `/api/v1/projects/${registrationId}/decisions` &&
+        url.searchParams.get("include_archived") === "true" &&
+        url.searchParams.get("limit") === "50"
+      );
+    },
+    { timeout: 0 },
+  );
+  const archiveRetryResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions/${decisionId}/archive`,
+    { timeout: 0 },
+  );
+  void anyArchiveListRead.catch(() => undefined);
+  void exactArchiveListRead.catch(() => undefined);
+  void archiveRetryResponse.catch(() => undefined);
+  await retryArchive.click();
+  const archivedResponse = await archiveRetryResponse;
+  await recordSafeFailure(archivedResponse);
+  expect(archivedResponse.status()).toBe(200);
+  await archivedResponse.body();
+  const archivedEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"archiveDecision">;
+  } = await archivedResponse.json();
+  expect(archivedEnvelope.schema_version).toBe(1);
+  expect(archivedEnvelope.data.record.archived).toBe(true);
+  expect(archivedEnvelope.data.record.id === decisionId).toBe(true);
+  expect(firstArchiveReceipt).toBeDefined();
+  archiveRequestsIdentical =
+    archiveBodies.length === 2 &&
+    JSON.stringify(archiveBodies[0]) === JSON.stringify(archiveBodies[1]);
+  archiveReceiptsIdentical =
+    JSON.stringify(archivedEnvelope.data) ===
+    JSON.stringify(firstArchiveReceipt);
+  expect(archiveRequestsIdentical).toBe(true);
+  expect(archiveReceiptsIdentical).toBe(true);
+  const archivedRow = page
+    .getByRole("table", { name: "Archived decisions" })
+    .getByRole("row", { name: /Content category/ });
+  const archiveProjection = (async () => {
+    const observed = await anyArchiveListRead;
+    const observedUrl = new URL(observed.url());
+    archiveListRequestSeen = true;
+    archiveListQueryMatches =
+      observedUrl.searchParams.get("include_archived") === "true" &&
+      observedUrl.searchParams.get("limit") === "50";
+    archiveListStatus = observed.status();
+    expect(archiveListQueryMatches).toBe(true);
+    const exactObserved = await exactArchiveListRead;
+    expect(observed === exactObserved).toBe(true);
+    await recordSafeFailure(observed);
+    expect(observed.status()).toBe(200);
+    await observed.body();
+    archiveListBodyComplete = true;
+    const listEnvelope: {
+      schema_version: 1;
+      data: ApiOperationData<"listDecisions">;
+    } = await observed.json();
+    expect(listEnvelope.schema_version).toBe(1);
+    const archivedItem = listEnvelope.data.items.find(
+      (item) => item.decision.record.id === decisionId,
+    );
+    archiveTargetListed = archivedItem?.decision.record.archived === true;
+    expect(archiveTargetListed).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: "Sandbox", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(archivedRow).toBeVisible({ timeout: 15_000 });
+    archiveRowVisible = true;
+    await expect(archiveDialog).toHaveCount(0);
+    await expect.poll(() => pendingReads.size, { timeout: 15_000 }).toBe(0);
+    archiveHeadingVisible = true;
+    archiveTableVisible = true;
+  })();
+  void archiveProjection.catch(() => undefined);
+  const archiveProjectionTimeout = new Error(
+    "The archive list did not project the committed decision.",
+  );
+  let archiveProjectionTimer: ReturnType<typeof setTimeout> | undefined;
+  const archiveProjectionDeadline = new Promise<never>((_, reject) => {
+    archiveProjectionTimer = setTimeout(
+      () => reject(archiveProjectionTimeout),
+      15_000,
+    );
+  });
+  try {
+    await Promise.race([archiveProjection, archiveProjectionDeadline]);
+  } catch (error) {
+    try {
+      const [heading, table, dialog, row] = await Promise.all([
+        page.getByRole("heading", { name: "Sandbox", exact: true }).count(),
+        page.getByRole("table", { name: "Archived decisions" }).count(),
+        page.getByRole("dialog", { name: "Unsaved changes" }).count(),
+        archivedRow.count(),
+      ]);
+      archiveHeadingVisible = heading > 0;
+      archiveTableVisible = table > 0;
+      navigationPromptVisible = dialog > 0;
+      archiveRowVisible = row > 0;
+      await recordSafeProgress();
+    } catch {
+      // Preserve the archive projection error if finite diagnostics fail.
+    }
+    throw error;
+  } finally {
+    if (archiveProjectionTimer !== undefined)
+      clearTimeout(archiveProjectionTimer);
+  }
+  await page.unroute(
+    `**/projects/${registrationId}/decisions/${decisionId}/archive`,
+  );
+  stage = "archive list projected";
+  await captureSafeScreenshot("focused-overview-after-archive.png");
+
+  const restoreBodies: Array<Record<string, unknown>> = [];
+  let firstRestoreReceipt: ApiOperationData<"restoreDecision"> | undefined;
+  await page.route(
+    `**/projects/${registrationId}/decisions/${decisionId}/restore`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      restoreBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (restoreBodies.length === 1) {
+        firstRestoreStatus = response.status();
+        if (firstRestoreStatus !== 200) return route.fulfill({ response });
+        const envelope: {
+          data: ApiOperationData<"restoreDecision">;
+        } = await response.json();
+        firstRestoreReceipt = envelope.data;
+        expect(
+          firstRestoreReceipt.record.id === decisionId &&
+            !firstRestoreReceipt.record.archived,
+        ).toBe(true);
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  await archivedRow
+    .getByRole("button", { name: "Restore", exact: true })
+    .click();
+  await expect.poll(() => firstRestoreStatus, { timeout: 15_000 }).toBe(200);
+  const retryRestore = page.getByRole("button", {
+    name: "Retry same restore action",
+    exact: true,
+  });
+  await expect(retryRestore).toBeVisible();
+  stage = "restore unknown";
+  restoreRetryPresent = true;
+  await recordSafeProgress();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  const navigationPrompt = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(navigationPrompt).toBeVisible();
+  navigationPromptVisible = true;
+  await recordSafeProgress();
+  await expect(
+    navigationPrompt.getByRole("button", { name: "Save and leave" }),
+  ).toBeDisabled();
+  await expect(
+    navigationPrompt.getByRole("button", { name: "Discard changes" }),
+  ).toBeDisabled();
+  saveAndDiscardWereBlocked = true;
+  stage = "restore unknown navigation blocked";
+  await captureSafeScreenshot("focused-restore-navigation-blocked.png");
+  await navigationPrompt.getByRole("button", { name: "Keep editing" }).click();
+  navigationPromptVisible = false;
+  stage = "restore retry";
+  const restoreReplayResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/decisions/${decisionId}/restore`,
+    { timeout: 0 },
+  );
+  const restoredOverview = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${registrationId}/overview`,
+    { timeout: 0 },
+  );
+  void restoreReplayResponse.catch(() => undefined);
+  void restoredOverview.catch(() => undefined);
+  await retryRestore.click();
+  const restoredResponse = await restoreReplayResponse;
+  await recordSafeFailure(restoredResponse);
+  restoreStatus = restoredResponse.status();
+  expect(restoreStatus).toBe(200);
+  await restoredResponse.body();
+  const restoredEnvelope: {
+    schema_version: 1;
+    data: ApiOperationData<"restoreDecision">;
+  } = await restoredResponse.json();
+  expect(restoredEnvelope.schema_version).toBe(1);
+  expect(restoredEnvelope.data.record.archived).toBe(false);
+  expect(restoredEnvelope.data.record.id === decisionId).toBe(true);
+  expect(firstRestoreReceipt).toBeDefined();
+  restoreRequestsIdentical =
+    restoreBodies.length === 2 &&
+    JSON.stringify(restoreBodies[0]) === JSON.stringify(restoreBodies[1]);
+  restoreReceiptsIdentical =
+    JSON.stringify(restoredEnvelope.data) ===
+    JSON.stringify(firstRestoreReceipt);
+  expect(restoreRequestsIdentical).toBe(true);
+  expect(restoreReceiptsIdentical).toBe(true);
+  const activeRow = page
+    .getByRole("table", { name: "Project decisions" })
+    .getByRole("row", { name: /Content category/ });
+  const archivedTargetRow = page
+    .getByRole("table", { name: "Archived decisions" })
+    .getByRole("row", { name: /Content category/ });
+  const restoreProjection = (async () => {
+    const response = await restoredOverview;
+    restoreOverviewStatus = response.status();
+    await recordSafeFailure(response);
+    expect(restoreOverviewStatus).toBe(200);
+    await response.body();
+    restoreOverviewBodyComplete = true;
+    const envelope: {
+      schema_version: 1;
+      data: ApiOperationData<"projectOverview">;
+    } = await response.json();
+    expect(envelope.schema_version).toBe(1);
+    restoredTargetListed = envelope.data.decisions.some(
+      (item) => item.id === decisionId && item.name === "Content category",
+    );
+    expect(restoredTargetListed).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: "Sandbox", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(activeRow).toBeVisible({ timeout: 15_000 });
+    await expect(archivedTargetRow).toHaveCount(0);
+    await expect(retryRestore).toHaveCount(0);
+    restoreRetryPresent = false;
+    await expect.poll(() => pendingReads.size, { timeout: 15_000 }).toBe(0);
+    restoredActiveRowVisible = true;
+    archivedRowAbsent = true;
+  })();
+  void restoreProjection.catch(() => undefined);
+  const restoreProjectionTimeout = new Error(
+    "The restored project overview did not settle.",
+  );
+  let restoreProjectionTimer: ReturnType<typeof setTimeout> | undefined;
+  const restoreProjectionDeadline = new Promise<never>((_, reject) => {
+    restoreProjectionTimer = setTimeout(
+      () => reject(restoreProjectionTimeout),
+      15_000,
+    );
+  });
+  try {
+    await Promise.race([restoreProjection, restoreProjectionDeadline]);
+  } catch (error) {
+    try {
+      const [active, archived, retry] = await Promise.all([
+        activeRow.count(),
+        archivedTargetRow.count(),
+        retryRestore.count(),
+      ]);
+      restoredActiveRowVisible = active > 0;
+      archivedRowAbsent = archived === 0;
+      restoreRetryPresent = retry > 0;
+      await recordSafeProgress();
+    } catch {
+      // Preserve the restore projection error if finite diagnostics fail.
+    }
+    throw error;
+  } finally {
+    if (restoreProjectionTimer !== undefined)
+      clearTimeout(restoreProjectionTimer);
+  }
+  await captureSafeScreenshot("focused-overview-after-restore.png");
+  stage = "complete";
+  await recordSafeProgress();
+  await page.unroute(
+    `**/projects/${registrationId}/decisions/${decisionId}/restore`,
+  );
+  await runInstalledProviderFixtureTail({
+    page,
+    testInfo,
+    registrationId,
+    projectName: "Sandbox",
+    capability,
+    origin: new URL(page.url()).origin,
+    apiResponses,
+    enterPhase: async (name) => {
+      stage = name;
+      await recordSafeProgress();
+    },
+    recordProjectNavigationFacts: async (facts) => {
+      projectNavigationFacts = facts;
+      await recordSafeProgress();
+    },
+    captureScreenshot: captureSafeScreenshot,
+    expectDirectDataEnvelope: async (response, path) => {
+      await recordSafeFailure(response, path);
+      expect(response.status()).toBe(200);
+      const envelope: unknown = await response.json();
+      expect(
+        isRecord(envelope) &&
+          envelope.schema_version === 1 &&
+          isRecord(envelope.data),
+      ).toBe(true);
+    },
+  });
 });
 
 test("installed shell recovers a lost authored-demo response without duplicate writes", async ({
@@ -354,15 +1759,12 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Sandbox", exact: true }),
+    page.getByRole("heading", { name: "Welcome to deykit." }),
   ).toBeVisible();
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Projects", exact: true })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Welcome to deykit." }),
-  ).toBeVisible();
   const openMarkupProject = page.getByRole("button", {
     name: `Open project folder: ${markupName}`,
   });
@@ -459,9 +1861,18 @@ test("installed browser authors exact decision source and previews imports throu
     | undefined;
   let archiveReadinessFacts:
     | {
+        stage: string;
+        list_request_seen: boolean;
+        list_query_matches: boolean;
+        list_status: number;
+        list_body_complete: boolean;
+        heading_present: boolean;
+        table_present: boolean;
+        navigation_prompt_present: boolean;
         loading: boolean;
         error_present: boolean;
-        row_present: boolean;
+        expected_row_listed: boolean;
+        rendered_row_present: boolean;
         pending_route_categories: string[];
       }
     | undefined;
@@ -483,6 +1894,8 @@ test("installed browser authors exact decision source and previews imports throu
         pending_route_categories: string[];
       }
     | undefined;
+  let projectNavigationFacts:
+    Awaited<ReturnType<typeof captureProjectNavigationFacts>> | undefined;
   let activeSplitReadEvents:
     | Array<{
         event: "body" | "body_error" | "cancelled";
@@ -538,6 +1951,7 @@ test("installed browser authors exact decision source and previews imports throu
       archive_readiness_facts: archiveReadinessFacts,
       restore_replay_facts: restoreReplayFacts,
       restore_projection_facts: restoreProjectionFacts,
+      project_navigation_facts: projectNavigationFacts,
     });
     const sequence = ++progressSequence;
     const write = progressWriteQueue.then(async () => {
@@ -566,7 +1980,10 @@ test("installed browser authors exact decision source and previews imports throu
     });
     await recordProgress();
   }
-  async function expectDirectDataEnvelope(response: APIResponse, path: string) {
+  async function expectDirectDataEnvelope(
+    response: APIResponse | Response,
+    path: string,
+  ) {
     await recordDirectApiFailure(response, path);
     expect(response.status()).toBe(200);
     const envelope: unknown = await response.json();
@@ -5223,6 +6640,29 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(archiveDialog).toBeVisible();
   const archiveBodies: Array<Record<string, unknown>> = [];
   let firstArchiveStatus: number | undefined;
+  let archiveListStage = "awaiting archive retry";
+  let archiveListRequestSeen = false;
+  let archiveListQueryMatches = false;
+  let archiveListStatus = 0;
+  let archiveListBodyComplete = false;
+  let archiveHeadingVisible = false;
+  let archiveTableVisible = false;
+  let archiveNavigationPromptVisible = false;
+  let archiveExpectedRowListed = false;
+  let archiveRowVisible = false;
+  page.on("request", (request) => {
+    if (
+      archiveListStage !== "awaiting archive list" ||
+      request.method() !== "GET"
+    )
+      return;
+    const url = new URL(request.url());
+    if (url.pathname !== `/api/v1/projects/${registrationId}/decisions`) return;
+    archiveListRequestSeen = true;
+    archiveListQueryMatches =
+      url.searchParams.get("include_archived") === "true" &&
+      url.searchParams.get("limit") === "50";
+  });
   await page.route(`**/decisions/${decisionId}/archive`, async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     archiveBodies.push(
@@ -5265,6 +6705,7 @@ test("installed browser authors exact decision source and previews imports throu
     { timeout: 0 },
   );
   void archiveListResponse.catch(() => undefined);
+  archiveListStage = "awaiting archive list";
   await archiveDialog
     .getByRole("button", { name: "Retry same archive action" })
     .click();
@@ -5290,9 +6731,17 @@ test("installed browser authors exact decision source and previews imports throu
   );
   const archiveListReadiness = (async () => {
     const response = await archiveListResponse;
+    archiveListStage = "archive list response received";
+    archiveListStatus = response.status();
+    const responseUrl = new URL(response.url());
+    archiveListQueryMatches =
+      responseUrl.searchParams.get("include_archived") === "true" &&
+      responseUrl.searchParams.get("limit") === "50";
     await recordDirectApiFailure(response, new URL(response.url()).pathname);
     expect(response.status()).toBe(200);
     await response.body();
+    archiveListBodyComplete = true;
+    archiveListStage = "archive list body parsed";
     const envelope: {
       schema_version: 1;
       data: ApiOperationData<"listDecisions">;
@@ -5307,11 +6756,18 @@ test("installed browser authors exact decision source and previews imports throu
       name: archivedResult.record.name,
       archived: true,
     });
+    archiveExpectedRowListed = true;
     await expect(archivedRow).toBeVisible({ timeout: 15_000 });
+    archiveRowVisible = true;
     await expect(
       page.getByRole("heading", { name: projectName }),
     ).toBeVisible();
+    archiveHeadingVisible = true;
+    archiveTableVisible =
+      (await page.getByRole("table", { name: "Archived decisions" }).count()) >
+      0;
     await settleProjectReads();
+    archiveListStage = "archive list and rendered row settled";
   })();
   void archiveListReadiness.catch(() => undefined);
   let archiveReadinessTimer: ReturnType<typeof setTimeout> | undefined;
@@ -5325,15 +6781,32 @@ test("installed browser authors exact decision source and previews imports throu
     await Promise.race([archiveListReadiness, archiveReadinessDeadline]);
   } catch (error) {
     try {
-      const [loading, hasError, rowPresent] = await Promise.all([
-        page.getByText("Loading decision archive…", { exact: true }).count(),
-        page.getByRole("alert").count(),
-        archivedRow.count(),
-      ]);
+      const [loading, hasError, rowPresent, heading, table, prompt] =
+        await Promise.all([
+          page.getByText("Loading decision archive…", { exact: true }).count(),
+          page.getByRole("alert").count(),
+          archivedRow.count(),
+          page.getByRole("heading", { name: projectName }).count(),
+          page.getByRole("table", { name: "Archived decisions" }).count(),
+          page.getByRole("dialog", { name: "Unsaved changes" }).count(),
+        ]);
+      archiveHeadingVisible = heading > 0;
+      archiveTableVisible = table > 0;
+      archiveNavigationPromptVisible = prompt > 0;
+      archiveRowVisible = rowPresent > 0;
       archiveReadinessFacts = {
+        stage: archiveListStage,
+        list_request_seen: archiveListRequestSeen,
+        list_query_matches: archiveListQueryMatches,
+        list_status: archiveListStatus,
+        list_body_complete: archiveListBodyComplete,
+        heading_present: archiveHeadingVisible,
+        table_present: archiveTableVisible,
+        navigation_prompt_present: archiveNavigationPromptVisible,
         loading: loading > 0,
         error_present: hasError > 0,
-        row_present: rowPresent > 0,
+        expected_row_listed: archiveExpectedRowListed,
+        rendered_row_present: archiveRowVisible,
         pending_route_categories: [...pendingSourceReadCategories],
       };
       await recordProgress();
@@ -5396,10 +6869,7 @@ test("installed browser authors exact decision source and previews imports throu
     name: "Retry same restore action",
   });
   await expect(retryRestore).toBeVisible();
-  await page
-    .getByRole("navigation", { name: "Utilities" })
-    .getByRole("button", { name: "Providers", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
   const restoreNavigationPrompt = page.getByRole("dialog", {
     name: "Unsaved changes",
   });
@@ -5529,654 +6999,20 @@ test("installed browser authors exact decision source and previews imports throu
   await recordProgress();
   await page.unroute(`**/decisions/${decisionId}/restore`);
 
-  await page
-    .getByRole("navigation", { name: "Utilities" })
-    .getByRole("button", { name: "Providers", exact: true })
-    .click();
-  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
-  await page.getByRole("button", { name: "Add provider profile" }).click();
-  await expect(
-    page.getByRole("heading", { name: "New profile" }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Adapter")).toHaveValue("jev");
-  await page.getByLabel("Requested model ID").fill("jev-latest");
-  await page
-    .getByLabel("Destination")
-    .fill("https://api.typesafe.ai/v1/systemone");
-  const providerProfileSave = page.waitForResponse(
-    (response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        response.request().method() === "PUT" &&
-        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
-        /^\/api\/v1\/projects\/[^/]+\/providers\/[^/]+$/.test(pathname)
-      );
+  await runInstalledProviderFixtureTail({
+    page,
+    testInfo,
+    registrationId,
+    projectName,
+    capability,
+    origin,
+    apiResponses,
+    enterPhase,
+    recordProjectNavigationFacts: async (facts) => {
+      projectNavigationFacts = facts;
+      await recordProgress();
     },
-    { timeout: 15_000 },
-  );
-  await page.getByRole("button", { name: "Save profile" }).click();
-  const providerProfileReceipt = await providerProfileSave;
-  expect(providerProfileReceipt.status()).toBe(200);
-  await providerProfileReceipt.body();
-  await expect(
-    page.getByText("Not configured · Unavailable", { exact: false }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Explicit network check · 0 inference calls."),
-  ).toBeVisible();
-  const environmentName = "M08_FAKE_ENV";
-  await page.getByLabel("Environment variable name").fill(environmentName);
-  const environmentCredentialResponse = page.waitForResponse(
-    (response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        response.request().method() === "POST" &&
-        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
-        pathname.endsWith("/credential-environment")
-      );
-    },
-    { timeout: 15_000 },
-  );
-  await page
-    .getByRole("button", { name: "Attach environment reference" })
-    .click();
-  const environmentCredentialReceipt = await environmentCredentialResponse;
-  expect(environmentCredentialReceipt.status()).toBe(200);
-  await environmentCredentialReceipt.body();
-  await expect(page.getByText(environmentName)).toHaveCount(0);
-  await expect(
-    page.getByText("Configured · Available", { exact: false }),
-  ).toBeVisible();
-  const modelListResponse = page.waitForResponse(
-    (response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        response.request().method() === "POST" &&
-        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
-        pathname.endsWith("/models")
-      );
-    },
-    { timeout: 15_000 },
-  );
-  await page.getByRole("button", { name: "Refresh model list" }).click();
-  const modelListReceipt = await modelListResponse;
-  expect(modelListReceipt.status()).toBe(200);
-  await modelListReceipt.body();
-  await expect(
-    page.getByText("fake-offline-model", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("1 models returned · network checked · 0 inference calls"),
-  ).toBeVisible();
-
-  const providerProfilesResponse = await page.request.get(
-    `/api/v1/projects/${registrationId}/providers?limit=100`,
-    { headers: authorizedHeaders },
-  );
-  await expectDirectDataEnvelope(
-    providerProfilesResponse,
-    new URL(providerProfilesResponse.url()).pathname,
-  );
-  const configuredProvider = (
-    await providerProfilesResponse.json()
-  ).data.items.find(
-    (item: { adapter: string; requested_model: string }) =>
-      item.adapter === "jev" && item.requested_model === "jev-latest",
-  );
-  expect(configuredProvider).toBeTruthy();
-  const credentialValue = "synthetic-installed-os-credential-never-real";
-  const credentialBodies: Array<Record<string, unknown>> = [];
-  let firstCredentialStatus: number | undefined;
-  await page.route(
-    `**/providers/${configuredProvider.id}/credential-os-store`,
-    async (route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      credentialBodies.push(
-        route.request().postDataJSON() as Record<string, unknown>,
-      );
-      const response = await route.fetch();
-      if (credentialBodies.length === 1) {
-        firstCredentialStatus = response.status();
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: "{}",
-        });
-        return;
-      }
-      await route.fulfill({ response });
-    },
-  );
-  const secretInput = page.getByLabel(
-    "Store a credential in the operating system",
-  );
-  await secretInput.fill(credentialValue);
-  await page.getByRole("button", { name: "Store credential" }).click();
-  await expect.poll(() => firstCredentialStatus, { timeout: 15_000 }).toBe(200);
-  await expect(
-    page.getByRole("button", { name: "Retry the same credential request" }),
-  ).toBeVisible();
-  await expect
-    .poll(async () => (await secretInput.inputValue()) === "")
-    .toBe(true);
-  await expect(secretInput).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "Store credential" }),
-  ).toBeDisabled();
-  expect(
-    !(await page.locator("body").innerText()).includes(credentialValue),
-  ).toBe(true);
-  const credentialReplayResponse = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/credential-os-store") &&
-      response.request().method() === "POST",
-  );
-  await page
-    .getByRole("button", { name: "Retry the same credential request" })
-    .click();
-  const credentialResponse = await credentialReplayResponse;
-  expect(credentialResponse.status()).toBe(200);
-  await credentialResponse.body();
-  const credentialResult = (await credentialResponse.json())
-    .data as ApiOperationData<"setOSStoreCredential">;
-  await expect(
-    page.getByRole("button", { name: "Retry the same credential request" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Configured · Available", { exact: false }),
-  ).toBeVisible();
-  expect(firstCredentialStatus).toBe(200);
-  expect(credentialBodies).toHaveLength(2);
-  const originalCredentialBody = credentialBodies[0];
-  const replayedCredentialBody = credentialBodies[1];
-  expect(credentialResult.operation_id).toBe(
-    originalCredentialBody.operation_id,
-  );
-  expect(credentialResult.replayed).toBe(true);
-  expect(credentialResult.profile.id).toBe(configuredProvider.id);
-  const originalCredential = originalCredentialBody.credential_value;
-  const replayedCredential = replayedCredentialBody.credential_value;
-  expect(
-    typeof originalCredential === "string" &&
-      typeof replayedCredential === "string" &&
-      originalCredential === replayedCredential &&
-      originalCredential === credentialValue,
-  ).toBe(true);
-  const nonSecretCredentialFields = (body: Record<string, unknown>) =>
-    Object.fromEntries(
-      Object.entries(body).filter(([field]) => field !== "credential_value"),
-    );
-  expect(nonSecretCredentialFields(replayedCredentialBody)).toEqual(
-    nonSecretCredentialFields(originalCredentialBody),
-  );
-  expect(
-    !(await page.locator("body").innerText()).includes(credentialValue),
-  ).toBe(true);
-  await page.unroute(
-    `**/providers/${configuredProvider.id}/credential-os-store`,
-  );
-  await captureScreenshot("provider-setup.png");
-
-  await enterPhase(
-    "Demo fixture profile safety and authored binding verification",
-  );
-  await page
-    .getByRole("navigation", { name: "Utilities" })
-    .getByRole("button", { name: "Fixtures", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Fixture library" }),
-  ).toBeVisible();
-  await captureScreenshot("fixture-setup.png");
-
-  // Inspect the packaged authored fixture through the installed UI and API.
-  // The test never invokes provider networking or requests raw-source display.
-  await page.getByRole("button", { name: "Projects", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Welcome to deykit." }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: /Try support demo/ }).click();
-  const fixtureDemoPath = testInfo.outputPath("fixture-support-demo");
-  await page.getByLabel("Project folder path").fill(fixtureDemoPath);
-  const fixtureDemoArchiveRead = page.waitForResponse(
-    (response) => {
-      const url = new URL(response.url());
-      return (
-        response.request().method() === "GET" &&
-        /^\/api\/v1\/projects\/[^/]+\/decisions$/.test(url.pathname) &&
-        url.searchParams.get("include_archived") === "true"
-      );
-    },
-    { timeout: 15_000 },
-  );
-  void fixtureDemoArchiveRead.catch(() => undefined);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Try support demo", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Sandbox", exact: true }),
-  ).toBeVisible();
-  // The browser archive read and direct test-side reads share the source lock.
-  // Await its parsed body before inspecting the newly registered demo directly.
-  const fixtureDemoArchiveResponse = await fixtureDemoArchiveRead;
-  expect(fixtureDemoArchiveResponse.status()).toBe(200);
-  await fixtureDemoArchiveResponse.body();
-  const fixtureRegistrationId = new URL(page.url()).hash.match(
-    /^#\/p\/([A-Za-z0-9_-]+)/,
-  )?.[1] as string;
-  const fixtureHeaders = {
-    Origin: origin,
-    "X-Deykit-Capability": capability as string,
-  };
-  const fixtureProvidersResponse = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    fixtureProvidersResponse,
-    new URL(fixtureProvidersResponse.url()).pathname,
-  );
-  const fixtureProvider = (
-    await fixtureProvidersResponse.json()
-  ).data.items.find((item: { adapter: string }) => item.adapter === "fixture");
-  expect(fixtureProvider).toMatchObject({
-    requested_model: expect.stringMatching(/^authored-/),
-    destination: "fixture:jev-choice",
-    evidence_mode: "authored_fixture",
+    captureScreenshot,
+    expectDirectDataEnvelope,
   });
-  const fixturePage = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/fixtures?limit=50`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    fixturePage,
-    new URL(fixturePage.url()).pathname,
-  );
-  const fixtureSummary = (await fixturePage.json()).data.items[0];
-  expect(fixtureSummary).toMatchObject({
-    decision_id: expect.any(String),
-    dataset_id: expect.any(String),
-    model_identity: expect.stringMatching(/^authored-/),
-  });
-  expect(Number(fixtureSummary.binding_count)).toBeGreaterThan(0);
-  expect(fixtureSummary.bindings.length).toBeGreaterThan(0);
-  for (const binding of fixtureSummary.bindings) {
-    expect(binding.case_id).toEqual(expect.any(String));
-    expect(binding.request_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(binding.model_identity).toBe(fixtureSummary.model_identity);
-  }
-  await page
-    .getByRole("navigation", { name: "Utilities" })
-    .getByRole("button", { name: "Providers", exact: true })
-    .click();
-  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
-  await page
-    .getByRole("button", { name: fixtureProvider.id, exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Authored fixture profile" }),
-  ).toBeVisible();
-  await expect(page.locator(".fixture-provider")).toContainText(
-    fixtureProvider.requested_model,
-  );
-  await expect(page.getByLabel("Environment variable name")).toHaveCount(0);
-  await expect(
-    page.getByLabel("Store a credential in the operating system"),
-  ).toHaveCount(0);
-  await expect(page.getByLabel("Destination")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Refresh model list" }),
-  ).toHaveCount(0);
-  await captureScreenshot("fixture-provider-safe-details.png");
-  await page.getByRole("button", { name: "Open fixture library" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Fixture library" }),
-  ).toBeVisible();
-  await page
-    .getByRole("navigation", { name: "Utilities" })
-    .getByRole("button", { name: "Fixtures", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Fixture library" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: fixtureSummary.name, exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: fixtureSummary.name, exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("table", { name: "Exact authored case bindings" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("checkbox", {
-      name: "Show exact stored request source text",
-    }),
-  ).not.toBeChecked();
-  const fixtureDetail = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${fixtureSummary.id}?include_requests=false`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    fixtureDetail,
-    new URL(fixtureDetail.url()).pathname,
-  );
-  const hiddenFixtureDetail = (await fixtureDetail.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  expect(hiddenFixtureDetail.id).toBe(fixtureSummary.id);
-  expect(hiddenFixtureDetail.decision_id).toBe(fixtureSummary.decision_id);
-  expect(hiddenFixtureDetail.dataset_id).toBe(fixtureSummary.dataset_id);
-  expect(hiddenFixtureDetail.model_identity).toBe(
-    fixtureSummary.model_identity,
-  );
-  expect(hiddenFixtureDetail.requests.length === 0).toBe(true);
-  await expect(page.getByLabel(/^Stored request source \d+$/)).toHaveCount(0);
-  await captureScreenshot("fixture-exact-bindings.png");
-
-  const fixtureRequestsVisibleResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
-      new URL(response.url()).searchParams.get("include_requests") === "true" &&
-      response.request().method() === "GET",
-  );
-  await page
-    .getByRole("checkbox", { name: "Show exact stored request source text" })
-    .check();
-  const fixtureRequestsVisible = await fixtureRequestsVisibleResponse;
-  expect(fixtureRequestsVisible.status()).toBe(200);
-  const revealedFixture = (await fixtureRequestsVisible.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  const requestSourceTextboxes = page.getByLabel(/^Stored request source \d+$/);
-  const fixtureRequestsHiddenResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
-      new URL(response.url()).searchParams.get("include_requests") ===
-        "false" &&
-      response.request().method() === "GET",
-  );
-  let revealedSourceMatches: boolean[] = [];
-  let revealedSourcesAreReadOnly: boolean[] = [];
-  let fixtureRequestsHidden: Response;
-  try {
-    expect(revealedFixture.requests.length).toBeGreaterThan(0);
-    await expect(requestSourceTextboxes).toHaveCount(
-      revealedFixture.requests.length,
-    );
-    revealedSourceMatches = await Promise.all(
-      revealedFixture.requests.map(async (request, index) => {
-        const textbox = page.getByLabel(`Stored request source ${index + 1}`, {
-          exact: true,
-        });
-        return (await textbox.inputValue()) === request;
-      }),
-    );
-    revealedSourcesAreReadOnly = await Promise.all(
-      revealedFixture.requests.map(async (_, index) =>
-        requestSourceTextboxes
-          .nth(index)
-          .evaluate(
-            (element) =>
-              element instanceof HTMLTextAreaElement && element.readOnly,
-          ),
-      ),
-    );
-  } finally {
-    await page
-      .getByRole("checkbox", {
-        name: "Show exact stored request source text",
-      })
-      .uncheck();
-    fixtureRequestsHidden = await fixtureRequestsHiddenResponse;
-  }
-  const hiddenFixture = (await fixtureRequestsHidden.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  expect(revealedSourceMatches.every(Boolean)).toBe(true);
-  expect(revealedSourcesAreReadOnly.every(Boolean)).toBe(true);
-  expect(fixtureRequestsHidden.status()).toBe(200);
-  expect(hiddenFixture.requests.length === 0).toBe(true);
-  await expect(requestSourceTextboxes).toHaveCount(0);
-
-  const bindingSources = execFileSync(
-    "python",
-    [
-      "-I",
-      "-c",
-      "import sys; from pathlib import Path; from deykit.contracts.codec import dump_record, load_record; from deykit.contracts.records import FixtureSet; record = load_record(FixtureSet, (Path(sys.argv[1]) / 'source' / 'fixtures' / (sys.argv[2] + '.json')).read_bytes()); print('\\n'.join(dump_record(binding).decode('utf-8') for binding in record.bindings))",
-      fixtureDemoPath,
-      fixtureSummary.id,
-    ],
-    { cwd: fixtureDemoPath, encoding: "utf8" },
-  )
-    .trimEnd()
-    .split("\n");
-  await page.getByLabel("Decision").selectOption(fixtureSummary.decision_id);
-  await page.getByLabel("Dataset").selectOption(fixtureSummary.dataset_id);
-  await page.getByRole("button", { name: "Author fixture set" }).click();
-  await page.getByLabel("Fixture set name").fill("Browser authored exact copy");
-  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
-  await page
-    .getByLabel("Strict binding source lines")
-    .fill(bindingSources.join("\n"));
-  const initialFixtureCreate = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname ===
-        `/api/v1/projects/${fixtureRegistrationId}/fixtures` &&
-      response.request().method() === "POST",
-    { timeout: 15_000 },
-  );
-  await page.getByRole("button", { name: "Create authored set" }).click();
-  const initialFixtureReceipt = await initialFixtureCreate;
-  expect(initialFixtureReceipt.status()).toBe(200);
-  await initialFixtureReceipt.body();
-  await expect(
-    page.getByRole("heading", { name: "Browser authored exact copy" }),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByRole("table", { name: "Authored fixture sets" })
-      .getByRole("button", {
-        name: "Browser authored exact copy",
-        exact: true,
-      }),
-  ).toBeVisible({ timeout: 15_000 });
-  const createdFixtureId = await page
-    .locator(".fixture-detail code")
-    .first()
-    .textContent();
-  expect(createdFixtureId).toMatch(/^fixture-[A-Za-z0-9_-]+$/);
-  const createdFixture = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${createdFixtureId as string}?include_requests=false`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    createdFixture,
-    new URL(createdFixture.url()).pathname,
-  );
-  const createdFixtureData = (await createdFixture.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  expect(createdFixtureData).toMatchObject({
-    name: "Browser authored exact copy",
-    decision_id: fixtureSummary.decision_id,
-    dataset_id: fixtureSummary.dataset_id,
-    model_identity: fixtureSummary.model_identity,
-  });
-  expect(
-    createdFixtureData.bindings.map(
-      (binding: { request_hash: string }) => binding.request_hash,
-    ),
-  ).toEqual(
-    fixtureSummary.bindings.map(
-      (binding: { request_hash: string }) => binding.request_hash,
-    ),
-  );
-  expect(createdFixtureData.requests.length === 0).toBe(true);
-
-  await page.getByRole("button", { name: "Author fixture set" }).click();
-  await page
-    .getByLabel("Fixture set name")
-    .fill("Browser retained fixture request");
-  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
-  await page
-    .getByLabel("Strict binding source lines")
-    .fill(bindingSources.join("\n"));
-  const fixtureCreateBodies: Array<Record<string, unknown>> = [];
-  const fixtureCreateResults: ApiOperationData<"createFixtureSet">[] = [];
-  let firstFixtureCreateStatus: number | undefined;
-  let firstFixtureCreateAborted = false;
-  await page.route("**/api/v1/projects/*/fixtures", async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    fixtureCreateBodies.push(
-      route.request().postDataJSON() as Record<string, unknown>,
-    );
-    const response = await route.fetch();
-    fixtureCreateResults.push(
-      (await response.json()).data as ApiOperationData<"createFixtureSet">,
-    );
-    if (fixtureCreateBodies.length === 1) {
-      firstFixtureCreateStatus = response.status();
-      await route.abort("failed");
-      firstFixtureCreateAborted = true;
-      return;
-    }
-    await route.fulfill({ response });
-  });
-  await page.getByRole("button", { name: "Create authored set" }).click();
-  await expect
-    .poll(() => firstFixtureCreateAborted, { timeout: 15_000 })
-    .toBe(true);
-  expect(firstFixtureCreateStatus).toBe(200);
-  await expect(
-    page.getByRole("button", { name: "Retry same create" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Close", exact: true }),
-  ).toBeDisabled();
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Project examples", exact: true })
-    .click();
-  const fixtureUnknownGuard = page.getByRole("dialog", {
-    name: "Unsaved changes",
-  });
-  await expect(fixtureUnknownGuard).toBeVisible();
-  await expect(
-    fixtureUnknownGuard.getByRole("button", {
-      name: "Discard changes",
-      exact: true,
-    }),
-  ).toBeDisabled();
-  await fixtureUnknownGuard
-    .getByRole("button", { name: "Keep editing", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Fixture library" }),
-  ).toBeVisible();
-  const fixtureReplayResponse = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/fixtures") &&
-      response.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Retry same create" }).click();
-  const fixtureResponse = await fixtureReplayResponse;
-  expect(fixtureResponse.status()).toBe(200);
-  await fixtureResponse.body();
-  await expect(
-    page.getByRole("button", { name: "Retry same create" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Browser retained fixture request" }),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByRole("table", { name: "Authored fixture sets" })
-      .getByRole("button", {
-        name: "Browser retained fixture request",
-        exact: true,
-      }),
-  ).toBeVisible({ timeout: 15_000 });
-  expect(fixtureCreateBodies).toHaveLength(2);
-  expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
-  expect(fixtureCreateResults).toHaveLength(2);
-  expect(fixtureCreateResults.map((result) => result.replayed)).toEqual([
-    false,
-    true,
-  ]);
-  expect(fixtureCreateResults[1].operation_id).toBe(
-    fixtureCreateResults[0].operation_id,
-  );
-  expect(fixtureCreateResults[1].fixture.id).toBe(
-    fixtureCreateResults[0].fixture.id,
-  );
-  expect(fixtureCreateResults[1].fixture.name).toBe(
-    "Browser retained fixture request",
-  );
-  await page.unroute("**/api/v1/projects/*/fixtures");
-
-  await enterPhase("Responsive 320px and reduced-motion review");
-  await page.setViewportSize({ width: 320, height: 800 });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  expect(
-    await page.evaluate(
-      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
-    ),
-  ).toBe(true);
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual((await page.evaluate(() => window.innerWidth)) + 1);
-  await page.getByRole("link", { name: "Skip to content" }).focus();
-  let visibleKeyboardStops = 0;
-  let reachedDocumentEnd = false;
-  const focusKinds = new Set<string>();
-  for (let index = 0; index < 32; index += 1) {
-    const focus = await page.evaluate(() => {
-      const active = document.activeElement;
-      return {
-        atDocumentEnd: active === document.body,
-        visible:
-          active instanceof HTMLElement && active.getClientRects().length > 0,
-        kind:
-          active instanceof HTMLSelectElement
-            ? "select"
-            : active instanceof HTMLInputElement && active.type === "checkbox"
-              ? "checkbox"
-              : active instanceof HTMLButtonElement
-                ? "button"
-                : "other",
-      };
-    });
-    // Native Tab may leave the document after its last control. This is not
-    // hidden focus; check every preceding stop from a deliberate starting point.
-    if (focus.atDocumentEnd) {
-      reachedDocumentEnd = true;
-      break;
-    }
-    expect(focus.visible).toBe(true);
-    focusKinds.add(focus.kind);
-    visibleKeyboardStops += 1;
-    await page.keyboard.press("Tab");
-  }
-  expect(reachedDocumentEnd).toBe(true);
-  expect(visibleKeyboardStops).toBeGreaterThanOrEqual(5);
-  expect([...focusKinds]).toEqual(
-    expect.arrayContaining(["button", "select", "checkbox"]),
-  );
-  await captureScreenshot("authoring-narrow-320.png");
-
-  expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(
-    true,
-  );
-  expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(
-    true,
-  );
-  expect(!page.url().includes(capability as string)).toBe(true);
-  expect(
-    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
-  ).toEqual([0, 0]);
-  expect(
-    (await page.evaluate(
-      () => (document as Document & { cookie: string }).cookie,
-    )) === "",
-  ).toBe(true);
-  await enterPhase("Connected authoring workflow complete");
 });

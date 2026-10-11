@@ -195,7 +195,7 @@ function mountDecision(
       onDecisionRenamed={() => undefined}
       onHistory={() => undefined}
       onExamples={() => undefined}
-      onArchiveChanged={() => onArchiveChanged?.(navigation)}
+      onArchiveChanged={async () => onArchiveChanged?.(navigation)}
     />
   );
   const mounted = render(page(decisionId));
