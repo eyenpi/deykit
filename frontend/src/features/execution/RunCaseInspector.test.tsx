@@ -346,7 +346,7 @@ it("keeps an older result snapshot pinned until explicit refresh", async () => {
       name: "Published result snapshot",
     });
     await waitFor(() =>
-      expect(publishedPair.textContent()).toContain("result-snapshot-1"),
+      expect(publishedPair.textContent).toContain("result-snapshot-1"),
     );
     expect(
       screen
@@ -357,7 +357,7 @@ it("keeps an older result snapshot pinned until explicit refresh", async () => {
       screen.getByRole("button", { name: "Refresh frozen results" }),
     );
     await waitFor(() =>
-      expect(publishedPair.textContent()).toContain("result-snapshot-2"),
+      expect(publishedPair.textContent).toContain("result-snapshot-2"),
     );
     expect(pageReads).toBe(2);
     expect(
