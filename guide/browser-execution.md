@@ -35,5 +35,9 @@ request may already have run. The local service remains authoritative when
 reviewing, starting, cancelling, or resuming.
 
 Fixture runs use authored request bindings and do not contact a live provider.
-Live-provider runs may contact the selected provider and may incur cost. The
-browser does not switch between these modes automatically.
+Preview validates the input and frozen execution context, but does not check
+whether every selected case has a fixture binding. A missing binding is
+reported during fixture dispatch as a `missing_fixture` or
+`binding_not_found` response error. Live-provider runs may contact the selected
+provider and may incur cost. The browser does not switch between these modes
+automatically.

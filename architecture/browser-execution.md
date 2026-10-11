@@ -17,6 +17,10 @@ An uncertain response leaves that request available for explicit replay. A
 valid start receipt is known before the page reads progress, so a later read
 failure offers read-only recovery and cannot turn into another start.
 
+Preview validates input and frozen execution context. It does not establish
+that each selected case has a fixture binding; a missing binding is reported by
+fixture dispatch as a `missing_fixture` or `binding_not_found` response error.
+
 `RunList` and `RunDetail` publish only responses matching the current
 registration, route, run, and read generation. Detail polling is non-overlapping,
 completion-relative, and pauses while the document is hidden. The browser stops
@@ -36,7 +40,8 @@ or registration changes. Evaluation and result reads are evidence inspection;
 the browser does not create an evaluation or derive new accuracy metrics.
 
 Fixture dispatch remains on the normal execution service path and uses authored
-fixture bindings. Live dispatch remains distinct and is never selected as an
+fixture bindings. Per-case binding availability is determined at dispatch,
+not by preview. Live dispatch remains distinct and is never selected as an
 automatic fallback. Automated fixture verification is local authored evidence;
 it does not establish live-provider quality, physical platform behavior, or
 provider qualification.
