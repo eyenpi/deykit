@@ -59,7 +59,7 @@ function option(value: string): string | null {
 
 function parseSigned64Text(value: string): string | undefined {
   const text = value.trim();
-  if (!/^-?(?:0|[1-9][0-9]*)$/.test(text)) return undefined;
+  if (!/^(?:0|-?[1-9][0-9]*)$/.test(text)) return undefined;
   try {
     const integer = BigInt(text);
     return integer >= -(1n << 63n) && integer < 1n << 63n ? text : undefined;

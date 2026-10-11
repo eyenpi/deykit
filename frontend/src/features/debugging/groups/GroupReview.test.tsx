@@ -223,6 +223,14 @@ it("keeps the reviewed seed and operation identity across an unknown group start
     target: { value: "fixture-1" },
   });
   fireEvent.change(screen.getByLabelText(/Seed/), {
+    target: { value: "-0" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Review choice order" }));
+  await screen.findByText(
+    "Choose a dataset and enter an order count, signed 64-bit seed, and whole-number limits within the displayed ranges.",
+  );
+  expect(previewCall).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText(/Seed/), {
     target: { value: "9007199254740993" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Review choice order" }));

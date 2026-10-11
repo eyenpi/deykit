@@ -429,10 +429,14 @@ it("replays an unknown diagnostic cancellation through its original port after a
     "The service may have saved this change. Review its current state before retrying.",
   );
   expect(diagnosticCancel).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("button", { name: "run-1" })).toHaveProperty(
-    "disabled",
-    true,
-  );
+  const memberRunButtons = screen.getAllByRole("button", { name: "run-1" });
+  expect(memberRunButtons).toHaveLength(2);
+  for (const button of memberRunButtons) {
+    expect(button).toHaveProperty("disabled", true);
+  }
+  const beforeMemberClicks = navigation.current;
+  for (const button of memberRunButtons) fireEvent.click(button);
+  expect(navigation.current).toEqual(beforeMemberClicks);
   expect(
     screen.getByRole("button", { name: "Create report from this snapshot" }),
   ).toHaveProperty("disabled", true);
