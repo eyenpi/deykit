@@ -4,6 +4,14 @@ import { decodeCaseDetail, decodeResultRow } from "./execution-inspection";
 
 const exactInput = '{"large":9007199254740993,"fraction":1.2300}';
 const exactRequest = '{"value":9007199254740993}';
+const answerSource = {
+  option_id: "option-1",
+  question_id: "question-1",
+  probabilities_source: null,
+  native_confidence_source: null,
+  native_confidence_semantics: null,
+  reported_model: "fixture-model",
+} as const;
 
 const caseDetailSource: ApiOperationData<"readResult">["source"] = {
   run_id: "run-1",
@@ -20,14 +28,7 @@ const caseDetailSource: ApiOperationData<"readResult">["source"] = {
   exclusion_reasons: [],
   annotation_count: 0,
   question_id: "question-1",
-  answer: {
-    option_id: "option-1",
-    question_id: "question-1",
-    probabilities_source: null,
-    native_confidence_source: null,
-    native_confidence_semantics: null,
-    reported_model: "fixture-model",
-  },
+  answer: answerSource,
   legacy_question_ids: [],
   legacy_expected_option_ids: [],
   legacy_exclusion_reasons: [],
@@ -63,18 +64,18 @@ describe("execution evidence source projection", () => {
     const withSupplement = {
       ...caseDetailSource,
       answer: {
-        ...caseDetailSource.answer,
+        ...answerSource,
         supplemental_source: '{"extension":9007199254740993}',
       },
     };
     const detail = decodeCaseDetail(withSupplement);
-    expect(detail.answer).toEqual(caseDetailSource.answer);
+    expect(detail.answer).toEqual(answerSource);
     expect(Object.keys(detail.answer ?? {})).not.toContain("supplemental_source");
 
     const malformed = {
       ...caseDetailSource,
-      answer: { ...caseDetailSource.answer, reported_model: 17 },
-    } as ApiOperationData<"readResult">["source"];
+      answer: { ...answerSource, reported_model: 17 },
+    };
     expect(() => decodeCaseDetail(malformed)).toThrowError(
       expect.objectContaining({ code: "response_invalid" }),
     );

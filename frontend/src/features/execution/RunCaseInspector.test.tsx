@@ -1,12 +1,14 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, it, vi } from "vitest";
-import type { ApiOperationArguments, ApiOperationData } from "../../api/client";
+import { expect, it } from "vitest";
+import type { ApiOperationData } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
+import type { ExecutionGateway } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
 import { RunCaseInspector } from "./RunCaseInspector";
 
 const exactInput = '{"large":9007199254740993,"fraction":1.2300}';
+type ResultReadRequest = Parameters<ExecutionGateway["inspection"]["readResult"]>[0];
 
 const run: ApiOperationData<"readRun"> = {
   schema_version: 1,
@@ -98,7 +100,7 @@ function result<T>(data: T) {
 }
 
 it("reveals exact saved input only after opt-in and clears it when hidden", async () => {
-  const reads: ApiOperationArguments<"readResult">[] = [];
+  const reads: ResultReadRequest[] = [];
   const execution = {
     ...disconnectedWorkspace.execution,
     inspection: {
@@ -119,7 +121,7 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
           items: [{ source: rowSource }],
           next_cursor: null,
         }),
-      readResult: async (args: ApiOperationArguments<"readResult">) => {
+      readResult: async (args: ResultReadRequest) => {
         reads.push(args);
         const includeInput = args.query?.include_input === "true";
         return result<ApiOperationData<"readResult">>({
