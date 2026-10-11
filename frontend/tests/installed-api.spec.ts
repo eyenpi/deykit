@@ -387,7 +387,9 @@ async function runInstalledProviderFixtureTail({
     await Promise.race([fixtureOverviewReadiness, fixtureOverviewDeadline]);
   } catch (error) {
     try {
-      await recordSafeProgress();
+      await recordProjectNavigationFacts(
+        await captureProjectNavigationFacts(page),
+      );
     } catch {
       // Preserve the actual readiness failure if progress cannot be written.
     }
