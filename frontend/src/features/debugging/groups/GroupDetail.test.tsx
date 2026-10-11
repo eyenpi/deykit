@@ -145,6 +145,13 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
   const navigate = vi.spyOn(navigation, "navigate").mockResolvedValue(true);
+  const pollingCallbacks: Array<() => void> = [];
+  const pollingDelays: number[] = [];
+  const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler, delay?: number) => {
+    pollingDelays.push(delay ?? 0);
+    if (typeof handler === "function") pollingCallbacks.push(handler as () => void);
+    return 1;
+  }) as typeof window.setInterval);
   const view = render(<GroupDetail project={project} gateway={gateway} navigation={navigation} kind="diagnostic" groupId="group-1" />);
 
   await screen.findByText("Observed request-order sensitivity");
@@ -158,9 +165,12 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   expect(screen.getByLabelText("Selected snapshot")).toHaveProperty("value", "snapshot-1");
   expect(screen.getAllByText("result-1").length).toBeGreaterThan(1);
 
-  vi.useFakeTimers();
-  await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
-  vi.useRealTimers();
+  expect(pollingDelays).toContain(2500);
+  expect(pollingCallbacks).toHaveLength(1);
+  await act(async () => {
+    pollingCallbacks[0]?.();
+    await Promise.resolve();
+  });
   expect(listSnapshots).toHaveBeenCalledTimes(2);
   expect(screen.getByLabelText("Selected snapshot")).toHaveProperty("value", "snapshot-1");
   expect(screen.getAllByText("result-1").length).toBeGreaterThan(1);
@@ -175,7 +185,7 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   }));
 
   view.unmount();
-  vi.useRealTimers();
+  intervalSpy.mockRestore();
   navigation.dispose();
 });
 
