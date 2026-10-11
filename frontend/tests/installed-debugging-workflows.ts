@@ -495,8 +495,11 @@ export async function runSavedAnswersWorkflow(
           registration_id: registrationId,
           dataset_id: qualification.seedMetadata.dataset_id,
         },
-        () =>
-          exampleDataset.selectOption(qualification.seedMetadata.dataset_id),
+        async () => {
+          await exampleDataset.selectOption(
+            qualification.seedMetadata.dataset_id,
+          );
+        },
       );
       decodeSuccessEnvelope<
         ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">

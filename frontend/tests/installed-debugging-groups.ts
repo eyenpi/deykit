@@ -1335,7 +1335,9 @@ export async function runGroupsWorkflow(
       page,
       "readChoiceOrder",
       { registration_id: registrationId, group_id: startReceipt.group_id },
-      () => page.reload(),
+      async () => {
+        await page.reload();
+      },
     );
     const finalProgress = decodeSuccessEnvelope<
       ApiOperationData<"readChoiceOrder">
@@ -1632,7 +1634,9 @@ export async function runGroupsWorkflow(
       page,
       "readCheck",
       { registration_id: registrationId, group_id: checkReceipt.group_id },
-      () => page.reload(),
+      async () => {
+        await page.reload();
+      },
     );
     const checkProgress = decodeSuccessEnvelope<ApiOperationData<"readCheck">>(
       checkProgressRead.body,

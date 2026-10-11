@@ -361,8 +361,10 @@ it("retries the captured label hash and operation port after the frozen scope is
     expect(replayed.registrationId).toBe(original.registrationId);
     expect(replayed.decisionId).toBe(original.decisionId);
     expect(replayed.datasetId).toBe(original.datasetId);
-    expect(replayed.caseId).toBe(original.caseId);
     expect(replayed.body).toEqual(original.body);
+    expect(replayed.body.edits[0]?.review.case_id).toBe(
+      original.body.edits[0]?.review.case_id,
+    );
     expect(replayed.body.operation_id).toBe(original.body.operation_id);
     expect(replayed.body.edits[0]?.review).toEqual(
       original.body.edits[0]?.review,

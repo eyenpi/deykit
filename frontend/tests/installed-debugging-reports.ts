@@ -913,7 +913,9 @@ async function exerciseKnownReportDownloadFailures(
         (response) =>
           response.request().method() === "GET" &&
           new URL(response.url()).pathname === metadataPath,
-        () => page.reload(),
+        async () => {
+          await page.reload();
+        },
       );
       expect(metadataFailure.response.status()).toBe(503);
       await metadataFailure.response.body();

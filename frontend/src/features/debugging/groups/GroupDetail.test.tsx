@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { ApiError } from "../../../api/client";
-import type { ApiOperationData } from "../../../api/client";
+import type { ApiOperationBody, ApiOperationData } from "../../../api/client";
 import { disconnectedWorkspace } from "../../../workspace/gateway";
 import type {
   ProjectOverview,
@@ -215,8 +215,7 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   ) => {
     if (delay === 2500) {
       pollingDelays.push(delay);
-      if (typeof handler === "function")
-        pollingCallbacks.push(handler);
+      if (typeof handler === "function") pollingCallbacks.push(() => handler());
       return -1;
     }
     return nativeSetInterval.call(window, handler, delay);
