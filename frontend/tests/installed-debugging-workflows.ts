@@ -1438,6 +1438,28 @@ export async function runComparisonWorkflow(
     await reads.waitForIdle();
 
     await qualification.enterPhase("save-revised-evaluation");
+    const runProgressRead = await captureOperation(
+      page,
+      "readRun",
+      {
+        registration_id: registrationId,
+        run_id: revisedRunId,
+      },
+      () =>
+        page
+          .getByRole("button", { name: "Refresh progress", exact: true })
+          .click(),
+      () => true,
+      remainingRunCompletionMs(),
+    );
+    const revisedRun = decodeSuccessEnvelope<ApiOperationData<"readRun">>(
+      runProgressRead.body,
+      200,
+      runProgressRead.response.status(),
+    );
+    expect(revisedRun.run_id).toBe(revisedRunId);
+    expect(revisedRun.execution_active).toBe(false);
+    expect(revisedRun.state).toBe("completed");
     const evaluationControls = page.getByRole("region", {
       name: "Saved result evaluation",
     });
@@ -1460,7 +1482,13 @@ export async function runComparisonWorkflow(
     expect(revisedEvaluation.run_id).toBe(revisedRunId);
     expect(revisedEvaluation.mode).toBe("original");
     expect(revisedEvaluation.label_snapshot_id).toBe(
-      qualification.seedMetadata.label_snapshot_id,
+      revisedRun.sources.label_snapshot_id,
+    );
+    expect(revisedRun.result_snapshot_ids).toContain(
+      revisedEvaluation.result_snapshot_id,
+    );
+    expect(revisedRun.latest_result_snapshot_id).toBe(
+      revisedEvaluation.result_snapshot_id,
     );
     expect(revisedEvaluation.evaluation_id).not.toBe(
       qualification.seedMetadata.evaluation_id,
@@ -1489,9 +1517,74 @@ export async function runComparisonWorkflow(
     const right = page.getByLabel("Right saved evaluation ID", { exact: true });
     await left.fill(qualification.seedMetadata.evaluation_id);
     await right.fill(revisedEvaluation.evaluation_id);
-    await page
-      .getByRole("button", { name: "Verify saved evaluations", exact: true })
-      .click();
+    const revisedEvaluationRead = captureOperation(
+      page,
+      "readEvaluation",
+      {
+        registration_id: registrationId,
+        evaluation_id: revisedEvaluation.evaluation_id,
+      },
+      async () => {},
+    );
+    const [revisedEvaluationCapture, originalEvaluationCapture] =
+      await Promise.all([
+        revisedEvaluationRead,
+        captureOperation(
+          page,
+          "readEvaluation",
+          {
+            registration_id: registrationId,
+            evaluation_id: qualification.seedMetadata.evaluation_id,
+          },
+          () =>
+            page
+              .getByRole("button", {
+                name: "Verify saved evaluations",
+                exact: true,
+              })
+              .click(),
+        ),
+      ]);
+    const originalEvaluation = decodeSuccessEnvelope<
+      ApiOperationData<"readEvaluation">
+    >(
+      originalEvaluationCapture.body,
+      200,
+      originalEvaluationCapture.response.status(),
+    );
+    const verifiedRevisedEvaluation = decodeSuccessEnvelope<
+      ApiOperationData<"readEvaluation">
+    >(
+      revisedEvaluationCapture.body,
+      200,
+      revisedEvaluationCapture.response.status(),
+    );
+    expect(originalEvaluation.evaluation_id).toBe(
+      qualification.seedMetadata.evaluation_id,
+    );
+    expect(originalEvaluation.run_id).toBe(qualification.seedMetadata.run_id);
+    expect(originalEvaluation.result_snapshot_id).toBe(
+      qualification.seedMetadata.result_snapshot_id,
+    );
+    expect(originalEvaluation.label_snapshot_id).toBe(
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    expect(originalEvaluation.content_hash).toBe(
+      qualification.seedMetadata.evaluation_content_hash,
+    );
+    expect(verifiedRevisedEvaluation.evaluation_id).toBe(
+      revisedEvaluation.evaluation_id,
+    );
+    expect(verifiedRevisedEvaluation.run_id).toBe(revisedRunId);
+    expect(verifiedRevisedEvaluation.result_snapshot_id).toBe(
+      revisedRun.latest_result_snapshot_id,
+    );
+    expect(verifiedRevisedEvaluation.label_snapshot_id).toBe(
+      revisedRun.sources.label_snapshot_id,
+    );
+    expect(verifiedRevisedEvaluation.content_hash).toBe(
+      revisedEvaluation.content_hash,
+    );
     await expect(
       page.getByRole("region", { name: "Verified evaluation context" }),
     ).toContainText(qualification.seedMetadata.evaluation_id);
