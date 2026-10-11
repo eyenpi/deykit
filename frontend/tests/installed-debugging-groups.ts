@@ -33,6 +33,18 @@ import {
 
 const RE_ADDED_CASE_SOURCE = '"A deliberately different newly re-added input."';
 
+function safeStatusClass(status: number): string {
+  return status >= 200 && status < 300
+    ? "2xx"
+    : status >= 300 && status < 400
+      ? "3xx"
+      : status >= 400 && status < 500
+        ? "4xx"
+        : status >= 500 && status < 600
+          ? "5xx"
+          : "other";
+}
+
 async function readdSameCaseWithInstalledCli(
   qualification: Awaited<
     ReturnType<typeof startDebuggingQualification>
@@ -242,6 +254,13 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   >(selected.body, 200, selected.response.status());
   const originalRecordHash = original.case.etag;
   expect(original.case.record.id).toBe("ex-003");
+  await waitForIdle();
+  await expect(
+    page.getByRole("heading", { name: "ex-003", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Edit input", exact: true }),
+  ).toBeEnabled();
 
   await page.getByRole("button", { name: "Edit input", exact: true }).click();
   const editDialog = page.getByRole("dialog", {
@@ -414,6 +433,13 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
     ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">
   >(labelBody, 200, labelResponse.status());
   expect(currentLabel.label).toBeNull();
+  await waitForIdle();
+  await expect(
+    page.getByRole("heading", { name: "ex-003", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Expected answers", exact: true }),
+  ).toBeVisible();
   return {
     originalRecordHash,
     editedRecordHash,
@@ -488,16 +514,6 @@ async function setReaddedCaseCurrentLabel(
   let captureCompleted = false;
   let labelResponseCount = 0;
   let firstLabelStatusClass = "none";
-  const safeStatusClass = (status: number) =>
-    status >= 200 && status < 300
-      ? "2xx"
-      : status >= 300 && status < 400
-        ? "3xx"
-        : status >= 400 && status < 500
-          ? "4xx"
-          : status >= 500 && status < 600
-            ? "5xx"
-            : "other";
   const onRequest = (request: Request) => {
     const url = new URL(request.url());
     if (
@@ -606,18 +622,32 @@ async function setReaddedCaseCurrentLabel(
     ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">
   >(currentLabelRead.body, 200, currentLabelRead.response.status());
   await waitForIdle();
-  const previousAnswers = currentLabel.label?.acceptable_option_ids ?? [];
-  const nextAnswers =
-    previousAnswers.length === 1 && previousAnswers[0] === "question"
-      ? ["report"]
-      : ["question"];
+  await expect(
+    page.getByRole("heading", { name: "ex-003", exact: true }),
+  ).toBeVisible();
   const answers = page.getByRole("group", {
     name: "Expected answers",
     exact: true,
   });
+  await expect(answers).toBeVisible();
+  const previousAnswers = currentLabel.label?.acceptable_option_ids ?? [];
   const question = answers.getByLabel("Question", { exact: true });
   const report = answers.getByLabel("Report", { exact: true });
-  await expect(question).toBeVisible();
+  await expect(question).toBeEnabled();
+  await expect(report).toBeEnabled();
+  if (previousAnswers.includes("question"))
+    await expect(question).toBeChecked();
+  else await expect(question).not.toBeChecked();
+  if (previousAnswers.includes("report")) await expect(report).toBeChecked();
+  else await expect(report).not.toBeChecked();
+  const save = answers.getByRole("button", {
+    name: "Save expected answer",
+    exact: true,
+  });
+  const nextAnswers =
+    previousAnswers.length === 1 && previousAnswers[0] === "question"
+      ? ["report"]
+      : ["question"];
   if (nextAnswers.includes("question")) {
     if (await report.isChecked()) await report.uncheck();
     if (!(await question.isChecked())) await question.check();
@@ -625,20 +655,41 @@ async function setReaddedCaseCurrentLabel(
     if (await question.isChecked()) await question.uncheck();
     if (!(await report.isChecked())) await report.check();
   }
-  const save = answers.getByRole("button", {
-    name: "Save expected answer",
-    exact: true,
-  });
-  const saved = await captureOperation(
-    page,
-    "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post",
-    {
-      registration_id: registrationId,
-      decision_id: qualification.seedMetadata.decision_id,
-      dataset_id: datasetId,
-    },
-    () => save.click(),
-  );
+  if (nextAnswers.includes("question")) await expect(question).toBeChecked();
+  else await expect(question).not.toBeChecked();
+  if (nextAnswers.includes("report")) await expect(report).toBeChecked();
+  else await expect(report).not.toBeChecked();
+  await expect(save).toBeEnabled();
+  let saveClicked = false;
+  let postCaptured = false;
+  let postStatusClass = "none";
+  let saved: Awaited<ReturnType<typeof captureOperation>>;
+  try {
+    saved = await captureOperation(
+      page,
+      "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post",
+      {
+        registration_id: registrationId,
+        decision_id: qualification.seedMetadata.decision_id,
+        dataset_id: datasetId,
+      },
+      async () => {
+        await save.click();
+        saveClicked = true;
+      },
+    );
+    postCaptured = true;
+    postStatusClass = safeStatusClass(saved.response.status());
+  } finally {
+    qualification.setWitness("current_label_stage_ready", true);
+    qualification.setWitness("current_label_save_clicked", saveClicked);
+    qualification.setWitness("current_label_post_captured", postCaptured);
+    qualification.setWitness(
+      "current_label_post_status_class",
+      postStatusClass,
+    );
+    await qualification.save();
+  }
   const receipt = decodeSuccessEnvelope<
     ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">
   >(saved.body, 200, saved.response.status());
@@ -2058,29 +2109,49 @@ export async function runGroupsWorkflow(
     await setReaddedCaseCurrentLabel(page, qualification, registrationId, () =>
       reads.waitForIdle(),
     );
-    const diagnosticAfterLabel = await captureOperation(
-      page,
-      "readChoiceOrderSnapshot",
-      {
-        registration_id: registrationId,
-        group_id: startReceipt.group_id,
-        snapshot_id: diagnosticSnapshotId,
-      },
-      async () => {
-        await page.goto(diagnosticSnapshotRoute);
-      },
-    );
-    const diagnosticAfterLabelDetail = decodeSuccessEnvelope<
-      ApiOperationData<"readChoiceOrderSnapshot">
-    >(diagnosticAfterLabel.body, 200, diagnosticAfterLabel.response.status());
-    expect(diagnosticAfterLabelDetail.snapshot.id).toBe(diagnosticSnapshotId);
-    expect(diagnosticAfterLabelDetail.snapshot.content_hash).toBe(
-      diagnosticDetail.snapshot.content_hash,
-    );
-    expect(diagnosticAfterLabelDetail.members).toEqual(
-      diagnosticDetail.members,
-    );
-    await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId);
+    qualification.setWitness("diagnostic_after_label_capture_started", true);
+    await qualification.save();
+    let diagnosticAfterLabelCaptured = false;
+    let diagnosticAfterLabelStatus = "none";
+    try {
+      const diagnosticAfterLabel = await captureOperation(
+        page,
+        "readChoiceOrderSnapshot",
+        {
+          registration_id: registrationId,
+          group_id: startReceipt.group_id,
+          snapshot_id: diagnosticSnapshotId,
+        },
+        async () => {
+          await page.goto(diagnosticSnapshotRoute);
+        },
+      );
+      diagnosticAfterLabelCaptured = true;
+      diagnosticAfterLabelStatus = safeStatusClass(
+        diagnosticAfterLabel.response.status(),
+      );
+      const diagnosticAfterLabelDetail = decodeSuccessEnvelope<
+        ApiOperationData<"readChoiceOrderSnapshot">
+      >(diagnosticAfterLabel.body, 200, diagnosticAfterLabel.response.status());
+      expect(diagnosticAfterLabelDetail.snapshot.id).toBe(diagnosticSnapshotId);
+      expect(diagnosticAfterLabelDetail.snapshot.content_hash).toBe(
+        diagnosticDetail.snapshot.content_hash,
+      );
+      expect(diagnosticAfterLabelDetail.members).toEqual(
+        diagnosticDetail.members,
+      );
+      await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId);
+    } finally {
+      qualification.setWitness(
+        "diagnostic_after_label_capture_completed",
+        diagnosticAfterLabelCaptured,
+      );
+      qualification.setWitness(
+        "diagnostic_after_label_status_class",
+        diagnosticAfterLabelStatus,
+      );
+      await qualification.save();
+    }
     await openSavedReport(
       page,
       registrationId,
