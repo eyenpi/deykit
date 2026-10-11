@@ -28,6 +28,7 @@ from deykit.contracts.ports import (
     StoredRecord,
 )
 from deykit.contracts.records import ProjectRecord
+from deykit.storage._body_validation import _SuccessfulBodyValidationMemo
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
 from deykit.storage.index import SourceIndex
@@ -39,7 +40,14 @@ from deykit.storage.journal import (
     JournalManifest,
 )
 from deykit.storage.locks import acquire
-from deykit.storage.records import IMMUTABLE, SCOPES, TYPES, key_path, path_key, validate_body
+from deykit.storage.records import (
+    IMMUTABLE,
+    SCOPES,
+    TYPES,
+    key_path,
+    path_key,
+    validate_body,
+)
 
 FaultHook = Callable[[str], None]
 IndexUpdater = Callable[[tuple[StoredRecord, ...]], None]
@@ -67,8 +75,13 @@ class HistoryEntry:
 
 
 class _SourceTreeVisitor:
-    def __init__(self, records: list[StoredRecord]) -> None:
+    def __init__(
+        self,
+        records: list[StoredRecord],
+        validator: Callable[[ResourceKey, bytes], object] = validate_body,
+    ) -> None:
         self.records = records
+        self.validator = validator
 
     def include(self, parts: Parts) -> bool:
         return not parts[-1].startswith(".tmp-")
@@ -90,7 +103,7 @@ class _SourceTreeVisitor:
 
     def accept_file(self, parts: Parts, body: bytes) -> None:
         key = path_key(parts)
-        validate_body(key, body)
+        self.validator(key, body)
         self.records.append(StoredRecord(key, body, bytes_hash(body)))
 
 
@@ -126,6 +139,7 @@ class FileProjectSource:
         self._index = index_updater or SourceIndex(self.files).rebuild
         self._mutex = threading.RLock()
         self._local = threading.local()
+        self._body_validation = _SuccessfulBodyValidationMemo()
         self._admission_timeout_seconds = admission_timeout_seconds
         self._admission_condition = threading.Condition()
         self._admission_waiters: deque[object] = deque()
@@ -146,7 +160,17 @@ class FileProjectSource:
         return source
 
     def close(self) -> None:
-        self.files.close()
+        with self._mutex:
+            try:
+                self.files.close()
+            finally:
+                self._body_validation.clear()
+
+    def _validate_source_body(self, key: ResourceKey, body: bytes) -> None:
+        if getattr(self._local, "source_depth", 0) <= 0:
+            validate_body(key, body)
+            return
+        self._body_validation.validate(key, body)
 
     def __enter__(self) -> FileProjectSource:
         return self
@@ -228,7 +252,7 @@ class FileProjectSource:
         body = self.files.read(key_path(key))
         if body is None:
             return None
-        validate_body(key, body)
+        self._validate_source_body(key, body)
         return StoredRecord(key, body, bytes_hash(body))
 
     def read(self, key: ResourceKey) -> StoredRecord | None:
@@ -251,7 +275,7 @@ class FileProjectSource:
                     ResourceKey("project", project_record.id), project, bytes_hash(project)
                 )
             )
-        self.files.read_tree(("source",), _SourceTreeVisitor(records))
+        self.files.read_tree(("source",), _SourceTreeVisitor(records, self._validate_source_body))
         return tuple(sorted(records, key=lambda item: key_path(item.key)))
 
     def list_ids(self, collection: Collection, scope: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -423,7 +447,7 @@ class FileProjectSource:
                     else:
                         fail("immutable_record", "conflict")
                 if change.body is not None:
-                    validate_body(change.key, change.body)
+                    self._validate_source_body(change.key, change.body)
                 entries.append(
                     JournalEntry(
                         collection=change.key.collection,
@@ -537,7 +561,7 @@ class FileProjectSource:
         body = self.files.read((*folder, f"{'old' if old else 'new'}-{index}.json"))
         if body is None or bytes_hash(body) != expected:
             fail("journal_integrity_error", "conflict")
-        validate_body(entry.key, body)
+        self._validate_source_body(entry.key, body)
         return body
 
     def _apply(self, folder: Parts, manifest: JournalManifest) -> None:
