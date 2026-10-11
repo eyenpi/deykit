@@ -681,6 +681,7 @@ test("installed archive restore retains exact actions and projects receipts", as
     await expect(activeRow).toBeVisible({ timeout: 15_000 });
     await expect(archivedTargetRow).toHaveCount(0);
     await expect(retryRestore).toHaveCount(0);
+    restoreRetryPresent = false;
     await expect.poll(() => pendingReads.size, { timeout: 15_000 }).toBe(0);
     restoredActiveRowVisible = true;
     archivedRowAbsent = true;
@@ -6018,10 +6019,7 @@ test("installed browser authors exact decision source and previews imports throu
     name: "Retry same restore action",
   });
   await expect(retryRestore).toBeVisible();
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Providers", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
   const restoreNavigationPrompt = page.getByRole("dialog", {
     name: "Unsaved changes",
   });
@@ -6150,10 +6148,7 @@ test("installed browser authors exact decision source and previews imports throu
   await recordProgress();
   await page.unroute(`**/decisions/${decisionId}/restore`);
 
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Providers", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
   await page.getByRole("button", { name: "Add provider profile" }).click();
   await expect(
@@ -6341,10 +6336,7 @@ test("installed browser authors exact decision source and previews imports throu
   await enterPhase(
     "Demo fixture profile safety and authored binding verification",
   );
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Fixtures", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Fixtures" })).toBeVisible();
   await captureScreenshot("fixture-setup.png");
 
@@ -6410,10 +6402,7 @@ test("installed browser authors exact decision source and previews imports throu
     expect(binding.request_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(binding.model_identity).toBe(fixtureSummary.model_identity);
   }
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Providers", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
   await page
     .getByRole("button", { name: fixtureProvider.id, exact: true })
@@ -6437,10 +6426,7 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Fixture library" }),
   ).toBeVisible();
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Fixtures", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Fixture library" }),
   ).toBeVisible();
