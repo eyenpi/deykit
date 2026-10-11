@@ -78,7 +78,7 @@ const rowSource: ApiOperationData<"readResult">["source"] = {
   expected_option_ids: ["option-1"],
   set_correct: true,
   exclusion_reasons: [],
-  annotation_count: 0,
+  annotation_count: "0",
   question_id: "question-1",
   answer: {
     option_id: "option-1",

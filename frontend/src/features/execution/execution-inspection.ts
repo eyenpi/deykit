@@ -4,6 +4,7 @@ import type { ApiOperationData } from "../../api/client";
 type ResultRowSource =
   ApiOperationData<"listResults">["items"][number]["source"];
 type CaseDetailSource = ApiOperationData<"readResult">["source"];
+type CountText = string;
 
 export interface ResultRowView {
   caseId: string;
@@ -14,7 +15,7 @@ export interface ResultRowView {
   expectedOptionIds: readonly string[];
   setCorrect: boolean | null;
   exclusionReasons: readonly string[];
-  annotationCount: number;
+  annotationCount: CountText;
 }
 
 export interface CaseDetailView extends ResultRowView {
@@ -39,7 +40,7 @@ export interface CaseDetailView extends ResultRowView {
 
 export interface AttemptView {
   attemptId: string;
-  number: number;
+  number: CountText;
   kind: string;
   state: string;
   requestBodyHash: string;
@@ -76,8 +77,12 @@ function booleanOrNull(value: unknown): value is boolean | null {
   return value === null || typeof value === "boolean";
 }
 
-function safeCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+function nonnegativeCountText(value: unknown): value is CountText {
+  return typeof value === "string" && /^(?:0|[1-9][0-9]*)$/.test(value);
+}
+
+function positiveCountText(value: unknown): value is CountText {
+  return typeof value === "string" && /^[1-9][0-9]*$/.test(value);
 }
 
 function rowView(value: unknown): ResultRowView {
@@ -91,7 +96,7 @@ function rowView(value: unknown): ResultRowView {
     !textList(row.expected_option_ids) ||
     !booleanOrNull(row.set_correct) ||
     !textList(row.exclusion_reasons) ||
-    !safeCount(row.annotation_count)
+    !nonnegativeCountText(row.annotation_count)
   )
     return invalid();
   return {
@@ -171,7 +176,7 @@ export function decodeCaseDetail(source: CaseDetailSource): CaseDetailView {
     const attempt = object(value);
     if (
       !text(attempt.attempt_id) ||
-      !safeCount(attempt.number) ||
+      !positiveCountText(attempt.number) ||
       !text(attempt.kind) ||
       !text(attempt.state) ||
       !text(attempt.request_body_hash) ||

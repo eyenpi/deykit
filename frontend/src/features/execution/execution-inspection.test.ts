@@ -12,6 +12,17 @@ const answerSource = {
   native_confidence_semantics: null,
   reported_model: "fixture-model",
 } as const;
+const attemptSource = {
+  attempt_id: "attempt-1",
+  number: "1",
+  kind: "fixture",
+  state: "completed",
+  request_body_hash: "a".repeat(64),
+  error_code: null,
+  error_reason: null,
+  request_body_source: exactRequest,
+  response_source: '{"answer":"option-1"}',
+} as const;
 
 const caseDetailSource: ApiOperationData<"readResult">["source"] = {
   run_id: "run-1",
@@ -26,7 +37,7 @@ const caseDetailSource: ApiOperationData<"readResult">["source"] = {
   expected_option_ids: ["option-1"],
   set_correct: true,
   exclusion_reasons: [],
-  annotation_count: 0,
+  annotation_count: "0",
   question_id: "question-1",
   answer: answerSource,
   legacy_question_ids: [],
@@ -34,19 +45,7 @@ const caseDetailSource: ApiOperationData<"readResult">["source"] = {
   legacy_exclusion_reasons: [],
   label_provenance: "authored",
   annotations: [],
-  attempts: [
-    {
-      attempt_id: "attempt-1",
-      number: 1,
-      kind: "fixture",
-      state: "completed",
-      request_body_hash: "a".repeat(64),
-      error_code: null,
-      error_reason: null,
-      request_body_source: exactRequest,
-      response_source: '{"answer":"option-1"}',
-    },
-  ],
+  attempts: [attemptSource],
   input_source: exactInput,
 };
 
@@ -83,13 +82,44 @@ describe("execution evidence source projection", () => {
     );
   });
 
-  it("fails closed when a required service count is not a safe integer", () => {
-    const malformed = {
+  it("preserves exact large API count text without numeric conversion", () => {
+    const exactCount = "9007199254740993";
+    const detail = decodeCaseDetail({
       ...caseDetailSource,
-      annotation_count: "9007199254740993",
-    };
-    expect(() => decodeResultRow(malformed)).toThrowError(
-      expect.objectContaining({ code: "response_invalid" }),
-    );
+      annotation_count: exactCount,
+      attempts: [{ ...attemptSource, number: exactCount }],
+    });
+    expect(detail.annotationCount).toBe(exactCount);
+    expect(detail.attempts[0]?.number).toBe(exactCount);
+  });
+
+  it("rejects noncanonical or nontext count values", () => {
+    const malformedValues: unknown[] = [
+      0,
+      1,
+      1.5,
+      -1,
+      Number.POSITIVE_INFINITY,
+      Number.NaN,
+      null,
+      undefined,
+      "0",
+      "-1",
+      "+1",
+      "01",
+      "1.0",
+      "Infinity",
+    ];
+    for (const value of malformedValues) {
+      expect(() =>
+        decodeResultRow({ ...caseDetailSource, annotation_count: value }),
+      ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
+      expect(() =>
+        decodeCaseDetail({
+          ...caseDetailSource,
+          attempts: [{ ...attemptSource, number: value }],
+        }),
+      ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
+    }
   });
 });
