@@ -128,7 +128,6 @@ export function RunDetail({
     const generation = ++readGeneration.current;
     setLoading(true);
     setError(undefined);
-    readGeneration.current += 1;
 
     function schedule(delay: number) {
       if (!active || document.visibilityState === "hidden") return;

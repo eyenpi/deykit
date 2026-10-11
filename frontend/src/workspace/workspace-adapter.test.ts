@@ -88,7 +88,16 @@ describe("workspace API adapter", () => {
         },
       ],
     };
-    const transport = vi.fn<typeof fetch>().mockResolvedValue(json(preview));
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json({
+          capability: "c".repeat(43),
+          origin: "http://localhost",
+          api_version: 1,
+        }),
+      )
+      .mockResolvedValueOnce(json(preview));
     const gateway = createWorkspaceGateway(
       new ApiClient(transport, () => "http://localhost"),
     );
@@ -119,12 +128,15 @@ describe("workspace API adapter", () => {
     });
 
     expect(result.data.case_reviews[0]?.request_source).toBe(exactSource);
-    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport).toHaveBeenCalledTimes(2);
     expect(transport.mock.calls[0]?.[0]).toBe(
+      "/api/v1/session/bootstrap",
+    );
+    expect(transport.mock.calls[1]?.[0]).toBe(
       "/api/v1/projects/registration-1/runs/preview?include_request=true",
     );
-    expect(transport.mock.calls[0]?.[1]?.method).toBe("POST");
-    expect(JSON.parse(transport.mock.calls[0]?.[1]?.body as string)).toEqual(request);
+    expect(transport.mock.calls[1]?.[1]?.method).toBe("POST");
+    expect(JSON.parse(transport.mock.calls[1]?.[1]?.body as string)).toEqual(request);
   });
 
   it("registers a project and reads its server-authoritative overview", async () => {
