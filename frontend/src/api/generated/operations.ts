@@ -770,7 +770,7 @@ export const operationMetadata = {
     method: "POST",
     path: "/api/v1/projects/{registration_id}/runs/preview",
     pathParams: ["registration_id"],
-    queryParams: [],
+    queryParams: ["include_request"],
     bodyValidator: "validateRunPreviewRequest",
     bodyRequired: true,
     success: {

@@ -2846,7 +2846,7 @@ export interface components {
     /** GroupMemberPreviewDTO */
     readonly GroupMemberPreviewDTO: {
       readonly identity: components["schemas"]["MemberIdentityDTO"];
-      readonly preview: components["schemas"]["RunPreviewDTO"];
+      readonly preview: components["schemas"]["RunPreviewSummaryDTO"];
       /**
        * Schema Version
        * @default 1
@@ -4141,6 +4141,52 @@ export interface components {
         readonly [key: string]: unknown;
       };
     };
+    /** ReviewSourceRecordDTO */
+    readonly ReviewSourceRecordDTO: {
+      /** Body Hash */
+      readonly body_hash: string;
+      /**
+       * Collection
+       * @enum {string}
+       */
+      readonly collection:
+        | "project"
+        | "decisions"
+        | "drafts"
+        | "revisions"
+        | "datasets"
+        | "cases"
+        | "labels"
+        | "label_history"
+        | "dataset_snapshots"
+        | "label_snapshots"
+        | "providers"
+        | "fixtures"
+        | "runs"
+        | "prepared_cases"
+        | "run_controls"
+        | "segments"
+        | "run_events"
+        | "attempts"
+        | "attempt_events"
+        | "result_snapshots"
+        | "evaluations"
+        | "annotations"
+        | "comparisons"
+        | "execution_groups"
+        | "group_segments"
+        | "diagnostic_snapshots"
+        | "check_snapshots"
+        | "regression_removals"
+        | "regressions"
+        | "reports";
+      /** Etag */
+      readonly etag: string;
+      /** Resource Id */
+      readonly resource_id: string;
+      /** Scope */
+      readonly scope: readonly string[];
+    };
     /** RevisionDTO */
     readonly RevisionDTO: {
       /** Editor Source */
@@ -4227,6 +4273,26 @@ export interface components {
       /** Status */
       readonly status: string;
     };
+    /** RunCaseReviewDTO */
+    readonly RunCaseReviewDTO: {
+      /** Case Id */
+      readonly case_id: string;
+      /** Compiler */
+      readonly compiler: string | null;
+      /** Compiler Version */
+      readonly compiler_version: string | null;
+      readonly input_error: components["schemas"]["ServiceError"] | null;
+      /** Input Hash */
+      readonly input_hash: string;
+      /** Request Hash */
+      readonly request_hash: string | null;
+      /** Request Source */
+      readonly request_source: string | null;
+      /** Request Source Redacted */
+      readonly request_source_redacted: boolean | null;
+      /** Requested Model */
+      readonly requested_model: string | null;
+    };
     /** RunPageDTO */
     readonly RunPageDTO: {
       /** Items */
@@ -4238,6 +4304,55 @@ export interface components {
     };
     /** RunPreviewDTO */
     readonly RunPreviewDTO: {
+      /** Case Reviews */
+      readonly case_reviews: readonly components["schemas"]["RunCaseReviewDTO"][];
+      /** Dataset Id */
+      readonly dataset_id: string;
+      /** Decision Id */
+      readonly decision_id: string;
+      /** Development Case Count */
+      readonly development_case_count: string;
+      /** Dry Run */
+      readonly dry_run: boolean;
+      /** Fixture Set Id */
+      readonly fixture_set_id: string | null;
+      /** Initial Requests */
+      readonly initial_requests: string;
+      /** Invalid Cases */
+      readonly invalid_cases: readonly components["schemas"]["ServiceError"][];
+      /**
+       * Mode
+       * @enum {string}
+       */
+      readonly mode: "fixture" | "live";
+      /** Provider Id */
+      readonly provider_id: string;
+      /** Requested Model */
+      readonly requested_model: string;
+      readonly review_context: components["schemas"]["RunReviewContextDTO"];
+      /** Review Context Hash */
+      readonly review_context_hash: string;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Selected Case Ids */
+      readonly selected_case_ids: readonly string[];
+      readonly settings: components["schemas"]["ExecutionSettingsViewDTO"];
+    };
+    /** RunPreviewRequest */
+    readonly RunPreviewRequest: {
+      readonly request: components["schemas"]["RunRequestDTO"];
+      /**
+       * Schema Version
+       * @constant
+       */
+      readonly schema_version: 1;
+    };
+    /** RunPreviewSummaryDTO */
+    readonly RunPreviewSummaryDTO: {
       /** Dataset Id */
       readonly dataset_id: string;
       /** Decision Id */
@@ -4272,15 +4387,6 @@ export interface components {
       /** Selected Case Ids */
       readonly selected_case_ids: readonly string[];
       readonly settings: components["schemas"]["ExecutionSettingsViewDTO"];
-    };
-    /** RunPreviewRequest */
-    readonly RunPreviewRequest: {
-      readonly request: components["schemas"]["RunRequestDTO"];
-      /**
-       * Schema Version
-       * @constant
-       */
-      readonly schema_version: 1;
     };
     /** RunProgressDTO */
     readonly RunProgressDTO: {
@@ -4415,6 +4521,46 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+    };
+    /** RunReviewContextDTO */
+    readonly RunReviewContextDTO: {
+      /** Adapter */
+      readonly adapter: string;
+      /** Compiler Id */
+      readonly compiler_id: string;
+      /** Compiler Version */
+      readonly compiler_version: string;
+      /** Definition Hash */
+      readonly definition_hash: string;
+      /**
+       * Definition Source
+       * @enum {string}
+       */
+      readonly definition_source: "draft" | "revision";
+      /** Destination */
+      readonly destination: string;
+      /** Development Case Ids */
+      readonly development_case_ids: readonly string[];
+      /** Development Label Count */
+      readonly development_label_count: string;
+      /** Fixture Set Id */
+      readonly fixture_set_id: string | null;
+      /** Provider Id */
+      readonly provider_id: string;
+      /** Requested Model */
+      readonly requested_model: string;
+      /** Revision Id */
+      readonly revision_id: string | null;
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /** Source Context Hash */
+      readonly source_context_hash: string;
+      /** Source Records */
+      readonly source_records: readonly components["schemas"]["ReviewSourceRecordDTO"][];
     };
     /** RunSegmentProgressDTO */
     readonly RunSegmentProgressDTO: {
@@ -18230,7 +18376,9 @@ export interface operations {
   };
   readonly previewRun: {
     readonly parameters: {
-      readonly query?: never;
+      readonly query?: {
+        readonly include_request?: "true" | "false";
+      };
       readonly header?: never;
       readonly path: {
         readonly registration_id: string;

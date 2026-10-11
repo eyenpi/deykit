@@ -128,6 +128,7 @@ def reviewed_run_preview(
         development_case_ids=tuple(case.id for case in plan.development_cases),
         development_label_count=len(plan.development_labels),
     )
+
     def review_case(prepared: PlannedCase) -> ReviewedCase:
         request_source: str | None = None
         request_source_redacted: bool | None = None
@@ -160,5 +161,8 @@ def reviewed_run_preview(
             request_source=request_source,
             request_source_redacted=request_source_redacted,
         )
+
     cases = tuple(review_case(prepared) for prepared in plan.prepared)
-    return ReviewedRunPreview(preview=preview_view(plan), review_context=context, case_reviews=cases)
+    return ReviewedRunPreview(
+        preview=preview_view(plan), review_context=context, case_reviews=cases
+    )

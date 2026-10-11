@@ -13,9 +13,7 @@ def request(**changes):
     )
 
 
-def test_review_preview_uses_one_plan_and_reveals_source_only_on_opt_in(
-    setup, monkeypatch
-):
+def test_review_preview_uses_one_plan_and_reveals_source_only_on_opt_in(setup, monkeypatch):
     source, service, factory, _ = setup(3, invalid=(2,))
     original_prepare = service.planner.prepare
     prepared_requests: list[RunRequest] = []

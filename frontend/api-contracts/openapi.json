@@ -3399,7 +3399,7 @@
             "$ref": "#/components/schemas/MemberIdentityDTO"
           },
           "preview": {
-            "$ref": "#/components/schemas/RunPreviewDTO"
+            "$ref": "#/components/schemas/RunPreviewSummaryDTO"
           },
           "schema_version": {
             "const": 1,
@@ -6697,6 +6697,77 @@
         "title": "ResultRowDTO",
         "type": "object"
       },
+      "ReviewSourceRecordDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "body_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Body Hash",
+            "type": "string"
+          },
+          "collection": {
+            "enum": [
+              "project",
+              "decisions",
+              "drafts",
+              "revisions",
+              "datasets",
+              "cases",
+              "labels",
+              "label_history",
+              "dataset_snapshots",
+              "label_snapshots",
+              "providers",
+              "fixtures",
+              "runs",
+              "prepared_cases",
+              "run_controls",
+              "segments",
+              "run_events",
+              "attempts",
+              "attempt_events",
+              "result_snapshots",
+              "evaluations",
+              "annotations",
+              "comparisons",
+              "execution_groups",
+              "group_segments",
+              "diagnostic_snapshots",
+              "check_snapshots",
+              "regression_removals",
+              "regressions",
+              "reports"
+            ],
+            "title": "Collection",
+            "type": "string"
+          },
+          "etag": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Etag",
+            "type": "string"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope",
+            "type": "array"
+          }
+        },
+        "required": [
+          "collection",
+          "scope",
+          "resource_id",
+          "etag",
+          "body_hash"
+        ],
+        "title": "ReviewSourceRecordDTO",
+        "type": "object"
+      },
       "RevisionDTO": {
         "additionalProperties": false,
         "properties": {
@@ -6931,6 +7002,110 @@
         "title": "RunCaseProgressDTO",
         "type": "object"
       },
+      "RunCaseReviewDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "compiler": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compiler"
+          },
+          "compiler_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compiler Version"
+          },
+          "input_error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Input Hash",
+            "type": "string"
+          },
+          "request_hash": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Hash"
+          },
+          "request_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Source"
+          },
+          "request_source_redacted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Source Redacted"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          }
+        },
+        "required": [
+          "case_id",
+          "input_hash",
+          "request_hash",
+          "compiler",
+          "compiler_version",
+          "requested_model",
+          "input_error",
+          "request_source",
+          "request_source_redacted"
+        ],
+        "title": "RunCaseReviewDTO",
+        "type": "object"
+      },
       "RunPageDTO": {
         "additionalProperties": false,
         "properties": {
@@ -6967,6 +7142,137 @@
         "type": "object"
       },
       "RunPreviewDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "case_reviews": {
+            "items": {
+              "$ref": "#/components/schemas/RunCaseReviewDTO"
+            },
+            "title": "Case Reviews",
+            "type": "array"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "development_case_count": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Development Case Count",
+            "type": "string"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "fixture_set_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixture Set Id"
+          },
+          "initial_requests": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Initial Requests",
+            "type": "string"
+          },
+          "invalid_cases": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceError"
+            },
+            "title": "Invalid Cases",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "fixture",
+              "live"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "review_context": {
+            "$ref": "#/components/schemas/RunReviewContextDTO"
+          },
+          "review_context_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Review Context Hash",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "selected_case_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Case Ids",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ExecutionSettingsViewDTO"
+          }
+        },
+        "required": [
+          "case_reviews",
+          "dataset_id",
+          "decision_id",
+          "development_case_count",
+          "dry_run",
+          "fixture_set_id",
+          "initial_requests",
+          "invalid_cases",
+          "mode",
+          "provider_id",
+          "requested_model",
+          "review_context",
+          "review_context_hash",
+          "schema_version",
+          "selected_case_ids",
+          "settings"
+        ],
+        "title": "RunPreviewDTO",
+        "type": "object"
+      },
+      "RunPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/RunRequestDTO"
+          },
+          "schema_version": {
+            "const": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request",
+          "schema_version"
+        ],
+        "title": "RunPreviewRequest",
+        "type": "object"
+      },
+      "RunPreviewSummaryDTO": {
         "additionalProperties": false,
         "properties": {
           "dataset_id": {
@@ -7063,26 +7369,7 @@
           "selected_case_ids",
           "settings"
         ],
-        "title": "RunPreviewDTO",
-        "type": "object"
-      },
-      "RunPreviewRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "request": {
-            "$ref": "#/components/schemas/RunRequestDTO"
-          },
-          "schema_version": {
-            "const": 1,
-            "title": "Schema Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "request",
-          "schema_version"
-        ],
-        "title": "RunPreviewRequest",
+        "title": "RunPreviewSummaryDTO",
         "type": "object"
       },
       "RunProgressDTO": {
@@ -7451,6 +7738,119 @@
           "schema_version"
         ],
         "title": "RunResumeRequest",
+        "type": "object"
+      },
+      "RunReviewContextDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter": {
+            "title": "Adapter",
+            "type": "string"
+          },
+          "compiler_id": {
+            "title": "Compiler Id",
+            "type": "string"
+          },
+          "compiler_version": {
+            "title": "Compiler Version",
+            "type": "string"
+          },
+          "definition_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Definition Hash",
+            "type": "string"
+          },
+          "definition_source": {
+            "enum": [
+              "draft",
+              "revision"
+            ],
+            "title": "Definition Source",
+            "type": "string"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "development_case_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Development Case Ids",
+            "type": "array"
+          },
+          "development_label_count": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Development Label Count",
+            "type": "string"
+          },
+          "fixture_set_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixture Set Id"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "requested_model": {
+            "title": "Requested Model",
+            "type": "string"
+          },
+          "revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Id"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "source_context_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Context Hash",
+            "type": "string"
+          },
+          "source_records": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewSourceRecordDTO"
+            },
+            "title": "Source Records",
+            "type": "array"
+          }
+        },
+        "required": [
+          "adapter",
+          "compiler_id",
+          "compiler_version",
+          "definition_hash",
+          "definition_source",
+          "destination",
+          "development_case_ids",
+          "development_label_count",
+          "fixture_set_id",
+          "provider_id",
+          "requested_model",
+          "revision_id",
+          "schema_version",
+          "source_context_hash",
+          "source_records"
+        ],
+        "title": "RunReviewContextDTO",
         "type": "object"
       },
       "RunSegmentProgressDTO": {
@@ -24688,6 +25088,20 @@
             "required": true,
             "schema": {
               "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_request",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "title": "Include Request",
               "type": "string"
             }
           }
