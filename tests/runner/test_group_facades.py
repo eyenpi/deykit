@@ -171,6 +171,112 @@ def test_acknowledgement_callback_failure_keeps_ready_group_without_dispatch(set
     assert not factory.calls
 
 
+@pytest.mark.parametrize("operation", ["start", "resume"])
+def test_async_group_acknowledgement_callback_finishes_before_child_dispatch(setup, operation):
+    async def scenario() -> None:
+        source, runner, factory, _ = setup(count=1)
+        service = DiagnosticService(runner)
+        group_request = ChoiceOrderRequest(run=request(), orders=1)
+        group_id = None
+        baseline_dispatches = 0
+        if operation == "resume":
+            admitted = []
+
+            def fail_after_durable_ack(event):
+                admitted.append(event)
+                raise RuntimeError("hold the ready group before dispatch")
+
+            with pytest.raises(ServiceFailure) as failure:
+                await service.start(
+                    group_request,
+                    operation_id="initial-group",
+                    on_created=fail_after_durable_ack,
+                )
+            assert failure.value.error.reason == "group_created_callback_failed"
+            assert admitted
+            group_id = admitted[0].group_id
+            baseline_dispatches = len(factory.calls)
+            assert baseline_dispatches == 0
+
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        acknowledgements = []
+
+        async def acknowledge(event):
+            assert source._local.source_depth == 0
+            acknowledgements.append(event)
+            entered.set()
+            await release.wait()
+
+        async def release_and_join():
+            release.set()
+            try:
+                return await asyncio.wait_for(asyncio.shield(pending), timeout=30)
+            except TimeoutError:
+                pending.cancel()
+                try:
+                    await asyncio.wait_for(pending, timeout=5)
+                except asyncio.CancelledError:
+                    pass
+                raise
+
+        if operation == "start":
+            pending = asyncio.create_task(
+                service.start(
+                    group_request,
+                    operation_id="async-group-start",
+                    on_created=acknowledge,
+                )
+            )
+        else:
+            assert group_id is not None
+            pending = asyncio.create_task(
+                service.resume(
+                    group_id,
+                    operation_id="async-group-resume",
+                    on_resumed=acknowledge,
+                )
+            )
+
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            assert len(factory.calls) == baseline_dispatches
+        except BaseException:
+            await release_and_join()
+            raise
+        result = await release_and_join()
+        assert acknowledgements
+        assert acknowledgements[0].group_id == result.group.group_id
+        assert len(factory.calls) > baseline_dispatches
+        if operation == "resume":
+            assert result.group.members[0].state == "completed"
+
+    asyncio.run(scenario())
+
+
+def test_async_acknowledgement_callback_failure_is_sanitized_before_dispatch(setup):
+    source, runner, factory, _ = setup(count=1)
+    service = DiagnosticService(runner)
+
+    async def fail_callback(_event):
+        await asyncio.sleep(0)
+        raise RuntimeError("private async callback detail")
+
+    with pytest.raises(ServiceFailure) as failure:
+        asyncio.run(
+            service.start(
+                ChoiceOrderRequest(run=request()),
+                operation_id="async-failed-group-start",
+                on_created=fail_callback,
+            )
+        )
+    assert failure.value.error.code == "internal_error"
+    assert failure.value.error.reason == "group_created_callback_failed"
+    assert failure.value.error.resource_id == source.list_ids("execution_groups")[0]
+    assert "private async callback detail" not in str(failure.value.error)
+    assert not factory.calls
+
+
 def test_resume_callback_acknowledges_original_segment_on_replay(setup):
     source, runner, factory, _ = setup(count=1)
     service = DiagnosticService(runner)

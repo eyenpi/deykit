@@ -1,6 +1,6 @@
 """Atomic group freezing and explicit recovery using the single existing run scheduler."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Literal, NoReturn, cast
@@ -51,6 +51,9 @@ class _AdmittedAcknowledgement:
     segment: ExecutionGroupSegment
     progress: GroupProgress
     event: GroupAcknowledged
+
+
+GroupAcknowledgementCallback = Callable[[GroupAcknowledged], None | Awaitable[None]]
 
 
 class GroupExecutionService:
@@ -359,8 +362,8 @@ class GroupExecutionService:
                 fail("invalid_group_receipt", "incompatible_data")
 
     @staticmethod
-    def _notify_acknowledged(
-        callback: Callable[[GroupAcknowledged], None] | None,
+    async def _notify_acknowledged(
+        callback: GroupAcknowledgementCallback | None,
         value: _AdmittedAcknowledgement,
         *,
         reason: str,
@@ -368,7 +371,9 @@ class GroupExecutionService:
         if callback is None:
             return
         try:
-            callback(value.event)
+            result = callback(value.event)
+            if result is not None:
+                await result
         except Exception:
             raise ServiceFailure(
                 ServiceError(code="internal_error", reason=reason, resource_id=value.group.id)
@@ -585,7 +590,7 @@ class GroupExecutionService:
         prepare: Callable[[], GroupPlan],
         operation_id: str,
         expected_review_context_hash: str | None = None,
-        on_created: Callable[[GroupAcknowledged], None] | None = None,
+        on_created: GroupAcknowledgementCallback | None = None,
     ) -> GroupProgress:
         identifier(operation_id)
         if type(selection_source) is not str:
@@ -600,7 +605,7 @@ class GroupExecutionService:
                 operation_id, digest, command="start", replayed=True
             )
             if acknowledged is not None:
-                self._notify_acknowledged(
+                await self._notify_acknowledged(
                     on_created, acknowledged, reason="group_created_callback_failed"
                 )
                 return acknowledged.progress
@@ -615,7 +620,7 @@ class GroupExecutionService:
                         operation_id, digest, command="start", replayed=True
                     )
                     if acknowledged is not None:
-                        self._notify_acknowledged(
+                        await self._notify_acknowledged(
                             on_created, acknowledged, reason="group_created_callback_failed"
                         )
                         return acknowledged.progress
@@ -659,7 +664,7 @@ class GroupExecutionService:
                         )
                         if acknowledged is None:
                             self._acknowledgement_incomplete(self._receipt_group_id(receipt))
-                        self._notify_acknowledged(
+                        await self._notify_acknowledged(
                             on_created, acknowledged, reason="group_created_callback_failed"
                         )
                         return acknowledged.progress
@@ -670,7 +675,7 @@ class GroupExecutionService:
                     )
                     if acknowledged is None:
                         self._acknowledgement_incomplete(group.id)
-                    self._notify_acknowledged(
+                    await self._notify_acknowledged(
                         on_created, acknowledged, reason="group_created_callback_failed"
                     )
                 return await self._execute(group, segment, deadline=deadline)
@@ -684,7 +689,7 @@ class GroupExecutionService:
                         )
                         if acknowledged is None:
                             self._acknowledgement_incomplete(self._receipt_group_id(receipt))
-                        self._notify_acknowledged(
+                        await self._notify_acknowledged(
                             on_created, acknowledged, reason="group_created_callback_failed"
                         )
                         return acknowledged.progress
@@ -698,7 +703,7 @@ class GroupExecutionService:
         operation_id: str,
         retry_unknown: bool = False,
         expected_kind: GroupKind | None = None,
-        on_resumed: Callable[[GroupAcknowledged], None] | None = None,
+        on_resumed: GroupAcknowledgementCallback | None = None,
     ) -> GroupProgress:
         identifier(group_id)
         identifier(operation_id)
@@ -727,7 +732,7 @@ class GroupExecutionService:
                 replayed=True,
             )
             if acknowledged is not None:
-                self._notify_acknowledged(
+                await self._notify_acknowledged(
                     on_resumed, acknowledged, reason="group_resumed_callback_failed"
                 )
                 return acknowledged.progress
@@ -755,7 +760,7 @@ class GroupExecutionService:
                         replayed=True,
                     )
                     if acknowledged is not None:
-                        self._notify_acknowledged(
+                        await self._notify_acknowledged(
                             on_resumed, acknowledged, reason="group_resumed_callback_failed"
                         )
                         return acknowledged.progress
@@ -832,7 +837,7 @@ class GroupExecutionService:
                         )
                         if acknowledged is None:
                             self._acknowledgement_incomplete(group_id)
-                        self._notify_acknowledged(
+                        await self._notify_acknowledged(
                             on_resumed, acknowledged, reason="group_resumed_callback_failed"
                         )
                         return acknowledged.progress
@@ -856,7 +861,7 @@ class GroupExecutionService:
                     )
                     if acknowledged is None:
                         self._acknowledgement_incomplete(group_id)
-                    self._notify_acknowledged(
+                    await self._notify_acknowledged(
                         on_resumed, acknowledged, reason="group_resumed_callback_failed"
                     )
                 return await self._execute(budget.group, segment, deadline=deadline)
@@ -876,7 +881,7 @@ class GroupExecutionService:
                         )
                         if acknowledged is None:
                             self._acknowledgement_incomplete(group_id)
-                        self._notify_acknowledged(
+                        await self._notify_acknowledged(
                             on_resumed, acknowledged, reason="group_resumed_callback_failed"
                         )
                         return acknowledged.progress

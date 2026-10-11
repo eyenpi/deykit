@@ -1,6 +1,5 @@
 """Frozen regression checks, with explicit expectation failures separate from run errors."""
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Self, cast
 
@@ -9,7 +8,10 @@ from pydantic import model_validator
 from deykit.application.dataset_support import decoded, fail, identifier, validated_model
 from deykit.application.evaluations import FrozenEvaluation, frozen_evaluation_from_records
 from deykit.application.execution import ExecutionService
-from deykit.application.execution_groups import GroupExecutionService
+from deykit.application.execution_groups import (
+    GroupAcknowledgementCallback,
+    GroupExecutionService,
+)
 from deykit.application.regressions import visible_regressions
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.execution_groups import CheckSnapshot, ExecutionGroup, ExecutionGroupSegment
@@ -21,7 +23,6 @@ from deykit.contracts.redaction import Sanitizer
 from deykit.regressions.evidence import admit_regression_origin, frozen_case
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.group_models import (
-    GroupAcknowledged,
     GroupPlan,
     GroupPreview,
     GroupProgress,
@@ -157,7 +158,7 @@ class CheckService:
         *,
         operation_id: str,
         expected_review_context_hash: str | None = None,
-        on_created: Callable[[GroupAcknowledged], None] | None = None,
+        on_created: GroupAcknowledgementCallback | None = None,
     ) -> CheckView:
         request = validated_model(CheckRequest, request, "invalid_check_request")
         progress = await self.groups.start(
@@ -175,7 +176,7 @@ class CheckService:
         *,
         operation_id: str,
         retry_unknown: bool = False,
-        on_resumed: Callable[[GroupAcknowledged], None] | None = None,
+        on_resumed: GroupAcknowledgementCallback | None = None,
     ) -> CheckView:
         return self._view(
             await self.groups.resume(

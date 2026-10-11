@@ -4,6 +4,7 @@ import asyncio
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 from test_m09_http_guards import (
@@ -15,8 +16,12 @@ from test_m09_http_guards import (
 )
 
 from deykit.api.dependencies import ApiProjectSource
+from deykit.api.supervisor import ExecutionSupervisor
+from deykit.application.execution_groups import GroupExecutionService
 from deykit.application.regressions import RegressionAdd, RegressionService
+from deykit.contracts.execution_groups import ExecutionGroup, ExecutionGroupSegment
 from deykit.runner.backends import ProviderBackends
+from deykit.runner.group_models import GroupProgress
 
 
 class _CountedProbe:
@@ -280,3 +285,129 @@ def test_http_group_incomplete_receipt_replay_is_409_for_both_group_kinds(
                     )
 
     asyncio.run(exercise())
+
+
+def test_http_group_start_acknowledges_before_held_execution_preparation_and_replays_receipt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    context = _app(tmp_path)
+    execution_started = asyncio.Event()
+    release_execution = asyncio.Event()
+    accepted_tasks: list[asyncio.Task[Any]] = []
+    execution_calls = 0
+
+    original_start_group = ExecutionSupervisor.start_group
+
+    async def tracked_start_group(self: ExecutionSupervisor, *args: Any, **kwargs: Any) -> Any:
+        task = asyncio.create_task(original_start_group(self, *args, **kwargs))
+        accepted_tasks.append(task)
+        return await task
+
+    original_execute = GroupExecutionService._execute
+
+    async def held_execute(
+        self: GroupExecutionService,
+        group: ExecutionGroup,
+        segment: ExecutionGroupSegment,
+        *,
+        deadline: float,
+    ) -> GroupProgress:
+        nonlocal execution_calls
+        execution_calls += 1
+        # The group worker must not enter synchronous execution preparation until the
+        # supervisor has built and returned the durable acceptance receipt.
+        assert accepted_tasks and accepted_tasks[-1].done()
+        execution_started.set()
+        await release_execution.wait()
+        return await original_execute(self, group, segment, deadline=deadline)
+
+    monkeypatch.setattr(ExecutionSupervisor, "start_group", tracked_start_group)
+    monkeypatch.setattr(GroupExecutionService, "_execute", held_execute)
+
+    async def exercise_body() -> None:
+        async with context.api.router.lifespan_context(context.api):
+            try:
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=context.boundary), base_url=context.origin
+                ) as client:
+                    headers = await _session(client, context.origin)
+                    registration_id = await _register_project(
+                        client, headers, tmp_path / "held-group", "Held Group"
+                    )
+                    source: ApiProjectSource = context.api.state.project_registry.require(
+                        registration_id
+                    ).source
+                    _seed_one_case(source, context.dependencies)
+                    base = f"/api/v1/projects/{registration_id}"
+                    request = {"run": _run_request(), "orders": 1, "seed": "0"}
+                    preview = await client.post(
+                        f"{base}/diagnostics/choice-order/preview",
+                        headers=headers,
+                        json={"schema_version": 1, "request": request},
+                    )
+                    assert preview.status_code == 200, preview.text
+                    payload = {
+                        "schema_version": 1,
+                        "operation_id": "http-held-group-start",
+                        "expected_review_context_hash": preview.json()["data"][
+                            "review_context_hash"
+                        ],
+                        "request": request,
+                    }
+
+                    first = await asyncio.wait_for(
+                        client.post(
+                            f"{base}/diagnostics/choice-order", headers=headers, json=payload
+                        ),
+                        timeout=12,
+                    )
+                    assert first.status_code == 202, first.text
+                    await asyncio.wait_for(execution_started.wait(), timeout=5)
+                    first_data = first.json()["data"]
+                    assert first_data["replayed"] is False
+                    assert first_data["member_run_ids"]
+                    assert execution_calls == 1
+
+                    replay = await asyncio.wait_for(
+                        client.post(
+                            f"{base}/diagnostics/choice-order", headers=headers, json=payload
+                        ),
+                        timeout=12,
+                    )
+                    assert replay.status_code == 202, replay.text
+                    replay_data = replay.json()["data"]
+                    assert replay_data["replayed"] is True
+                    assert replay_data["group_id"] == first_data["group_id"]
+                    assert replay_data["segment_id"] == first_data["segment_id"]
+                    assert replay_data["member_run_ids"] == first_data["member_run_ids"]
+                    assert execution_calls == 1
+
+                    release_execution.set()
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
+                        remaining = deadline - time.monotonic()
+                        progress = await asyncio.wait_for(
+                            client.get(
+                                f"{base}/diagnostics/{first_data['group_id']}", headers=headers
+                            ),
+                            timeout=remaining,
+                        )
+                        if (
+                            progress.status_code == 409
+                            and progress.json().get("error", {}).get("reason") == "source_busy"
+                        ):
+                            await asyncio.sleep(0.01)
+                            continue
+                        assert progress.status_code == 200, progress.text
+                        if not any(
+                            member["execution_active"]
+                            for member in progress.json()["data"]["group"]["members"]
+                        ):
+                            break
+                        await asyncio.sleep(0.01)
+                    else:
+                        raise AssertionError("held fixture group did not settle after release")
+            finally:
+                release_execution.set()
+
+    asyncio.run(exercise_body())

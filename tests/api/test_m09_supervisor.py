@@ -160,7 +160,7 @@ class _GroupLifecycle:
         replayed = operation_id.startswith("replay-") or operation_id in self.replay_operations
         await self.release_ack.wait()
         self.ack_index += 1
-        callback(
+        await callback(
             GroupAcknowledged(
                 "group-1",
                 "choice_order" if isinstance(self, _DiagnosticLifecycle) else "regression_check",
@@ -438,13 +438,13 @@ def test_group_callback_survives_disconnect_and_resume_uses_callback_identity(ki
                 expected_review_context_hash="7" * 64,
             )
         )
-        await service.started.wait()
+        await asyncio.wait_for(service.started.wait(), timeout=5)
         waiter.cancel()
         with pytest.raises(asyncio.CancelledError):
             await waiter
 
         service.release_ack.set()
-        await service.acknowledged.wait()
+        await asyncio.wait_for(service.acknowledged.wait(), timeout=5)
         worker = next(iter(supervisor._tasks))
         assert not worker.done()
         assert supervisor._groups[(registration.id, "group-1")] == (
@@ -466,10 +466,10 @@ def test_group_callback_survives_disconnect_and_resume_uses_callback_identity(ki
                 retry_unknown=True,
             )
         )
-        await service.started.wait()
+        await asyncio.wait_for(service.started.wait(), timeout=5)
         service.release_ack.set()
-        await service.acknowledged.wait()
-        resumed = await resumed_waiter
+        await asyncio.wait_for(service.acknowledged.wait(), timeout=5)
+        resumed = await asyncio.wait_for(resumed_waiter, timeout=5)
         assert resumed.segment_id == "segment-2"
         assert resumed.member_run_ids == ("member-a", "member-b")
         assert resumed.progress_path.endswith(
@@ -478,11 +478,15 @@ def test_group_callback_survives_disconnect_and_resume_uses_callback_identity(ki
         assert resumed.replayed
 
         key = (registration.id, "group-1")
+        for _ in range(100):
+            if supervisor._tasks == {worker}:
+                break
+            await asyncio.sleep(0)
         assert supervisor._group_tasks[key] is worker
         assert supervisor._groups[key] == (registration, service, kind)
         assert supervisor._tasks == {worker}
         workers = tuple(supervisor._tasks)
-        await supervisor.shutdown()
+        await asyncio.wait_for(supervisor.shutdown(), timeout=5)
         assert service.cancelled_ids == ["group-1"]
         assert workers == (worker,)
         assert all(task.done() and not task.cancelled() for task in workers)
@@ -626,26 +630,32 @@ def test_replay_only_acknowledgement_does_not_claim_external_owner(method, kind)
                 evaluation_service=_EvaluationService(),  # type: ignore[arg-type]
             )
         elif method == "start_group":
-            accepted = await supervisor.start_group(
-                registration,
-                service,
-                kind,
-                _group_request(kind),
-                operation_id="replay-external",
-                expected_review_context_hash="b" * 64,
+            accepted = await asyncio.wait_for(
+                supervisor.start_group(
+                    registration,
+                    service,
+                    kind,
+                    _group_request(kind),
+                    operation_id="replay-external",
+                    expected_review_context_hash="b" * 64,
+                ),
+                timeout=5,
             )
         else:
-            accepted = await supervisor.resume_group(
-                registration,
-                service,
-                kind,
-                "group-1",
-                operation_id="replay-external",
-                retry_unknown=True,
+            accepted = await asyncio.wait_for(
+                supervisor.resume_group(
+                    registration,
+                    service,
+                    kind,
+                    "group-1",
+                    operation_id="replay-external",
+                    retry_unknown=True,
+                ),
+                timeout=5,
             )
         assert accepted.replayed is True
         await asyncio.sleep(0)
-        await supervisor.shutdown()
+        await asyncio.wait_for(supervisor.shutdown(), timeout=5)
         assert service.cancelled_ids == []
         assert supervisor._tasks == set()
         assert supervisor._preparing == set()
@@ -653,6 +663,48 @@ def test_replay_only_acknowledgement_does_not_claim_external_owner(method, kind)
         assert supervisor._groups == {}
         assert supervisor._run_tasks == {}
         assert supervisor._group_tasks == {}
+
+    asyncio.run(scenario())
+
+
+def test_shutdown_yields_for_queued_cleanup_of_completed_worker():
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+        worker = asyncio.create_task(asyncio.sleep(0))
+        await worker
+        cleanup_ran = asyncio.Event()
+
+        def cleanup(completed):
+            supervisor._tasks.discard(completed)
+            cleanup_ran.set()
+
+        supervisor._tasks.add(worker)
+        worker.add_done_callback(cleanup)
+        await asyncio.wait_for(supervisor.shutdown(), timeout=5)
+        assert cleanup_ran.is_set()
+        assert supervisor._tasks == set()
+
+    asyncio.run(scenario())
+
+
+def test_shutdown_cancellation_still_cancels_pending_owned_worker():
+    async def scenario() -> None:
+        supervisor = ExecutionSupervisor()
+        pending = asyncio.Event()
+        acknowledged = asyncio.get_running_loop().create_future()
+        acknowledged.add_done_callback(supervisor._consume_future)
+        worker = supervisor._start_task(pending.wait(), acknowledged)
+        supervisor._preparing.discard(worker)
+
+        shutdown = asyncio.create_task(supervisor.shutdown())
+        await asyncio.sleep(0)
+        shutdown.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(shutdown, timeout=5)
+        await asyncio.sleep(0)
+
+        assert worker.cancelled()
+        assert supervisor._tasks == set()
 
     asyncio.run(scenario())
 

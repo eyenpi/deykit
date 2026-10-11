@@ -255,9 +255,10 @@ class ExecutionSupervisor:
         loop = asyncio.get_running_loop()
         acknowledged: asyncio.Future[GroupAcknowledged] = loop.create_future()
         acknowledged.add_done_callback(self._consume_future)
+        handoff = asyncio.Event()
         task_holder: list[asyncio.Task[Any]] = []
 
-        def callback(event: GroupAcknowledged) -> None:
+        async def callback(event: GroupAcknowledged) -> None:
             key = (registration.id, event.group_id)
             task = task_holder[0]
             self._preparing.discard(task)
@@ -266,6 +267,7 @@ class ExecutionSupervisor:
                 self._group_tasks[key] = task
             if not acknowledged.done():
                 acknowledged.set_result(event)
+            await handoff.wait()
 
         async def execute() -> None:
             try:
@@ -299,18 +301,21 @@ class ExecutionSupervisor:
                 raise
 
         task_holder.append(self._start_task(execute(), acknowledged))
-        event = await asyncio.shield(acknowledged)
-        return GroupAccepted(
-            operation_id,
-            event.group_id,
-            event.kind,
-            event.mode,
-            event.replayed,
-            event.segment_id,
-            event.member_run_ids,
-            f"/api/v1/projects/{registration.id}/"
-            f"{'diagnostics' if kind == 'choice_order' else 'checks'}/{event.group_id}",
-        )
+        try:
+            event = await asyncio.shield(acknowledged)
+            return GroupAccepted(
+                operation_id,
+                event.group_id,
+                event.kind,
+                event.mode,
+                event.replayed,
+                event.segment_id,
+                event.member_run_ids,
+                f"/api/v1/projects/{registration.id}/"
+                f"{'diagnostics' if kind == 'choice_order' else 'checks'}/{event.group_id}",
+            )
+        finally:
+            handoff.set()
 
     async def resume_group(
         self,
@@ -327,9 +332,10 @@ class ExecutionSupervisor:
         loop = asyncio.get_running_loop()
         acknowledged: asyncio.Future[GroupAcknowledged] = loop.create_future()
         acknowledged.add_done_callback(self._consume_future)
+        handoff = asyncio.Event()
         task_holder: list[asyncio.Task[Any]] = []
 
-        def callback(event: GroupAcknowledged) -> None:
+        async def callback(event: GroupAcknowledged) -> None:
             key = (registration.id, event.group_id)
             task = task_holder[0]
             self._preparing.discard(task)
@@ -338,6 +344,7 @@ class ExecutionSupervisor:
                 self._group_tasks[key] = task
             if not acknowledged.done():
                 acknowledged.set_result(event)
+            await handoff.wait()
 
         async def execute() -> None:
             try:
@@ -369,18 +376,21 @@ class ExecutionSupervisor:
                 raise
 
         task_holder.append(self._start_task(execute(), acknowledged))
-        event = await asyncio.shield(acknowledged)
-        return GroupAccepted(
-            operation_id,
-            event.group_id,
-            kind,
-            event.mode,
-            event.replayed,
-            event.segment_id,
-            event.member_run_ids,
-            f"/api/v1/projects/{registration.id}/"
-            f"{'diagnostics' if kind == 'choice_order' else 'checks'}/{event.group_id}",
-        )
+        try:
+            event = await asyncio.shield(acknowledged)
+            return GroupAccepted(
+                operation_id,
+                event.group_id,
+                kind,
+                event.mode,
+                event.replayed,
+                event.segment_id,
+                event.member_run_ids,
+                f"/api/v1/projects/{registration.id}/"
+                f"{'diagnostics' if kind == 'choice_order' else 'checks'}/{event.group_id}",
+            )
+        finally:
+            handoff.set()
 
     async def stop_admission(self) -> None:
         self._admitting = False
@@ -484,7 +494,11 @@ class ExecutionSupervisor:
             except Exception:
                 cancellation_failures = True
         while self._tasks:
-            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+            tasks = tuple(self._tasks)
+            if all(task.done() for task in tasks):
+                await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+            else:
+                await asyncio.gather(*tasks, return_exceptions=True)
         if cancellation_failures:
             raise ServiceFailure(
                 ServiceError(code="internal_error", reason="shutdown_cancel_failed")

@@ -1,6 +1,5 @@
 """Choice-order diagnostics preserve original-case denominators and exact ordered plans."""
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Annotated, cast
 
@@ -9,7 +8,10 @@ from pydantic import Field
 from deykit.application.dataset_support import fail, identifier, validated_model
 from deykit.application.evaluations import FrozenEvaluation, frozen_evaluation_from_records
 from deykit.application.execution import ExecutionService
-from deykit.application.execution_groups import GroupExecutionService
+from deykit.application.execution_groups import (
+    GroupAcknowledgementCallback,
+    GroupExecutionService,
+)
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.execution_groups import (
     DiagnosticSnapshot,
@@ -21,7 +23,6 @@ from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.diagnostics.summary import OrderSummary, summarize_orders
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.group_models import (
-    GroupAcknowledged,
     GroupPlan,
     GroupPreview,
     GroupProgress,
@@ -88,7 +89,7 @@ class DiagnosticService:
         *,
         operation_id: str,
         expected_review_context_hash: str | None = None,
-        on_created: Callable[[GroupAcknowledged], None] | None = None,
+        on_created: GroupAcknowledgementCallback | None = None,
     ) -> DiagnosticView:
         request = validated_model(ChoiceOrderRequest, request, "invalid_diagnostic_request")
         result = await self.groups.start(
@@ -106,7 +107,7 @@ class DiagnosticService:
         *,
         operation_id: str,
         retry_unknown: bool = False,
-        on_resumed: Callable[[GroupAcknowledged], None] | None = None,
+        on_resumed: GroupAcknowledgementCallback | None = None,
     ) -> DiagnosticView:
         return self._view(
             await self.groups.resume(
