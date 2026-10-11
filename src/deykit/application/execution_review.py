@@ -102,8 +102,8 @@ def reviewed_run_preview(
             if plan.selection.revision_id is not None
             else None
         ),
-        definition_hash=cast(ContentHash, _safe_identity(safe, plan.definition_hash)),
-        source_context_hash=cast(ContentHash, _safe_identity(safe, plan.context_hash)),
+        definition_hash=_safe_identity(safe, plan.definition_hash),
+        source_context_hash=_safe_identity(safe, plan.context_hash),
         provider_id=_safe_identity(safe, plan.provider.id),
         destination=safe.text(plan.provider.destination),
         adapter=safe.text(plan.provider.adapter),
@@ -120,8 +120,8 @@ def reviewed_run_preview(
                 collection=record.key.collection,
                 scope=tuple(_safe_identity(safe, part) for part in record.key.scope),
                 resource_id=_safe_identity(safe, record.key.resource_id),
-                etag=cast(ContentHash, _safe_identity(safe, record.etag)),
-                body_hash=cast(ContentHash, _safe_identity(safe, bytes_hash(record.body))),
+                etag=_safe_identity(safe, record.etag),
+                body_hash=_safe_identity(safe, bytes_hash(record.body)),
             )
             for record in plan.review_records
         ),
@@ -138,9 +138,9 @@ def reviewed_run_preview(
             )
         return ReviewedCase(
             case_id=_safe_identity(safe, prepared.case_id),
-            input_hash=cast(ContentHash, _safe_identity(safe, prepared.input_hash)),
+            input_hash=_safe_identity(safe, prepared.input_hash),
             request_hash=(
-                cast(ContentHash, _safe_identity(safe, prepared.request.body_hash))
+                _safe_identity(safe, prepared.request.body_hash)
                 if prepared.request is not None
                 else None
             ),

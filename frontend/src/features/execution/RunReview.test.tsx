@@ -76,6 +76,7 @@ it("retries an unknown run start with the exact reviewed request and operation i
     ],
   };
   const fixture: ApiOperationData<"listFixtureSets">["items"][number] = {
+    schema_version: 1,
     id: "fixture-set-1",
     name: "Offline fixture",
     dataset_id: "dataset-1",
@@ -172,7 +173,9 @@ it("retries an unknown run start with the exact reviewed request and operation i
   );
   try {
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Review run" }).disabled).toBe(false);
+      expect(
+        screen.getByRole("button", { name: "Review run" }).hasAttribute("disabled"),
+      ).toBe(false);
     });
     await user.click(await screen.findByRole("button", { name: "Review run" }));
     expect(await screen.findByRole("region", { name: "Reviewed run context" })).toBeTruthy();
