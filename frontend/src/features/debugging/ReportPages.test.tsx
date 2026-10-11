@@ -258,7 +258,8 @@ it("hides the previous report synchronously while replacement metadata is pendin
   const operations = {
     ...disconnectedWorkspace.debugging.reports,
     read: (request: { reportId: string }) => {
-      if (request.reportId === "report-A") return result(report);
+      if (request.reportId === "report-A")
+        return result({ ...report, report_id: "report-A" });
       replacementReads += 1;
       return pendingRead.promise;
     },
@@ -282,7 +283,7 @@ it("hides the previous report synchronously while replacement metadata is pendin
     const buttons = [...(page?.querySelectorAll("button") ?? [])];
     layoutSnapshot = {
       oldMetadataVisible:
-        page?.textContent?.includes("Report report-1;") ?? false,
+        page?.textContent?.includes("Report report-A;") ?? false,
       downloadControls: buttons.filter((button) =>
         /report bytes|^Download /.test(button.textContent?.trim() ?? ""),
       ).length,
@@ -300,7 +301,7 @@ it("hides the previous report synchronously while replacement metadata is pendin
     </>,
   );
   try {
-    await screen.findByText(reportIdentity("report-1"));
+    await screen.findByText(reportIdentity("report-A"));
     tree.rerender(
       <>
         <ReportPage

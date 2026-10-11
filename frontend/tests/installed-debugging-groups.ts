@@ -5,6 +5,7 @@ import { writeFile } from "node:fs/promises";
 import type { ApiOperationData } from "../src/api/client";
 import {
   captureOperation,
+  assertCreateReportRequestBody,
   bodySha256,
   assertExactArtifactBytes,
   decodeSuccessEnvelope,
@@ -1140,6 +1141,17 @@ export async function runGroupsWorkflow(
       const replay = reportLoss.observation();
       expect(replay?.replayStatus).toBe(200);
       expect(replay?.sameRequestBytes).toBe(true);
+      if (!replay)
+        throw new Error(
+          "The original diagnostic report request was unavailable.",
+        );
+      expect(bodySha256(replay.firstRequestBody)).toBe(replay.firstRequestHash);
+      assertCreateReportRequestBody(replay.firstRequestBody, {
+        targetKind: "diagnostic",
+        targetId: startReceipt.group_id,
+        raw: { inputs: false, requests: false, responses: false },
+        groupSnapshotId: diagnosticSnapshotId,
+      });
       const receipt = decodeSuccessEnvelope<ApiOperationData<"createReport">>(
         replay?.replayResponseBody ?? Buffer.alloc(0),
         200,
@@ -1779,6 +1791,17 @@ export async function runGroupsWorkflow(
       200,
       checkReportResponse.response.status(),
     );
+    const checkReportRequestBody = checkReportResponse.response
+      .request()
+      .postDataBuffer();
+    if (!checkReportRequestBody)
+      throw new Error("The check report request body was unavailable.");
+    assertCreateReportRequestBody(checkReportRequestBody, {
+      targetKind: "check",
+      targetId: checkReceipt.group_id,
+      raw: { inputs: false, requests: false, responses: false },
+      groupSnapshotId: checkSnapshotId,
+    });
     expect(checkReportReceipt.target_kind).toBe("check");
     expect(checkReportReceipt.target_id).toBe(checkReceipt.group_id);
     expect(checkReportReceipt.check_snapshot_id).toBe(checkSnapshotId);
