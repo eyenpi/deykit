@@ -13,6 +13,7 @@ import { access, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { operationMetadata } from "../src/api/generated/operations";
 import type { ApiOperationId } from "../src/api/generated/operations";
 import type { ApiOperationBody } from "../src/api/client";
+import { decodeRegistration } from "../src/api/codecs";
 
 export type DebuggingWorkflow = "S" | "C" | "G" | "R";
 
@@ -722,18 +723,16 @@ export async function openPreparedProject(
   const registrationBody: unknown = await registrationResponse.json();
   if (
     !isRecord(registrationBody) ||
-    !isRecord(registrationBody.data) ||
-    !isRecord(registrationBody.data.registration)
+    registrationBody.schema_version !== 1 ||
+    !isRecord(registrationBody.data)
   )
     throw new Error("The prepared project registration receipt was malformed.");
-  const registrationId = registrationBody.data.registration.registration_id;
-  if (
-    typeof registrationId !== "string" ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(registrationId)
-  )
-    throw new Error("The prepared project registration receipt was invalid.");
+  const registrationId = decodeRegistration(registrationBody.data);
+  const project = registrationBody.data.project;
+  if (!isRecord(project) || typeof project.name !== "string")
+    throw new Error("The prepared project registration receipt was malformed.");
   await expect(
-    page.getByRole("heading", { name: "Sandbox", exact: true }),
+    page.getByRole("heading", { name: project.name, exact: true }),
   ).toBeVisible();
   await registrationResponse.body();
   return { registrationId, registrationBody };
