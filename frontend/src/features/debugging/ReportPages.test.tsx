@@ -1,4 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { expect, it, vi } from "vitest";
@@ -25,6 +31,50 @@ function deferred<T>() {
     resolve = accept;
   });
   return { promise, resolve };
+}
+
+function reportIdentity(reportId: string) {
+  return (_content: string, element: Element | null) =>
+    element?.tagName === "P" &&
+    element.textContent?.includes(`Report ${reportId};`) === true;
+}
+
+function stubObjectUrls() {
+  const created: Blob[] = [];
+  const revoked: string[] = [];
+  const createDescriptor = Object.getOwnPropertyDescriptor(
+    URL,
+    "createObjectURL",
+  );
+  const revokeDescriptor = Object.getOwnPropertyDescriptor(
+    URL,
+    "revokeObjectURL",
+  );
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    writable: true,
+    value: (blob: Blob) => {
+      created.push(blob);
+      return `blob:report-${created.length}`;
+    },
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    writable: true,
+    value: (url: string) => revoked.push(url),
+  });
+  return {
+    created,
+    revoked,
+    restore() {
+      if (createDescriptor)
+        Object.defineProperty(URL, "createObjectURL", createDescriptor);
+      else Reflect.deleteProperty(URL, "createObjectURL");
+      if (revokeDescriptor)
+        Object.defineProperty(URL, "revokeObjectURL", revokeDescriptor);
+      else Reflect.deleteProperty(URL, "revokeObjectURL");
+    },
+  };
 }
 
 const report: ApiOperationData<"readReport"> = {
@@ -71,11 +121,7 @@ it("clears bytes and preview when changing the requested report format", async (
     />,
   );
   const user = userEvent.setup();
-  await screen.findByText(
-    (_content, element) =>
-      element?.tagName === "P" &&
-      element.textContent?.includes("Report report-1;") === true,
-  );
+  await screen.findByText(reportIdentity("report-1"));
   await user.click(
     screen.getByRole("button", { name: "Preview report bytes" }),
   );
@@ -96,6 +142,250 @@ it("clears bytes and preview when changing the requested report format", async (
   expect(requests[0]?.query.format).toBe("json");
   expect(requests[1]?.query.format).toBe("markdown");
   expect(screen.getByRole("status").textContent).toContain("as markdown");
+});
+
+it("keeps deferred report bytes inside their A-to-B-to-A rendered scope", async () => {
+  type Download = Awaited<
+    ReturnType<typeof disconnectedWorkspace.debugging.reports.download>
+  >;
+  const pending: Array<{
+    reportId: string;
+    request: Parameters<
+      typeof disconnectedWorkspace.debugging.reports.download
+    >[0];
+    response: ReturnType<typeof deferred<Download>>;
+  }> = [];
+  const operations = {
+    ...disconnectedWorkspace.debugging.reports,
+    read: async (request: { reportId: string }) =>
+      result({ ...report, report_id: request.reportId }),
+    download: (request: (typeof pending)[number]["request"]) => {
+      const response = deferred<Download>();
+      pending.push({ reportId: request.reportId, request, response });
+      return response.promise;
+    },
+  };
+  const tree = render(
+    <ReportPage
+      registrationId="registration-1"
+      reportId="report-A"
+      operations={operations}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await screen.findByText(reportIdentity("report-A"));
+    await user.click(
+      screen.getByRole("button", { name: "Preview report bytes" }),
+    );
+    await waitFor(() => expect(pending).toHaveLength(1));
+
+    tree.rerender(
+      <ReportPage
+        registrationId="registration-1"
+        reportId="report-B"
+        operations={operations}
+      />,
+    );
+    await screen.findByText(reportIdentity("report-B"));
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Preview report bytes",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    await user.click(
+      screen.getByRole("button", { name: "Preview report bytes" }),
+    );
+    await waitFor(() => expect(pending).toHaveLength(2));
+    pending[1]?.response.resolve({
+      blob: new Blob(["bytes from B"]),
+      filename: "b.json",
+    });
+    expect(await screen.findByText("bytes from B")).toBeTruthy();
+
+    tree.rerender(
+      <ReportPage
+        registrationId="registration-1"
+        reportId="report-A"
+        operations={operations}
+      />,
+    );
+    await screen.findByText(reportIdentity("report-A"));
+    await user.click(
+      screen.getByRole("button", { name: "Preview report bytes" }),
+    );
+    await waitFor(() => expect(pending).toHaveLength(3));
+    expect(
+      screen.getByRole("button", { name: "Reading report bytes…" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      pending[0]?.response.resolve({
+        blob: new Blob(["stale bytes from A1"]),
+        filename: "stale-a.json",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("stale bytes from A1")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Reading report bytes…" }),
+    ).toBeTruthy();
+
+    pending[2]?.response.resolve({
+      blob: new Blob(["current bytes from A2"]),
+      filename: "current-a.json",
+    });
+    expect(await screen.findByText("current bytes from A2")).toBeTruthy();
+  } finally {
+    tree.unmount();
+  }
+});
+
+it("ignores a pending saved download after unmount without creating a URL or clicking", async () => {
+  type Download = Awaited<
+    ReturnType<typeof disconnectedWorkspace.debugging.reports.download>
+  >;
+  const response = deferred<Download>();
+  const operations = {
+    ...disconnectedWorkspace.debugging.reports,
+    read: async () => result(report),
+    download: () => response.promise,
+  };
+  const urls = stubObjectUrls();
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(() => undefined);
+  const tree = render(
+    <ReportPage
+      registrationId="registration-1"
+      reportId="report-1"
+      operations={operations}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await screen.findByText(reportIdentity("report-1"));
+    await user.click(screen.getByRole("button", { name: "Download JSON" }));
+    tree.unmount();
+    await act(async () => {
+      response.resolve({
+        blob: new Blob(["late saved bytes"]),
+        filename: "late.json",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(urls.created).toEqual([]);
+    expect(click).not.toHaveBeenCalled();
+  } finally {
+    tree.unmount();
+    click.mockRestore();
+    urls.restore();
+  }
+});
+
+it("binds saved report URLs to their exact bytes and revokes them on format, scope, timer, and unmount", async () => {
+  type Download = Awaited<
+    ReturnType<typeof disconnectedWorkspace.debugging.reports.download>
+  >;
+  const pending: Array<ReturnType<typeof deferred<Download>>> = [];
+  const operations = {
+    ...disconnectedWorkspace.debugging.reports,
+    read: async (request: { reportId: string }) =>
+      result({ ...report, report_id: request.reportId }),
+    download: () => {
+      const response = deferred<Download>();
+      pending.push(response);
+      return response.promise;
+    },
+  };
+  const urls = stubObjectUrls();
+  let clickedAnchor: HTMLAnchorElement | undefined;
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(function (this: HTMLAnchorElement) {
+      clickedAnchor = this;
+    });
+  const tree = render(
+    <ReportPage
+      registrationId="registration-1"
+      reportId="report-1"
+      operations={operations}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await screen.findByText(reportIdentity("report-1"));
+    vi.useFakeTimers();
+
+    fireEvent.click(screen.getByRole("button", { name: "Download JSON" }));
+    await waitFor(() => expect(pending).toHaveLength(1));
+    const firstBlob = new Blob(["first report bytes"]);
+    await act(async () => {
+      pending[0]?.resolve({ blob: firstBlob, filename: "safe-report.json" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Download started: safe-report.json")).toBeTruthy();
+    expect(urls.created).toEqual([firstBlob]);
+    expect(clickedAnchor?.href).toBe("blob:report-1");
+    expect(clickedAnchor?.download).toBe("safe-report.json");
+    expect(click).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(screen.getByLabelText("Download format"), {
+      target: { value: "markdown" },
+    });
+    expect(urls.revoked).toEqual(["blob:report-1"]);
+    await vi.runOnlyPendingTimersAsync();
+    expect(urls.revoked).toEqual(["blob:report-1"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
+    await waitFor(() => expect(pending).toHaveLength(2));
+    const secondBlob = new Blob(["second report bytes"]);
+    await act(async () => {
+      pending[1]?.resolve({ blob: secondBlob, filename: "second.md" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(urls.created).toEqual([firstBlob, secondBlob]);
+    expect(clickedAnchor?.download).toBe("second.md");
+    tree.rerender(
+      <ReportPage
+        registrationId="registration-1"
+        reportId="report-2"
+        operations={operations}
+      />,
+    );
+    expect(urls.revoked).toEqual(["blob:report-1", "blob:report-2"]);
+    await screen.findByText(reportIdentity("report-2"));
+    await vi.runOnlyPendingTimersAsync();
+    expect(urls.revoked).toEqual(["blob:report-1", "blob:report-2"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
+    await waitFor(() => expect(pending).toHaveLength(3));
+    const thirdBlob = new Blob(["third report bytes"]);
+    await act(async () => {
+      pending[2]?.resolve({ blob: thirdBlob, filename: "third.md" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(urls.created).toEqual([firstBlob, secondBlob, thirdBlob]);
+    expect(clickedAnchor?.download).toBe("third.md");
+    tree.unmount();
+    expect(urls.revoked).toEqual([
+      "blob:report-1",
+      "blob:report-2",
+      "blob:report-3",
+    ]);
+  } finally {
+    tree.unmount();
+    vi.useRealTimers();
+    click.mockRestore();
+    urls.restore();
+  }
 });
 
 it("keeps a new report-target verification active when an older target read settles", async () => {

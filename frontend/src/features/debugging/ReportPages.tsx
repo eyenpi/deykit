@@ -640,84 +640,145 @@ export function ReportPage({
   const [error, setError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
   const [format, setFormat] = useState<"json" | "markdown">("json");
-  const [loadedFormat, setLoadedFormat] = useState<"json" | "markdown">();
-  const [preview, setPreview] = useState<string>();
-  const [download, setDownload] = useState<ApiDownload>();
-  const [downloading, setDownloading] = useState(false);
-  const [downloadNotice, setDownloadNotice] = useState<string>();
-  const objectUrl = useRef<string | undefined>(undefined);
+  type ReportByteView = {
+    scopeEpoch: number;
+    ticket: number;
+    busy: boolean;
+    format?: "json" | "markdown";
+    preview?: string;
+    download?: ApiDownload;
+    notice?: string;
+  };
+  const [byteView, setByteView] = useState<ReportByteView>({
+    scopeEpoch,
+    ticket: 0,
+    busy: false,
+  });
+  const currentByteView: ReportByteView =
+    byteView.scopeEpoch === scopeEpoch
+      ? byteView
+      : { scopeEpoch, ticket: 0, busy: false };
+  const downloading = currentByteView.busy;
+  const downloadTicket = useRef(0);
+  const mounted = useRef(false);
+  const objectUrl = useRef<
+    { url: string; scopeEpoch: number; ticket: number } | undefined
+  >(undefined);
 
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  function revokeObjectUrl(epoch?: number) {
+    const current = objectUrl.current;
+    if (!current || (epoch !== undefined && current.scopeEpoch !== epoch))
+      return;
+    URL.revokeObjectURL(current.url);
+    objectUrl.current = undefined;
+  }
+
+  useEffect(() => {
+    const epoch = scopeEpoch;
     const controller = new AbortController();
     let active = true;
     setLoading(true);
     setError(undefined);
-    setPreview(undefined);
-    setDownload(undefined);
-    setLoadedFormat(undefined);
+    downloadTicket.current += 1;
+    setByteView({
+      scopeEpoch: epoch,
+      ticket: downloadTicket.current,
+      busy: false,
+    });
     setReport(undefined);
     void operations
       .read({ registrationId, reportId, signal: controller.signal })
       .then((result) => {
         if (result.data.report_id !== reportId)
           throw new Error("The service returned a different report.");
-        if (active) setReport(result.data);
+        if (active && epoch === scopeEpochRef.current) setReport(result.data);
       })
       .catch((cause: unknown) => {
-        if (active && !controller.signal.aborted) setError(safeMessage(cause));
+        if (
+          active &&
+          epoch === scopeEpochRef.current &&
+          !controller.signal.aborted
+        )
+          setError(safeMessage(cause));
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active && epoch === scopeEpochRef.current) setLoading(false);
       });
     return () => {
       active = false;
       controller.abort();
-      if (objectUrl.current) {
-        URL.revokeObjectURL(objectUrl.current);
+      const currentUrl = objectUrl.current;
+      if (currentUrl?.scopeEpoch === epoch) {
+        URL.revokeObjectURL(currentUrl.url);
         objectUrl.current = undefined;
       }
     };
-  }, [operations, refreshToken, registrationId, reportId]);
+  }, [operations, refreshToken, registrationId, reportId, scopeEpoch]);
 
   async function loadBytes(save: boolean) {
-    const epoch = scopeEpochRef.current;
-    setDownloading(true);
+    const epoch = scopeEpoch;
+    const requestedFormat = format;
+    const ticket = ++downloadTicket.current;
+    const isCurrent = () =>
+      mounted.current &&
+      scopeEpochRef.current === epoch &&
+      downloadTicket.current === ticket;
+    setByteView({ ...currentByteView, scopeEpoch: epoch, ticket, busy: true });
     setError(undefined);
     try {
       const bytes = await operations.download({
         registrationId,
         reportId,
-        query: { format },
+        query: { format: requestedFormat },
       });
       const text = await bytes.blob.text();
-      if (epoch !== scopeEpochRef.current) return;
-      if (objectUrl.current) {
-        URL.revokeObjectURL(objectUrl.current);
-        objectUrl.current = undefined;
-      }
-      setDownload(bytes);
-      setPreview(text);
-      setLoadedFormat(format);
-      setDownloadNotice(undefined);
+      if (!isCurrent()) return;
+      revokeObjectUrl();
       if (save) {
-        if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
         const url = URL.createObjectURL(bytes.blob);
-        objectUrl.current = url;
+        objectUrl.current = { url, scopeEpoch: epoch, ticket };
+        window.setTimeout(() => {
+          const current = objectUrl.current;
+          if (
+            current?.url === url &&
+            current.scopeEpoch === epoch &&
+            current.ticket === ticket
+          )
+            revokeObjectUrl(epoch);
+        }, 0);
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.download = bytes.filename;
         anchor.rel = "noopener";
         anchor.click();
-        setDownloadNotice(`Download started: ${bytes.filename}`);
-        window.setTimeout(() => {
-          URL.revokeObjectURL(url);
-          if (objectUrl.current === url) objectUrl.current = undefined;
-        }, 0);
       }
+      setByteView((previous) =>
+        previous.scopeEpoch === epoch && previous.ticket === ticket
+          ? {
+              ...previous,
+              format: requestedFormat,
+              preview: text,
+              download: bytes,
+              notice: save ? `Download started: ${bytes.filename}` : undefined,
+            }
+          : previous,
+      );
     } catch (cause) {
-      if (epoch === scopeEpochRef.current) setError(safeMessage(cause));
+      if (isCurrent()) setError(safeMessage(cause));
     } finally {
-      if (epoch === scopeEpochRef.current) setDownloading(false);
+      if (isCurrent())
+        setByteView((previous) =>
+          previous.scopeEpoch === epoch && previous.ticket === ticket
+            ? { ...previous, busy: false }
+            : previous,
+        );
     }
   }
 
@@ -757,15 +818,13 @@ export function ReportPage({
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 if (value === "json" || value === "markdown") {
-                  if (objectUrl.current) {
-                    URL.revokeObjectURL(objectUrl.current);
-                    objectUrl.current = undefined;
-                  }
+                  revokeObjectUrl();
                   setFormat(value);
-                  setPreview(undefined);
-                  setDownload(undefined);
-                  setLoadedFormat(undefined);
-                  setDownloadNotice(undefined);
+                  setByteView({
+                    scopeEpoch,
+                    ticket: downloadTicket.current,
+                    busy: false,
+                  });
                 }
               }}
             >
@@ -789,18 +848,21 @@ export function ReportPage({
               Download {format === "json" ? "JSON" : "Markdown"}
             </button>
           </div>
-          {download && loadedFormat && (
+          {currentByteView.download && currentByteView.format && (
             <p role="status">
-              Read {download.blob.size} report bytes as {loadedFormat}; filename{" "}
-              {download.filename}.
+              Read {currentByteView.download.blob.size} report bytes as{" "}
+              {currentByteView.format}; filename{" "}
+              {currentByteView.download.filename}.
             </p>
           )}
-          {downloadNotice && <p role="status">{downloadNotice}</p>}
-          {preview !== undefined && (
+          {currentByteView.notice && (
+            <p role="status">{currentByteView.notice}</p>
+          )}
+          {currentByteView.preview !== undefined && (
             <section>
               <h2>Inert text preview</h2>
               <pre className="source-editor" aria-label="Report text preview">
-                {preview}
+                {currentByteView.preview}
               </pre>
             </section>
           )}
