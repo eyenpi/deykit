@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from deykit.application.dataset_support import fail, identifier, page, safe_hash
 from deykit.application.errors import ServiceFailure
+from deykit.application.execution_review import ReviewedRunPreview, reviewed_run_preview
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
 from deykit.contracts.ports import Clock, CommitReceipt, SnapshotSource
@@ -44,6 +45,13 @@ class ExecutionService:
 
     def preview(self, request: RunRequest) -> RunPreview:
         return preview_view(self.planner.prepare(request))
+
+    def review_preview(
+        self, request: RunRequest, *, include_request_source: bool = False
+    ) -> ReviewedRunPreview:
+        """Return review details projected from the same plan as the review hash."""
+        plan = self.planner.prepare(request)
+        return reviewed_run_preview(plan, include_request_source=include_request_source)
 
     def _backend(self, history: RunHistory) -> Backend:
         profile = history.manifest.provider

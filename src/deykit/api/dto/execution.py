@@ -10,6 +10,7 @@ from deykit.application.checks import CheckRequest
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
+from deykit.contracts.ports import Collection
 from deykit.contracts.records import ExecutionSettings
 from deykit.runner.planner import RunRequest
 
@@ -137,7 +138,44 @@ class CheckPreviewRequest(VersionRequest):
     request: CheckRequestDTO
 
 
-class RunPreviewDTO(ResponseRecord):
+class ReviewSourceRecordDTO(FrozenModel):
+    collection: Collection
+    scope: tuple[ResourceId, ...]
+    resource_id: ResourceId
+    etag: ContentHash
+    body_hash: ContentHash
+
+
+class RunReviewContextDTO(ResponseRecord):
+    definition_source: Literal["draft", "revision"]
+    revision_id: ResourceId | None
+    definition_hash: ContentHash
+    source_context_hash: ContentHash
+    provider_id: ResourceId
+    destination: str
+    adapter: str
+    requested_model: str
+    compiler_id: str
+    compiler_version: str
+    fixture_set_id: ResourceId | None
+    source_records: tuple[ReviewSourceRecordDTO, ...]
+    development_case_ids: tuple[ResourceId, ...]
+    development_label_count: CountText
+
+
+class RunCaseReviewDTO(FrozenModel):
+    case_id: ResourceId
+    input_hash: ContentHash
+    request_hash: ContentHash | None
+    compiler: str | None
+    compiler_version: str | None
+    requested_model: str | None
+    input_error: ServiceError | None
+    request_source: str | None
+    request_source_redacted: bool | None
+
+
+class RunPreviewSummaryDTO(ResponseRecord):
     decision_id: ResourceId
     dataset_id: ResourceId
     mode: Literal["fixture", "live"]
@@ -151,6 +189,11 @@ class RunPreviewDTO(ResponseRecord):
     development_case_count: CountText
     review_context_hash: ContentHash
     dry_run: bool
+
+
+class RunPreviewDTO(RunPreviewSummaryDTO):
+    review_context: RunReviewContextDTO
+    case_reviews: tuple[RunCaseReviewDTO, ...]
 
 
 class RequestIdentityDTO(ResponseRecord):
@@ -169,7 +212,7 @@ class MemberIdentityDTO(ResponseRecord):
 
 
 class GroupMemberPreviewDTO(ResponseRecord):
-    preview: RunPreviewDTO
+    preview: RunPreviewSummaryDTO
     identity: MemberIdentityDTO
 
 

@@ -14,6 +14,7 @@ const recent = [
 ];
 const gateway: WorkspaceGateway = {
   authoring: disconnectedWorkspace.authoring,
+  execution: disconnectedWorkspace.execution,
   async recentProjects() {
     return { items: recent, warnings: [] };
   },

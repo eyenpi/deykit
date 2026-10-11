@@ -2,6 +2,14 @@
 export type WorkspaceRoute =
   | { kind: "start" }
   | { kind: "overview"; registrationId: string }
+  | { kind: "runs"; registrationId: string }
+  | {
+      kind: "run";
+      registrationId: string;
+      runId: string;
+      evaluationId?: string;
+      caseId?: string;
+    }
   | { kind: "decision"; registrationId: string; decisionId: string }
   | {
       kind: "decision-history";
@@ -20,6 +28,7 @@ export type WorkspaceRoute =
 
 const RESOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const EXAMPLE_QUERY_KEYS = new Set(["dataset", "case"]);
+const RUN_QUERY_KEYS = new Set(["evaluation", "case"]);
 
 function validId(value: string | null | undefined): value is string {
   return value !== null && value !== undefined && RESOURCE_ID.test(value);
@@ -30,6 +39,7 @@ export function isValidWorkspaceRoute(route: WorkspaceRoute): boolean {
     case "start":
       return true;
     case "overview":
+    case "runs":
     case "providers":
     case "fixtures":
       return validId(route.registrationId);
@@ -44,6 +54,13 @@ export function isValidWorkspaceRoute(route: WorkspaceRoute): boolean {
         (route.caseId === undefined || validId(route.caseId)) &&
         (route.caseId === undefined || route.datasetId !== undefined)
       );
+    case "run":
+      return (
+        validId(route.registrationId) &&
+        validId(route.runId) &&
+        (route.evaluationId === undefined || validId(route.evaluationId)) &&
+        (route.caseId === undefined || validId(route.caseId))
+      );
   }
 }
 
@@ -56,6 +73,15 @@ export function routeToHash(route: WorkspaceRoute): string {
       return "#/";
     case "overview":
       return `#/p/${route.registrationId}`;
+    case "runs":
+      return `#/p/${route.registrationId}/runs`;
+    case "run": {
+      const query = new URLSearchParams();
+      if (route.evaluationId) query.set("evaluation", route.evaluationId);
+      if (route.caseId) query.set("case", route.caseId);
+      const encoded = query.toString();
+      return `#/p/${route.registrationId}/runs/${route.runId}${encoded ? `?${encoded}` : ""}`;
+    }
     case "decision":
       return `#/p/${route.registrationId}/d/${route.decisionId}`;
     case "decision-history":
@@ -94,25 +120,36 @@ export function routeFromHash(hash: string): WorkspaceRoute | null {
   }
   const query = new URLSearchParams(queryText);
   const keys = [...query.keys()];
-  if (
-    keys.some((key) => !EXAMPLE_QUERY_KEYS.has(key)) ||
-    new Set(keys).size !== keys.length
-  )
-    return null;
-  const datasetId = query.get("dataset") ?? undefined;
-  const caseId = query.get("case") ?? undefined;
-  if (
-    (datasetId !== undefined && !validId(datasetId)) ||
-    (caseId !== undefined && !validId(caseId))
-  )
-    return null;
+  if (new Set(keys).size !== keys.length) return null;
 
   let route: WorkspaceRoute | null = null;
   if (segments.length === 0) {
     if (keys.length === 0) route = { kind: "start" };
   } else if (segments[0] === "p" && validId(segments[1])) {
     const registrationId = segments[1];
-    if (segments.length === 2 && keys.length === 0) {
+    if (segments.length === 3 && segments[2] === "runs") {
+      if (keys.length === 0) route = { kind: "runs", registrationId };
+    } else if (
+      segments.length === 4 &&
+      segments[2] === "runs" &&
+      validId(segments[3])
+    ) {
+      if (keys.some((key) => !RUN_QUERY_KEYS.has(key))) return null;
+      const evaluationId = query.get("evaluation") ?? undefined;
+      const runCaseId = query.get("case") ?? undefined;
+      if (
+        (evaluationId !== undefined && !validId(evaluationId)) ||
+        (runCaseId !== undefined && !validId(runCaseId))
+      )
+        return null;
+      route = {
+        kind: "run",
+        registrationId,
+        runId: segments[3],
+        ...(evaluationId ? { evaluationId } : {}),
+        ...(runCaseId ? { caseId: runCaseId } : {}),
+      };
+    } else if (segments.length === 2 && keys.length === 0) {
       route = { kind: "overview", registrationId };
     } else if (
       segments[2] === "providers" &&
@@ -127,7 +164,21 @@ export function routeFromHash(hash: string): WorkspaceRoute | null {
     ) {
       route = { kind: "fixtures", registrationId };
     } else if (segments[2] === "examples" && segments.length === 3) {
-      route = { kind: "examples", registrationId, decisionId: null };
+      if (keys.some((key) => !EXAMPLE_QUERY_KEYS.has(key))) return null;
+      const datasetId = query.get("dataset") ?? undefined;
+      const caseId = query.get("case") ?? undefined;
+      if (
+        (datasetId !== undefined && !validId(datasetId)) ||
+        (caseId !== undefined && !validId(caseId))
+      )
+        return null;
+      route = {
+        kind: "examples",
+        registrationId,
+        decisionId: null,
+        ...(datasetId ? { datasetId } : {}),
+        ...(caseId ? { caseId } : {}),
+      };
     } else if (segments[2] === "d" && validId(segments[3])) {
       const decisionId = segments[3];
       if (segments.length === 4 && keys.length === 0) {
@@ -139,6 +190,14 @@ export function routeFromHash(hash: string): WorkspaceRoute | null {
       ) {
         route = { kind: "decision-history", registrationId, decisionId };
       } else if (segments[4] === "examples" && segments.length === 5) {
+        if (keys.some((key) => !EXAMPLE_QUERY_KEYS.has(key))) return null;
+        const datasetId = query.get("dataset") ?? undefined;
+        const caseId = query.get("case") ?? undefined;
+        if (
+          (datasetId !== undefined && !validId(datasetId)) ||
+          (caseId !== undefined && !validId(caseId))
+        )
+          return null;
         route = {
           kind: "examples",
           registrationId,

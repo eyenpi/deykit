@@ -38,8 +38,10 @@ def test_query_key_allowlist_matches_registered_routes(path: str, keys: set[str]
     assert LocalBoundary.query_keys(path) == keys
 
 
-def test_preview_and_mutation_routes_do_not_admit_query_parameters() -> None:
-    assert LocalBoundary.query_keys("/api/v1/projects/reg/runs/preview") == set()
+def test_run_preview_admits_only_its_request_projection_flag() -> None:
+    path = "/api/v1/projects/reg/runs/preview"
+    assert LocalBoundary.query_keys(path, "POST") == {"include_request"}
+    assert LocalBoundary.query_keys(path, "GET") == set()
     assert LocalBoundary.query_keys("/api/v1/projects/reg/fixtures") == {
         "cursor",
         "limit",

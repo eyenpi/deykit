@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../api/client";
+import type { ApiOperationBody, ApiOperationData } from "../api/client";
 import { createWorkspaceGateway } from "./workspace-adapter";
 
 const json = (data: unknown) =>
@@ -33,6 +34,111 @@ function deferred<T>() {
 }
 
 describe("workspace API adapter", () => {
+  it("sends an opt-in reviewed run preview as a read-lane request with the exact proposal", async () => {
+    const exactSource = '{"large":9007199254740993,"ratio":1.2300}';
+    const preview: ApiOperationData<"previewRun"> = {
+      schema_version: 1,
+      decision_id: "decision-1",
+      dataset_id: "dataset-1",
+      mode: "fixture",
+      fixture_set_id: "fixture-set-1",
+      provider_id: "fixture-provider",
+      requested_model: "fixture-model",
+      selected_case_ids: ["case-1"],
+      initial_requests: "1",
+      invalid_cases: [],
+      dry_run: true,
+      development_case_count: "1",
+      settings: {
+        max_attempts: "5",
+        concurrency: "1",
+        timeout_seconds: "20",
+        deadline_seconds: "60",
+        max_retries_per_case: "0",
+      },
+      review_context_hash: "a".repeat(64),
+      review_context: {
+        schema_version: 1,
+        definition_source: "revision",
+        revision_id: "revision-1",
+        definition_hash: "b".repeat(64),
+        source_context_hash: "c".repeat(64),
+        provider_id: "fixture-provider",
+        destination: "authored fixture",
+        adapter: "fixture",
+        requested_model: "fixture-model",
+        compiler_id: "compiler-1",
+        compiler_version: "1",
+        fixture_set_id: "fixture-set-1",
+        development_case_ids: ["case-1"],
+        development_label_count: "1",
+        source_records: [],
+      },
+      case_reviews: [
+        {
+          case_id: "case-1",
+          input_hash: "d".repeat(64),
+          request_hash: "e".repeat(64),
+          compiler: "compiler-1",
+          compiler_version: "1",
+          requested_model: "fixture-model",
+          input_error: null,
+          request_source: exactSource,
+          request_source_redacted: false,
+        },
+      ],
+    };
+    const transport = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json({
+          capability: "c".repeat(43),
+          origin: "http://localhost",
+          api_version: 1,
+        }),
+      )
+      .mockResolvedValueOnce(json(preview));
+    const gateway = createWorkspaceGateway(
+      new ApiClient(transport, () => "http://localhost"),
+    );
+    const request: ApiOperationBody<"previewRun"> = {
+      schema_version: 1,
+      request: {
+        decision_id: "decision-1",
+        dataset_id: "dataset-1",
+        mode: "fixture",
+        split: "development",
+        case_ids: ["case-1"],
+        revision_id: "revision-1",
+        fixture_set_id: "fixture-set-1",
+        provider_id: null,
+        settings: {
+          max_attempts: 5,
+          concurrency: 1,
+          timeout_seconds: 20,
+          deadline_seconds: 60,
+          max_retries_per_case: 0,
+        },
+      },
+    };
+    const result = await gateway.execution.runs.preview({
+      registrationId: "registration-1",
+      body: request,
+      query: { include_request: "true" },
+    });
+
+    expect(result.data.case_reviews[0]?.request_source).toBe(exactSource);
+    expect(transport).toHaveBeenCalledTimes(2);
+    expect(transport.mock.calls[0]?.[0]).toBe("/api/v1/session/bootstrap");
+    expect(transport.mock.calls[1]?.[0]).toBe(
+      "/api/v1/projects/registration-1/runs/preview?include_request=true",
+    );
+    expect(transport.mock.calls[1]?.[1]?.method).toBe("POST");
+    expect(JSON.parse(transport.mock.calls[1]?.[1]?.body as string)).toEqual(
+      request,
+    );
+  });
+
   it("registers a project and reads its server-authoritative overview", async () => {
     const transport = vi
       .fn<typeof fetch>()

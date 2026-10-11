@@ -43,6 +43,7 @@ export interface WorkspaceGateway {
   openProject(request: ProjectRequest): Promise<ProjectOverview>;
   reconnect(): Promise<void>;
   authoring: AuthoringGateway;
+  execution: ExecutionGateway;
 }
 
 type OperationResult<K extends ApiJsonOperationId> = Promise<
@@ -59,6 +60,9 @@ export type DatasetPath = ResourcePath & { datasetId: string };
 export type CasePath = DatasetPath & { caseId: string };
 export type LabelPath = DecisionPath & { datasetId: string };
 export type ProviderPath = ResourcePath & { profileId: string };
+export type RunPath = ResourcePath & { runId: string };
+export type RunCasePath = RunPath & { caseId: string };
+export type EvaluationPath = ResourcePath & { evaluationId: string };
 
 export interface DecisionAuthoringOperations {
   list(
@@ -280,6 +284,48 @@ export interface AuthoringGateway {
   sources: SourceAuthoringOperations;
 }
 
+export interface ExecutionGateway {
+  runs: {
+    preview(
+      request: ResourcePath & {
+        body: OperationBody<"previewRun">;
+        query?: OperationQuery<"previewRun">;
+      },
+    ): OperationResult<"previewRun">;
+    start(
+      request: ResourcePath & { body: OperationBody<"startRun"> },
+    ): OperationResult<"startRun">;
+    list(
+      request: ResourcePath & { query?: OperationQuery<"listRuns"> },
+    ): OperationResult<"listRuns">;
+    read(request: RunPath): OperationResult<"readRun">;
+    cancel(
+      request: RunPath & { body: OperationBody<"cancelRun"> },
+    ): OperationResult<"cancelRun">;
+    previewResume(
+      request: RunPath & {
+        body: OperationBody<"previewRunResume">;
+        query?: OperationQuery<"previewRunResume">;
+      },
+    ): OperationResult<"previewRunResume">;
+    resume(
+      request: RunPath & { body: OperationBody<"resumeRun"> },
+    ): OperationResult<"resumeRun">;
+  };
+  inspection: {
+    listResults(
+      request: RunPath & { query?: OperationQuery<"listResults"> },
+    ): OperationResult<"listResults">;
+    readResult(
+      request: RunCasePath & { query?: OperationQuery<"readResult"> },
+    ): OperationResult<"readResult">;
+    listEvaluations(
+      request: RunPath & { query?: OperationQuery<"listEvaluations"> },
+    ): OperationResult<"listEvaluations">;
+    readEvaluation(request: EvaluationPath): OperationResult<"readEvaluation">;
+  };
+}
+
 const pending = () =>
   new ApiError(
     "integration_pending",
@@ -363,9 +409,28 @@ const disconnectedAuthoring: AuthoringGateway = {
   ]),
 };
 
+const disconnectedExecution: ExecutionGateway = {
+  runs: disconnectedAuthoringGroup<ExecutionGateway["runs"]>([
+    "preview",
+    "start",
+    "list",
+    "read",
+    "cancel",
+    "previewResume",
+    "resume",
+  ]),
+  inspection: disconnectedAuthoringGroup<ExecutionGateway["inspection"]>([
+    "listResults",
+    "readResult",
+    "listEvaluations",
+    "readEvaluation",
+  ]),
+};
+
 /** Deliberately no mock successes, filesystem guesses, or speculative API endpoints. */
 export const disconnectedWorkspace: WorkspaceGateway = {
   authoring: disconnectedAuthoring,
+  execution: disconnectedExecution,
   async recentProjects() {
     throw pending();
   },

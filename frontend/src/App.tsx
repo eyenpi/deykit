@@ -12,6 +12,9 @@ import { FixtureLibrary } from "./features/fixtures/FixtureLibrary";
 import { ImportSheet } from "./features/imports/ImportSheet";
 import { ProviderPage } from "./features/providers/ProviderPage";
 import { SplitSheet } from "./features/splits/SplitSheet";
+import { RunReview } from "./features/execution/RunReview";
+import { RunList } from "./features/execution/RunList";
+import { RunDetail } from "./features/execution/RunDetail";
 import { disconnectedWorkspace } from "./workspace/gateway";
 import type { ProjectOverview, WorkspaceGateway } from "./workspace/gateway";
 import { Overview } from "./workspace/Overview";
@@ -67,6 +70,7 @@ export function App({
   const [importOpen, setImportOpen] = useState(false);
   const [splitOpen, setSplitOpen] = useState(false);
   const [examplesRefresh, setExamplesRefresh] = useState(0);
+  const [runReviewDecisionId, setRunReviewDecisionId] = useState<string>();
   const [createdName, setCreatedName] = useState<string>();
   const [createdError, setCreatedError] = useState<string>();
   const openHeading = useRef<HTMLHeadingElement>(null);
@@ -90,6 +94,11 @@ export function App({
       navigation.dispose();
     };
   }, [navigation]);
+
+  useEffect(() => {
+    if (route.kind !== "decision" || route.decisionId !== runReviewDecisionId)
+      setRunReviewDecisionId(undefined);
+  }, [route, runReviewDecisionId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -163,6 +172,12 @@ export function App({
           decisionId: item.id,
         },
       })),
+      {
+        id: "runs",
+        label: "Runs",
+        context: "Workspace",
+        route: { kind: "runs" as const, registrationId: project.id },
+      },
       {
         id: "project-examples",
         label: "Project examples",
@@ -445,64 +460,85 @@ export function App({
           }
         />
       ) : route.kind === "decision" && decision ? (
-        <DecisionPage
-          registrationId={project.id}
-          decisionId={decision.id}
-          operations={gateway.authoring.decisions}
-          navigation={navigation}
-          onDecisionRenamed={(name) =>
-            setProject((current) =>
-              current
-                ? {
-                    ...current,
-                    decisions: current.decisions.map((item) =>
-                      item.id === decision.id ? { ...item, name } : item,
-                    ),
-                  }
-                : current,
-            )
-          }
-          onHistory={() =>
-            void navigation.navigate({
-              kind: "decision-history",
-              registrationId: project.id,
-              decisionId: decision.id,
-            })
-          }
-          onExamples={() => {
-            sessionState.update(project.id, {
-              selectedDecisionId: decision.id,
-            });
-            void navigation.navigate({
-              kind: "examples",
-              registrationId: project.id,
-              decisionId: decision.id,
-            });
-          }}
-          onArchiveChanged={async () => {
-            const moved = await navigation.navigate({
-              kind: "overview",
-              registrationId: project.id,
-            });
-            if (!moved) return;
-            try {
-              await refreshProject(project.id);
-              const currentRoute = navigation.current;
-              if (
-                currentRoute.kind === "overview" &&
-                currentRoute.registrationId === project.id
+        <>
+          <DecisionPage
+            registrationId={project.id}
+            decisionId={decision.id}
+            operations={gateway.authoring.decisions}
+            navigation={navigation}
+            onDecisionRenamed={(name) =>
+              setProject((current) =>
+                current
+                  ? {
+                      ...current,
+                      decisions: current.decisions.map((item) =>
+                        item.id === decision.id ? { ...item, name } : item,
+                      ),
+                    }
+                  : current,
               )
-                setProjectError(undefined);
-            } catch (cause) {
-              const currentRoute = navigation.current;
-              if (
-                currentRoute.kind === "overview" &&
-                currentRoute.registrationId === project.id
-              )
-                setProjectError(safeMessage(cause));
             }
-          }}
-        />
+            onHistory={() =>
+              void navigation.navigate({
+                kind: "decision-history",
+                registrationId: project.id,
+                decisionId: decision.id,
+              })
+            }
+            onExamples={() => {
+              sessionState.update(project.id, {
+                selectedDecisionId: decision.id,
+              });
+              void navigation.navigate({
+                kind: "examples",
+                registrationId: project.id,
+                decisionId: decision.id,
+              });
+            }}
+            onRun={() => setRunReviewDecisionId(decision.id)}
+            onArchiveChanged={async () => {
+              const moved = await navigation.navigate({
+                kind: "overview",
+                registrationId: project.id,
+              });
+              if (!moved) return;
+              try {
+                await refreshProject(project.id);
+                const currentRoute = navigation.current;
+                if (
+                  currentRoute.kind === "overview" &&
+                  currentRoute.registrationId === project.id
+                )
+                  setProjectError(undefined);
+              } catch (cause) {
+                const currentRoute = navigation.current;
+                if (
+                  currentRoute.kind === "overview" &&
+                  currentRoute.registrationId === project.id
+                )
+                  setProjectError(safeMessage(cause));
+              }
+            }}
+          />
+          {runReviewDecisionId === decision.id && (
+            <RunReview
+              key={`${project.id}:${decision.id}`}
+              project={project}
+              decision={decision}
+              gateway={gateway}
+              navigation={navigation}
+              onClose={() => setRunReviewDecisionId(undefined)}
+              onStarted={(runId) => {
+                setRunReviewDecisionId(undefined);
+                void navigation.navigate({
+                  kind: "run",
+                  registrationId: project.id,
+                  runId,
+                });
+              }}
+            />
+          )}
+        </>
       ) : route.kind === "decision-history" && decision ? (
         <DefinitionHistory
           registrationId={project.id}
@@ -519,6 +555,25 @@ export function App({
         />
       ) : route.kind === "examples" ? (
         examplesPage()
+      ) : route.kind === "runs" ? (
+        <RunList
+          key={project.id}
+          project={project}
+          gateway={gateway.execution}
+          navigation={navigation}
+        />
+      ) : route.kind === "run" ? (
+        <RunDetail
+          key={`${project.id}:${route.runId}`}
+          registrationId={project.id}
+          runId={route.runId}
+          evaluationId={route.evaluationId}
+          caseId={route.caseId}
+          execution={gateway.execution}
+          navigation={navigation}
+          project={project}
+          readRevision={gateway.authoring.decisions.revision}
+        />
       ) : route.kind === "providers" ? (
         <ProviderPage
           project={project}

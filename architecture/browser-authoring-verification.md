@@ -1,7 +1,8 @@
 # M10 integration verification — 2026-10-11
 
-This is local integration evidence for `codex/m10-browser-authoring`, not a claim
-that this PR has been merged or that the hosted CI/platform gates passed. Main
+This records local integration evidence for `codex/m10-browser-authoring`.
+PR #49 was subsequently merged at `3bcf772`; hosted CI/platform gates remain
+unverified. Main
 already received the M10 implementation through PR #48 during this session.
 The initial main head `fc3d2fb` was already an ancestor. A normal merge pull of
 origin M10 preserved both the local authoring fixes and merged PR #47, producing
@@ -146,5 +147,8 @@ physical-device or accessibility acceptance.
   remains later M11/M12 work. Existing tracking issues #9, #16, #17, #18 and #19
   retain live-provider, broader acceptance, packaging/platform and milestone gates.
 - There was no new independent review of the final integration head in this
-  session. Earlier review and PR #47 evidence are retained, but are not a fresh
-  final-head review. This PR must remain unmerged for review.
+  session. Earlier review and PR #47 evidence were not a fresh final-head review.
+  After PR #49 merged, independent Luna review of exact `3bcf772` found the
+  added regression assertions and evidence distinctions sound; it identified
+  this historical merge/review status for correction. No new runtime checks were
+  performed by that static review.
