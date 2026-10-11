@@ -296,9 +296,7 @@ async function runInstalledProviderFixtureTail({
     );
     throw error;
   }
-  await recordProjectNavigationFacts(
-    await captureProjectNavigationFacts(page),
-  );
+  await recordProjectNavigationFacts(await captureProjectNavigationFacts(page));
   await page
     .getByRole("button", { name: "Try support demo", exact: true })
     .click();
@@ -915,8 +913,7 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
   let restoreReceiptsIdentical = false;
   let saveAndDiscardWereBlocked = false;
   let projectNavigationFacts:
-    | Awaited<ReturnType<typeof captureProjectNavigationFacts>>
-    | undefined;
+    Awaited<ReturnType<typeof captureProjectNavigationFacts>> | undefined;
   const pendingRouteCategories = new Set<string>();
 
   function decisionListQueryMatches(request: Request): boolean {
@@ -1811,8 +1808,7 @@ test("installed browser authors exact decision source and previews imports throu
       }
     | undefined;
   let projectNavigationFacts:
-    | Awaited<ReturnType<typeof captureProjectNavigationFacts>>
-    | undefined;
+    Awaited<ReturnType<typeof captureProjectNavigationFacts>> | undefined;
   let activeSplitReadEvents:
     | Array<{
         event: "body" | "body_error" | "cancelled";
