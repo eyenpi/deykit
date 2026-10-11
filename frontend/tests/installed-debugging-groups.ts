@@ -555,6 +555,12 @@ function object(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function countText(value: unknown): string {
+  if (typeof value !== "string" || !/^(?:0|[1-9][0-9]*)$/.test(value))
+    throw new Error("The installed API returned an invalid count.");
+  return value;
+}
+
 async function addIndependentRegression(
   page: Page,
   registrationId: string,
@@ -904,12 +910,19 @@ export async function runGroupsWorkflow(
       });
       qualification.setWitness("diagnostic_barrier_case_id", actualEnteredCase);
 
-      await review.dialog
-        .getByRole("button", {
-          name: "Retry original start request",
-          exact: true,
-        })
-        .click();
+      const replayResponse = await captureOperation(
+        page,
+        "startChoiceOrder",
+        { registration_id: registrationId },
+        () =>
+          review.dialog
+            .getByRole("button", {
+              name: "Retry original start request",
+              exact: true,
+            })
+            .click(),
+      );
+      expect(replayResponse.response.status()).toBe(202);
       const replay = startLoss.observation();
       expect(replay?.replayStatus).toBe(202);
       expect(replay?.sameRequestBytes).toBe(true);
@@ -1012,12 +1025,19 @@ export async function runGroupsWorkflow(
       expect(firstCancelReceipt.group_id).toBe(startReceipt.group_id);
       expect(firstCancelReceipt.kind).toBe("choice_order");
       expect(firstCancelReceipt.replayed).toBe(false);
-      await page
-        .getByRole("button", {
-          name: "Retry original cancellation",
-          exact: true,
-        })
-        .click();
+      const replayResponse = await captureOperation(
+        page,
+        "cancelChoiceOrder",
+        { registration_id: registrationId, group_id: startReceipt.group_id },
+        () =>
+          page
+            .getByRole("button", {
+              name: "Retry original cancellation",
+              exact: true,
+            })
+            .click(),
+      );
+      expect(replayResponse.response.status()).toBe(200);
       const replay = cancelLoss.observation();
       expect(replay?.replayStatus).toBe(200);
       expect(replay?.sameRequestBytes).toBe(true);
@@ -1119,9 +1139,29 @@ export async function runGroupsWorkflow(
         exact: true,
       }),
     ).toBeVisible();
-    await expect(
-      page.getByText("Disagreement: 1/2", { exact: false }),
-    ).toBeVisible();
+    const diagnosticSummary = object(diagnosticDetail.summary);
+    const summaryCases = diagnosticSummary.cases;
+    expect(Array.isArray(summaryCases)).toBe(true);
+    const summaryCaseIds = (summaryCases as unknown[]).map((item) => {
+      const caseId = object(item).case_id;
+      if (typeof caseId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(caseId))
+        throw new Error("The diagnostic summary case identity was invalid.");
+      return caseId;
+    });
+    expect([...summaryCaseIds].sort()).toEqual([...caseIds].sort());
+    const summaryRegion = page.getByRole("region", {
+      name: "Selected immutable snapshot",
+    });
+    await expect(summaryRegion).toContainText(
+      `${countText(diagnosticSummary.independent_case_count)} cases · ${countText(diagnosticSummary.order_count)} orders · ${countText(diagnosticSummary.expanded_result_count)} expanded results · ${countText(diagnosticSummary.fully_observed_case_count)} fully observed`,
+    );
+    await expect(summaryRegion.getByRole("listitem")).toHaveCount(
+      summaryCaseIds.length,
+    );
+    for (const caseId of summaryCaseIds)
+      await expect(
+        summaryRegion.getByText(caseId, { exact: true }),
+      ).toBeVisible();
     await page
       .getByRole("button", {
         name: "Create report from this snapshot",
@@ -1170,12 +1210,19 @@ export async function runGroupsWorkflow(
         }),
       ).toBeVisible();
       expect(reportLoss.firstObservation()?.firstStatus).toBe(200);
-      await reportDialog
-        .getByRole("button", {
-          name: "Retry original unchanged report",
-          exact: true,
-        })
-        .click();
+      const replayResponse = await captureOperation(
+        page,
+        "createReport",
+        { registration_id: registrationId },
+        () =>
+          reportDialog
+            .getByRole("button", {
+              name: "Retry original unchanged report",
+              exact: true,
+            })
+            .click(),
+      );
+      expect(replayResponse.response.status()).toBe(200);
       const replay = reportLoss.observation();
       expect(replay?.replayStatus).toBe(200);
       expect(replay?.sameRequestBytes).toBe(true);
@@ -1336,12 +1383,19 @@ export async function runGroupsWorkflow(
         startReceipt.member_run_ids,
       );
       expect(firstResumeReceipt.replayed).toBe(false);
-      await page
-        .getByRole("button", {
-          name: "Retry original resume request",
-          exact: true,
-        })
-        .click();
+      const replayResponse = await captureOperation(
+        page,
+        "resumeChoiceOrder",
+        { registration_id: registrationId, group_id: startReceipt.group_id },
+        () =>
+          page
+            .getByRole("button", {
+              name: "Retry original resume request",
+              exact: true,
+            })
+            .click(),
+      );
+      expect(replayResponse.response.status()).toBe(202);
       const replay = resumeLoss.observation();
       expect(replay?.replayStatus).toBe(202);
       expect(replay?.sameRequestBytes).toBe(true);
@@ -1406,12 +1460,99 @@ export async function runGroupsWorkflow(
           member.attempts_used === "2" && member.attempts_remaining === "0",
       ),
     ).toBe(true);
+    const progressRegion = page.getByRole("region", {
+      name: "Current progress",
+    });
+    for (const [label, value] of [
+      ["Independent cases", finalProgress.group.independent_case_count],
+      ["Initial requests", finalProgress.group.initial_requests],
+      ["Lifetime attempt limit", finalProgress.group.attempt_limit],
+      ["Attempts used", finalProgress.group.attempts_used],
+      ["Attempts remaining", finalProgress.group.attempts_remaining],
+    ]) {
+      const valueCell = progressRegion
+        .locator("dt")
+        .filter({ hasText: new RegExp(`^${label}$`) })
+        .locator("xpath=following-sibling::dd[1]");
+      await expect(valueCell).toHaveText(value);
+    }
+    for (const member of finalProgress.group.members) {
+      const memberRow = progressRegion
+        .getByRole("listitem")
+        .filter({ hasText: member.run_id });
+      await expect(memberRow).toHaveCount(1);
+      await expect(
+        memberRow.getByRole("button", { name: member.run_id, exact: true }),
+      ).toBeVisible();
+      await expect(memberRow).toContainText(
+        `${member.state} · ${member.attempts_used} attempts · ${member.attempts_remaining} remaining`,
+      );
+    }
     expect(await snapshotSelect.inputValue()).toBe(diagnosticSnapshotId);
+    const resumedOptions = snapshotSelect.locator("option");
+    await expect
+      .poll(() => resumedOptions.last().getAttribute("value"))
+      .not.toBe(diagnosticSnapshotId);
     const resumedSnapshotValues = await snapshotSelect
       .locator("option")
       .evaluateAll((items) =>
         items.map((item) => (item as HTMLOptionElement).value).filter(Boolean),
       );
+    const latestResumedSnapshot = resumedSnapshotValues.at(-1);
+    if (!latestResumedSnapshot)
+      throw new Error("The resumed diagnostic snapshot was unavailable.");
+    expect(latestResumedSnapshot).not.toBe(diagnosticSnapshotId);
+    const finalDiagnosticRead = await captureOperation(
+      page,
+      "readChoiceOrderSnapshot",
+      {
+        registration_id: registrationId,
+        group_id: startReceipt.group_id,
+        snapshot_id: latestResumedSnapshot,
+      },
+      () =>
+        page
+          .getByRole("button", {
+            name: "Select latest snapshot",
+            exact: true,
+          })
+          .click(),
+    );
+    const finalDiagnosticDetail = decodeSuccessEnvelope<
+      ApiOperationData<"readChoiceOrderSnapshot">
+    >(finalDiagnosticRead.body, 200, finalDiagnosticRead.response.status());
+    expect(finalDiagnosticDetail.snapshot.id).toBe(latestResumedSnapshot);
+    expect(finalDiagnosticDetail.snapshot.group_id).toBe(startReceipt.group_id);
+    expect(finalDiagnosticDetail.members).toHaveLength(2);
+    const finalDiagnosticSummary = object(finalDiagnosticDetail.summary);
+    const finalSummaryCases = finalDiagnosticSummary.cases;
+    expect(Array.isArray(finalSummaryCases)).toBe(true);
+    const finalSummaryCaseIds = (finalSummaryCases as unknown[]).map((item) => {
+      const caseId = object(item).case_id;
+      if (typeof caseId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(caseId))
+        throw new Error("The final diagnostic case identity was invalid.");
+      return caseId;
+    });
+    expect([...finalSummaryCaseIds].sort()).toEqual([...caseIds].sort());
+    expect(finalDiagnosticSummary.independent_case_count).toBe("2");
+    expect(finalDiagnosticSummary.order_count).toBe("2");
+    expect(finalDiagnosticSummary.expanded_result_count).toBe("4");
+    expect(finalDiagnosticSummary.fully_observed_case_count).toBe("2");
+    const finalSummaryRegion = page.getByRole("region", {
+      name: "Selected immutable snapshot",
+    });
+    await expect(finalSummaryRegion).toContainText(
+      "2 cases · 2 orders · 4 expanded results · 2 fully observed",
+    );
+    await expect(
+      finalSummaryRegion.getByText("Disagreement: 1/2", { exact: false }),
+    ).toBeVisible();
+    await expect(finalSummaryRegion.getByRole("listitem")).toHaveCount(2);
+    for (const caseId of finalSummaryCaseIds)
+      await expect(
+        finalSummaryRegion.getByText(caseId, { exact: true }),
+      ).toBeVisible();
+
     const resumedSelection = await snapshotSelect.inputValue();
     const otherResumedSnapshot = resumedSnapshotValues.find(
       (value) => value !== diagnosticSnapshotId,
@@ -1639,12 +1780,19 @@ export async function runGroupsWorkflow(
         }),
       ).toBeVisible();
       expect(checkLoss.firstObservation()?.firstStatus).toBe(202);
-      await checkDialog
-        .getByRole("button", {
-          name: "Retry original start request",
-          exact: true,
-        })
-        .click();
+      const replayResponse = await captureOperation(
+        page,
+        "startRegressionCheck",
+        { registration_id: registrationId },
+        () =>
+          checkDialog
+            .getByRole("button", {
+              name: "Retry original start request",
+              exact: true,
+            })
+            .click(),
+      );
+      expect(replayResponse.response.status()).toBe(202);
       const replay = checkLoss.observation();
       expect(replay?.sameRequestBytes).toBe(true);
       checkReceipt = decodeSuccessEnvelope<

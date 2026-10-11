@@ -1717,6 +1717,33 @@ export async function runComparisonWorkflow(
       expect(primaryCounts?.[bucket]).toBe("0");
     }
     expect(primaryCounts?.quality_denominator).toBeUndefined();
+    await page
+      .getByRole("button", { name: "Open saved comparison", exact: true })
+      .click();
+    const pinnedComparison = page.getByRole("region", {
+      name: "Pinned comparison details",
+      exact: true,
+    });
+    await expect(pinnedComparison).toBeVisible();
+    const pinnedContexts = pinnedComparison.getByRole("definition");
+    await expect(pinnedContexts.nth(0)).toHaveText(
+      `${qualification.seedMetadata.evaluation_id} · result ${qualification.seedMetadata.result_snapshot_id}`,
+    );
+    await expect(pinnedContexts.nth(1)).toHaveText(
+      `${revisedEvaluation.evaluation_id} · result ${revisedRun.latest_result_snapshot_id}`,
+    );
+    await expect(pinnedContexts.nth(2)).toHaveText("8");
+    const bucketList = pinnedComparison.locator("dl").nth(1);
+    for (const bucket of allBuckets) {
+      const label = bucket.replaceAll("_", " ");
+      const bucketRow = bucketList.locator("div").filter({
+        has: page.getByText(label, { exact: true }),
+      });
+      await expect(bucketRow).toHaveCount(1);
+      await expect(bucketRow.locator("dd")).toHaveText(
+        String(primaryCounts?.[bucket]),
+      );
+    }
     await reads.waitForIdle();
     await qualification.captureScreenshot(page, "m12-comparison-original.png");
 

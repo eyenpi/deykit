@@ -200,12 +200,120 @@ export async function runReportsWorkflow(
       const counts = object(item.outcomes.primary_counts);
       return (
         item.left_evaluation_id === qualification.seedMetadata.evaluation_id &&
+        item.left_result_snapshot_id ===
+          qualification.seedMetadata.result_snapshot_id &&
+        item.right_evaluation_id !== qualification.seedMetadata.evaluation_id &&
+        item.right_result_snapshot_id !==
+          qualification.seedMetadata.result_snapshot_id &&
+        counts.both_correct === "6" &&
         counts.improved === "1" &&
-        counts.regressed === "0"
+        counts.regressed === "0" &&
+        counts.both_wrong === "1" &&
+        counts.unlabelled_agreement === "2" &&
+        counts.unavailable_answer === "2"
       );
     });
     expect(forward).toHaveLength(1);
-    const comparisonId = safeId(forward[0]?.comparison_id);
+    const forwardComparison = forward[0];
+    if (!forwardComparison)
+      throw new Error("The expected saved comparison was unavailable.");
+    const comparisonId = safeId(forwardComparison.comparison_id);
+    const forwardCounts = object(forwardComparison.outcomes.primary_counts);
+    const expectedBuckets = {
+      left_only: "0",
+      right_only: "0",
+      changed_input: "0",
+      changed_question_options: "0",
+      changed_expectations: "0",
+      unavailable_answer: "2",
+      excluded_expectation: "0",
+      unlabelled_agreement: "2",
+      unlabelled_disagreement: "0",
+      both_correct: "6",
+      improved: "1",
+      regressed: "0",
+      both_wrong: "1",
+    };
+    expect(Object.keys(forwardCounts).sort()).toEqual(
+      Object.keys(expectedBuckets).sort(),
+    );
+    expect(forwardCounts).toEqual(expectedBuckets);
+    const forwardOutcomes = object(forwardComparison.outcomes);
+    expect(forwardOutcomes.quality_denominator).toBe("8");
+    expect(forwardOutcomes.left_correct_count).toBe("6");
+    expect(forwardOutcomes.right_correct_count).toBe("7");
+    expect(forwardOutcomes.unlabelled_denominator).toBe("2");
+    expect(
+      Object.values(forwardCounts).reduce(
+        (total: bigint, count) => total + BigInt(String(count)),
+        0n,
+      ),
+    ).toBe(12n);
+    const rightEvaluationId = safeId(forwardComparison.right_evaluation_id);
+    await page
+      .getByLabel("Left saved evaluation ID", { exact: true })
+      .fill(qualification.seedMetadata.evaluation_id);
+    await page
+      .getByLabel("Right saved evaluation ID", { exact: true })
+      .fill(rightEvaluationId);
+    const rightEvaluationReadPromise = captureOperation(
+      page,
+      "readEvaluation",
+      { registration_id: registrationId, evaluation_id: rightEvaluationId },
+      async () => {},
+    );
+    const leftEvaluationRead = await captureOperation(
+      page,
+      "readEvaluation",
+      {
+        registration_id: registrationId,
+        evaluation_id: qualification.seedMetadata.evaluation_id,
+      },
+      () =>
+        page
+          .getByRole("button", {
+            name: "Verify saved evaluations",
+            exact: true,
+          })
+          .click(),
+    );
+    const rightEvaluationRead = await rightEvaluationReadPromise;
+    expect(leftEvaluationRead.response.status()).toBe(200);
+    expect(rightEvaluationRead.response.status()).toBe(200);
+    const leftEvaluation = decodeSuccessEnvelope<
+      ApiOperationData<"readEvaluation">
+    >(leftEvaluationRead.body, 200, leftEvaluationRead.response.status());
+    const rightEvaluation = decodeSuccessEnvelope<
+      ApiOperationData<"readEvaluation">
+    >(rightEvaluationRead.body, 200, rightEvaluationRead.response.status());
+    expect(leftEvaluation).toMatchObject({
+      evaluation_id: qualification.seedMetadata.evaluation_id,
+      run_id: qualification.seedMetadata.run_id,
+      content_hash: qualification.seedMetadata.evaluation_content_hash,
+      result_snapshot_id: forwardComparison.left_result_snapshot_id,
+      label_snapshot_id: qualification.seedMetadata.label_snapshot_id,
+    });
+    expect(rightEvaluation.evaluation_id).toBe(rightEvaluationId);
+    expect(rightEvaluation.run_id).not.toBe(qualification.seedMetadata.run_id);
+    expect(rightEvaluation.result_snapshot_id).toBe(
+      forwardComparison.right_result_snapshot_id,
+    );
+    const rightMetrics = object(rightEvaluation.metrics);
+    const rightSummary = object(rightMetrics.summary);
+    const rightAccuracy = object(rightSummary.set_accuracy);
+    expect(rightAccuracy.numerator).toBe("7");
+    expect(rightAccuracy.denominator).toBe("8");
+    expect(rightAccuracy.value).toBe("0.875000");
+    await expect(
+      page.getByRole("region", { name: "Verified evaluation context" }),
+    ).toContainText(
+      `${qualification.seedMetadata.run_id} · original · result ${forwardComparison.left_result_snapshot_id} · labels ${qualification.seedMetadata.label_snapshot_id}`,
+    );
+    await expect(
+      page.getByRole("region", { name: "Verified evaluation context" }),
+    ).toContainText(
+      `${rightEvaluation.run_id} · ${rightEvaluation.mode} · result ${rightEvaluation.result_snapshot_id} · labels ${rightEvaluation.label_snapshot_id}`,
+    );
     qualification.setWitness("comparison_id", comparisonId);
     await reads.waitForIdle();
 
@@ -383,12 +491,19 @@ export async function runReportsWorkflow(
             }),
           ).toBeVisible();
           expect(lost.firstObservation()?.firstStatus).toBe(200);
-          await dialog
-            .getByRole("button", {
-              name: "Retry original unchanged report",
-              exact: true,
-            })
-            .click();
+          const replayResponse = await captureOperation(
+            page,
+            "createReport",
+            { registration_id: registrationId },
+            () =>
+              dialog
+                .getByRole("button", {
+                  name: "Retry original unchanged report",
+                  exact: true,
+                })
+                .click(),
+          );
+          expect(replayResponse.response.status()).toBe(200);
           const observed = lost.observation();
           expect(observed?.replayStatus).toBe(200);
           expect(observed?.sameRequestBytes).toBe(true);
