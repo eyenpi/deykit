@@ -277,6 +277,7 @@ it("retries the captured label hash and operation port after the frozen scope is
     typeof disconnectedWorkspace.authoring.examples.saveLabels
   >[0][] = [];
   let saves = 0;
+  let replacementSaves = 0;
   const originalOperations: ExampleAuthoringOperations = {
     ...disconnectedWorkspace.authoring.examples,
     readLabel: async () => ({
@@ -297,6 +298,7 @@ it("retries the captured label hash and operation port after the frozen scope is
       warnings: [],
     }),
     saveLabels: async () => {
+      replacementSaves += 1;
       throw new Error(
         "replacement label port must not receive the retained save",
       );
@@ -360,7 +362,6 @@ it("retries the captured label hash and operation port after the frozen scope is
     expect(replayed.decisionId).toBe(original.decisionId);
     expect(replayed.datasetId).toBe(original.datasetId);
     expect(replayed.caseId).toBe(original.caseId);
-    expect(replayed.operations).toBe(originalOperations);
     expect(replayed.body).toEqual(original.body);
     expect(replayed.body.operation_id).toBe(original.body.operation_id);
     expect(replayed.body.edits[0]?.review).toEqual(
@@ -378,6 +379,7 @@ it("retries the captured label hash and operation port after the frozen scope is
     expect(replayed.body.edits[0]?.review.input_hash).toBe("frozen-hash-A");
     expect(replayed.frozenInputHash).toBe("frozen-hash-A");
     expect(saves).toBe(2);
+    expect(replacementSaves).toBe(0);
   } finally {
     tree.unmount();
     navigation.dispose();
