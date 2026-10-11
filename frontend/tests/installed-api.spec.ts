@@ -327,8 +327,7 @@ async function runInstalledProviderFixtureTail({
             const url = new URL(candidate.url());
             return (
               candidate.request().method() === "GET" &&
-              url.pathname ===
-                `/api/v1/projects/${registrationId}/decisions` &&
+              url.pathname === `/api/v1/projects/${registrationId}/decisions` &&
               url.searchParams.get("include_archived") === "true" &&
               url.searchParams.get("limit") === "50"
             );
@@ -358,10 +357,7 @@ async function runInstalledProviderFixtureTail({
   const fixtureArchiveResponsePromise = openedArchiveRead;
   const fixtureOverviewReadiness = (async () => {
     const response = await fixtureArchiveResponsePromise;
-    await expectDirectDataEnvelope(
-      response,
-      new URL(response.url()).pathname,
-    );
+    await expectDirectDataEnvelope(response, new URL(response.url()).pathname);
     await response.body();
     const envelope: {
       data: ApiOperationData<"listDecisions">;
@@ -382,7 +378,10 @@ async function runInstalledProviderFixtureTail({
   );
   let fixtureOverviewTimer: ReturnType<typeof setTimeout> | undefined;
   const fixtureOverviewDeadline = new Promise<never>((_, reject) => {
-    fixtureOverviewTimer = setTimeout(() => reject(fixtureOverviewTimeout), 15_000);
+    fixtureOverviewTimer = setTimeout(
+      () => reject(fixtureOverviewTimeout),
+      15_000,
+    );
   });
   try {
     await Promise.race([fixtureOverviewReadiness, fixtureOverviewDeadline]);
@@ -394,8 +393,7 @@ async function runInstalledProviderFixtureTail({
     }
     throw error;
   } finally {
-    if (fixtureOverviewTimer !== undefined)
-      clearTimeout(fixtureOverviewTimer);
+    if (fixtureOverviewTimer !== undefined) clearTimeout(fixtureOverviewTimer);
   }
   await enterPhase("Fixture demo Overview ready");
   await page.unroute("**/api/v1/projects/demo");
