@@ -256,6 +256,7 @@ export async function runReportsWorkflow(page: Page, testInfo: TestInfo): Promis
       expect(report.report_id).toBe(target.reportId);
       expect(report.target_kind).toBe(target.kind);
       expect(report.target_id).toBe(target.id);
+      expect(report.raw).toEqual({ inputs: false, requests: false, responses: false });
       expect(target.kind === "diagnostic" ? report.diagnostic_snapshot_id : report.check_snapshot_id).toBe(target.snapshot);
       await reads.waitForIdle();
       const witnessPath = testInfo.outputPath("imported-" + target.reportId + "-witness.json");
@@ -318,9 +319,11 @@ async function exerciseKnownReportDownloadFailures(
       const format = previousFormat === "json" ? "markdown" : "json";
       previousFormat = format;
       await page.getByLabel("Download format", { exact: true }).selectOption(format);
+      let forwardedCalls = 0;
       const routeHandler = async (route: Route) => {
         const actual = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
         const actualBytes = await actual.body();
+        forwardedCalls += 1;
         expect(actual.status()).toBe(200);
         expect(bodySha256(actualBytes)).toMatch(/^[a-f0-9]{64}$/);
         if (fault === "preview-service-unavailable" || fault === "download-service-unavailable") {
@@ -374,6 +377,7 @@ async function exerciseKnownReportDownloadFailures(
         expect(observed.response.status()).toBe(
           fault.includes("service-unavailable") ? 503 : fault === "redirect" ? 302 : 200,
         );
+        expect(forwardedCalls).toBe(1);
         await expect(page.getByRole("alert")).toBeVisible();
         await expect(page.getByRole("heading", { name: "Inert text preview", exact: true })).toHaveCount(0);
         await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();

@@ -315,6 +315,7 @@ async function openSavedReport(
     expect(saved.report_id).toBe(reportId);
     expect(saved.target_kind).toBe(kind);
     expect(saved.target_id).toBe(targetId);
+    expect(saved.raw).toEqual({ inputs: false, requests: false, responses: false });
   });
 }
 
@@ -572,6 +573,7 @@ export async function runGroupsWorkflow(page: Page, testInfo: TestInfo): Promise
       expect(receipt.target_kind).toBe("diagnostic");
       expect(receipt.target_id).toBe(startReceipt?.group_id);
       expect(receipt.diagnostic_snapshot_id).toBe(diagnosticSnapshotId);
+      expect(receipt.raw).toEqual({ inputs: false, requests: false, responses: false });
       diagnosticReportId = receipt.report_id;
       qualification.setWitness("diagnostic_report_id", diagnosticReportId);
       qualification.setWitness("diagnostic_report_content_hash", receipt.content_hash);
@@ -807,6 +809,7 @@ export async function runGroupsWorkflow(page: Page, testInfo: TestInfo): Promise
     expect(checkReportReceipt.target_kind).toBe("check");
     expect(checkReportReceipt.target_id).toBe(checkReceipt.group_id);
     expect(checkReportReceipt.check_snapshot_id).toBe(checkSnapshotId);
+    expect(checkReportReceipt.raw).toEqual({ inputs: false, requests: false, responses: false });
     qualification.setWitness("check_report_id", checkReportReceipt.report_id);
     await openSavedReport(page, registrationId, "check", checkReceipt.group_id, checkReportReceipt.report_id);
     await reads.waitForIdle();
