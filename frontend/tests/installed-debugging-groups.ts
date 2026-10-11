@@ -1811,15 +1811,23 @@ export async function runGroupsWorkflow(
       diagnosticDetail.snapshot.content_hash,
     );
     expect(pinnedDetail.members).toEqual(diagnosticDetail.members);
+    expect(pinnedDetail.summary).toEqual(diagnosticDetail.summary);
     await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId);
+    const pinnedSummaryRegion = page.getByRole("region", {
+      name: "Selected immutable snapshot",
+    });
     await expect(
-      page.getByRole("heading", {
+      pinnedSummaryRegion.getByRole("heading", {
         name: "Selected immutable snapshot",
         exact: true,
       }),
     ).toBeVisible();
+    const pinnedDisagreement = object(diagnosticSummary.disagreement);
     await expect(
-      page.getByText("Disagreement: 1/2", { exact: false }),
+      pinnedSummaryRegion.getByText(
+        `Disagreement: ${countText(pinnedDisagreement.numerator)}/${countText(pinnedDisagreement.denominator)}`,
+        { exact: false },
+      ),
     ).toBeVisible();
     await reads.waitForIdle();
     qualification.setEquality(
