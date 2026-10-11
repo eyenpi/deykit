@@ -763,7 +763,14 @@ async function runInstalledProviderFixtureTail({
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual((await page.evaluate(() => window.innerWidth)) + 1);
-  await page.keyboard.press("Tab");
+  const menuButton = page.getByRole("button", { name: "Menu", exact: true });
+  await menuButton.focus();
+  await page.keyboard.press("Enter");
+  await expect(menuButton).toHaveAttribute("aria-expanded", "true");
+  const workspaceProjects = page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Projects", exact: true });
+  await expect(workspaceProjects).toBeFocused();
   let visibleKeyboardStops = 0;
   for (let index = 0; index < 12; index += 1) {
     const visible = await page.evaluate(() => {
@@ -779,6 +786,10 @@ async function runInstalledProviderFixtureTail({
     await page.keyboard.press("Tab");
   }
   expect(visibleKeyboardStops).toBe(12);
+  await workspaceProjects.focus();
+  await page.keyboard.press("Escape");
+  await expect(menuButton).toHaveAttribute("aria-expanded", "false");
+  await expect(menuButton).toBeFocused();
   await captureScreenshot("authoring-narrow-320.png");
 
   expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(
