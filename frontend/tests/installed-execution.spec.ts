@@ -1139,10 +1139,13 @@ test("installed browser reviews and inspects fixture execution", async ({
       (response) =>
         response.request().method() === "GET" &&
         new URL(response.url()).pathname === requestResultPath &&
-        new URL(response.url()).searchParams.get("include_request") === "true" &&
+        new URL(response.url()).searchParams.get("include_request") ===
+          "true" &&
         new URL(response.url()).searchParams.get("include_input") === "false" &&
-        new URL(response.url()).searchParams.get("include_response") === "false" &&
-        new URL(response.url()).searchParams.get("include_attempts") === "false",
+        new URL(response.url()).searchParams.get("include_response") ===
+          "false" &&
+        new URL(response.url()).searchParams.get("include_attempts") ===
+          "false",
     );
     await inspector.getByLabel("Include request").check();
     const requestRevealResponse = await requestRevealResponsePromise;
@@ -1171,10 +1174,13 @@ test("installed browser reviews and inspects fixture execution", async ({
       (response) =>
         response.request().method() === "GET" &&
         new URL(response.url()).pathname === requestResultPath &&
-        new URL(response.url()).searchParams.get("include_request") === "false" &&
+        new URL(response.url()).searchParams.get("include_request") ===
+          "false" &&
         new URL(response.url()).searchParams.get("include_input") === "false" &&
-        new URL(response.url()).searchParams.get("include_response") === "false" &&
-        new URL(response.url()).searchParams.get("include_attempts") === "false",
+        new URL(response.url()).searchParams.get("include_response") ===
+          "false" &&
+        new URL(response.url()).searchParams.get("include_attempts") ===
+          "false",
     );
     await inspector.getByLabel("Include request").uncheck();
     const hideRequestResponse = await hideRequestResponsePromise;
