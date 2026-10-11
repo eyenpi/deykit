@@ -93,7 +93,9 @@ def register(
     async def read_check_snapshot(
         registration_id: str, group_id: str, snapshot_id: str
     ) -> Success[CheckSnapshotDetailDTO]:
-        value = await workers.run_sync(service(registration_id).read_snapshot, group_id, snapshot_id)
+        value = await workers.run_sync(
+            service(registration_id).read_snapshot, group_id, snapshot_id
+        )
         return Success(
             data=CheckSnapshotDetailDTO(
                 snapshot=snapshot_metadata(value.snapshot),

@@ -58,8 +58,8 @@ class ResultPage:
     status_counts: dict[str, int]
     summary: dict[str, JsonValue]
     filtered_count: int
-    assessment_counts: "AssessmentCounts"
-    context: "ResultContext"
+    assessment_counts: AssessmentCounts
+    context: ResultContext
     items: tuple[ResultRow, ...]
     next_cursor: str | None
 
@@ -86,14 +86,14 @@ class CaseDetail:
     result_snapshot_id: str
     label_snapshot_id: str
     evaluation_id: str | None
-    context: "ResultContext"
+    context: ResultContext
     row: ResultRow
     answer: dict[str, object] | None
     annotations: tuple[ResultAnnotation, ...]
     attempts: tuple[dict[str, object], ...]
     input_source: str | None
     case_input_hash: str
-    probabilities: tuple["ProbabilityRow", ...]
+    probabilities: tuple[ProbabilityRow, ...]
     probabilities_unavailable_reason: str | None
 
     def source(self) -> dict[str, object]:
@@ -508,7 +508,7 @@ class ResultInspection:
                 events = sorted(
                     (
                         _typed(item, AttemptEvent)
-                        for item in records
+                        for item in capture.records
                         if item.key.collection == "attempt_events"
                         and item.key.scope == (attempt.id,)
                     ),

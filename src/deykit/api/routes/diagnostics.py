@@ -25,8 +25,8 @@ from deykit.api.projections import exact_display_tree
 from deykit.api.registry import ProjectRegistry
 from deykit.api.runtime import TrackedWorkers
 from deykit.api.supervisor import ExecutionSupervisor
-from deykit.application.evaluations import FrozenEvaluation
 from deykit.application.diagnostics import ChoiceOrderRequest, DiagnosticService
+from deykit.application.evaluations import FrozenEvaluation
 from deykit.contracts.execution_groups import DiagnosticSnapshot
 from deykit.domain.definitions import definition_hash
 
