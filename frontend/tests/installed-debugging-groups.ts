@@ -170,6 +170,9 @@ async function selectAuthoredAlternateCase(
   });
   await expect(alternateCase).toBeVisible();
   await alternateCase.click();
+  await expect(
+    page.getByRole("heading", { name: "ex-001", exact: true }),
+  ).toBeVisible();
   await waitForIdle();
 }
 
