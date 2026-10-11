@@ -7,7 +7,7 @@ from pydantic import Field
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.identities import ContentHash, ResourceId
 
-from .common import CountText, Mutation, ResponseRecord
+from .common import CountText, ExactDecimalText, Mutation, ResponseRecord
 
 
 class ResultRowDTO(FrozenModel):
@@ -23,12 +23,53 @@ class ResultPageDTO(ResponseRecord):
     status_counts: dict[str, CountText]
     summary: dict[str, object]
     filtered_count: CountText
+    assessment_counts: "AssessmentCountsDTO"
+    context: "ResultContextDTO"
     items: tuple[ResultRowDTO, ...]
     next_cursor: ResourceId | None
 
 
 class CaseDetailDTO(ResponseRecord):
     source: dict[str, object]
+    context: "ResultContextDTO"
+    case_input_hash: ContentHash
+    probabilities: tuple["ProbabilityRowDTO", ...]
+    probabilities_unavailable_reason: Literal[
+        "probabilities_not_provided",
+        "probability_question_unavailable",
+        "invalid_probability_source",
+        "probability_options_unavailable",
+    ] | None
+
+
+class AssessmentCountsDTO(FrozenModel):
+    all: CountText
+    inspect: CountText
+    incorrect: CountText
+    unlabelled: CountText
+
+
+class ResultContextDTO(FrozenModel):
+    run_id: ResourceId
+    result_snapshot_id: ResourceId
+    label_snapshot_id: ResourceId
+    evaluation_id: ResourceId | None
+    decision_id: ResourceId
+    dataset_id: ResourceId
+    decision_revision_id: ResourceId
+    decision_definition_hash: ContentHash
+    dataset_snapshot_id: ResourceId
+    dataset_content_hash: ContentHash
+    label_content_hash: ContentHash
+    result_content_hash: ContentHash
+    evaluation_mode: Literal["original", "saved_answer_reevaluation"]
+    through_event_sequence: CountText
+
+
+class ProbabilityRowDTO(FrozenModel):
+    option_id: ResourceId
+    option_name: str
+    probability: ExactDecimalText
 
 
 class EvaluationDTO(ResponseRecord):

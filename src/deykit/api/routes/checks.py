@@ -1,6 +1,6 @@
 """Frozen regression-check groups over the shared durable group service."""
 
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, Response
 
@@ -14,11 +14,21 @@ from deykit.api.dto.execution import (
     GroupResumeRequest,
     StartCheckRequest,
 )
-from deykit.api.dto.groups import CheckViewDTO
+from deykit.api.dto.groups import (
+    CheckSnapshotCaseDTO,
+    CheckSnapshotDetailDTO,
+    CheckViewDTO,
+    FrozenMemberContextDTO,
+    SnapshotMetadataDTO,
+    SnapshotResultDTO,
+)
 from deykit.api.registry import ProjectRegistry
 from deykit.api.runtime import TrackedWorkers
 from deykit.api.supervisor import ExecutionSupervisor
 from deykit.application.checks import CheckService
+from deykit.application.evaluations import FrozenEvaluation
+from deykit.contracts.execution_groups import CheckSnapshot
+from deykit.domain.definitions import definition_hash
 
 from .execution import execution_service
 from .group_views import group_progress, group_resume_preview
@@ -33,6 +43,66 @@ def register(
 ) -> None:
     def service(registration_id: str) -> CheckService:
         return CheckService(execution_service(registration_id, dependencies, registry))
+
+    def snapshot_metadata(value: CheckSnapshot) -> SnapshotMetadataDTO:
+        return SnapshotMetadataDTO(
+            id=value.id,
+            sequence=str(value.sequence),
+            group_id=value.group_id,
+            segment_id=value.segment_id,
+            content_hash=value.content_hash,
+            created_at=value.created_at,
+            results=tuple(
+                SnapshotResultDTO(run_id=item.run_id, result_snapshot_id=item.result_snapshot_id)
+                for item in value.results
+            ),
+        )
+
+    def member_context(value: FrozenEvaluation) -> FrozenMemberContextDTO:
+        return FrozenMemberContextDTO(
+            run_id=value.manifest.id,
+            result_snapshot_id=value.results.id,
+            result_content_hash=value.results.content_hash,
+            through_event_sequence=str(value.results.through_event_sequence),
+            label_snapshot_id=value.labels.id,
+            label_content_hash=value.labels.content_hash,
+            decision_id=cast(str, value.manifest.decision_id),
+            dataset_id=cast(str, value.manifest.dataset_id),
+            decision_revision_id=value.revision.id,
+            decision_definition_hash=definition_hash(value.revision.definition),
+            dataset_snapshot_id=value.dataset.id,
+            dataset_content_hash=value.dataset.content_hash,
+        )
+
+    @router.get(
+        "/projects/{registration_id}/checks/{group_id}/snapshots",
+        response_model=Success[tuple[SnapshotMetadataDTO, ...]],
+        operation_id="listCheckSnapshots",
+    )
+    async def list_check_snapshots(
+        registration_id: str, group_id: str
+    ) -> Success[tuple[SnapshotMetadataDTO, ...]]:
+        values = await workers.run_sync(service(registration_id).list_snapshots, group_id)
+        return Success(data=tuple(snapshot_metadata(item) for item in values))
+
+    @router.get(
+        "/projects/{registration_id}/checks/{group_id}/snapshots/{snapshot_id}",
+        response_model=Success[CheckSnapshotDetailDTO],
+        operation_id="readCheckSnapshot",
+    )
+    async def read_check_snapshot(
+        registration_id: str, group_id: str, snapshot_id: str
+    ) -> Success[CheckSnapshotDetailDTO]:
+        value = await workers.run_sync(service(registration_id).read_snapshot, group_id, snapshot_id)
+        return Success(
+            data=CheckSnapshotDetailDTO(
+                snapshot=snapshot_metadata(value.snapshot),
+                members=tuple(member_context(item) for item in value.members),
+                cases=tuple(CheckSnapshotCaseDTO(**item.__dict__) for item in value.cases),
+                expectation_failures=str(value.expectation_failures),
+                baseline_unavailable=value.baseline_unavailable,
+            )
+        )
 
     @router.post(
         "/projects/{registration_id}/checks",

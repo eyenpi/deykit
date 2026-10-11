@@ -6,7 +6,7 @@ from typing import Annotated, cast
 
 from pydantic import Field
 
-from deykit.application.dataset_support import fail, validated_model
+from deykit.application.dataset_support import fail, identifier, validated_model
 from deykit.application.evaluations import FrozenEvaluation, frozen_evaluation_from_records
 from deykit.application.execution import ExecutionService
 from deykit.application.execution_groups import GroupExecutionService
@@ -128,6 +128,25 @@ class DiagnosticService:
 
     def read(self, group_id: str) -> DiagnosticView:
         return self._view(self.groups.show(group_id))
+
+    def list_snapshots(self, group_id: str) -> tuple[DiagnosticSnapshot, ...]:
+        identifier(group_id)
+        with self.execution.source.consistent_read():
+            records = self.execution.source.capture_snapshot()
+        budget = group_budget(records, group_id)
+        if budget.group.kind != "choice_order":
+            fail("diagnostic_group_required")
+        admitted = admit_group_snapshots(records, group_id)
+        return tuple(item for item in admitted if isinstance(item, DiagnosticSnapshot))
+
+    def read_snapshot(self, group_id: str, snapshot_id: str) -> "FrozenDiagnosticSnapshot":
+        identifier(group_id), identifier(snapshot_id)
+        with self.execution.source.consistent_read():
+            records = self.execution.source.capture_snapshot()
+        frozen = diagnostic_snapshot_from_records(records, snapshot_id)
+        if frozen.group.id != group_id or frozen.group.kind != "choice_order":
+            fail("diagnostic_snapshot_mismatch", "incompatible_data")
+        return frozen
 
     def _view(self, progress: GroupProgress) -> DiagnosticView:
         if progress.kind != "choice_order":

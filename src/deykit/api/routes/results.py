@@ -10,6 +10,7 @@ from deykit.api.dependencies import ApiDependencies
 from deykit.api.dto.common import Success
 from deykit.api.dto.results import (
     AddAnnotationRequest,
+    AssessmentCountsDTO,
     AnnotationDTO,
     AnnotationPageDTO,
     CaseDetailDTO,
@@ -19,6 +20,8 @@ from deykit.api.dto.results import (
     ReevaluateRequest,
     ResultPageDTO,
     ResultRowDTO,
+    ResultContextDTO,
+    ProbabilityRowDTO,
 )
 from deykit.api.projections import exact_display_tree
 from deykit.api.registry import ProjectRegistry
@@ -26,7 +29,7 @@ from deykit.api.routes.execution import evaluation_service
 from deykit.api.runtime import TrackedWorkers
 from deykit.application.annotations import AnnotationService, StoredAnnotation
 from deykit.application.evaluations import EvaluationView
-from deykit.application.results import ResultInspection
+from deykit.application.results import ResultContext, ResultInspection
 
 
 def _evaluation(value: EvaluationView) -> EvaluationDTO:
@@ -75,6 +78,14 @@ def register(
             dependencies.id_factory,
         )
 
+    def result_context(value: ResultContext) -> ResultContextDTO:
+        return ResultContextDTO.model_validate(
+            {
+                **cast(dict[str, object], exact_display_tree(value.source())),
+                "through_event_sequence": str(value.through_event_sequence),
+            }
+        )
+
     @router.get(
         "/projects/{registration_id}/runs/{run_id}/results",
         response_model=Success[ResultPageDTO],
@@ -87,6 +98,9 @@ def register(
         status: str | None = None,
         split: Literal["development", "calibration", "test"] | None = None,
         tag: str | None = None,
+        assessment_filter: Literal["all", "inspect", "incorrect", "unlabelled"] = "all",
+        expected_result_snapshot_id: str | None = None,
+        expected_label_snapshot_id: str | None = None,
         cursor: str | None = None,
         limit: int = Query(default=50, ge=1, le=500),
     ) -> Success[ResultPageDTO]:
@@ -97,6 +111,9 @@ def register(
             status=status,
             split=split,
             tag=tag,
+            assessment_filter=assessment_filter,
+            expected_result_snapshot_id=expected_result_snapshot_id,
+            expected_label_snapshot_id=expected_label_snapshot_id,
             cursor=cursor,
             limit=limit,
         )
@@ -110,6 +127,13 @@ def register(
                 status_counts={key: str(count) for key, count in value.status_counts.items()},
                 summary=cast(dict[str, object], exact_display_tree(value.summary)),
                 filtered_count=str(value.filtered_count),
+                assessment_counts=AssessmentCountsDTO(
+                    all=str(value.assessment_counts.all),
+                    inspect=str(value.assessment_counts.inspect),
+                    incorrect=str(value.assessment_counts.incorrect),
+                    unlabelled=str(value.assessment_counts.unlabelled),
+                ),
+                context=result_context(value.context),
                 items=tuple(
                     ResultRowDTO(source=cast(dict[str, object], exact_display_tree(item.source())))
                     for item in value.items
@@ -128,6 +152,8 @@ def register(
         run_id: str,
         case_id: str,
         evaluation_id: str | None = None,
+        expected_result_snapshot_id: str | None = None,
+        expected_label_snapshot_id: str | None = None,
         include_input: Literal["true", "false"] = "false",
         include_request: Literal["true", "false"] = "false",
         include_response: Literal["true", "false"] = "false",
@@ -138,13 +164,23 @@ def register(
             run_id,
             case_id,
             evaluation_id=evaluation_id,
+            expected_result_snapshot_id=expected_result_snapshot_id,
+            expected_label_snapshot_id=expected_label_snapshot_id,
             include_input=include_input == "true",
             include_request=include_request == "true",
             include_response=include_response == "true",
             include_attempts=include_attempts == "true",
         )
         return Success(
-            data=CaseDetailDTO(source=cast(dict[str, object], exact_display_tree(value.source())))
+            data=CaseDetailDTO(
+                source=cast(dict[str, object], exact_display_tree(value.source())),
+                context=result_context(value.context),
+                case_input_hash=value.case_input_hash,
+                probabilities=tuple(
+                    ProbabilityRowDTO(**item.source()) for item in value.probabilities
+                ),
+                probabilities_unavailable_reason=value.probabilities_unavailable_reason,
+            )
         )
 
     @router.post(

@@ -6,7 +6,7 @@ from typing import Literal, Self, cast
 
 from pydantic import model_validator
 
-from deykit.application.dataset_support import decoded, fail, validated_model
+from deykit.application.dataset_support import decoded, fail, identifier, validated_model
 from deykit.application.evaluations import FrozenEvaluation, frozen_evaluation_from_records
 from deykit.application.execution import ExecutionService
 from deykit.application.execution_groups import GroupExecutionService
@@ -199,6 +199,25 @@ class CheckService:
 
     def read(self, group_id: str) -> CheckView:
         return self._view(self.groups.show(group_id))
+
+    def list_snapshots(self, group_id: str) -> tuple[CheckSnapshot, ...]:
+        identifier(group_id)
+        with self.execution.source.consistent_read():
+            records = self.execution.source.capture_snapshot()
+        budget = group_budget(records, group_id)
+        if budget.group.kind != "regression_check":
+            fail("regression_check_group_required")
+        admitted = admit_group_snapshots(records, group_id)
+        return tuple(item for item in admitted if isinstance(item, CheckSnapshot))
+
+    def read_snapshot(self, group_id: str, snapshot_id: str) -> "FrozenCheckSnapshot":
+        identifier(group_id), identifier(snapshot_id)
+        with self.execution.source.consistent_read():
+            records = self.execution.source.capture_snapshot()
+        frozen = check_snapshot_from_records(records, snapshot_id)
+        if frozen.group.id != group_id or frozen.group.kind != "regression_check":
+            fail("check_snapshot_mismatch", "incompatible_data")
+        return frozen
 
     def _view(self, progress: GroupProgress) -> CheckView:
         if progress.kind != "regression_check":
