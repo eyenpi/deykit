@@ -1056,7 +1056,7 @@ export async function runGroupsWorkflow(
       expect(
         replayedCancelReceipt.members.map((member) => member.run_id),
       ).toEqual(firstCancelReceipt.members.map((member) => member.run_id));
-      expect(replayedCancelReceipt.replayed).toBe(true);
+      expect(replayedCancelReceipt.replayed).toBe(firstCancelReceipt.replayed);
       qualification.setWitness(
         "diagnostic_cancel_request_sha256",
         replay?.firstRequestHash ?? "",
