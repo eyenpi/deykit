@@ -104,7 +104,8 @@ export async function runSavedAnswersWorkflow(
       page.getByRole("table", { name: "Frozen result rows" }),
     ).toBeVisible();
 
-    const evaluationSelection = page.getByLabel("Evaluation snapshot", {
+    const evaluationSelection = page.getByRole("combobox", {
+      name: "Evaluation snapshot",
       exact: true,
     });
     await expect(evaluationSelection).toBeVisible();
@@ -152,7 +153,7 @@ export async function runSavedAnswersWorkflow(
       },
       async () => {
         await page
-          .getByLabel("Results per page", { exact: true })
+          .getByRole("combobox", { name: "Results per page", exact: true })
           .selectOption("5");
       },
       (query) =>
@@ -229,7 +230,9 @@ export async function runSavedAnswersWorkflow(
         run_id: qualification.seedMetadata.run_id,
       },
       async () => {
-        await page.getByLabel("Status", { exact: true }).selectOption("valid");
+        await page
+          .getByRole("combobox", { name: "Status", exact: true })
+          .selectOption("valid");
       },
       (query) =>
         query.get("status") === "valid" &&
@@ -253,7 +256,7 @@ export async function runSavedAnswersWorkflow(
       },
       async () => {
         await page
-          .getByLabel("Assessment", { exact: true })
+          .getByRole("combobox", { name: "Assessment", exact: true })
           .selectOption("incorrect");
       },
       (query) =>
@@ -293,7 +296,9 @@ export async function runSavedAnswersWorkflow(
       : undefined;
     if (typeof firstTag !== "string")
       throw new Error("The seeded result rows had no authored tag value.");
-    await page.getByLabel("Assessment", { exact: true }).selectOption("all");
+    await page
+      .getByRole("combobox", { name: "Assessment", exact: true })
+      .selectOption("all");
     const splitRead = await captureOperation(
       page,
       "listResults",
@@ -303,7 +308,7 @@ export async function runSavedAnswersWorkflow(
       },
       async () => {
         await page
-          .getByLabel("Split", { exact: true })
+          .getByRole("combobox", { name: "Split", exact: true })
           .selectOption(selectedSplit);
       },
       (query) =>
@@ -366,7 +371,9 @@ export async function runSavedAnswersWorkflow(
         run_id: qualification.seedMetadata.run_id,
       },
       async () => {
-        await page.getByLabel("Status", { exact: true }).selectOption("");
+        await page
+          .getByRole("combobox", { name: "Status", exact: true })
+          .selectOption("");
       },
       (query) =>
         !query.has("status") &&
@@ -390,7 +397,9 @@ export async function runSavedAnswersWorkflow(
         run_id: qualification.seedMetadata.run_id,
       },
       async () => {
-        await page.getByLabel("Split", { exact: true }).selectOption("");
+        await page
+          .getByRole("combobox", { name: "Split", exact: true })
+          .selectOption("");
       },
       (query) =>
         !query.has("split") &&
@@ -440,7 +449,7 @@ export async function runSavedAnswersWorkflow(
       },
       async () => {
         await page
-          .getByLabel("Results per page", { exact: true })
+          .getByRole("combobox", { name: "Results per page", exact: true })
           .selectOption("50");
       },
       (query) =>
@@ -463,7 +472,10 @@ export async function runSavedAnswersWorkflow(
       .getByRole("button", { name: "Content category", exact: true })
       .click();
     await page.getByRole("button", { name: "Examples", exact: true }).click();
-    const exampleDataset = page.getByLabel("Dataset", { exact: true });
+    const exampleDataset = page.getByRole("combobox", {
+      name: "Dataset",
+      exact: true,
+    });
     if (
       (await exampleDataset.inputValue()) !==
       qualification.seedMetadata.dataset_id
@@ -581,7 +593,10 @@ export async function runSavedAnswersWorkflow(
       },
       async () => {
         await page
-          .getByLabel("Evaluation snapshot", { exact: true })
+          .getByRole("combobox", {
+            name: "Evaluation snapshot",
+            exact: true,
+          })
           .selectOption(qualification.seedMetadata.evaluation_id);
       },
       (query) =>
@@ -1019,7 +1034,10 @@ export async function runSavedAnswersWorkflow(
       },
       async () => {
         await page
-          .getByLabel("Evaluation snapshot", { exact: true })
+          .getByRole("combobox", {
+            name: "Evaluation snapshot",
+            exact: true,
+          })
           .selectOption(reevaluated.evaluation_id);
       },
       (query) =>
@@ -1215,10 +1233,10 @@ export async function runComparisonWorkflow(
     });
     await expect(runReview).toBeVisible();
     await runReview
-      .getByLabel("Dataset", { exact: true })
+      .getByRole("combobox", { name: "Dataset", exact: true })
       .selectOption(qualification.seedMetadata.dataset_id);
     await runReview
-      .getByLabel("Fixture set", { exact: true })
+      .getByRole("combobox", { name: "Fixture set", exact: true })
       .selectOption(qualification.seedMetadata.fixture_set_id);
     await runReview
       .getByLabel("Lifetime request cap (1–9007199254740991)")

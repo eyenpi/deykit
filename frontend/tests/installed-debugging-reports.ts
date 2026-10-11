@@ -231,7 +231,7 @@ export async function runReportsWorkflow(
         exact: true,
       });
       await dialog
-        .getByLabel("Target kind", { exact: true })
+        .getByRole("combobox", { name: "Target kind", exact: true })
         .selectOption(target.kind);
       await dialog.getByLabel("Target ID", { exact: true }).fill(target.id);
       if (target.kind === "run")
@@ -524,7 +524,7 @@ export async function runReportsWorkflow(
         const downloadedBytes = {} as Record<"json" | "markdown", Buffer>;
         for (const format of ["json", "markdown"] as const) {
           await page
-            .getByLabel("Download format", { exact: true })
+            .getByRole("combobox", { name: "Download format", exact: true })
             .selectOption(format);
           const response = await captureOperation(
             page,
@@ -640,7 +640,10 @@ export async function runReportsWorkflow(
       },
       async () => {
         await page
-          .getByLabel("Evaluation snapshot", { exact: true })
+          .getByRole("combobox", {
+            name: "Evaluation snapshot",
+            exact: true,
+          })
           .selectOption(qualification.seedMetadata.evaluation_id);
       },
       (query) =>
@@ -736,7 +739,7 @@ export async function runReportsWorkflow(
       });
       for (const format of ["json", "markdown"] as const) {
         await page
-          .getByLabel("Download format", { exact: true })
+          .getByRole("combobox", { name: "Download format", exact: true })
           .selectOption(format);
         const bytes = await captureOperation(
           page,
@@ -855,7 +858,7 @@ export async function runReportsWorkflow(
       expect(afterWitness.raw).toEqual(report.raw);
       for (const format of ["json", "markdown"] as const) {
         await page
-          .getByLabel("Download format", { exact: true })
+          .getByRole("combobox", { name: "Download format", exact: true })
           .selectOption(format);
         const download = await captureOperation(
           page,
@@ -1017,7 +1020,7 @@ async function exerciseKnownReportDownloadFailures(
         previousFormat === "json" ? "markdown" : "json";
       previousFormat = format;
       await page
-        .getByLabel("Download format", { exact: true })
+        .getByRole("combobox", { name: "Download format", exact: true })
         .selectOption(format);
       let forwardedCalls = 0;
       const routeHandler = async (route: Route) => {

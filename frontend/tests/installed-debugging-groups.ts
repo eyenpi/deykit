@@ -129,7 +129,7 @@ async function downloadReportBytes(
   format: "json" | "markdown",
 ): Promise<Buffer> {
   await page
-    .getByLabel("Download format", { exact: true })
+    .getByRole("combobox", { name: "Download format", exact: true })
     .selectOption(format);
   const response = await captureOperation(
     page,
@@ -174,7 +174,10 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
   ).toBeVisible();
-  const dataset = page.getByLabel("Dataset", { exact: true });
+  const dataset = page.getByRole("combobox", {
+    name: "Dataset",
+    exact: true,
+  });
   if ((await dataset.inputValue()) !== datasetId) {
     if (await dataset.inputValue()) await dataset.selectOption("");
     const caseList = await captureOperation(
@@ -301,7 +304,10 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
   ).toBeVisible();
-  const reloadedDataset = page.getByLabel("Dataset", { exact: true });
+  const reloadedDataset = page.getByRole("combobox", {
+    name: "Dataset",
+    exact: true,
+  });
   if ((await reloadedDataset.inputValue()) !== datasetId) {
     if (await reloadedDataset.inputValue())
       await reloadedDataset.selectOption("");
@@ -393,7 +399,10 @@ async function setReaddedCaseCurrentLabel(
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
   ).toBeVisible();
-  const dataset = page.getByLabel("Dataset", { exact: true });
+  const dataset = page.getByRole("combobox", {
+    name: "Dataset",
+    exact: true,
+  });
   if ((await dataset.inputValue()) !== datasetId)
     await dataset.selectOption(datasetId);
   const casesTable = page.getByRole("table", { name: /^Cases in / });
@@ -627,8 +636,12 @@ async function openDiagnosticReview(
     exact: true,
   });
   await expect(dialog).toBeVisible();
-  await dialog.getByLabel("Dataset", { exact: true }).selectOption(datasetId);
-  await dialog.getByLabel("Case scope", { exact: true }).selectOption("all");
+  await dialog
+    .getByRole("combobox", { name: "Dataset", exact: true })
+    .selectOption(datasetId);
+  await dialog
+    .getByRole("combobox", { name: "Case scope", exact: true })
+    .selectOption("all");
   for (const caseId of caseIds)
     await dialog.getByLabel(new RegExp(`^${caseId}\\b`)).check();
   await dialog.getByLabel("Orders (1–4)", { exact: true }).fill("2");
@@ -637,7 +650,7 @@ async function openDiagnosticReview(
     .fill(seed);
   await dialog.getByLabel("Authored fixture", { exact: true }).check();
   await dialog
-    .getByLabel("Fixture set", { exact: true })
+    .getByRole("combobox", { name: "Fixture set", exact: true })
     .selectOption(fixtureSetId);
   await dialog
     .getByLabel("Lifetime group request cap (1–9007199254740991)", {
@@ -1026,7 +1039,8 @@ export async function runGroupsWorkflow(
     });
 
     await qualification.enterPhase("pin-partial-diagnostic-snapshot");
-    const snapshotSelect = page.getByLabel("Selected snapshot", {
+    const snapshotSelect = page.getByRole("combobox", {
+      name: "Selected snapshot",
       exact: true,
     });
     const snapshotValues = await snapshotSelect
@@ -1520,7 +1534,7 @@ export async function runGroupsWorkflow(
     await oracle.check();
     await checkDialog.getByLabel("Authored fixture", { exact: true }).check();
     await checkDialog
-      .getByLabel("Fixture set", { exact: true })
+      .getByRole("combobox", { name: "Fixture set", exact: true })
       .selectOption(qualification.seedMetadata.fixture_set_id);
     await checkDialog
       .getByLabel("Lifetime group request cap (1–9007199254740991)", {
@@ -1667,7 +1681,8 @@ export async function runGroupsWorkflow(
     expect(checkProgress.group.members[0]?.attempts_remaining).toBe("0");
 
     await qualification.enterPhase("pin-check-snapshot-and-report");
-    const checkSnapshotSelect = page.getByLabel("Selected snapshot", {
+    const checkSnapshotSelect = page.getByRole("combobox", {
+      name: "Selected snapshot",
       exact: true,
     });
     const checkSnapshotValues = await checkSnapshotSelect
@@ -1948,7 +1963,7 @@ export async function runGroupsWorkflow(
       .getByLabel("Authored fixture", { exact: true })
       .check();
     await defaultCheckDialog
-      .getByLabel("Fixture set", { exact: true })
+      .getByRole("combobox", { name: "Fixture set", exact: true })
       .selectOption(qualification.seedMetadata.fixture_set_id);
     await defaultCheckDialog
       .getByLabel("Lifetime group request cap (1–9007199254740991)", {
