@@ -585,7 +585,7 @@ async function addIndependentRegression(
     name: "Case ex-003 inspection",
   });
   const dialogPromise = page.getByRole("dialog", {
-    name: "Add regression example for Content category",
+    name: `Add regression example for ${decisionId}`,
     exact: true,
   });
   await inspector
@@ -594,7 +594,18 @@ async function addIndependentRegression(
   const dialog = dialogPromise;
   await expect(dialog).toBeVisible();
   const question = dialog.getByLabel("Question · question", { exact: true });
+  const report = dialog.getByLabel("Report · report", { exact: true });
+  const acceptableOptions = dialog
+    .getByRole("group", { name: "Human-reviewed acceptable options" })
+    .getByRole("checkbox");
+  expect(
+    await acceptableOptions.evaluateAll(
+      (inputs) =>
+        inputs.filter((input) => (input as HTMLInputElement).checked).length,
+    ),
+  ).toBe(0);
   await expect(question).not.toBeChecked();
+  await expect(report).not.toBeChecked();
   await question.check();
   await dialog
     .getByLabel("Reason", { exact: true })
@@ -620,6 +631,8 @@ async function addIndependentRegression(
   expect(receipt.case_id).toBe("ex-003");
   expect(receipt.provenance).toBe("human");
   expect(receipt.acceptable_option_ids).toEqual(["question"]);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(dialog).toBeHidden();
   return receipt.regression_id;
 }
 

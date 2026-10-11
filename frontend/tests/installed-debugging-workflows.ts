@@ -1118,7 +1118,9 @@ export async function runSavedAnswersWorkflow(
       200,
       annotationDetailRead.response.status(),
     );
-    expect(annotationDetail.context.evaluation_id).toBe(reevaluated.evaluation_id);
+    expect(annotationDetail.context.evaluation_id).toBe(
+      reevaluated.evaluation_id,
+    );
     expect(annotationDetail.context.result_snapshot_id).toBe(
       qualification.seedMetadata.result_snapshot_id,
     );
@@ -1159,9 +1161,7 @@ export async function runSavedAnswersWorkflow(
         })
         .click();
       await expect(
-        annotationDialog
-          .getByRole("status")
-          .filter({ hasText: "is saved." }),
+        annotationDialog.getByRole("status").filter({ hasText: "is saved." }),
       ).toContainText(/Annotation .+ is saved\./);
       const replay = annotationLoss.observation();
       expect(replay).toBeDefined();
@@ -1208,14 +1208,22 @@ export async function runSavedAnswersWorkflow(
       .getByRole("button", { name: "Add regression example", exact: true })
       .click();
     const regressionDialog = page.getByRole("dialog", {
-      name: "Add regression example for Content category",
+      name: `Add regression example for ${qualification.seedMetadata.decision_id}`,
       exact: true,
     });
+    for (const optionName of [
+      "Question · question",
+      "Report · report",
+      "Request · request",
+      "Other · other",
+    ])
+      await expect(
+        regressionDialog.getByLabel(optionName, { exact: true }),
+      ).not.toBeChecked();
     const expectedQuestion = regressionDialog.getByLabel(
       "Question · question",
       { exact: true },
     );
-    await expect(expectedQuestion).not.toBeChecked();
     await expectedQuestion.check();
     await regressionDialog
       .getByLabel("Reason", { exact: true })
@@ -1249,6 +1257,13 @@ export async function runSavedAnswersWorkflow(
     );
     qualification.setWitness("regression_id", regression.regression_id);
     await reads.waitForIdle();
+    await regressionDialog
+      .getByRole("button", {
+        name: `Close Add regression example for ${qualification.seedMetadata.decision_id}`,
+        exact: true,
+      })
+      .click();
+    await expect(regressionDialog).toBeHidden();
     await page
       .getByRole("button", { name: "Content category", exact: true })
       .click();
