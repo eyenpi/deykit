@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { ApiOperationData } from "../src/api/client";
-import { routeFromHash } from "../src/workspace/routes";
+import { routeFromHash, routeToHash } from "../src/workspace/routes";
 import {
   captureNextProgressAndSnapshots,
   captureOperation,
@@ -1134,7 +1134,23 @@ export async function runGroupsWorkflow(
     expect(diagnosticDetail.snapshot.id).toBe(
       await snapshotSelect.inputValue(),
     );
-    const diagnosticSnapshotRoute = page.url();
+    const diagnosticSnapshotHash = routeToHash({
+      kind: "diagnostic",
+      registrationId,
+      groupId: startReceipt.group_id,
+      snapshotId: diagnosticSnapshotId,
+    });
+    const diagnosticSnapshotRoute = new URL(
+      diagnosticSnapshotHash,
+      page.url(),
+    ).toString();
+    const diagnosticBaseRoute = page.url();
+    expect(routeFromHash(new URL(diagnosticSnapshotRoute).hash)).toEqual({
+      kind: "diagnostic",
+      registrationId,
+      groupId: startReceipt.group_id,
+      snapshotId: diagnosticSnapshotId,
+    });
     qualification.setWitness(
       "diagnostic_snapshot_content_hash",
       diagnosticDetail.snapshot.content_hash,
@@ -1349,7 +1365,7 @@ export async function runGroupsWorkflow(
       );
     }
     await reads.waitForIdle();
-    await page.goto(diagnosticSnapshotRoute);
+    await page.goto(diagnosticBaseRoute);
     await expect(
       page.getByRole("heading", { name: "Group progress", exact: true }),
     ).toBeVisible();
@@ -2153,7 +2169,22 @@ export async function runGroupsWorkflow(
       qualification.seedMetadata.result_snapshot_id,
     );
     qualification.setWitness("check_snapshot_id", checkSnapshotId);
-    const checkSnapshotRoute = page.url();
+    const checkSnapshotHash = routeToHash({
+      kind: "check",
+      registrationId,
+      groupId: checkReceipt.group_id,
+      snapshotId: checkSnapshotId,
+    });
+    const checkSnapshotRoute = new URL(
+      checkSnapshotHash,
+      page.url(),
+    ).toString();
+    expect(routeFromHash(new URL(checkSnapshotRoute).hash)).toEqual({
+      kind: "check",
+      registrationId,
+      groupId: checkReceipt.group_id,
+      snapshotId: checkSnapshotId,
+    });
     await expect(
       page.getByRole("heading", {
         name: "Selected immutable snapshot",
