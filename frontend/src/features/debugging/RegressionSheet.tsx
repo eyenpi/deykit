@@ -8,6 +8,7 @@ import type { MutationState } from "../../workspace/mutation-controller";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import type { DebuggingGateway } from "../../workspace/gateway";
+import { useRenderedScopeEpoch } from "./useRenderedScopeEpoch";
 
 type Regression = ApiOperationData<"addRegression">;
 type AddBody = ApiOperationBody<"addRegression">;
@@ -19,6 +20,8 @@ type Intent = {
   caseId: string;
   resultSnapshotId: string;
   body: AddBody;
+  scopeEpoch: number;
+  operations: DebuggingGateway["regressions"];
 };
 
 export function RegressionSheet({
@@ -44,14 +47,34 @@ export function RegressionSheet({
   navigation: WorkspaceNavigation;
   onClose: () => void;
 }) {
-  const [selected, setSelected] = useState<readonly string[]>([]);
-  const [reason, setReason] = useState("");
+  const scopeEpoch = useRenderedScopeEpoch(
+    `${registrationId}|${decisionId}|${runId}|${caseId}|${resultSnapshotId}`,
+  );
+  const scopeEpochRef = useRef(scopeEpoch);
+  scopeEpochRef.current = scopeEpoch;
+  const [selectedView, setSelectedView] = useState<{
+    scopeEpoch: number;
+    value: readonly string[];
+  }>({ scopeEpoch, value: [] });
+  const selected = selectedView.scopeEpoch === scopeEpoch ? selectedView.value : [];
+  function setSelected(value: readonly string[] | ((previous: readonly string[]) => readonly string[])) {
+    const previous = selectedView.scopeEpoch === scopeEpoch ? selectedView.value : [];
+    setSelectedView({ scopeEpoch, value: typeof value === "function" ? value(previous) : value });
+  }
+  const [reasonView, setReasonView] = useState({ scopeEpoch, value: "" });
+  const reason = reasonView.scopeEpoch === scopeEpoch ? reasonView.value : "";
+  function setReason(value: string) {
+    setReasonView({ scopeEpoch, value });
+  }
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [state, setState] = useState<MutationState<Regression>>({ kind: "idle" });
+  const [view, setView] = useState<{
+    scopeEpoch: number;
+    state: MutationState<Regression>;
+  }>({ scopeEpoch, state: { kind: "idle" } });
   const mutation = useRef<RetainedMutation<Intent, Regression> | undefined>(undefined);
   if (!mutation.current) {
     mutation.current = new RetainedMutation(async (intent) => {
-      const result = await operations.add({
+      const result = await intent.operations.add({
         registrationId: intent.registrationId,
         decisionId: intent.decisionId,
         body: intent.body,
@@ -68,9 +91,16 @@ export function RegressionSheet({
       )
         throw new Error("The regression receipt did not match the pinned case and selected oracle.");
       return receipt;
-    }, setState);
+    }, (next) => {
+      const owner = mutation.current?.originalRequest;
+      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+    });
   }
-  const busy = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const mutationKind = mutation.current.state.kind;
+  const retainedOwner = mutation.current.originalRequest;
+  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const dirty = state.kind !== "committed" && (selected.length > 0 || reason.length > 0);
   const busyRef = useRef(busy);
   busyRef.current = busy;
@@ -113,6 +143,7 @@ export function RegressionSheet({
       reason: trimmedReason,
       provenance: "human",
     };
+    const epoch = scopeEpochRef.current;
     return mutation.current.submit({
       registrationId,
       decisionId,
@@ -120,6 +151,8 @@ export function RegressionSheet({
       caseId,
       resultSnapshotId,
       body,
+      scopeEpoch: epoch,
+      operations,
     });
   }
 
@@ -159,10 +192,24 @@ export function RegressionSheet({
         </label>
         {state.kind === "committed" && <p role="status">Regression <code>{state.receipt.regression_id}</code> saved for the selected frozen case. The regression list is a separate read.</p>}
         {(state.kind === "failed" || state.kind === "conflict" || state.kind === "outcome-unknown") && <ErrorSummary message={state.message} />}
+        {retainedViewStale && mutationKind === "outcome-unknown" && (
+          <section role="status">
+            <p>An earlier regression request is unresolved and can only be retried unchanged.</p>
+            <button type="button" onClick={() => void retryOriginal()}>Retry original unchanged regression</button>
+          </section>
+        )}
+        {retainedViewStale && mutationKind === "committed" && (
+          <button type="button" onClick={() => {
+            mutation.current?.reset();
+            setView({ scopeEpoch, state: { kind: "idle" } });
+            setSelected([]);
+            setReason("");
+          }}>Start a regression for this pinned case</button>
+        )}
         {(state.kind === "failed" || state.kind === "conflict") && (
           <button type="button" onClick={() => {
             mutation.current?.reset();
-            setState({ kind: "idle" });
+            setView({ scopeEpoch, state: { kind: "idle" } });
           }}>Review a new regression request</button>
         )}
         <div className="actions">

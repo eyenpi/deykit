@@ -8,6 +8,7 @@ import type { MutationState } from "../../workspace/mutation-controller";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import type { DebuggingGateway, ExecutionGateway } from "../../workspace/gateway";
+import { useRenderedScopeEpoch } from "./useRenderedScopeEpoch";
 
 type Comparison = ApiOperationData<"readComparison">;
 type Evaluation = ApiOperationData<"readEvaluation">;
@@ -17,6 +18,8 @@ type ComparisonIntent = {
   leftId: string;
   rightId: string;
   body: CompareBody;
+  scopeEpoch: number;
+  operations: DebuggingGateway["comparisons"];
 };
 type OutcomeRecord = { [key: string]: unknown };
 
@@ -60,22 +63,39 @@ export function ComparisonPage({
   execution: ExecutionGateway;
   navigation: WorkspaceNavigation;
 }) {
+  const scopeEpoch = useRenderedScopeEpoch(`${registrationId}|${comparisonId ?? "create"}`);
+  const scopeEpochRef = useRef(scopeEpoch);
+  scopeEpochRef.current = scopeEpoch;
   const [items, setItems] = useState<readonly Comparison[]>([]);
   const [comparison, setComparison] = useState<Comparison>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
-  const [leftId, setLeftId] = useState("");
-  const [rightId, setRightId] = useState("");
-  const [verified, setVerified] = useState<readonly [Evaluation, Evaluation]>();
-  const [checking, setChecking] = useState(false);
-  const [state, setState] = useState<MutationState<Comparison>>({ kind: "idle" });
+  const [leftView, setLeftView] = useState({ scopeEpoch, value: "" });
+  const leftId = leftView.scopeEpoch === scopeEpoch ? leftView.value : "";
+  const setLeftId = (value: string) => setLeftView({ scopeEpoch, value });
+  const [rightView, setRightView] = useState({ scopeEpoch, value: "" });
+  const rightId = rightView.scopeEpoch === scopeEpoch ? rightView.value : "";
+  const setRightId = (value: string) => setRightView({ scopeEpoch, value });
+  const [verifiedView, setVerifiedView] = useState<{
+    scopeEpoch: number;
+    value: readonly [Evaluation, Evaluation] | undefined;
+  }>({ scopeEpoch, value: undefined });
+  const verified = verifiedView.scopeEpoch === scopeEpoch ? verifiedView.value : undefined;
+  const setVerified = (value: readonly [Evaluation, Evaluation] | undefined) =>
+    setVerifiedView({ scopeEpoch, value });
+  const [checkingView, setCheckingView] = useState({ scopeEpoch, value: false });
+  const checking = checkingView.scopeEpoch === scopeEpoch && checkingView.value;
+  const [view, setView] = useState<{
+    scopeEpoch: number;
+    state: MutationState<Comparison>;
+  }>({ scopeEpoch, state: { kind: "idle" } });
   const mutation = useRef<
     RetainedMutation<ComparisonIntent, Comparison> | undefined
   >(undefined);
   if (!mutation.current) {
     mutation.current = new RetainedMutation(async (intent) => {
-      const result = await debugging.comparisons.create({
+      const result = await intent.operations.create({
         registrationId: intent.registrationId,
         body: intent.body,
       });
@@ -86,9 +106,16 @@ export function ComparisonPage({
       )
         throw new Error("The comparison receipt changed the requested sides.");
       return receipt;
-    }, setState);
+    }, (next) => {
+      const owner = mutation.current?.originalRequest;
+      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+    });
   }
-  const busy = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const mutationKind = mutation.current.state.kind;
+  const retainedOwner = mutation.current.originalRequest;
+  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const dirty =
@@ -161,8 +188,9 @@ export function ComparisonPage({
       setVerified(undefined);
       return;
     }
-    setChecking(true);
+    setCheckingView({ scopeEpoch, value: true });
     setError(undefined);
+    const epoch = scopeEpochRef.current;
     try {
       const [leftResult, rightResult] = await Promise.all([
         execution.inspection.readEvaluation({
@@ -175,6 +203,7 @@ export function ComparisonPage({
         }),
       ]);
       const sides = [leftResult.data, rightResult.data] as const;
+      if (epoch !== scopeEpochRef.current) return;
       if (
         sides[0].evaluation_id !== leftId.trim() ||
         sides[1].evaluation_id !== rightId.trim() ||
@@ -184,10 +213,11 @@ export function ComparisonPage({
         throw new Error("The saved evaluation details did not match the selected IDs.");
       setVerified(sides);
     } catch (cause) {
+      if (epoch !== scopeEpochRef.current) return;
       setVerified(undefined);
       setError(safeMessage(cause));
     } finally {
-      setChecking(false);
+      if (epoch === scopeEpochRef.current) setCheckingView({ scopeEpoch: epoch, value: false });
     }
   }
 
@@ -205,6 +235,8 @@ export function ComparisonPage({
       leftId: verified[0].evaluation_id,
       rightId: verified[1].evaluation_id,
       body,
+      scopeEpoch: scopeEpochRef.current,
+      operations: debugging.comparisons,
     });
   }
 
@@ -323,7 +355,7 @@ export function ComparisonPage({
                   type="button"
                   onClick={() => {
                     mutation.current?.reset();
-                    setState({ kind: "idle" });
+                    setView({ scopeEpoch, state: { kind: "idle" } });
                     setVerified(undefined);
                   }}
                 >
@@ -336,7 +368,7 @@ export function ComparisonPage({
                   onClick={() => {
                     const id = state.receipt.comparison_id;
                     mutation.current?.reset();
-                    setState({ kind: "idle" });
+                    setView({ scopeEpoch, state: { kind: "idle" } });
                     routeToComparison(id);
                   }}
                 >
@@ -360,6 +392,25 @@ export function ComparisonPage({
           )}
           {(state.kind === "failed" || state.kind === "conflict" || state.kind === "outcome-unknown") && (
             <ErrorSummary message={state.message} />
+          )}
+          {retainedViewStale && mutationKind === "outcome-unknown" && (
+            <section role="status">
+              <p>An earlier comparison request is unresolved and can only be retried unchanged.</p>
+              <button type="button" onClick={() => void retryOriginal()}>
+                Retry original unchanged comparison
+              </button>
+            </section>
+          )}
+          {retainedViewStale && mutationKind === "committed" && (
+            <button type="button" onClick={() => {
+              mutation.current?.reset();
+              setView({ scopeEpoch, state: { kind: "idle" } });
+              setLeftId("");
+              setRightId("");
+              setVerified(undefined);
+            }}>
+              Start a comparison for this view
+            </button>
           )}
         </section>
       )}

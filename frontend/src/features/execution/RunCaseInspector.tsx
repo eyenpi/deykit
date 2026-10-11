@@ -115,6 +115,11 @@ export function RunCaseInspector({
   const requestedDetailScope = `${resultScope}|${caseId ?? ""}|${reveal.input}|${reveal.request}|${reveal.response}|${reveal.attempts}`;
   const resultsCurrent =
     publishedScope === resultScope && publishedSnapshot?.scope === resultScope;
+  const publishedPopulationCurrent =
+    resultsCurrent &&
+    !contextChanged &&
+    publishedSnapshot?.scope === resultScope &&
+    publishedSnapshot?.assessmentPopulationScope === assessmentPopulationScope;
   const detailCurrent = detailScope === requestedDetailScope;
   const localScopeLocked =
     annotationOpen || currentLabelOpen || regressionOpen || evaluationBusy || contextChanged;
@@ -124,6 +129,7 @@ export function RunCaseInspector({
       return;
     setRows([]);
     setCursor(undefined);
+    setResultPage(undefined);
     setDetail(undefined);
     setDetailScope("");
     setReveal({ input: false, request: false, response: false, attempts: false });
@@ -399,7 +405,21 @@ export function RunCaseInspector({
           throw new Error(
             "The case detail does not match the selected frozen result.",
           );
-        setDetail(decoded);
+        setDetail({
+          ...decoded,
+          inputSource: flags.input ? decoded.inputSource : null,
+          attempts: flags.attempts
+            ? decoded.attempts.map((attempt) => ({
+                ...attempt,
+                requestBodySource: flags.request
+                  ? attempt.requestBodySource
+                  : null,
+                responseSource: flags.response
+                  ? attempt.responseSource
+                  : null,
+              }))
+            : [],
+        });
         setDetailScope(requestedDetailScope);
       })
       .catch((cause: unknown) => {
@@ -607,7 +627,7 @@ export function RunCaseInspector({
         />
       )}
       {loading && <LoadingState>Refreshing frozen results…</LoadingState>}
-      {resultPage && publishedSnapshot && (
+      {resultsCurrent && resultPage && publishedSnapshot && (
         <p role="status" aria-label="Published result snapshot">
           {resultPage.filtered_count} rows in the server result set;{" "}
           {resultPage.selected_count} selected by this frozen run. Result
@@ -615,7 +635,7 @@ export function RunCaseInspector({
           {resultPage.label_snapshot_id}.
         </p>
       )}
-      {publishedSnapshot && (
+      {publishedPopulationCurrent && publishedSnapshot && (
         <section aria-label="Frozen result context">
           <h3>Frozen source context</h3>
           <p>
@@ -641,7 +661,7 @@ export function RunCaseInspector({
           </dl>
         </section>
       )}
-      {resultPage && publishedSnapshot && (
+      {resultsCurrent && resultPage && publishedSnapshot && (
         <ResultAssessmentControls
           registrationId={registrationId}
           runId={run.run_id}
@@ -965,6 +985,7 @@ export function RunCaseInspector({
             <LoadingState>Loading selected case…</LoadingState>
           )}
           {detailCurrent &&
+            reveal.input &&
             detail?.inputSource !== null &&
             detail?.inputSource !== undefined && (
               <section>
@@ -973,6 +994,7 @@ export function RunCaseInspector({
               </section>
             )}
           {detailCurrent &&
+            reveal.attempts &&
             detail?.attempts.map((attempt) => (
               <section key={attempt.attemptId}>
                 <h4>
@@ -983,7 +1005,7 @@ export function RunCaseInspector({
                   {attempt.errorCode ?? "No error code"}{" "}
                   {attempt.errorReason ?? ""}
                 </p>
-                {attempt.requestBodySource !== null && (
+                {reveal.request && attempt.requestBodySource !== null && (
                   <>
                     <h5>Sanitized request</h5>
                     <pre className="source-editor">
@@ -991,7 +1013,7 @@ export function RunCaseInspector({
                     </pre>
                   </>
                 )}
-                {attempt.responseSource !== null && (
+                {reveal.response && attempt.responseSource !== null && (
                   <>
                     <h5>Sanitized response</h5>
                     <pre className="source-editor">

@@ -10,6 +10,7 @@ import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import type { DebuggingGateway, ExecutionGateway } from "../../workspace/gateway";
 import type { GroupReportTarget } from "./groups/GroupDetail";
+import { useRenderedScopeEpoch } from "./useRenderedScopeEpoch";
 
 type Report = ApiOperationData<"readReport">;
 type CreateBody = ApiOperationBody<"createReport">;
@@ -30,6 +31,8 @@ type ReportIntent = {
   id: string;
   groupSnapshotId?: string;
   body: CreateBody;
+  scopeEpoch: number;
+  operations: DebuggingGateway["reports"];
 };
 
 function reportContext(report: Report): string {
@@ -158,23 +161,37 @@ export function ReportSheet({
   const [kind, setKind] = useState<ReportTarget>(initialTarget?.targetKind ?? "run");
   const [targetId, setTargetId] = useState(initialTarget?.targetId ?? "");
   const [verified, setVerified] = useState<VerifiedTarget>();
+  const scopeEpoch = useRenderedScopeEpoch(
+    `${registrationId}|${kind}|${targetId}|${initialTarget?.groupSnapshotId ?? ""}`,
+  );
+  const scopeEpochRef = useRef(scopeEpoch);
+  scopeEpochRef.current = scopeEpoch;
   const [rawInputs, setRawInputs] = useState(false);
   const [rawRequests, setRawRequests] = useState(false);
   const [rawResponses, setRawResponses] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [state, setState] = useState<MutationState<Report>>({ kind: "idle" });
+  const [view, setView] = useState<{
+    scopeEpoch: number;
+    state: MutationState<Report>;
+  }>({ scopeEpoch, state: { kind: "idle" } });
   const mutation = useRef<RetainedMutation<ReportIntent, Report> | undefined>(undefined);
   if (!mutation.current) {
     mutation.current = new RetainedMutation(async (intent) => {
-      const result = await debugging.reports.create({
+      const result = await intent.operations.create({
         registrationId: intent.registrationId,
         body: intent.body,
       });
       if (
         result.data.target_kind !== intent.kind ||
         result.data.target_id !== intent.id ||
+        (intent.body.evaluation_id !== undefined &&
+          intent.body.evaluation_id !== null &&
+          !result.data.evaluation_ids.includes(intent.body.evaluation_id)) ||
+        (intent.body.result_snapshot_id !== undefined &&
+          intent.body.result_snapshot_id !== null &&
+          !result.data.result_snapshot_ids.includes(intent.body.result_snapshot_id)) ||
         (intent.kind === "diagnostic" &&
           result.data.diagnostic_snapshot_id !== intent.groupSnapshotId) ||
         (intent.kind === "check" &&
@@ -184,9 +201,16 @@ export function ReportSheet({
       )
         throw new Error("The report receipt does not match the verified target.");
       return result.data;
-    }, setState);
+    }, (next) => {
+      const owner = mutation.current?.originalRequest;
+      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+    });
   }
-  const busy = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const mutationKind = mutation.current.state.kind;
+  const retainedOwner = mutation.current.originalRequest;
+  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const dirty =
@@ -207,6 +231,7 @@ export function ReportSheet({
         setRawInputs(false);
         setRawRequests(false);
         setRawResponses(false);
+        onClose();
       }
     },
     blockedMessage: busy
@@ -225,12 +250,14 @@ export function ReportSheet({
     setChecking(true);
     setError(undefined);
     setVerified(undefined);
+    const epoch = scopeEpochRef.current;
     try {
       if (kind === "run") {
         const result = await execution.runs.read({ registrationId, runId: id });
         const run = result.data;
         if (run.run_id !== id || !run.latest_result_snapshot_id)
           throw new Error("This run has no verified result snapshot to report.");
+        if (epoch !== scopeEpochRef.current) return;
         setVerified({
           kind,
           id,
@@ -243,6 +270,7 @@ export function ReportSheet({
         const evaluation = result.data;
         if (evaluation.evaluation_id !== id)
           throw new Error("The service returned a different saved evaluation.");
+        if (epoch !== scopeEpochRef.current) return;
         setVerified({
           kind,
           id,
@@ -257,6 +285,7 @@ export function ReportSheet({
         const comparison = result.data;
         if (comparison.comparison_id !== id)
           throw new Error("The service returned a different saved comparison.");
+        if (epoch !== scopeEpochRef.current) return;
         setVerified({
           kind,
           id,
@@ -280,6 +309,7 @@ export function ReportSheet({
           result.data.snapshot.id !== groupSnapshotId
         )
           throw new Error("The service returned a different group snapshot.");
+        if (epoch !== scopeEpochRef.current) return;
         setVerified({
           kind,
           id,
@@ -288,9 +318,9 @@ export function ReportSheet({
         });
       }
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (epoch === scopeEpochRef.current) setError(safeMessage(cause));
     } finally {
-      setChecking(false);
+      if (epoch === scopeEpochRef.current) setChecking(false);
     }
   }
 
@@ -311,24 +341,29 @@ export function ReportSheet({
         responses: rawResponses,
       },
     };
+    const epoch = scopeEpochRef.current;
     const receipt = await mutation.current?.submit({
       registrationId,
       kind: verified.kind,
       id: verified.id,
       ...(verified.groupSnapshotId ? { groupSnapshotId: verified.groupSnapshotId } : {}),
       body,
+      scopeEpoch: epoch,
+      operations: debugging.reports,
     });
-    if (receipt) onCreated(receipt.report_id);
+    if (receipt && epoch === scopeEpochRef.current) onCreated(receipt.report_id);
   }
 
   async function retryOriginal() {
+    const owner = mutation.current?.originalRequest;
     const receipt = await mutation.current?.retryOriginal();
-    if (receipt) onCreated(receipt.report_id);
+    if (receipt && owner?.scopeEpoch === scopeEpochRef.current)
+      onCreated(receipt.report_id);
   }
 
   function resetKnown() {
     mutation.current?.reset();
-    setState({ kind: "idle" });
+    setView({ scopeEpoch, state: { kind: "idle" } });
   }
 
   return (
@@ -393,12 +428,25 @@ export function ReportSheet({
         </fieldset>
         {error && <ErrorSummary message={error} />}
         {(state.kind === "failed" || state.kind === "conflict" || state.kind === "outcome-unknown") && <ErrorSummary message={state.message} />}
+        {retainedViewStale && mutationKind === "outcome-unknown" && (
+          <section role="status">
+            <p>An earlier report request is unresolved and can only be retried unchanged.</p>
+            <button type="button" onClick={() => void retryOriginal()}>
+              Retry original unchanged report
+            </button>
+          </section>
+        )}
+        {retainedViewStale && mutationKind === "committed" && (
+          <button type="button" onClick={resetKnown}>
+            Start a new report for this view
+          </button>
+        )}
         {(state.kind === "failed" || state.kind === "conflict") && (
           <button
             type="button"
             onClick={() => {
               mutation.current?.reset();
-              setState({ kind: "idle" });
+              setView({ scopeEpoch, state: { kind: "idle" } });
               setVerified(undefined);
             }}
           >
@@ -449,11 +497,15 @@ export function ReportPage({
   reportId: string;
   operations: DebuggingGateway["reports"];
 }) {
+  const scopeEpoch = useRenderedScopeEpoch(`${registrationId}|${reportId}`);
+  const scopeEpochRef = useRef(scopeEpoch);
+  scopeEpochRef.current = scopeEpoch;
   const [report, setReport] = useState<Report>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [refreshToken, setRefreshToken] = useState(0);
   const [format, setFormat] = useState<"json" | "markdown">("json");
+  const [loadedFormat, setLoadedFormat] = useState<"json" | "markdown">();
   const [preview, setPreview] = useState<string>();
   const [download, setDownload] = useState<ApiDownload>();
   const [downloading, setDownloading] = useState(false);
@@ -467,6 +519,7 @@ export function ReportPage({
     setError(undefined);
     setPreview(undefined);
     setDownload(undefined);
+    setLoadedFormat(undefined);
     setReport(undefined);
     void operations.read({ registrationId, reportId, signal: controller.signal })
       .then((result) => {
@@ -483,11 +536,15 @@ export function ReportPage({
     return () => {
       active = false;
       controller.abort();
-      if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+      if (objectUrl.current) {
+        URL.revokeObjectURL(objectUrl.current);
+        objectUrl.current = undefined;
+      }
     };
   }, [operations, refreshToken, registrationId, reportId]);
 
   async function loadBytes(save: boolean) {
+    const epoch = scopeEpochRef.current;
     setDownloading(true);
     setError(undefined);
     try {
@@ -496,8 +553,15 @@ export function ReportPage({
         reportId,
         query: { format },
       });
+      const text = await bytes.blob.text();
+      if (epoch !== scopeEpochRef.current) return;
+      if (objectUrl.current) {
+        URL.revokeObjectURL(objectUrl.current);
+        objectUrl.current = undefined;
+      }
       setDownload(bytes);
-      setPreview(await bytes.blob.text());
+      setPreview(text);
+      setLoadedFormat(format);
       setDownloadNotice(undefined);
       if (save) {
         if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
@@ -515,9 +579,9 @@ export function ReportPage({
         }, 0);
       }
     } catch (cause) {
-      setError(safeMessage(cause));
+      if (epoch === scopeEpochRef.current) setError(safeMessage(cause));
     } finally {
-      setDownloading(false);
+      if (epoch === scopeEpochRef.current) setDownloading(false);
     }
   }
 
@@ -549,9 +613,20 @@ export function ReportPage({
             Download format
             <select
               value={format}
+              disabled={downloading}
               onChange={(event) => {
                 const value = event.currentTarget.value;
-                if (value === "json" || value === "markdown") setFormat(value);
+                if (value === "json" || value === "markdown") {
+                  if (objectUrl.current) {
+                    URL.revokeObjectURL(objectUrl.current);
+                    objectUrl.current = undefined;
+                  }
+                  setFormat(value);
+                  setPreview(undefined);
+                  setDownload(undefined);
+                  setLoadedFormat(undefined);
+                  setDownloadNotice(undefined);
+                }
               }}
             >
               <option value="json">JSON bytes</option>
@@ -566,7 +641,7 @@ export function ReportPage({
               Download {format === "json" ? "JSON" : "Markdown"}
             </button>
           </div>
-          {download && <p role="status">Read {download.blob.size} report bytes as {format}; filename {download.filename}.</p>}
+          {download && loadedFormat && <p role="status">Read {download.blob.size} report bytes as {loadedFormat}; filename {download.filename}.</p>}
           {downloadNotice && <p role="status">{downloadNotice}</p>}
           {preview !== undefined && (
             <section>

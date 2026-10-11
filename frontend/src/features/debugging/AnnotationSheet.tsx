@@ -9,6 +9,7 @@ import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import type { DebuggingGateway } from "../../workspace/gateway";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
+import { useRenderedScopeEpoch } from "./useRenderedScopeEpoch";
 
 type AddBody = ApiOperationBody<"addAnnotation">;
 type Annotation = ApiOperationData<"readAnnotation">;
@@ -17,6 +18,8 @@ type AnnotationIntent = {
   runId: string;
   caseId: string;
   body: AddBody;
+  scopeEpoch: number;
+  operations: DebuggingGateway["annotations"];
 };
 
 export function AnnotationSheet({
@@ -34,20 +37,37 @@ export function AnnotationSheet({
   navigation: WorkspaceNavigation;
   onClose: () => void;
 }) {
-  const [note, setNote] = useState("");
-  const [items, setItems] = useState<readonly Annotation[]>([]);
+  const scopeEpoch = useRenderedScopeEpoch(`${registrationId}|${runId}|${caseId}`);
+  const scopeEpochRef = useRef(scopeEpoch);
+  scopeEpochRef.current = scopeEpoch;
+  const [noteView, setNoteView] = useState({ scopeEpoch, value: "" });
+  const note = noteView.scopeEpoch === scopeEpoch ? noteView.value : "";
+  function setNote(value: string) {
+    setNoteView({ scopeEpoch, value });
+  }
+  const [itemsView, setItemsView] = useState<{
+    scopeEpoch: number;
+    value: readonly Annotation[];
+  }>({ scopeEpoch, value: [] });
+  const items = itemsView.scopeEpoch === scopeEpoch ? itemsView.value : [];
   const [loading, setLoading] = useState(true);
   const [readError, setReadError] = useState<string>();
   const [confirmClose, setConfirmClose] = useState(false);
-  const [state, setState] = useState<MutationState<Annotation>>({
-    kind: "idle",
-  });
+  const [view, setView] = useState<{
+    scopeEpoch: number;
+    state: MutationState<Annotation>;
+  }>({ scopeEpoch, state: { kind: "idle" } });
   const mutation = useRef<
     RetainedMutation<AnnotationIntent, Annotation> | undefined
   >(undefined);
   if (!mutation.current) {
     mutation.current = new RetainedMutation(async (intent) => {
-      const result = await operations.add(intent);
+      const result = await intent.operations.add({
+        registrationId: intent.registrationId,
+        runId: intent.runId,
+        caseId: intent.caseId,
+        body: intent.body,
+      });
       const receipt = result.data;
       if (
         receipt.run_id !== intent.runId ||
@@ -56,9 +76,16 @@ export function AnnotationSheet({
       )
         throw new Error("The annotation receipt did not match this case.");
       return receipt;
-    }, setState);
+    }, (next) => {
+      const owner = mutation.current?.originalRequest;
+      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+    });
   }
-  const busy = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const mutationKind = mutation.current.state.kind;
+  const retainedOwner = mutation.current.originalRequest;
+  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const dirty = note.trim().length > 0;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -83,6 +110,7 @@ export function AnnotationSheet({
   );
 
   async function refresh(signal?: AbortSignal) {
+    const epoch = scopeEpochRef.current;
     setLoading(true);
     setReadError(undefined);
     try {
@@ -97,11 +125,14 @@ export function AnnotationSheet({
       );
       if (matching.length !== result.data.items.length)
         throw new Error("The annotation list included a different case.");
-      setItems(matching);
+      if (epoch === scopeEpochRef.current && !signal?.aborted)
+        setItemsView({ scopeEpoch: epoch, value: matching });
     } catch (cause) {
-      setReadError(safeMessage(cause));
+      if (epoch === scopeEpochRef.current && !signal?.aborted)
+        setReadError(safeMessage(cause));
     } finally {
-      setLoading(false);
+      if (epoch === scopeEpochRef.current && !signal?.aborted)
+        setLoading(false);
     }
   }
   useEffect(() => {
@@ -119,13 +150,16 @@ export function AnnotationSheet({
       case_id: caseId,
       note: cleanedNote,
     };
+    const epoch = scopeEpochRef.current;
     const receipt = await mutation.current?.submit({
       registrationId,
       runId,
       caseId,
       body,
+      scopeEpoch: epoch,
+      operations,
     });
-    if (receipt) {
+    if (receipt && epoch === scopeEpochRef.current) {
       setNote("");
       await refresh();
     }
@@ -133,8 +167,9 @@ export function AnnotationSheet({
   }
 
   async function retryOriginal() {
+    const owner = mutation.current?.originalRequest;
     const receipt = await mutation.current?.retryOriginal();
-    if (receipt) {
+    if (receipt && owner?.scopeEpoch === scopeEpochRef.current) {
       setNote("");
       await refresh();
     }
@@ -164,6 +199,25 @@ export function AnnotationSheet({
           </p>
           {state.kind === "outcome-unknown" && (
             <ErrorSummary message={state.message} />
+          )}
+          {retainedViewStale && mutationKind === "outcome-unknown" && (
+            <section role="status">
+              <p>An earlier case annotation is unresolved and can only be retried unchanged.</p>
+              <button type="button" onClick={() => void retryOriginal()}>
+                Retry original unchanged annotation
+              </button>
+            </section>
+          )}
+          {retainedViewStale && mutationKind === "committed" && (
+            <button
+              type="button"
+              onClick={() => {
+                mutation.current?.reset();
+                setView({ scopeEpoch, state: { kind: "idle" } });
+              }}
+            >
+              Start a new annotation for this case
+            </button>
           )}
           {(state.kind === "failed" || state.kind === "conflict") && (
             <ErrorSummary message={state.message} />
@@ -204,7 +258,7 @@ export function AnnotationSheet({
                   setNote(event.currentTarget.value);
                   if (state.kind === "failed" || state.kind === "conflict") {
                     mutation.current?.reset();
-                    setState({ kind: "idle" });
+                    setView({ scopeEpoch, state: { kind: "idle" } });
                   }
                 }}
                 disabled={busy || state.kind === "committed"}
@@ -227,7 +281,7 @@ export function AnnotationSheet({
                   type="button"
                   onClick={() => {
                     mutation.current?.reset();
-                    setState({ kind: "idle" });
+                    setView({ scopeEpoch, state: { kind: "idle" } });
                   }}
                 >
                   Add another note

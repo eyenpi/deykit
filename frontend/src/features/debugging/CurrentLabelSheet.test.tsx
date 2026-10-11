@@ -1,0 +1,318 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
+import { expect, it, vi } from "vitest";
+import { ApiError } from "../../api/client";
+import type { ApiOperationData, ApiResult } from "../../api/client";
+import { disconnectedWorkspace } from "../../workspace/gateway";
+import { WorkspaceNavigation } from "../../workspace/navigation";
+import { CurrentLabelSheet } from "./CurrentLabelSheet";
+
+vi.mock("../../components/Modal", () => ({
+  Modal: ({ children, title }: { children: ReactNode; title: string }) => (
+    <div role="dialog" aria-label={title}>{children}</div>
+  ),
+}));
+
+type LabelView = ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">;
+type LabelReceipt = ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((accept) => {
+    resolve = accept;
+  });
+  return { promise, resolve };
+}
+
+function labelView(caseId: string, inputHash: string): LabelView {
+  return {
+    schema_version: 1,
+    case: {
+      schema_version: 1,
+      id: caseId,
+      dataset_id: "dataset-1",
+      input_kind: "json",
+      input_source: "{}",
+    },
+    definition: {
+      schema_version: 1,
+      input_kind: "json",
+      input_schema_source: null,
+      selected_fields: [],
+      questions: [{
+        id: "question-1",
+        instructions: "Choose one",
+        options: [{ id: "option-1", name: "Option one" }],
+      }],
+    },
+    label: null,
+    missing_option_ids: [],
+    reasons: [],
+    review: {
+      case_id: caseId,
+      dataset_id: "dataset-1",
+      decision_etag: "decision-etag",
+      draft_etag: "draft-etag",
+      decision_id: "decision-1",
+      input_hash: inputHash,
+      label_etag: null,
+      question_id: "question-1",
+    },
+    status: "unlabelled",
+  };
+}
+
+it("keeps delayed current-label reads inside their A-to-B-to-A rendered scope", async () => {
+  window.history.replaceState(null, "", "#/p/registration-1/runs/run-1");
+  const navigation = new WorkspaceNavigation(window);
+  const pending: Array<ReturnType<typeof deferred<ApiResult<LabelView>>>> = [];
+  const operations = {
+    ...disconnectedWorkspace.authoring.examples,
+    readLabel: () => {
+      const request = deferred<ApiResult<LabelView>>();
+      pending.push(request);
+      return request.promise;
+    },
+  };
+  const props = {
+    registrationId: "registration-1",
+    decisionId: "decision-1",
+    datasetId: "dataset-1",
+    frozenQuestionId: "question-1",
+    frozenOptionIds: ["option-1"],
+    frozenExpectedOptionIds: [],
+    operations,
+    navigation,
+    onClose: () => undefined,
+  };
+  const tree = render(
+    <CurrentLabelSheet {...props} caseId="case-A" frozenInputHash="hash-a1" />,
+  );
+  try {
+    await waitFor(() => expect(pending).toHaveLength(1));
+    tree.rerender(
+      <CurrentLabelSheet {...props} caseId="case-B" frozenInputHash="hash-b" />,
+    );
+    await waitFor(() => expect(pending).toHaveLength(2));
+    tree.rerender(
+      <CurrentLabelSheet {...props} caseId="case-A" frozenInputHash="hash-a2" />,
+    );
+    await waitFor(() => expect(pending).toHaveLength(3));
+
+    pending[0]?.resolve({ data: labelView("case-A", "hash-a1"), warnings: [] });
+    pending[1]?.resolve({ data: labelView("case-B", "hash-b"), warnings: [] });
+    await Promise.resolve();
+    expect(screen.queryByText(/Current review input hash hash-a1/)).toBeNull();
+    expect(screen.queryByText(/Current review input hash hash-b/)).toBeNull();
+
+    pending[2]?.resolve({ data: labelView("case-A", "hash-a2"), warnings: [] });
+    expect(await screen.findByText(/Current review input hash hash-a2/)).toBeTruthy();
+    expect(screen.queryByText(/Current review input hash hash-a1/)).toBeNull();
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("keeps a known label receipt and permits only a read-only refresh after the detail read fails", async () => {
+  window.history.replaceState(null, "", "#/p/registration-1/runs/run-1");
+  const navigation = new WorkspaceNavigation(window);
+  const submitted: Parameters<typeof disconnectedWorkspace.authoring.examples.saveLabels>[0][] = [];
+  const writeReceipt = deferred<ApiResult<LabelReceipt>>();
+  let readsOnReplacement = 0;
+  const originalOperations = {
+    ...disconnectedWorkspace.authoring.examples,
+    readLabel: async () => {
+      return { data: labelView("case-A", "frozen-input-hash"), warnings: [] };
+    },
+    saveLabels: async (request: (typeof submitted)[number]) => {
+      submitted.push(request);
+      return writeReceipt.promise;
+    },
+  };
+  const replacementOperations = {
+    ...disconnectedWorkspace.authoring.examples,
+    readLabel: async () => {
+      readsOnReplacement += 1;
+      if (readsOnReplacement === 2) throw new ApiError("read_unavailable", "label read unavailable", 503);
+      return { data: labelView("case-A", "frozen-input-hash"), warnings: [] };
+    },
+    saveLabels: async () => {
+      throw new Error("replacement operation must not receive the retained save");
+    },
+  };
+  const tree = render(
+    <CurrentLabelSheet
+      registrationId="registration-1"
+      decisionId="decision-1"
+      datasetId="dataset-1"
+      caseId="case-A"
+      frozenInputHash="frozen-input-hash"
+      frozenQuestionId="question-1"
+      frozenOptionIds={["option-1"]}
+      frozenExpectedOptionIds={[]}
+      operations={originalOperations}
+      navigation={navigation}
+      onClose={() => undefined}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await user.click(await screen.findByLabelText(/Option one/));
+    await user.click(screen.getByRole("button", { name: "Save current label" }));
+    await waitFor(() => expect(submitted).toHaveLength(1));
+    tree.rerender(
+      <CurrentLabelSheet
+        registrationId="registration-1"
+        decisionId="decision-1"
+        datasetId="dataset-1"
+        caseId="case-A"
+        frozenInputHash="frozen-input-hash"
+        frozenQuestionId="question-1"
+        frozenOptionIds={["option-1"]}
+        frozenExpectedOptionIds={[]}
+        operations={replacementOperations}
+        navigation={navigation}
+        onClose={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(readsOnReplacement).toBe(1));
+    writeReceipt.resolve({
+      data: {
+        schema_version: 1,
+        replayed: false,
+        changes: [{
+          schema_version: 1,
+          id: "label-change-1",
+          operation_id: submitted[0]!.body.operation_id,
+          action: "set",
+          decision_id: "decision-1",
+          dataset_id: "dataset-1",
+          case_id: "case-A",
+          question_id: "question-1",
+          created_at: "2026-10-11T00:00:00Z",
+          review: submitted[0]!.body.edits[0]!.review,
+          label: {
+            schema_version: 1,
+            id: "label-1",
+            decision_id: "decision-1",
+            dataset_id: "dataset-1",
+            case_id: "case-A",
+            question_id: "question-1",
+            input_hash: "frozen-input-hash",
+            acceptable_option_ids: ["option-1"],
+            provenance: "human",
+            updated_at: "2026-10-11T00:00:00Z",
+          },
+        }],
+      },
+      warnings: [],
+    });
+    expect(await screen.findByText(/Label receipt recorded/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("label read unavailable"));
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]?.body.edits[0]?.review.input_hash).toBe("frozen-input-hash");
+    expect(submitted[0]?.body.edits[0]?.acceptable_option_ids).toEqual(["option-1"]);
+    expect(readsOnReplacement).toBe(2);
+
+    await user.click(screen.getByRole("button", { name: /Retry/ }));
+    expect(await screen.findByText(/Current review input hash frozen-input-hash/)).toBeTruthy();
+    expect(readsOnReplacement).toBe(3);
+    expect(submitted).toHaveLength(1);
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("retries the captured label hash and operation port after the frozen scope is replaced", async () => {
+  window.history.replaceState(null, "", "#/p/registration-1/runs/run-1");
+  const navigation = new WorkspaceNavigation(window);
+  const requests: Parameters<typeof disconnectedWorkspace.authoring.examples.saveLabels>[0][] = [];
+  let saves = 0;
+  const originalOperations = {
+    ...disconnectedWorkspace.authoring.examples,
+    readLabel: async () => ({ data: labelView("case-A", "frozen-hash-A"), warnings: [] }),
+    saveLabels: async (request: (typeof requests)[number]) => {
+      requests.push(request);
+      saves += 1;
+      if (saves === 1) throw new Error("reply lost");
+      return {
+        data: {
+          schema_version: 1,
+          replayed: true,
+          changes: [{
+            schema_version: 1,
+            id: "change-A",
+            operation_id: request.body.operation_id,
+            action: "set",
+            decision_id: "decision-1",
+            dataset_id: "dataset-1",
+            case_id: "case-A",
+            question_id: "question-1",
+            created_at: "2026-10-11T00:00:00Z",
+            review: request.body.edits[0]!.review,
+            label: {
+              schema_version: 1,
+              id: "label-A",
+              decision_id: "decision-1",
+              dataset_id: "dataset-1",
+              case_id: "case-A",
+              question_id: "question-1",
+              input_hash: "frozen-hash-A",
+              acceptable_option_ids: ["option-1"],
+              provenance: "human",
+              updated_at: "2026-10-11T00:00:00Z",
+            },
+          }],
+        },
+        warnings: [],
+      };
+    },
+  };
+  const replacementOperations = {
+    ...disconnectedWorkspace.authoring.examples,
+    readLabel: async () => ({ data: labelView("case-A", "frozen-hash-B"), warnings: [] }),
+    saveLabels: async () => {
+      throw new Error("replacement label port must not receive the retained save");
+    },
+  };
+  const baseProps = {
+    registrationId: "registration-1",
+    decisionId: "decision-1",
+    datasetId: "dataset-1",
+    frozenQuestionId: "question-1",
+    frozenOptionIds: ["option-1"],
+    frozenExpectedOptionIds: [],
+    navigation,
+    onClose: () => undefined,
+  };
+  const tree = render(
+    <CurrentLabelSheet {...baseProps} caseId="case-A" frozenInputHash="frozen-hash-A" operations={originalOperations} />,
+  );
+  const user = userEvent.setup();
+  try {
+    await user.click(await screen.findByLabelText(/Option one/));
+    await user.click(screen.getByRole("button", { name: "Save current label" }));
+    expect(await screen.findByRole("button", { name: "Retry original unchanged label save" })).toBeTruthy();
+    expect(requests).toHaveLength(1);
+    const original = requests[0]!;
+    expect(original.body.edits[0]?.review.input_hash).toBe("frozen-hash-A");
+
+    tree.rerender(
+      <CurrentLabelSheet {...baseProps} caseId="case-A" frozenInputHash="frozen-hash-B" operations={replacementOperations} />,
+    );
+    expect(await screen.findByText(/Current review input hash frozen-hash-B/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Retry original unchanged label save" }));
+    expect(await screen.findByText(/Current review input hash frozen-hash-B/)).toBeTruthy();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toBe(original);
+    expect(requests[1]?.body).toEqual(original.body);
+    expect(requests[1]?.body.edits[0]?.review.input_hash).toBe("frozen-hash-A");
+    expect(saves).toBe(2);
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});

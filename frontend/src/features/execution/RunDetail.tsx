@@ -353,21 +353,21 @@ export function RunDetail({
         )}
       </article>
     );
-  const associationValid =
-    project.id === registrationId &&
-    project.decisions.some((decision) => decision.id === run.decision_id) &&
-    project.datasets.some((dataset) => dataset.id === run.dataset_id);
   const returnGroup =
     navigation.current.kind === "run"
       ? navigation.current.returnGroup
       : undefined;
+  const associationValid =
+    project.id === registrationId &&
+    project.decisions.some((decision) => decision.id === run.decision_id) &&
+    project.datasets.some((dataset) => dataset.id === run.dataset_id) &&
+    (returnGroup === undefined || run.execution_group_id === returnGroup.groupId);
   if (!associationValid)
     return (
       <article className="document">
         <h1>Run association unavailable</h1>
         <p>
-          The service returned a run whose decision or dataset is not present in
-          this project overview.
+          The run did not match the project or the group context that opened it.
         </p>
         <button
           type="button"
@@ -414,7 +414,7 @@ export function RunDetail({
           >
             Refresh progress
           </button>
-          {run.execution_active && (
+          {run.execution_active && !run.execution_group_id && (
             <button
               type="button"
               disabled={cancelState.kind !== "idle"}
@@ -442,6 +442,11 @@ export function RunDetail({
             <ErrorSummary message={cancelState.message} />
           )}
         </div>
+        {run.execution_group_id && !returnGroup && (
+          <p role="status">
+            This run belongs to group <code>{run.execution_group_id}</code>. Resume, cancellation, and lifetime-cap review belong in that group’s workspace.
+          </p>
+        )}
         {error && (
           <ErrorSummary
             message={error}
@@ -586,6 +591,7 @@ export function RunDetail({
                             runId,
                             ...(evaluationId ? { evaluationId } : {}),
                             caseId: item.case_id,
+                            ...(returnGroup ? { returnGroup } : {}),
                           })
                         }
                       >
@@ -605,7 +611,7 @@ export function RunDetail({
             </table>
           </div>
         </section>
-        {!run.execution_active && (
+        {!run.execution_active && !run.execution_group_id && (
           <section className="resume-review" aria-label="Resume review">
             <h2>Review resume</h2>
             <label>

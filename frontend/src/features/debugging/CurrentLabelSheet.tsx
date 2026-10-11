@@ -8,6 +8,7 @@ import type { MutationState } from "../../workspace/mutation-controller";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import type { ExampleAuthoringOperations } from "../../workspace/gateway";
+import { useRenderedScopeEpoch } from "./useRenderedScopeEpoch";
 
 type LabelView = ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">;
 type LabelReceipt = ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
@@ -18,6 +19,9 @@ type Intent = {
   datasetId: string;
   caseId: string;
   body: LabelBody;
+  frozenInputHash: string;
+  scopeEpoch: number;
+  operations: ExampleAuthoringOperations;
 };
 
 export function CurrentLabelSheet({
@@ -45,18 +49,50 @@ export function CurrentLabelSheet({
   navigation: WorkspaceNavigation;
   onClose: () => void;
 }) {
-  const [current, setCurrent] = useState<LabelView>();
-  const [selected, setSelected] = useState<readonly string[]>([]);
+  const scopeEpoch = useRenderedScopeEpoch(
+    `${registrationId}|${decisionId}|${datasetId}|${caseId}|${frozenInputHash}|${frozenQuestionId}`,
+  );
+  const scopeEpochRef = useRef(scopeEpoch);
+  scopeEpochRef.current = scopeEpoch;
+  const [currentView, setCurrentView] = useState<{
+    scopeEpoch: number;
+    value: LabelView | undefined;
+  }>({ scopeEpoch, value: undefined });
+  const current = currentView.scopeEpoch === scopeEpoch ? currentView.value : undefined;
+  const [selectionView, setSelectionView] = useState<{
+    scopeEpoch: number;
+    value: readonly string[];
+  }>({ scopeEpoch, value: [] });
+  const selected = selectionView.scopeEpoch === scopeEpoch ? selectionView.value : [];
+  function setSelected(
+    update: readonly string[] | ((previous: readonly string[]) => readonly string[]),
+  ) {
+    const previous = selectionView.scopeEpoch === scopeEpoch ? selectionView.value : [];
+    setSelectionView({
+      scopeEpoch,
+      value: typeof update === "function" ? update(previous) : update,
+    });
+  }
   const [loading, setLoading] = useState(true);
   const [readError, setReadError] = useState<string>();
-  const [state, setState] = useState<MutationState<LabelReceipt>>({ kind: "idle" });
-  const [lastReceipt, setLastReceipt] = useState<LabelReceipt>();
+  const [view, setView] = useState<{
+    scopeEpoch: number;
+    state: MutationState<LabelReceipt>;
+  }>({ scopeEpoch, state: { kind: "idle" } });
+  const [lastReceiptView, setLastReceiptView] = useState<{
+    scopeEpoch: number;
+    value: LabelReceipt | undefined;
+  }>({ scopeEpoch, value: undefined });
+  const lastReceipt = lastReceiptView.scopeEpoch === scopeEpoch ? lastReceiptView.value : undefined;
+  function setLastReceipt(value: LabelReceipt | undefined) {
+    setLastReceiptView({ scopeEpoch, value });
+  }
   const [readRevision, setReadRevision] = useState(0);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const mutation = useRef<RetainedMutation<Intent, LabelReceipt> | undefined>(undefined);
   if (!mutation.current) {
     mutation.current = new RetainedMutation(async (intent) => {
-      const result = await operations.saveLabels({
+      const result = await intent.operations.saveLabels({
         registrationId: intent.registrationId,
         decisionId: intent.decisionId,
         datasetId: intent.datasetId,
@@ -71,13 +107,20 @@ export function CurrentLabelSheet({
         change.case_id !== intent.caseId ||
         change.dataset_id !== intent.datasetId ||
         change.decision_id !== intent.decisionId ||
-        change.label?.input_hash !== frozenInputHash
+        change.label?.input_hash !== intent.frozenInputHash
       )
         throw new Error("The label receipt did not match the frozen case input.");
       return result.data;
-    }, setState);
+    }, (next) => {
+      const owner = mutation.current?.originalRequest;
+      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+    });
   }
-  const busy = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const mutationKind = mutation.current.state.kind;
+  const retainedOwner = mutation.current.originalRequest;
+  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const savedSelection = current?.label?.acceptable_option_ids ?? [];
   const dirty =
     [...savedSelection].sort().join("\u0000") !==
@@ -107,10 +150,12 @@ export function CurrentLabelSheet({
   );
 
   async function refresh(signal?: AbortSignal) {
+    const epoch = scopeEpochRef.current;
+    const sourceOperations = operations;
     setLoading(true);
     setReadError(undefined);
     try {
-      const result = await operations.readLabel({
+      const result = await sourceOperations.readLabel({
         registrationId,
         decisionId,
         datasetId,
@@ -139,12 +184,16 @@ export function CurrentLabelSheet({
         throw new Error("The current question options differ from the frozen run.");
       if (result.data.label && result.data.label.input_hash !== frozenInputHash)
         throw new Error("The current label belongs to a different case input.");
-      setCurrent(result.data);
-      setSelected(result.data.label?.acceptable_option_ids ?? []);
+      if (epoch === scopeEpochRef.current && !signal?.aborted) {
+        setCurrentView({ scopeEpoch: epoch, value: result.data });
+        setSelected(result.data.label?.acceptable_option_ids ?? []);
+      }
     } catch (cause) {
-      if (!signal?.aborted) setReadError(safeMessage(cause));
+      if (epoch === scopeEpochRef.current && !signal?.aborted)
+        setReadError(safeMessage(cause));
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      if (epoch === scopeEpochRef.current && !signal?.aborted)
+        setLoading(false);
     }
   }
   useEffect(() => {
@@ -165,8 +214,18 @@ export function CurrentLabelSheet({
         provenance: "human",
       }],
     };
-    const receipt = await mutation.current.submit({ registrationId, decisionId, datasetId, caseId, body });
-    if (receipt) {
+    const epoch = scopeEpochRef.current;
+    const receipt = await mutation.current.submit({
+      registrationId,
+      decisionId,
+      datasetId,
+      caseId,
+      body,
+      frozenInputHash,
+      scopeEpoch: epoch,
+      operations,
+    });
+    if (receipt && epoch === scopeEpochRef.current) {
       setLastReceipt(receipt);
       setReadRevision((value) => value + 1);
     }
@@ -174,8 +233,9 @@ export function CurrentLabelSheet({
   }
 
   async function retryOriginal() {
+    const owner = mutation.current?.originalRequest;
     const receipt = await mutation.current?.retryOriginal();
-    if (receipt) {
+    if (receipt && owner?.scopeEpoch === scopeEpochRef.current) {
       setLastReceipt(receipt);
       setReadRevision((value) => value + 1);
     }
@@ -218,6 +278,19 @@ export function CurrentLabelSheet({
           <ErrorSummary message={state.message} />
           <button type="button" onClick={() => void retryOriginal()}>Retry original unchanged label save</button>
         </>}
+        {retainedViewStale && mutationKind === "outcome-unknown" && (
+          <section role="status">
+            <p>An earlier label save is unresolved and can only be retried unchanged.</p>
+            <button type="button" onClick={() => void retryOriginal()}>Retry original unchanged label save</button>
+          </section>
+        )}
+        {retainedViewStale && mutationKind === "committed" && (
+          <button type="button" onClick={() => {
+            mutation.current?.reset();
+            setView({ scopeEpoch, state: { kind: "idle" } });
+            setLastReceipt(undefined);
+          }}>Review a new label for this case</button>
+        )}
         {(state.kind === "failed" || state.kind === "conflict") && <ErrorSummary message={state.message} />}
         {lastReceipt && <p role="status">Label receipt recorded. Current label was re-read separately; frozen evaluation evidence remains unchanged.</p>}
         {prompt}

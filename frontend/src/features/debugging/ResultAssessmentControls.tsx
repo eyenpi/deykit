@@ -17,6 +17,7 @@ type Intent =
       registrationId: string;
       runId: string;
       body: EvaluationBody;
+      operations: DebuggingGateway["evaluations"];
     }
   | {
       kind: "reevaluate";
@@ -24,6 +25,7 @@ type Intent =
       registrationId: string;
       runId: string;
       body: ReevaluationBody;
+      operations: DebuggingGateway["evaluations"];
     };
 
 type MutationView = {
@@ -66,12 +68,12 @@ export function ResultAssessmentControls({
       async (intent) => {
         const result =
           intent.kind === "save"
-            ? await operations.create({
+            ? await intent.operations.create({
                 registrationId: intent.registrationId,
                 runId: intent.runId,
                 body: intent.body,
               })
-            : await operations.reevaluate({
+            : await intent.operations.reevaluate({
                 registrationId: intent.registrationId,
                 runId: intent.runId,
                 body: intent.body,
@@ -89,12 +91,18 @@ export function ResultAssessmentControls({
       (state) => {
         const owner = mutation.current?.originalRequest?.scopeIdentity;
         if (owner) setView({ scopeIdentity: owner, state });
-        onBusyChange(state.kind === "submitting" || state.kind === "outcome-unknown");
+        if (
+          owner === scopeIdentity ||
+          (state.kind !== "submitting" && state.kind !== "outcome-unknown")
+        )
+          onBusyChange(state.kind === "submitting" || state.kind === "outcome-unknown");
       },
     );
   }
-  const state = view.state;
-  const uncertain = state.kind === "submitting" || state.kind === "outcome-unknown";
+  const state = view.scopeIdentity === scopeIdentity ? view.state : { kind: "idle" as const };
+  const mutationState = mutation.current.state;
+  const uncertain = mutationState.kind === "submitting" || mutationState.kind === "outcome-unknown";
+  const staleUnknown = view.scopeIdentity !== scopeIdentity && mutationState.kind === "outcome-unknown";
   const uncertainRef = useRef(uncertain);
   uncertainRef.current = uncertain;
   const { guard, prompt } = useDirtyNavigationGuard({
@@ -136,6 +144,7 @@ export function ResultAssessmentControls({
       registrationId,
       runId,
       body,
+      operations,
     });
   }
 
@@ -152,6 +161,7 @@ export function ResultAssessmentControls({
       registrationId,
       runId,
       body,
+      operations,
     });
   }
 
@@ -204,6 +214,14 @@ export function ResultAssessmentControls({
             Retry original unchanged request
           </button>
         )}
+        {staleUnknown && (
+          <section role="status">
+            <p>An evaluation for the earlier frozen result is unresolved.</p>
+            <button type="button" onClick={() => void retryOriginal()}>
+              Retry original unchanged request
+            </button>
+          </section>
+        )}
         {state.kind === "committed" && (
           <button type="button" onClick={beginAnother}>
             Start another explicit evaluation
@@ -214,7 +232,7 @@ export function ResultAssessmentControls({
             type="button"
             onClick={() => {
               mutation.current?.reset();
-              setState({ kind: "idle" });
+              setView({ scopeIdentity, state: { kind: "idle" } });
             }}
           >
             Review a new evaluation request

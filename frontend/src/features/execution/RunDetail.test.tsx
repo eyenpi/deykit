@@ -162,3 +162,55 @@ it("publishes the first progress read and suppresses a held refresh after route 
     navigation.dispose();
   }
 });
+
+it("keeps group context on case navigation and withholds child run-level resume controls", async () => {
+  const groupedRun: ApiOperationData<"readRun"> = {
+    ...run,
+    state: "cancelled",
+    execution_active: false,
+    execution_group_id: "diagnostic-1",
+    group_attempts_remaining: "3",
+  };
+  window.history.replaceState(
+    null,
+    "",
+    "#/p/registration-1/runs/run-1?group_kind=diagnostic&group_id=diagnostic-1",
+  );
+  const navigation = new WorkspaceNavigation(window);
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    runs: {
+      ...disconnectedWorkspace.execution.runs,
+      read: async () => ({ data: groupedRun, warnings: [] }),
+    },
+  };
+  const tree = render(
+    <RunDetail
+      registrationId="registration-1"
+      runId="run-1"
+      execution={execution}
+      debugging={disconnectedWorkspace.debugging}
+      labelOperations={disconnectedWorkspace.authoring.examples}
+      readRevision={disconnectedWorkspace.authoring.decisions.revision}
+      project={project}
+      navigation={navigation}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    expect(await screen.findByRole("heading", { name: "Run run-1" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Review resume" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "case-1" }));
+    expect(navigation.current).toEqual({
+      kind: "run",
+      registrationId: "registration-1",
+      runId: "run-1",
+      caseId: "case-1",
+      returnGroup: { kind: "diagnostic", groupId: "diagnostic-1" },
+    });
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
