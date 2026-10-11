@@ -139,6 +139,7 @@ export function DecisionPage({
     useState<VersionBaselineIssue>();
   const [renameOutcomeUnknown, setRenameOutcomeUnknown] = useState(false);
   const [archiveOutcomeUnknown, setArchiveOutcomeUnknown] = useState(false);
+  const archiveChangedPending = useRef(false);
   const [note, setNote] = useState("");
   const [notice, setNotice] = useState<string>();
   const [newFieldName, setNewFieldName] = useState("");
@@ -699,6 +700,19 @@ export function DecisionPage({
       ),
     [decisionId, dirtyGuard.guard, navigation, registrationId],
   );
+
+  useEffect(() => {
+    if (
+      !archiveChangedPending.current ||
+      renameWorking ||
+      archiveOutcomeUnknown
+    )
+      return;
+    // Publish the confirmed outcome to the navigation guard before the parent
+    // refresh removes this decision from its active list and changes the route.
+    archiveChangedPending.current = false;
+    onArchiveChanged();
+  }, [archiveOutcomeUnknown, onArchiveChanged, renameWorking]);
 
   function queueTransform(edit: EditorEdit, sequence = formSequence.current) {
     if (sourceControlsLockedRef.current) return;
@@ -1282,7 +1296,7 @@ export function DecisionPage({
       archiveAction.current = undefined;
       setArchiveOutcomeUnknown(false);
       setArchiveConfirm(false);
-      onArchiveChanged();
+      archiveChangedPending.current = true;
     } catch (cause) {
       if (uncertainOutcome(cause)) setArchiveOutcomeUnknown(true);
       else {

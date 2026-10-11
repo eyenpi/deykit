@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import type { ApiOperationData, ApiResult } from "../../api/client";
@@ -159,7 +166,10 @@ function revisionReceipt(
   };
 }
 
-function mountDecision(overrides: Partial<DecisionAuthoringOperations> = {}) {
+function mountDecision(
+  overrides: Partial<DecisionAuthoringOperations> = {},
+  onArchiveChanged?: (navigation: WorkspaceNavigation) => void,
+) {
   const base = {
     ...disconnectedWorkspace.authoring.decisions,
     read: async ({ decisionId: targetDecisionId }) =>
@@ -185,7 +195,7 @@ function mountDecision(overrides: Partial<DecisionAuthoringOperations> = {}) {
       onDecisionRenamed={() => undefined}
       onHistory={() => undefined}
       onExamples={() => undefined}
-      onArchiveChanged={() => undefined}
+      onArchiveChanged={() => onArchiveChanged?.(navigation)}
     />
   );
   const mounted = render(page(decisionId));
@@ -585,3 +595,75 @@ it("does not continue an old drain after the same page is reused for another dec
   expect(transformEditor).toHaveBeenCalledTimes(2);
   expect(saveRevision).not.toHaveBeenCalled();
 });
+
+it.each([false, true])(
+  "admits overview navigation after an uncertain archive/restore is acknowledged (archived=%s)",
+  async (wasArchived) => {
+    const action = wasArchived ? "restore" : "archive";
+    const receipt = decisionRead(source0, "draft-0").decision;
+    const write = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError("transport_unavailable", "Response lost."),
+      )
+      .mockResolvedValueOnce(
+        apiResult({
+          ...receipt,
+          record: { ...receipt.record, archived: !wasArchived },
+        }),
+      );
+    let navigationResult: boolean | undefined;
+    const changed = vi.fn((navigation: WorkspaceNavigation) => {
+      void navigation
+        .navigate({ kind: "overview", registrationId })
+        .then((moved) => {
+          navigationResult = moved;
+        });
+    });
+    mountDecision(
+      {
+        read: async () => {
+          const current = decisionRead(source0, "draft-0");
+          return apiResult({
+            ...current,
+            decision: {
+              ...current.decision,
+              record: { ...current.decision.record, archived: wasArchived },
+            },
+          });
+        },
+        [action]: write,
+      },
+      changed,
+    );
+    await screen.findByRole("button", {
+      name: wasArchived ? "Restore decision" : "Archive decision",
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: wasArchived ? "Restore decision" : "Archive decision",
+      }),
+    );
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", {
+        name: wasArchived ? "Restore decision" : "Archive decision",
+      }),
+    );
+    const retry = await screen.findByRole("button", {
+      name: `Retry same ${action} action`,
+    });
+    expect(changed).not.toHaveBeenCalled();
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    fireEvent.click(retry);
+    await waitFor(() => expect(navigationResult).toBe(true));
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(write.mock.calls[1][0].body).toBe(write.mock.calls[0][0].body);
+    expect(
+      screen.queryByRole("dialog", { name: "Unsaved changes" }),
+    ).toBeNull();
+  },
+);

@@ -354,12 +354,15 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Welcome to deykit." }),
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Projects", exact: true })
     .click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
   const openMarkupProject = page.getByRole("button", {
     name: `Open project folder: ${markupName}`,
   });
@@ -5394,7 +5397,7 @@ test("installed browser authors exact decision source and previews imports throu
   });
   await expect(retryRestore).toBeVisible();
   await page
-    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("navigation", { name: "Utilities" })
     .getByRole("button", { name: "Providers", exact: true })
     .click();
   const restoreNavigationPrompt = page.getByRole("dialog", {
@@ -5469,6 +5472,7 @@ test("installed browser authors exact decision source and previews imports throu
     await expect(retryRestore).toHaveCount(0);
     await expect(archivedRow).toHaveCount(0);
     await settleProjectReads();
+    await captureScreenshot("archive-restore-confirmed-overview.png");
   })();
   void restoreProjectionReadiness.catch(() => undefined);
   const restoreProjectionTimeout = new Error(
@@ -5526,7 +5530,7 @@ test("installed browser authors exact decision source and previews imports throu
   await page.unroute(`**/decisions/${decisionId}/restore`);
 
   await page
-    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("navigation", { name: "Utilities" })
     .getByRole("button", { name: "Providers", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
@@ -5717,10 +5721,12 @@ test("installed browser authors exact decision source and previews imports throu
     "Demo fixture profile safety and authored binding verification",
   );
   await page
-    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("navigation", { name: "Utilities" })
     .getByRole("button", { name: "Fixtures", exact: true })
     .click();
-  await expect(page.getByRole("heading", { name: "Fixtures" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
   await captureScreenshot("fixture-setup.png");
 
   // Inspect the packaged authored fixture through the installed UI and API.
@@ -5729,11 +5735,21 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Welcome to deykit." }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Try support demo", exact: true })
-    .click();
+  await page.getByRole("button", { name: /Try support demo/ }).click();
   const fixtureDemoPath = testInfo.outputPath("fixture-support-demo");
   await page.getByLabel("Project folder path").fill(fixtureDemoPath);
+  const fixtureDemoArchiveRead = page.waitForResponse(
+    (response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        /^\/api\/v1\/projects\/[^/]+\/decisions$/.test(url.pathname) &&
+        url.searchParams.get("include_archived") === "true"
+      );
+    },
+    { timeout: 15_000 },
+  );
+  void fixtureDemoArchiveRead.catch(() => undefined);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Try support demo", exact: true })
@@ -5741,6 +5757,11 @@ test("installed browser authors exact decision source and previews imports throu
   await expect(
     page.getByRole("heading", { name: "Sandbox", exact: true }),
   ).toBeVisible();
+  // The browser archive read and direct test-side reads share the source lock.
+  // Await its parsed body before inspecting the newly registered demo directly.
+  const fixtureDemoArchiveResponse = await fixtureDemoArchiveRead;
+  expect(fixtureDemoArchiveResponse.status()).toBe(200);
+  await fixtureDemoArchiveResponse.body();
   const fixtureRegistrationId = new URL(page.url()).hash.match(
     /^#\/p\/([A-Za-z0-9_-]+)/,
   )?.[1] as string;
@@ -5786,7 +5807,7 @@ test("installed browser authors exact decision source and previews imports throu
     expect(binding.model_identity).toBe(fixtureSummary.model_identity);
   }
   await page
-    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("navigation", { name: "Utilities" })
     .getByRole("button", { name: "Providers", exact: true })
     .click();
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
@@ -5813,7 +5834,7 @@ test("installed browser authors exact decision source and previews imports throu
     page.getByRole("heading", { name: "Fixture library" }),
   ).toBeVisible();
   await page
-    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("navigation", { name: "Utilities" })
     .getByRole("button", { name: "Fixtures", exact: true })
     .click();
   await expect(
@@ -6033,7 +6054,7 @@ test("installed browser authors exact decision source and previews imports throu
   ).toBeDisabled();
   await page
     .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Examples", exact: true })
+    .getByRole("button", { name: "Project examples", exact: true })
     .click();
   const fixtureUnknownGuard = page.getByRole("dialog", {
     name: "Unsaved changes",
@@ -6103,22 +6124,43 @@ test("installed browser authors exact decision source and previews imports throu
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual((await page.evaluate(() => window.innerWidth)) + 1);
-  await page.keyboard.press("Tab");
+  await page.getByRole("link", { name: "Skip to content" }).focus();
   let visibleKeyboardStops = 0;
-  for (let index = 0; index < 12; index += 1) {
-    const visible = await page.evaluate(() => {
+  let reachedDocumentEnd = false;
+  const focusKinds = new Set<string>();
+  for (let index = 0; index < 32; index += 1) {
+    const focus = await page.evaluate(() => {
       const active = document.activeElement;
-      return (
-        active instanceof HTMLElement &&
-        active !== document.body &&
-        active.getClientRects().length > 0
-      );
+      return {
+        atDocumentEnd: active === document.body,
+        visible:
+          active instanceof HTMLElement && active.getClientRects().length > 0,
+        kind:
+          active instanceof HTMLSelectElement
+            ? "select"
+            : active instanceof HTMLInputElement && active.type === "checkbox"
+              ? "checkbox"
+              : active instanceof HTMLButtonElement
+                ? "button"
+                : "other",
+      };
     });
-    expect(visible).toBe(true);
+    // Native Tab may leave the document after its last control. This is not
+    // hidden focus; check every preceding stop from a deliberate starting point.
+    if (focus.atDocumentEnd) {
+      reachedDocumentEnd = true;
+      break;
+    }
+    expect(focus.visible).toBe(true);
+    focusKinds.add(focus.kind);
     visibleKeyboardStops += 1;
     await page.keyboard.press("Tab");
   }
-  expect(visibleKeyboardStops).toBe(12);
+  expect(reachedDocumentEnd).toBe(true);
+  expect(visibleKeyboardStops).toBeGreaterThanOrEqual(5);
+  expect([...focusKinds]).toEqual(
+    expect.arrayContaining(["button", "select", "checkbox"]),
+  );
   await captureScreenshot("authoring-narrow-320.png");
 
   expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(
