@@ -86,9 +86,7 @@ def test_diagnostic_snapshot_reader_is_pinned_and_read_only(setup, monkeypatch):
         runner.execution, "execution_active", lambda: pytest.fail("recovery probe used")
     )
     snapshots = diagnostics.list_snapshots(started.group.group_id)
-    assert tuple(item.id for item in snapshots) == tuple(
-        item.id for item in latest_choices
-    )
+    assert tuple(item.id for item in snapshots) == tuple(item.id for item in latest_choices)
     assert captures == 1
     assert not commits
     detail = diagnostics.read_snapshot(started.group.group_id, selected.id)

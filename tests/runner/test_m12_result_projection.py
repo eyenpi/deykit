@@ -49,9 +49,7 @@ class _Workers:
 
 def _result_api(source, clock):
     origin = "http://127.0.0.1:8769"
-    config = LocalServerConfig(
-        "127.0.0.1:8769", origin, AssetCatalog.from_package()
-    )
+    config = LocalServerConfig("127.0.0.1:8769", origin, AssetCatalog.from_package())
     session = SessionCapability.create()
     app = FastAPI(redirect_slashes=False)
 
@@ -85,8 +83,7 @@ def test_assessment_filter_counts_are_global_and_paired_pins_reject_drift(setup,
             state="known",
             answer=NormalizedAnswer(question_id="q", option_id="no", reported_model="authored-v1"),
             raw_response_source=(
-                '{"answers":{"q":{"option_id":"no"}},'
-                '"Authorization":"Bearer m12-private"}'
+                '{"answers":{"q":{"option_id":"no"}},"Authorization":"Bearer m12-private"}'
             ),
         )
     ]
@@ -126,18 +123,22 @@ def test_assessment_filter_counts_are_global_and_paired_pins_reject_drift(setup,
     )
     assert calls == 2
     assert len(pinned_detail.attempts) == 1
-    assert pinned_detail.case_input_hash == JsonDocument(
-        pinned_detail.row.case.input_source
-    ).content_hash
+    assert (
+        pinned_detail.case_input_hash
+        == JsonDocument(pinned_detail.row.case.input_source).content_hash
+    )
     assert "m12-private" not in repr(pinned_detail.source())
     assert "[REDACTED]" in cast(str, pinned_detail.attempts[0]["response_source"])
-    assert inspection.list(
-        run.run_id,
-        assessment_filter="all",
-        expected_result_snapshot_id=first.result_snapshot_id,
-        expected_label_snapshot_id=first.label_snapshot_id,
-        limit=1,
-    ).context == first.context
+    assert (
+        inspection.list(
+            run.run_id,
+            assessment_filter="all",
+            expected_result_snapshot_id=first.result_snapshot_id,
+            expected_label_snapshot_id=first.label_snapshot_id,
+            limit=1,
+        ).context
+        == first.context
+    )
     assert calls == 3
 
     with pytest.raises(ServiceFailure) as one_sided:
@@ -174,9 +175,7 @@ def test_assessment_filter_counts_are_global_and_paired_pins_reject_drift(setup,
     saved = EvaluationService(source, clock, lambda: "saved-evaluation").evaluate_saved(
         run.run_id, latest.id, operation_id="save-evaluation"
     )
-    asyncio.run(
-        runner.resume(run.run_id, operation_id="resume", retry_unknown=True)
-    )
+    asyncio.run(runner.resume(run.run_id, operation_id="resume", retry_unknown=True))
     with pytest.raises(ServiceFailure) as drift:
         inspection.list(
             run.run_id,
@@ -261,15 +260,11 @@ def test_assessment_counts_precede_filtering_and_pagination_for_status_intersect
         "pending",
     }
 
-    intersection = inspection.list(
-        run.run_id, status="response_error", split="test", tag="focus"
-    )
+    intersection = inspection.list(run.run_id, status="response_error", split="test", tag="focus")
     assert intersection.filtered_count == 1
     assert intersection.items[0].case.id == "case-09"
     assert intersection.assessment_counts == type(intersection.assessment_counts)(1, 1, 0, 0)
-    absent_intersection = inspection.list(
-        run.run_id, status="valid", split="test", tag="focus"
-    )
+    absent_intersection = inspection.list(run.run_id, status="valid", split="test", tag="focus")
     assert absent_intersection.filtered_count == 0
     assert absent_intersection.assessment_counts.all == 0
 
@@ -378,8 +373,7 @@ def test_assessment_membership_keeps_disputed_stale_legacy_and_acceptable_sets_d
     }
     assert rows["case-02"].assessment.set_correct is True
     assert (
-        "acceptable_set_excluded_from_class_metrics"
-        in rows["case-02"].assessment.exclusion_reasons
+        "acceptable_set_excluded_from_class_metrics" in rows["case-02"].assessment.exclusion_reasons
     )
     assert "disputed" in rows["case-03"].assessment.exclusion_reasons
     assert "stale" in rows["case-04"].assessment.exclusion_reasons
@@ -507,9 +501,7 @@ def test_result_http_routes_enforce_typed_pins_and_query_admission(setup):
                 params={"expected_result_snapshot_id": context["result_snapshot_id"]},
             )
             assert one_sided.status_code == 422
-            assert (
-                one_sided.json()["error"]["reason"] == "result_context_selector_pair_required"
-            )
+            assert one_sided.json()["error"]["reason"] == "result_context_selector_pair_required"
 
             bad_filter = await client.get(
                 base, headers=headers, params={"assessment_filter": "unknown-filter"}

@@ -503,8 +503,7 @@ class ResultInspection:
                     ),
                     key=lambda event: event.sequence,
                 )
-                if event.attempt_id is not None
-                and event.sequence <= capture.through_event_sequence
+                if event.attempt_id is not None and event.sequence <= capture.through_event_sequence
             }
             for stored in capture.records:
                 if stored.key.collection != "attempts" or stored.key.scope != (run_id,):
