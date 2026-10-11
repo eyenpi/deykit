@@ -1009,7 +1009,7 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
     response: APIResponse | Response,
     path?: string,
   ) {
-    if (response.status() < 400) return;
+    if (response.status() === 200) return;
     const body: unknown = await response.json().catch(() => undefined);
     const error = isRecord(body) ? body.error : undefined;
     const details = isRecord(error) ? error : undefined;
@@ -1019,6 +1019,7 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
       code: safeErrorIdentifier(details?.code),
       reason: safeErrorIdentifier(details?.reason),
     });
+    await recordSafeProgress();
   }
 
   async function captureSafeScreenshot(name: string) {
