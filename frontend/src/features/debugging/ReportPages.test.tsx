@@ -517,7 +517,7 @@ it("binds saved report URLs to their exact bytes and revokes them on format, sco
     vi.useFakeTimers();
 
     fireEvent.click(screen.getByRole("button", { name: "Download JSON" }));
-    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(pending).toHaveLength(1);
     const firstBlob = new Blob(["first report bytes"]);
     await act(async () => {
       pending[0]?.resolve({ blob: firstBlob, filename: "safe-report.json" });
@@ -538,7 +538,7 @@ it("binds saved report URLs to their exact bytes and revokes them on format, sco
     expect(urls.revoked).toEqual(["blob:report-1"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
-    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(pending).toHaveLength(2);
     const secondBlob = new Blob(["second report bytes"]);
     await act(async () => {
       pending[1]?.resolve({ blob: secondBlob, filename: "second.md" });
@@ -555,12 +555,16 @@ it("binds saved report URLs to their exact bytes and revokes them on format, sco
       />,
     );
     expect(urls.revoked).toEqual(["blob:report-1", "blob:report-2"]);
-    await screen.findByText(reportIdentity("report-2"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText(reportIdentity("report-2"))).toBeTruthy();
     await vi.runOnlyPendingTimersAsync();
     expect(urls.revoked).toEqual(["blob:report-1", "blob:report-2"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Download Markdown" }));
-    await waitFor(() => expect(pending).toHaveLength(3));
+    expect(pending).toHaveLength(3);
     const thirdBlob = new Blob(["third report bytes"]);
     await act(async () => {
       pending[2]?.resolve({ blob: thirdBlob, filename: "third.md" });
