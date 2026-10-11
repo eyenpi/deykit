@@ -171,34 +171,34 @@ test("installed browser reviews and inspects fixture execution", async ({
 
   function recordProgress(): Promise<void> {
     const body = `${JSON.stringify({
-        phases: [...phaseStatus].map(([id, status]) => ({ id, status })),
-        completed_phases: [...phaseStatus]
-          .filter(([, status]) => status === "passed")
-          .map(([id]) => id),
-        screenshots,
-        active_phase: activePhase,
-        active_phase_elapsed_ms:
-          activePhaseStartedAt === null
+      phases: [...phaseStatus].map(([id, status]) => ({ id, status })),
+      completed_phases: [...phaseStatus]
+        .filter(([, status]) => status === "passed")
+        .map(([id]) => id),
+      screenshots,
+      active_phase: activePhase,
+      active_phase_elapsed_ms:
+        activePhaseStartedAt === null
+          ? null
+          : Math.round(performance.now() - activePhaseStartedAt),
+      resume_observer: {
+        stage: observerStage,
+        elapsed_ms:
+          observerStartedAt === null
             ? null
-            : Math.round(performance.now() - activePhaseStartedAt),
-        resume_observer: {
-          stage: observerStage,
-          elapsed_ms:
-            observerStartedAt === null
-              ? null
-              : Math.round(performance.now() - observerStartedAt),
-          stage_elapsed_ms:
-            observerStageStartedAt === null
-              ? null
-              : Math.round(performance.now() - observerStageStartedAt),
-          failure_reason: observerFailureReason,
-          read_count: observedReadCount,
-          pending_reads: pendingObserverReads,
-          reads: observedReads,
-          actual_dispatch_totals: latestDispatchTotals,
-        },
-        api_failures: apiFailures,
-      })}\n`;
+            : Math.round(performance.now() - observerStartedAt),
+        stage_elapsed_ms:
+          observerStageStartedAt === null
+            ? null
+            : Math.round(performance.now() - observerStageStartedAt),
+        failure_reason: observerFailureReason,
+        read_count: observedReadCount,
+        pending_reads: pendingObserverReads,
+        reads: observedReads,
+        actual_dispatch_totals: latestDispatchTotals,
+      },
+      api_failures: apiFailures,
+    })}\n`;
     const write = progressWriteQueue.then(() =>
       writeFile(progressPath, body, "utf8"),
     );
@@ -296,10 +296,12 @@ test("installed browser reviews and inspects fixture execution", async ({
     let terminalRun: ApiOperationData<"readRun"> | undefined;
     let resolveTerminal: (run: ApiOperationData<"readRun">) => void = () => {};
     let rejectTerminal: (error: Error) => void = () => {};
-    const terminal = new Promise<ApiOperationData<"readRun">>((resolve, reject) => {
-      resolveTerminal = resolve;
-      rejectTerminal = reject;
-    });
+    const terminal = new Promise<ApiOperationData<"readRun">>(
+      (resolve, reject) => {
+        resolveTerminal = resolve;
+        rejectTerminal = reject;
+      },
+    );
     void terminal.catch(() => undefined);
 
     function stage(value: ResumeObserverStage) {
@@ -335,10 +337,13 @@ test("installed browser reviews and inspects fixture execution", async ({
       let bodyTimer: ReturnType<typeof setTimeout> | undefined;
       let timedOut = false;
       const timeout = new Promise<never>((_resolve, reject) => {
-        bodyTimer = setTimeout(() => {
-          timedOut = true;
-          reject(new Error("body_timeout"));
-        }, Math.min(OBSERVED_RESPONSE_BODY_LIMIT_MS, remaining));
+        bodyTimer = setTimeout(
+          () => {
+            timedOut = true;
+            reject(new Error("body_timeout"));
+          },
+          Math.min(OBSERVED_RESPONSE_BODY_LIMIT_MS, remaining),
+        );
       });
       let body: unknown;
       try {
@@ -366,7 +371,8 @@ test("installed browser reviews and inspects fixture execution", async ({
 
       const bodyElapsed = Math.round(performance.now() - bodyStartedAt);
       if (response.status() !== 200) {
-        const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+        const error =
+          isRecord(body) && isRecord(body.error) ? body.error : undefined;
         addRead({
           status: response.status(),
           response_elapsed_ms: responseElapsed,
@@ -382,7 +388,11 @@ test("installed browser reviews and inspects fixture execution", async ({
         await recordProgress();
         return;
       }
-      if (!isRecord(body) || body.schema_version !== 1 || !isReadRunData(body.data)) {
+      if (
+        !isRecord(body) ||
+        body.schema_version !== 1 ||
+        !isReadRunData(body.data)
+      ) {
         addRead({
           status: 200,
           response_elapsed_ms: responseElapsed,
@@ -450,12 +460,18 @@ test("installed browser reviews and inspects fixture execution", async ({
     }
 
     const onRequest = (request: Request) => {
-      if (request.method() === "GET" && new URL(request.url()).pathname === path)
+      if (
+        request.method() === "GET" &&
+        new URL(request.url()).pathname === path
+      )
         starts.set(request, performance.now());
     };
     const onResponse = (response: Response) => {
       const request = response.request();
-      if (request.method() !== "GET" || new URL(response.url()).pathname !== path)
+      if (
+        request.method() !== "GET" ||
+        new URL(response.url()).pathname !== path
+      )
         return;
       pendingObserverReads += 1;
       const task = consume(response, starts.get(request))
@@ -476,7 +492,10 @@ test("installed browser reviews and inspects fixture execution", async ({
         observerStartedAt = performance.now();
         ceilingAt = observerStartedAt + RESUME_OBSERVER_CEILING_MS;
         stage("original_submit");
-        timer = setTimeout(() => fail("completion_ceiling"), RESUME_OBSERVER_CEILING_MS);
+        timer = setTimeout(
+          () => fail("completion_ceiling"),
+          RESUME_OBSERVER_CEILING_MS,
+        );
       },
       acceptSegment(segmentId) {
         acceptedSegmentId = segmentId;
@@ -502,7 +521,8 @@ test("installed browser reviews and inspects fixture execution", async ({
         page.off("request", onRequest);
         page.off("response", onResponse);
         if (timer !== undefined) clearTimeout(timer);
-        if (!terminalRun && observerFailureReason === null) fail("observer_disposed");
+        if (!terminalRun && observerFailureReason === null)
+          fail("observer_disposed");
         await Promise.allSettled([...tasks]);
       },
     };
