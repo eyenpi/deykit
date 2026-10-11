@@ -391,6 +391,7 @@ async function setReaddedCaseCurrentLabel(
 ): Promise<void> {
   const datasetId = qualification.seedMetadata.dataset_id;
   await page
+    .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Content category", exact: true })
     .click();
   await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
@@ -725,6 +726,7 @@ export async function runGroupsWorkflow(
         await createFixtureHold(qualification.controlDirectory, caseId),
       );
     await page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "Content category", exact: true })
       .click();
     const review = await openDiagnosticReview(
@@ -1538,6 +1540,7 @@ export async function runGroupsWorkflow(
       () => reads.waitForIdle(),
     );
     await page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "Content category", exact: true })
       .click();
     await page
@@ -1963,6 +1966,7 @@ export async function runGroupsWorkflow(
       }),
     ).toHaveCount(0);
     await page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "Content category", exact: true })
       .click();
     await page

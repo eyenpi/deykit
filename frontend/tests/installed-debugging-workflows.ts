@@ -1265,6 +1265,7 @@ export async function runSavedAnswersWorkflow(
       .click();
     await expect(regressionDialog).toBeHidden();
     await page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "Content category", exact: true })
       .click();
     await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
@@ -1314,6 +1315,7 @@ export async function runComparisonWorkflow(
   try {
     await qualification.enterPhase("review-authored-revised-run");
     await page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "Content category", exact: true })
       .click();
     await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
