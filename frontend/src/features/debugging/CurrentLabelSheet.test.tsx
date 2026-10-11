@@ -355,9 +355,28 @@ it("retries the captured label hash and operation port after the frozen scope is
       await screen.findByText(currentReviewHash("frozen-hash-B")),
     ).toBeTruthy();
     expect(requests).toHaveLength(2);
-    expect(requests[1]).toBe(original);
-    expect(requests[1]?.body).toEqual(original.body);
-    expect(requests[1]?.body.edits[0]?.review.input_hash).toBe("frozen-hash-A");
+    const replayed = requests[1]!;
+    expect(replayed.registrationId).toBe(original.registrationId);
+    expect(replayed.decisionId).toBe(original.decisionId);
+    expect(replayed.datasetId).toBe(original.datasetId);
+    expect(replayed.caseId).toBe(original.caseId);
+    expect(replayed.operations).toBe(originalOperations);
+    expect(replayed.body).toEqual(original.body);
+    expect(replayed.body.operation_id).toBe(original.body.operation_id);
+    expect(replayed.body.edits[0]?.review).toEqual(
+      original.body.edits[0]?.review,
+    );
+    expect(replayed.body.edits[0]?.review.decision_etag).toBe(
+      original.body.edits[0]?.review.decision_etag,
+    );
+    expect(replayed.body.edits[0]?.review.draft_etag).toBe(
+      original.body.edits[0]?.review.draft_etag,
+    );
+    expect(replayed.body.edits[0]?.review.label_etag).toBe(
+      original.body.edits[0]?.review.label_etag,
+    );
+    expect(replayed.body.edits[0]?.review.input_hash).toBe("frozen-hash-A");
+    expect(replayed.frozenInputHash).toBe("frozen-hash-A");
     expect(saves).toBe(2);
   } finally {
     tree.unmount();

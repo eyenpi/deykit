@@ -82,8 +82,11 @@ it("keeps a known removal receipt when list recovery fails and refreshes without
     expect(removeRequests[0]?.body.operation_id).toBeTruthy();
     expect(listCalls).toBe(2);
 
-    await user.click(screen.getByRole("button", { name: /Retry/ }));
-    expect(await screen.findByText(/Removed/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    const receiptStatus = await screen.findByRole("status");
+    expect(receiptStatus.textContent).toContain(
+      "Removal for regression-1 is acknowledged",
+    );
     expect(listCalls).toBe(3);
     expect(removeRequests).toHaveLength(1);
   } finally {

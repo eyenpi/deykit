@@ -169,9 +169,10 @@ it("replays the exact annotation once and keeps a receipt when the follow-up lis
         name: "Retry original unchanged annotation",
       }),
     );
-    expect(
-      await screen.findByText(/Annotation annotation-case-A is saved/),
-    ).toBeTruthy();
+    const receiptStatus = await screen.findByRole("status");
+    expect(receiptStatus.textContent).toContain(
+      "Annotation annotation-case-A is saved",
+    );
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "read unavailable",

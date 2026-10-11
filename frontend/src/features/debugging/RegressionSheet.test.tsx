@@ -108,11 +108,10 @@ it("requires a human oracle and replays the exact retained regression request", 
         name: "Retry original unchanged regression",
       }),
     );
-    expect(
-      await screen.findByText(
-        /Regression regression-1 saved for the selected frozen case/,
-      ),
-    ).toBeTruthy();
+    const receiptStatus = await screen.findByRole("status");
+    expect(receiptStatus.textContent).toContain(
+      "Regression regression-1 saved for the selected frozen case",
+    );
     expect(requests).toHaveLength(2);
     expect(requests[1]?.body).toBe(original.body);
     expect(requests[1]?.body.operation_id).toBe(original.body.operation_id);
