@@ -491,6 +491,7 @@ async function openSavedReport(
         await page.reload();
       else
         await page
+          .getByRole("navigation", { name: "Utilities" })
           .getByRole("button", { name: "Reports", exact: true })
           .click();
       await expect(
@@ -561,7 +562,11 @@ async function addIndependentRegression(
     page,
     "listRuns",
     { registration_id: registrationId },
-    () => page.getByRole("button", { name: "Runs", exact: true }).click(),
+    () =>
+      page
+        .getByRole("navigation", { name: "Utilities" })
+        .getByRole("button", { name: "Runs", exact: true })
+        .click(),
   );
   const runPage = decodeSuccessEnvelope<ApiOperationData<"listRuns">>(
     await runs.response.body(),

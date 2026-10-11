@@ -59,7 +59,11 @@ export async function runSavedAnswersWorkflow(
       page,
       "listRuns",
       { registration_id: registrationId },
-      () => page.getByRole("button", { name: "Runs", exact: true }).click(),
+      () =>
+        page
+          .getByRole("navigation", { name: "Utilities" })
+          .getByRole("button", { name: "Runs", exact: true })
+          .click(),
     );
     const runPage = decodeSuccessEnvelope<ApiOperationData<"listRuns">>(
       await runsCapture.response.body(),
@@ -555,7 +559,10 @@ export async function runSavedAnswersWorkflow(
       "listRuns",
       { registration_id: registrationId },
       async () => {
-        await page.getByRole("button", { name: "Runs", exact: true }).click();
+        await page
+          .getByRole("navigation", { name: "Utilities" })
+          .getByRole("button", { name: "Runs", exact: true })
+          .click();
         await expect(
           page.getByRole("heading", { name: "Runs", exact: true }),
         ).toBeVisible();
@@ -1006,7 +1013,11 @@ export async function runSavedAnswersWorkflow(
       page,
       "listRuns",
       { registration_id: registrationId },
-      () => page.getByRole("button", { name: "Runs", exact: true }).click(),
+      () =>
+        page
+          .getByRole("navigation", { name: "Utilities" })
+          .getByRole("button", { name: "Runs", exact: true })
+          .click(),
     );
     const listedRuns = decodeSuccessEnvelope<ApiOperationData<"listRuns">>(
       runList.body,
@@ -1403,6 +1414,7 @@ export async function runComparisonWorkflow(
 
     await qualification.enterPhase("create-and-replay-comparison");
     await page
+      .getByRole("navigation", { name: "Utilities" })
       .getByRole("button", { name: "Comparisons", exact: true })
       .click();
     const left = page.getByLabel("Left saved evaluation ID", { exact: true });
@@ -1549,6 +1561,7 @@ export async function runComparisonWorkflow(
 
     await qualification.enterPhase("reverse-comparison-independent-intent");
     await page
+      .getByRole("navigation", { name: "Utilities" })
       .getByRole("button", { name: "Comparisons", exact: true })
       .click();
     await left.fill(revisedEvaluation.evaluation_id);

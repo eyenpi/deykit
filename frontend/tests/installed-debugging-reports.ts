@@ -66,7 +66,10 @@ async function openReportPage(
     "listReports",
     { registration_id: registrationId },
     async () => {
-      await page.getByRole("button", { name: "Reports", exact: true }).click();
+      await page
+        .getByRole("navigation", { name: "Utilities" })
+        .getByRole("button", { name: "Reports", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { name: "Saved reports", exact: true }),
       ).toBeVisible();
@@ -173,6 +176,7 @@ export async function runReportsWorkflow(
       { registration_id: registrationId },
       async () => {
         await page
+          .getByRole("navigation", { name: "Utilities" })
           .getByRole("button", { name: "Comparisons", exact: true })
           .click();
         await expect(
@@ -619,7 +623,11 @@ export async function runReportsWorkflow(
       page,
       "listRuns",
       { registration_id: registrationId },
-      () => page.getByRole("button", { name: "Runs", exact: true }).click(),
+      () =>
+        page
+          .getByRole("navigation", { name: "Utilities" })
+          .getByRole("button", { name: "Runs", exact: true })
+          .click(),
     );
     const runPage = decodeSuccessEnvelope<ApiOperationData<"listRuns">>(
       runs.body,
@@ -824,6 +832,7 @@ export async function runReportsWorkflow(
               .catch(() => false))
           ) {
             await page
+              .getByRole("navigation", { name: "Utilities" })
               .getByRole("button", { name: "Reports", exact: true })
               .click();
             await expect(
@@ -1166,6 +1175,7 @@ async function exerciseKnownReportDownloadFailures(
       { registration_id: registrationId, report_id: reportId },
       async () => {
         await page
+          .getByRole("navigation", { name: "Utilities" })
           .getByRole("button", { name: "Reports", exact: true })
           .click();
         await expect(
