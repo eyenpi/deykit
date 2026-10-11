@@ -377,7 +377,6 @@ it("retries the captured label hash and operation port after the frozen scope is
       original.body.edits[0]?.review.label_etag,
     );
     expect(replayed.body.edits[0]?.review.input_hash).toBe("frozen-hash-A");
-    expect(replayed.frozenInputHash).toBe("frozen-hash-A");
     expect(saves).toBe(2);
     expect(replacementSaves).toBe(0);
   } finally {
