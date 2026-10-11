@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, open, readFile, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { operationMetadata } from "../src/api/generated/operations";
 import validators from "../src/api/generated/validators.cjs";
 import type { ApiOperationId } from "../src/api/generated/operations";
@@ -526,6 +527,57 @@ export type FirstAcknowledgement = {
   firstResponseBody: Buffer;
 };
 
+type LostAcknowledgementTraceStage =
+  | "observer_armed"
+  | "resume_click_begin"
+  | "resume_click_complete"
+  | "first_receipt_decoded"
+  | "replay_capture_complete"
+  | "route_entered"
+  | "request_hashed"
+  | "upstream_fetch_started"
+  | "upstream_headers_received"
+  | "upstream_body_completed"
+  | "abort_started"
+  | "abort_completed"
+  | "fulfill_started"
+  | "fulfill_completed"
+  | "route_exited"
+  | "route_failed";
+
+type LostAcknowledgementTraceFailure =
+  | "request_body_missing"
+  | "upstream_fetch_failed"
+  | "upstream_body_failed"
+  | "abort_failed"
+  | "fulfill_failed"
+  | "route_continue_failed";
+
+type ServerResumeTraceStage = "admitted" | "response_started" | "body_complete";
+
+type ServerResumeTrace = {
+  schema_version: 1;
+  events: Array<{
+    ordinal: 1 | 2;
+    stage: ServerResumeTraceStage;
+    elapsed_ms: number;
+    status?: number;
+    sha256?: string;
+  }>;
+};
+
+export type LostAcknowledgementTrace = {
+  schema_version: 1;
+  events: Array<{
+    stage: LostAcknowledgementTraceStage;
+    elapsed_ms: number;
+    ordinal?: 1 | 2;
+    status?: number;
+    sha256?: string;
+    failure?: LostAcknowledgementTraceFailure;
+  }>;
+};
+
 export type ExpectedCreateReportRequest = {
   targetKind: "run" | "evaluation" | "comparison" | "diagnostic" | "check";
   targetId: string;
@@ -586,10 +638,43 @@ export function installLostAcknowledgement(
 ): Promise<{
   observation: () => LostAcknowledgement | undefined;
   firstObservation: () => FirstAcknowledgement | undefined;
+  mark: (
+    stage: Extract<
+      LostAcknowledgementTraceStage,
+      | "observer_armed"
+      | "resume_click_begin"
+      | "resume_click_complete"
+      | "first_receipt_decoded"
+      | "replay_capture_complete"
+    >,
+  ) => void;
+  trace: () => LostAcknowledgementTrace;
   dispose: () => Promise<void>;
 }> {
   let first: { status: number; request: Buffer; response: Buffer } | undefined;
   let replay: { status: number; request: Buffer; response: Buffer } | undefined;
+  const traceStartedAt = performance.now();
+  const traceEvents: LostAcknowledgementTrace["events"] = [];
+  let interceptedOrdinal = 0;
+  const record = (
+    stage: LostAcknowledgementTraceStage,
+    ordinal?: 1 | 2,
+    detail?: {
+      status?: number;
+      sha256?: string;
+      failure?: LostAcknowledgementTraceFailure;
+    },
+  ) => {
+    if (traceEvents.length >= 32) return;
+    traceEvents.push({
+      stage,
+      elapsed_ms: Math.max(0, Math.round(performance.now() - traceStartedAt)),
+      ...(ordinal === undefined ? {} : { ordinal }),
+      ...(detail?.status === undefined ? {} : { status: detail.status }),
+      ...(detail?.sha256 === undefined ? {} : { sha256: detail.sha256 }),
+      ...(detail?.failure === undefined ? {} : { failure: detail.failure }),
+    });
+  };
   const handler = async (route: Route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -601,30 +686,65 @@ export function installLostAcknowledgement(
       await route.continue();
       return;
     }
-    const requestBody = request.postDataBuffer();
-    if (!requestBody)
-      throw new Error("The retained API request body was unavailable.");
-    const upstream = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
-    const responseBody = await upstream.body();
-    if (!first) {
-      first = {
+    if (interceptedOrdinal >= 2) {
+      await route.continue();
+      return;
+    }
+    const ordinal = ++interceptedOrdinal as 1 | 2;
+    record("route_entered", ordinal);
+    let failure: LostAcknowledgementTraceFailure = "request_body_missing";
+    try {
+      const requestBody = request.postDataBuffer();
+      if (!requestBody)
+        throw new Error("The retained API request body was unavailable.");
+      record("request_hashed", ordinal, { sha256: bodySha256(requestBody) });
+      failure = "upstream_fetch_failed";
+      record("upstream_fetch_started", ordinal);
+      const upstream = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
+      record("upstream_headers_received", ordinal, {
+        status: upstream.status(),
+      });
+      failure = "upstream_body_failed";
+      const responseBody = await upstream.body();
+      record("upstream_body_completed", ordinal, {
+        status: upstream.status(),
+        sha256: bodySha256(responseBody),
+      });
+      if (!first) {
+        first = {
+          status: upstream.status(),
+          request: requestBody,
+          response: responseBody,
+        };
+        if (upstream.status() === expectedSuccessStatus) {
+          failure = "abort_failed";
+          record("abort_started", ordinal);
+          await route.abort("failed");
+          record("abort_completed", ordinal);
+          record("route_exited", ordinal);
+          return;
+        }
+        failure = "fulfill_failed";
+        record("fulfill_started", ordinal);
+        await route.fulfill({ response: upstream });
+        record("fulfill_completed", ordinal);
+        record("route_exited", ordinal);
+        return;
+      }
+
+      replay = {
         status: upstream.status(),
         request: requestBody,
         response: responseBody,
       };
-      if (upstream.status() === expectedSuccessStatus) {
-        await route.abort("failed");
-        return;
-      }
+      record("fulfill_started", ordinal);
       await route.fulfill({ response: upstream });
-      return;
+      record("fulfill_completed", ordinal);
+      record("route_exited", ordinal);
+    } catch (cause) {
+      record("route_failed", ordinal, { failure });
+      throw cause;
     }
-    replay = {
-      status: upstream.status(),
-      request: requestBody,
-      response: responseBody,
-    };
-    await route.fulfill({ response: upstream });
   };
   const pattern = `**${path}`;
   return page.route(pattern, handler).then(() => ({
@@ -653,10 +773,84 @@ export function installLostAcknowledgement(
         replayResponseBody: replay.response,
       };
     },
+    mark(stage) {
+      record(stage);
+    },
+    trace() {
+      return {
+        schema_version: 1,
+        events: traceEvents.map((event) => ({ ...event })),
+      };
+    },
     async dispose() {
       await page.unroute(pattern, handler);
     },
   }));
+}
+
+export async function saveServerResumeTrace(
+  controlDirectory: string,
+  outputPath: string,
+): Promise<"present" | "absent"> {
+  const sourcePath = join(controlDirectory, "resume-observation.json");
+  let source: string;
+  try {
+    source = await readFile(sourcePath, "utf8");
+  } catch (cause) {
+    if (isRecord(cause) && cause.code === "ENOENT") return "absent";
+    throw cause;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    throw new Error("The server resume observation was malformed.");
+  }
+  if (!isRecord(parsed) || parsed.schema_version !== 1)
+    throw new Error("The server resume observation was malformed.");
+  const events = parsed.events;
+  if (!Array.isArray(events) || events.length > 6)
+    throw new Error("The server resume observation was malformed.");
+  const safeStages = new Set<ServerResumeTraceStage>([
+    "admitted",
+    "response_started",
+    "body_complete",
+  ]);
+  const safeEvents: ServerResumeTrace["events"] = [];
+  for (const value of events) {
+    if (
+      !isRecord(value) ||
+      (value.ordinal !== 1 && value.ordinal !== 2) ||
+      typeof value.stage !== "string" ||
+      !safeStages.has(value.stage as ServerResumeTraceStage) ||
+      !Number.isSafeInteger(value.elapsed_ms) ||
+      (value.elapsed_ms as number) < 0 ||
+      (value.status !== undefined &&
+        (!Number.isSafeInteger(value.status) ||
+          (value.status as number) < 100 ||
+          (value.status as number) > 599)) ||
+      (value.sha256 !== undefined &&
+        (typeof value.sha256 !== "string" ||
+          !/^[a-f0-9]{64}$/.test(value.sha256)))
+    )
+      throw new Error("The server resume observation was malformed.");
+    safeEvents.push({
+      ordinal: value.ordinal,
+      stage: value.stage as ServerResumeTraceStage,
+      elapsed_ms: value.elapsed_ms as number,
+      ...(value.status === undefined ? {} : { status: value.status as number }),
+      ...(value.sha256 === undefined ? {} : { sha256: value.sha256 as string }),
+    });
+  }
+  const safeTrace: ServerResumeTrace = {
+    schema_version: 1,
+    events: safeEvents,
+  };
+  await writeFile(outputPath, `${JSON.stringify(safeTrace, null, 2)}\n`, {
+    flag: "wx",
+    mode: 0o600,
+  });
+  return "present";
 }
 
 export function decodeJSONBody<T>(body: Uint8Array): T {
@@ -770,6 +964,27 @@ export async function waitForCountFile(
   throw new Error(
     "The installed fixture-dispatch witness did not reach its bounded count.",
   );
+}
+
+export async function readFixtureCountsNow(
+  controlDirectory: string,
+): Promise<FixtureCounts | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(join(controlDirectory, "counts.json"), "utf8");
+  } catch (cause) {
+    if (isRecord(cause) && cause.code === "ENOENT") return undefined;
+    throw new Error("The fixture count witness could not be read.");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("The fixture count witness was malformed.");
+  }
+  const counts = parseFixtureCounts(value);
+  if (!counts) throw new Error("The fixture count witness was malformed.");
+  return counts;
 }
 
 export type FixtureCounts = {

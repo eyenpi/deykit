@@ -11,6 +11,8 @@ import {
   decodeSuccessEnvelope,
   finishDebuggingQualification,
   installLostAcknowledgement,
+  readFixtureCountsNow,
+  saveServerResumeTrace,
   startDebuggingQualification,
   waitForAnyBarrierEntry,
   waitForCountFile,
@@ -1367,10 +1369,13 @@ export async function runGroupsWorkflow(
     ];
     const resumePath = `/api/v1/projects/${registrationId}/diagnostics/${startReceipt.group_id}/resume`;
     const resumeLoss = await installLostAcknowledgement(page, resumePath, 202);
+    resumeLoss.mark("observer_armed");
     try {
+      resumeLoss.mark("resume_click_begin");
       await page
         .getByRole("button", { name: "Resume reviewed group", exact: true })
         .click();
+      resumeLoss.mark("resume_click_complete");
       await expect(
         page.getByRole("button", {
           name: "Retry original resume request",
@@ -1384,6 +1389,7 @@ export async function runGroupsWorkflow(
       const firstResumeReceipt = decodeSuccessEnvelope<
         ApiOperationData<"resumeChoiceOrder">
       >(firstResume.firstResponseBody, 202, firstResume.firstStatus);
+      resumeLoss.mark("first_receipt_decoded");
       expect(firstResumeReceipt.group_id).toBe(startReceipt.group_id);
       expect(firstResumeReceipt.operation_id).not.toBe(
         startReceipt.operation_id,
@@ -1405,6 +1411,7 @@ export async function runGroupsWorkflow(
             })
             .click(),
       );
+      resumeLoss.mark("replay_capture_complete");
       expect(replayResponse.response.status()).toBe(202);
       const replay = resumeLoss.observation();
       expect(replay?.replayStatus).toBe(202);
@@ -1424,8 +1431,80 @@ export async function runGroupsWorkflow(
       );
       expect(accepted.replayed).toBe(true);
     } finally {
-      await resumeLoss.dispose();
-      for (const hold of secondHolds) await hold.release();
+      try {
+        try {
+          const traceName = "diagnostic-resume-browser-trace.json";
+          await writeFile(
+            testInfo.outputPath(traceName),
+            `${JSON.stringify(resumeLoss.trace(), null, 2)}\n`,
+            { flag: "wx", mode: 0o600 },
+          );
+          qualification.setWitness(
+            "diagnostic_resume_browser_trace_file",
+            traceName,
+          );
+
+          const serverTraceName = "diagnostic-resume-server-trace.json";
+          const serverTraceState = await saveServerResumeTrace(
+            qualification.controlDirectory,
+            testInfo.outputPath(serverTraceName),
+          );
+          qualification.setWitness(
+            "diagnostic_resume_server_trace_state",
+            serverTraceState,
+          );
+          if (serverTraceState === "present")
+            qualification.setWitness(
+              "diagnostic_resume_server_trace_file",
+              serverTraceName,
+            );
+
+          const counts = await readFixtureCountsNow(
+            qualification.controlDirectory,
+          );
+          qualification.setWitness(
+            "diagnostic_resume_pre_cleanup_counts_state",
+            counts ? "present" : "absent",
+          );
+          if (counts) {
+            const countsName = "diagnostic-resume-pre-cleanup-counts.json";
+            await writeFile(
+              testInfo.outputPath(countsName),
+              `${JSON.stringify(
+                {
+                  fixture_dispatch_calls: counts.fixture_dispatch_calls,
+                  for_case_calls: counts.for_case_calls,
+                  live_dispatch_calls: counts.live_dispatch_calls,
+                },
+                null,
+                2,
+              )}\n`,
+              { flag: "wx", mode: 0o600 },
+            );
+            qualification.setWitness(
+              "diagnostic_resume_pre_cleanup_counts_file",
+              countsName,
+            );
+          }
+          qualification.setWitness(
+            "diagnostic_resume_observation_capture_state",
+            "complete",
+          );
+          await qualification.save();
+        } catch {
+          qualification.setWitness(
+            "diagnostic_resume_observation_capture_state",
+            "failed",
+          );
+          await qualification.save().catch(() => undefined);
+        }
+      } finally {
+        try {
+          await resumeLoss.dispose();
+        } finally {
+          await Promise.all(secondHolds.map((hold) => hold.release()));
+        }
+      }
     }
     await expect(
       page.getByRole("region", { name: "Current progress" }),

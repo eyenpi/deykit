@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import faulthandler
+import hashlib
 import json
 import os
 import signal
 import socket
+import stat
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -269,6 +272,178 @@ class LifespanWitness:
             raise
 
 
+class ResumeObservation:
+    """Persist a bounded, private trace for the two G resume requests."""
+
+    def __init__(self, control_directory: Path, *, enabled: bool) -> None:
+        self.enabled = enabled
+        self.started_at = time.monotonic()
+        self.events: list[dict[str, Any]] = []
+        self.ordinal = 0
+        self.dump_arms = 0
+        self._trace_path: Path | None = None
+        self._temporary_trace_path: Path | None = None
+        self._stack_file: Any | None = None
+        if not enabled:
+            return
+
+        directory = control_directory.lstat()
+        getuid = getattr(os, "getuid", None)
+        if (
+            not stat.S_ISDIR(directory.st_mode)
+            or (getuid is not None and directory.st_uid != getuid())
+            or stat.S_IMODE(directory.st_mode) != 0o700
+        ):
+            raise RuntimeError("resume_observation_directory_unsafe")
+
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        trace_path = control_directory / "resume-observation.json"
+        temporary_trace_path = control_directory / "resume-observation.json.tmp"
+        stack_path = control_directory / "resume-observation-stack.private"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow
+        try:
+            stack_fd = os.open(stack_path, flags, 0o600)
+            os.fchmod(stack_fd, 0o600)
+            self._stack_file = os.fdopen(stack_fd, "wb", buffering=0)
+            self._trace_path = trace_path
+            self._temporary_trace_path = temporary_trace_path
+            self._persist()
+        except BaseException:
+            if self._stack_file is not None:
+                self._stack_file.close()
+                self._stack_file = None
+            raise
+
+    def admit(self) -> int | None:
+        if not self.enabled or self.ordinal >= 2:
+            return None
+        self.ordinal += 1
+        ordinal = self.ordinal
+        self._record(ordinal, "admitted")
+        if self.dump_arms < 2 and self._stack_file is not None:
+            faulthandler.dump_traceback_later(
+                8,
+                repeat=False,
+                file=self._stack_file,
+            )
+            self.dump_arms += 1
+        return ordinal
+
+    def response_started(self, ordinal: int, status: int) -> None:
+        self._record(ordinal, "response_started", status=status)
+
+    def body_complete(self, ordinal: int, digest: str) -> None:
+        self._record(ordinal, "body_complete", sha256=digest)
+
+    def _record(
+        self,
+        ordinal: int,
+        stage: str,
+        *,
+        status: int | None = None,
+        sha256: str | None = None,
+    ) -> None:
+        if len(self.events) >= 6:
+            return
+        event: dict[str, Any] = {
+            "ordinal": ordinal,
+            "stage": stage,
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+        }
+        if status is not None:
+            event["status"] = status
+        if sha256 is not None:
+            event["sha256"] = sha256
+        self.events.append(event)
+        self._persist()
+
+    def _persist(self) -> None:
+        if self._trace_path is None or self._temporary_trace_path is None:
+            return
+        payload = json.dumps(
+            {"schema_version": 1, "events": self.events},
+            separators=(",", ":"),
+        ).encode("ascii")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(self._temporary_trace_path, flags, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            offset = 0
+            while offset < len(payload):
+                offset += os.write(fd, payload[offset:])
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(self._temporary_trace_path, self._trace_path)
+
+    def close(self) -> None:
+        if self._stack_file is not None:
+            faulthandler.cancel_dump_traceback_later()
+            self._stack_file.close()
+            self._stack_file = None
+
+
+class ResumeObservationApp:
+    """Observe only two diagnostic resume responses without changing app behavior."""
+
+    def __init__(self, app: Any, observation: ResumeObservation) -> None:
+        self._app = app
+        self._observation = observation
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if (
+            not self._observation.enabled
+            or scope.get("type") != "http"
+            or scope.get("method") != "POST"
+            or not _is_diagnostic_resume_path(scope.get("path"))
+        ):
+            await self._app(scope, receive, send)
+            return
+
+        ordinal = self._observation.admit()
+        if ordinal is None:
+            await self._app(scope, receive, send)
+            return
+
+        digest = hashlib.sha256()
+
+        async def observe(message: dict[str, Any]) -> None:
+            message_type = message.get("type")
+            if message_type == "http.response.start":
+                status = message.get("status")
+                await send(message)
+                if isinstance(status, int) and 100 <= status <= 599:
+                    self._observation.response_started(ordinal, status)
+                return
+            if message_type == "http.response.body":
+                body = message.get("body", b"")
+                if isinstance(body, bytes):
+                    digest.update(body)
+                body_complete = not message.get("more_body", False)
+                await send(message)
+                if body_complete:
+                    self._observation.body_complete(ordinal, digest.hexdigest())
+                return
+            await send(message)
+
+        await self._app(scope, receive, observe)
+
+
+def _is_diagnostic_resume_path(path: Any) -> bool:
+    if not isinstance(path, str):
+        return False
+    segments = path.split("/")
+    return (
+        len(segments) == 8
+        and segments[:3] == ["", "api", "v1"]
+        and segments[3] == "projects"
+        and bool(segments[4])
+        and segments[5] == "diagnostics"
+        and bool(segments[6])
+        and segments[7] == "resume"
+    )
+
+
 class QualificationServer(uvicorn.Server):
     """Own one socket and publish lifecycle evidence after the app has shut down."""
 
@@ -445,7 +620,15 @@ def serve_installed_api(workspace: Path, ready_file: Path) -> None:
     boundary = create_app(
         LocalServerConfig(authority, origin, AssetCatalog.from_package()), dependencies
     )
-    lifespan = LifespanWitness(boundary)
+    observe_resume = os.environ.get("DEYKIT_G_RESUME_OBSERVATION") == "1"
+    control_directory = os.environ.get("DEYKIT_FIXTURE_CONTROL_DIRECTORY")
+    if observe_resume and not control_directory:
+        raise RuntimeError("resume_observation_directory_missing")
+    resume_observation = ResumeObservation(
+        Path(control_directory) if control_directory else Path("."),
+        enabled=observe_resume,
+    )
+    lifespan = LifespanWitness(ResumeObservationApp(boundary, resume_observation))
     config = uvicorn.Config(
         lifespan,
         host=host,
@@ -482,6 +665,7 @@ def serve_installed_api(workspace: Path, ready_file: Path) -> None:
     try:
         server.run(sockets=[listener])
     finally:
+        resume_observation.close()
         signal.signal(signal.SIGTERM, previous_sigterm)
         listener.close()
 
