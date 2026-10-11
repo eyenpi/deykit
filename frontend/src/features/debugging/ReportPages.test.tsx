@@ -9,7 +9,11 @@ import userEvent from "@testing-library/user-event";
 import { useLayoutEffect } from "react";
 import type { ReactNode } from "react";
 import { expect, it, vi } from "vitest";
-import type { ApiOperationData, ApiResult } from "../../api/client";
+import type {
+  ApiOperationBody,
+  ApiOperationData,
+  ApiResult,
+} from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
 import { ReportPage, ReportSheet } from "./ReportPages";
@@ -101,6 +105,99 @@ const report: ApiOperationData<"readReport"> = {
   created_at: "2026-10-11T00:00:00Z",
   content_hash: "a".repeat(64),
 };
+
+function runRecord(
+  latestResultSnapshotId: string,
+): ApiOperationData<"readRun"> {
+  return {
+    schema_version: 1,
+    run_id: "run-A",
+    attempt_limit: "12",
+    attempts: [],
+    attempts_remaining: "12",
+    attempts_used: "0",
+    cases: [],
+    dataset_id: "dataset-A",
+    decision_id: "decision-A",
+    execution_active: false,
+    execution_group_id: null,
+    group_attempts_remaining: null,
+    latest_result_snapshot_id: latestResultSnapshotId,
+    mode: "fixture",
+    reason: null,
+    replayed: false,
+    requested_model: "fixture-model",
+    result_snapshot_ids: [latestResultSnapshotId],
+    segment_ids: [],
+    segments: [],
+    settings: {
+      concurrency: "1",
+      deadline_seconds: "120",
+      max_attempts: "12",
+      max_retries_per_case: "0",
+      timeout_seconds: "30",
+    },
+    sources: {
+      dataset_snapshot_id: "dataset-snapshot-A",
+      decision_revision_id: "revision-A",
+      development_dataset_snapshot_id: "dataset-snapshot-A",
+      development_label_snapshot_id: "labels-A",
+      fixture_set_id: null,
+      label_snapshot_id: "labels-A",
+      option_order: null,
+      provider_profile_id: "fixture-provider",
+      evidence_mode: "authored_fixture",
+    },
+    state: "complete",
+  };
+}
+
+function evaluationRecord(
+  evaluationId: string,
+  runId: string,
+  resultSnapshotId: string,
+): ApiOperationData<"readEvaluation"> {
+  return {
+    schema_version: 1,
+    evaluation_id: evaluationId,
+    run_id: runId,
+    result_snapshot_id: resultSnapshotId,
+    label_snapshot_id: "labels-A",
+    mode: "original",
+    replayed: false,
+    created_at: "2026-10-11T00:00:00Z",
+    execution_operation_id: null,
+    content_hash: "b".repeat(64),
+    metrics: {},
+    metrics_source: "fixture",
+  };
+}
+
+function reportReceipt(
+  targetKind: "run" | "evaluation",
+  targetId: string,
+  evaluationIds: readonly string[],
+  resultSnapshotIds: readonly string[],
+): ApiOperationData<"createReport"> {
+  return {
+    schema_version: 1,
+    report_id: "report-created",
+    content_hash: "c".repeat(64),
+    created_at: "2026-10-11T00:00:00Z",
+    target_id: targetId,
+    target_kind: targetKind,
+    evaluation_ids: evaluationIds,
+    result_snapshot_ids: resultSnapshotIds,
+    label_snapshot_ids: [],
+    comparison_id: null,
+    diagnostic_snapshot_id: null,
+    check_snapshot_id: null,
+    evidence_modes: ["authored_fixture"],
+    legacy: false,
+    nonexportable_reason: null,
+    raw: { inputs: false, requests: false, responses: false },
+  };
+}
 
 it("clears bytes and preview when changing the requested report format", async () => {
   const requests: Parameters<
@@ -698,6 +795,297 @@ it("keeps a new report-target verification active when an older target read sett
     expect(
       screen.getByRole("button", { name: "Verify saved target" }),
     ).toBeTruthy();
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("pins an explicit historical run evaluation and its result in the report body", async () => {
+  const navigation = new WorkspaceNavigation(window);
+  const submitted: ApiOperationBody<"createReport">[] = [];
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    runs: {
+      ...disconnectedWorkspace.execution.runs,
+      read: async () => result(runRecord("latest-result")),
+    },
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      readEvaluation: async ({ evaluationId }: { evaluationId: string }) =>
+        result(evaluationRecord(evaluationId, "run-A", "historical-result")),
+    },
+  };
+  const debugging = {
+    ...disconnectedWorkspace.debugging,
+    reports: {
+      ...disconnectedWorkspace.debugging.reports,
+      create: async ({ body }: { body: ApiOperationBody<"createReport"> }) => {
+        submitted.push(body);
+        return result(
+          reportReceipt(
+            "run",
+            "run-A",
+            ["evaluation-A"],
+            ["historical-result"],
+          ),
+        );
+      },
+    },
+  };
+  const tree = render(
+    <ReportSheet
+      registrationId="registration-1"
+      debugging={debugging}
+      execution={execution}
+      navigation={navigation}
+      onClose={() => undefined}
+      onCreated={() => undefined}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await user.type(screen.getByLabelText("Target ID"), "run-A");
+    await user.type(
+      screen.getByLabelText("Saved evaluation ID (optional)"),
+      "evaluation-A",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    );
+    const verified = await screen.findByLabelText("Verified report target");
+    expect(verified.textContent).toContain("Evaluation evaluation-A");
+    expect(verified.textContent).toContain("Result historical-result");
+    expect(verified.textContent).not.toContain("Result latest-result");
+
+    await user.click(screen.getByRole("button", { name: "Create report" }));
+    expect(
+      await screen.findByText(/Report report-created is saved\./),
+    ).toBeTruthy();
+    expect(submitted).toHaveLength(1);
+    const body = submitted[0];
+    expect(body).toBeDefined();
+    expect(Object.keys(body ?? {}).sort()).toEqual(
+      [
+        "evaluation_id",
+        "operation_id",
+        "raw",
+        "result_snapshot_id",
+        "schema_version",
+        "target_id",
+        "target_kind",
+      ].sort(),
+    );
+    expect(body?.evaluation_id).toBe("evaluation-A");
+    expect(body?.result_snapshot_id).toBe("historical-result");
+    expect(body?.target_kind).toBe("run");
+    expect(body?.target_id).toBe("run-A");
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("rejects a saved evaluation from another run before creating a report", async () => {
+  const navigation = new WorkspaceNavigation(window);
+  let createCalls = 0;
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    runs: {
+      ...disconnectedWorkspace.execution.runs,
+      read: async () => result(runRecord("latest-result")),
+    },
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      readEvaluation: async ({ evaluationId }: { evaluationId: string }) =>
+        result(evaluationRecord(evaluationId, "different-run", "other-result")),
+    },
+  };
+  const debugging = {
+    ...disconnectedWorkspace.debugging,
+    reports: {
+      ...disconnectedWorkspace.debugging.reports,
+      create: async () => {
+        createCalls += 1;
+        return result(
+          reportReceipt("run", "run-A", ["evaluation-A"], ["other-result"]),
+        );
+      },
+    },
+  };
+  const tree = render(
+    <ReportSheet
+      registrationId="registration-1"
+      debugging={debugging}
+      execution={execution}
+      navigation={navigation}
+      onClose={() => undefined}
+      onCreated={() => undefined}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await user.type(screen.getByLabelText("Target ID"), "run-A");
+    await user.type(
+      screen.getByLabelText("Saved evaluation ID (optional)"),
+      "evaluation-A",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    );
+    expect(
+      await screen.findByText(
+        "The saved evaluation does not belong to this run.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Verified report target")).toBeNull();
+    expect(createCalls).toBe(0);
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("does not republish run verification after its evaluation selector changes A-to-B-to-A", async () => {
+  const navigation = new WorkspaceNavigation(window);
+  const evaluationRead =
+    deferred<ApiResult<ApiOperationData<"readEvaluation">>>();
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    runs: {
+      ...disconnectedWorkspace.execution.runs,
+      read: async () => result(runRecord("latest-result")),
+    },
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      readEvaluation: () => evaluationRead.promise,
+    },
+  };
+  const tree = render(
+    <ReportSheet
+      registrationId="registration-1"
+      debugging={disconnectedWorkspace.debugging}
+      execution={execution}
+      navigation={navigation}
+      onClose={() => undefined}
+      onCreated={() => undefined}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await user.type(screen.getByLabelText("Target ID"), "run-A");
+    const evaluationInput = screen.getByLabelText(
+      "Saved evaluation ID (optional)",
+    );
+    await user.type(evaluationInput, "evaluation-A");
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Verifying target…" }),
+    ).toBeTruthy();
+    await user.clear(evaluationInput);
+    await user.type(evaluationInput, "evaluation-B");
+    await user.clear(evaluationInput);
+    await user.type(evaluationInput, "evaluation-A");
+
+    await act(async () => {
+      evaluationRead.resolve({
+        data: evaluationRecord("evaluation-A", "run-A", "historical-result"),
+        warnings: [],
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.queryByLabelText("Verified report target")).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Verify saved target",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Create report",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("omits evaluation selectors for saved-evaluation reports but checks their receipt context", async () => {
+  const navigation = new WorkspaceNavigation(window);
+  const submitted: ApiOperationBody<"createReport">[] = [];
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      readEvaluation: async ({ evaluationId }: { evaluationId: string }) =>
+        result(evaluationRecord(evaluationId, "run-A", "historical-result")),
+    },
+  };
+  const debugging = {
+    ...disconnectedWorkspace.debugging,
+    reports: {
+      ...disconnectedWorkspace.debugging.reports,
+      create: async ({ body }: { body: ApiOperationBody<"createReport"> }) => {
+        submitted.push(body);
+        return result(
+          reportReceipt(
+            "evaluation",
+            "evaluation-A",
+            ["evaluation-A"],
+            ["historical-result"],
+          ),
+        );
+      },
+    },
+  };
+  const tree = render(
+    <ReportSheet
+      registrationId="registration-1"
+      debugging={debugging}
+      execution={execution}
+      navigation={navigation}
+      onClose={() => undefined}
+      onCreated={() => undefined}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await user.selectOptions(
+      screen.getByLabelText("Target kind"),
+      "evaluation",
+    );
+    await user.type(screen.getByLabelText("Target ID"), "evaluation-A");
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    );
+    expect(await screen.findByLabelText("Verified report target")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Create report" }));
+    expect(
+      await screen.findByText(/Report report-created is saved\./),
+    ).toBeTruthy();
+    expect(submitted).toHaveLength(1);
+    const body = submitted[0];
+    expect(body).toBeDefined();
+    expect(Object.keys(body ?? {}).sort()).toEqual(
+      [
+        "operation_id",
+        "raw",
+        "schema_version",
+        "target_id",
+        "target_kind",
+      ].sort(),
+    );
+    expect(body?.target_kind).toBe("evaluation");
+    expect(body?.evaluation_id).toBeUndefined();
+    expect(body?.result_snapshot_id).toBeUndefined();
   } finally {
     tree.unmount();
     navigation.dispose();

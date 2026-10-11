@@ -37,6 +37,8 @@ type ReportIntent = {
   registrationId: string;
   kind: ReportTarget;
   id: string;
+  expectedEvaluationId?: string;
+  expectedResultSnapshotId?: string;
   groupSnapshotId?: string;
   body: CreateBody;
   scopeEpoch: number;
@@ -188,9 +190,10 @@ export function ReportSheet({
     initialTarget?.targetKind ?? "run",
   );
   const [targetId, setTargetId] = useState(initialTarget?.targetId ?? "");
+  const [savedEvaluationId, setSavedEvaluationId] = useState("");
   const [verified, setVerified] = useState<VerifiedTarget>();
   const scopeEpoch = useRenderedScopeEpoch(
-    `${registrationId}|${kind}|${targetId}|${initialTarget?.groupSnapshotId ?? ""}`,
+    `${registrationId}|${kind}|${targetId}|${savedEvaluationId}|${initialTarget?.groupSnapshotId ?? ""}`,
   );
   const scopeEpochRef = useRef(scopeEpoch);
   scopeEpochRef.current = scopeEpoch;
@@ -221,13 +224,13 @@ export function ReportSheet({
         if (
           result.data.target_kind !== intent.kind ||
           result.data.target_id !== intent.id ||
-          (intent.body.evaluation_id !== undefined &&
-            intent.body.evaluation_id !== null &&
-            !result.data.evaluation_ids.includes(intent.body.evaluation_id)) ||
-          (intent.body.result_snapshot_id !== undefined &&
-            intent.body.result_snapshot_id !== null &&
+          (intent.expectedEvaluationId !== undefined &&
+            !result.data.evaluation_ids.includes(
+              intent.expectedEvaluationId,
+            )) ||
+          (intent.expectedResultSnapshotId !== undefined &&
             !result.data.result_snapshot_ids.includes(
-              intent.body.result_snapshot_id,
+              intent.expectedResultSnapshotId,
             )) ||
           (intent.kind === "diagnostic" &&
             result.data.diagnostic_snapshot_id !== intent.groupSnapshotId) ||
@@ -296,6 +299,7 @@ export function ReportSheet({
   async function verifyTarget() {
     const id = targetId.trim();
     if (!id || busy) return;
+    const selectedEvaluationId = kind === "run" ? savedEvaluationId.trim() : "";
     setCheckingView({ scopeEpoch, value: true });
     setError(undefined);
     setVerified(undefined);
@@ -304,17 +308,39 @@ export function ReportSheet({
       if (kind === "run") {
         const result = await execution.runs.read({ registrationId, runId: id });
         const run = result.data;
+        if (epoch !== scopeEpochRef.current) return;
         if (run.run_id !== id || !run.latest_result_snapshot_id)
           throw new Error(
             "This run has no verified result snapshot to report.",
           );
-        if (epoch !== scopeEpochRef.current) return;
+        let evaluationId: string | undefined;
+        let resultSnapshotId = run.latest_result_snapshot_id;
+        let evaluationContext = "";
+        if (selectedEvaluationId) {
+          const saved = await execution.inspection.readEvaluation({
+            registrationId,
+            evaluationId: selectedEvaluationId,
+          });
+          if (epoch !== scopeEpochRef.current) return;
+          const evaluation = saved.data;
+          if (
+            evaluation.evaluation_id !== selectedEvaluationId ||
+            evaluation.run_id !== run.run_id
+          )
+            throw new Error(
+              "The saved evaluation does not belong to this run.",
+            );
+          evaluationId = evaluation.evaluation_id;
+          resultSnapshotId = evaluation.result_snapshot_id;
+          evaluationContext = `\nEvaluation ${evaluation.evaluation_id}`;
+        }
         setVerified({
           kind,
           id,
           runId: run.run_id,
-          resultSnapshotId: run.latest_result_snapshot_id,
-          content: `Run ${run.run_id}\nResult ${run.latest_result_snapshot_id}\nEvidence mode ${run.sources.evidence_mode ?? "Unavailable"}`,
+          ...(evaluationId ? { evaluationId } : {}),
+          resultSnapshotId,
+          content: `Run ${run.run_id}${evaluationContext}\nResult ${resultSnapshotId}\nEvidence mode ${run.sources.evidence_mode ?? "Unavailable"}`,
         });
       } else if (kind === "evaluation") {
         const result = await execution.inspection.readEvaluation({
@@ -403,10 +429,10 @@ export function ReportSheet({
       operation_id: crypto.randomUUID(),
       target_kind: verified.kind,
       target_id: verified.id,
-      ...(verified.evaluationId
+      ...(verified.kind === "run" && verified.evaluationId
         ? { evaluation_id: verified.evaluationId }
         : {}),
-      ...(verified.resultSnapshotId
+      ...(verified.kind === "run" && verified.resultSnapshotId
         ? { result_snapshot_id: verified.resultSnapshotId }
         : {}),
       ...(verified.groupSnapshotId
@@ -423,6 +449,12 @@ export function ReportSheet({
       registrationId,
       kind: verified.kind,
       id: verified.id,
+      ...(verified.evaluationId
+        ? { expectedEvaluationId: verified.evaluationId }
+        : {}),
+      ...(verified.resultSnapshotId
+        ? { expectedResultSnapshotId: verified.resultSnapshotId }
+        : {}),
       ...(verified.groupSnapshotId
         ? { groupSnapshotId: verified.groupSnapshotId }
         : {}),
@@ -475,6 +507,7 @@ export function ReportSheet({
               )
                 setKind(value);
               setVerified(undefined);
+              setError(undefined);
             }}
           >
             <option value="run">Run</option>
@@ -496,9 +529,24 @@ export function ReportSheet({
             onChange={(event) => {
               setTargetId(event.currentTarget.value);
               setVerified(undefined);
+              setError(undefined);
             }}
           />
         </label>
+        {kind === "run" && (
+          <label className="field">
+            Saved evaluation ID (optional)
+            <input
+              value={savedEvaluationId}
+              disabled={busy || state.kind === "committed"}
+              onChange={(event) => {
+                setSavedEvaluationId(event.currentTarget.value);
+                setVerified(undefined);
+                setError(undefined);
+              }}
+            />
+          </label>
+        )}
         <button
           type="button"
           disabled={checking || busy || state.kind === "committed"}

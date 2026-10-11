@@ -234,6 +234,10 @@ export async function runReportsWorkflow(
         .getByLabel("Target kind", { exact: true })
         .selectOption(target.kind);
       await dialog.getByLabel("Target ID", { exact: true }).fill(target.id);
+      if (target.kind === "run")
+        await dialog
+          .getByLabel("Saved evaluation ID (optional)", { exact: true })
+          .fill(qualification.seedMetadata.evaluation_id);
       const operation =
         target.kind === "run"
           ? "readRun"
@@ -246,6 +250,23 @@ export async function runReportsWorkflow(
           : target.kind === "evaluation"
             ? { registration_id: registrationId, evaluation_id: target.id }
             : { registration_id: registrationId, comparison_id: target.id };
+      const savedEvaluationResponse =
+        target.kind === "run"
+          ? page.waitForResponse(
+              (response) => {
+                const url = new URL(response.url());
+                return (
+                  response.request().method() === "GET" &&
+                  url.pathname ===
+                    "/api/v1/projects/" +
+                      registrationId +
+                      "/evaluations/" +
+                      qualification.seedMetadata.evaluation_id
+                );
+              },
+              { timeout: 12_000 },
+            )
+          : undefined;
       const verified = await captureOperation(page, operation, params, () =>
         dialog
           .getByRole("button", {
@@ -256,6 +277,11 @@ export async function runReportsWorkflow(
       );
       expect(verified.response.status()).toBe(200);
       await verified.response.body();
+      if (savedEvaluationResponse) {
+        const savedEvaluation = await savedEvaluationResponse;
+        expect(savedEvaluation.status()).toBe(200);
+        await savedEvaluation.body();
+      }
       await expect(
         dialog.locator('pre[aria-label="Verified report target"]'),
       ).toBeVisible();
@@ -266,8 +292,11 @@ export async function runReportsWorkflow(
       if (target.kind === "run")
         expect(
           verifiedText.includes(
-            `Result ${qualification.seedMetadata.result_snapshot_id}`,
-          ),
+            `Evaluation ${qualification.seedMetadata.evaluation_id}`,
+          ) &&
+            verifiedText.includes(
+              `Result ${qualification.seedMetadata.result_snapshot_id}`,
+            ),
         ).toBe(true);
       if (target.kind === "evaluation")
         expect(
