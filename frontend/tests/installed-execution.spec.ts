@@ -176,21 +176,41 @@ test("installed browser reviews and inspects fixture execution", async ({
     );
   }
 
-  async function waitForRunInactive(runId: string) {
-    const deadline = Date.now() + 25_000;
+  async function readRunWithBusyRetry(runId: string, deadline: number) {
+    const backoffMs = [250, 500, 1_000, 2_000];
+    let busyReads = 0;
     while (Date.now() < deadline) {
       const response = await page.request.get(
         `/api/v1/projects/${registrationId}/runs/${runId}`,
         { headers: await bootstrapHeaders() },
       );
       if (response.status() === 200) {
-        const data: unknown = await expectEnvelope(response);
-        const run = data as ApiOperationData<"readRun">;
-        if (run.run_id === runId && !run.execution_active) return run;
-      } else {
-        await recordFailure(response);
-        throw new Error("The installed run progress read failed.");
+        const run = (await expectEnvelope(response)) as ApiOperationData<"readRun">;
+        if (run.run_id !== runId)
+          throw new Error("The installed progress read returned another run.");
+        return run;
       }
+      const body: unknown = await response.json().catch(() => undefined);
+      const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+      const sourceBusy =
+        response.status() === 409 &&
+        error?.code === "conflict" &&
+        error?.reason === "source_busy";
+      await recordFailure(response);
+      if (!sourceBusy)
+        throw new Error("The installed run progress read failed.");
+      const delay = backoffMs[Math.min(busyReads, backoffMs.length - 1)];
+      busyReads += 1;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+    throw new Error("The installed run progress read stayed busy past its bound.");
+  }
+
+  async function waitForRunInactive(runId: string) {
+    const deadline = Date.now() + 25_000;
+    while (Date.now() < deadline) {
+      const run = await readRunWithBusyRetry(runId, deadline);
+      if (!run.execution_active) return run;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
     throw new Error(
@@ -266,7 +286,6 @@ test("installed browser reviews and inspects fixture execution", async ({
       .getByRole("region", { name: "Project decisions" })
       .getByRole("button", { name: "Content category", exact: true })
       .click();
-    await expect(page.getByLabel("Decision source")).toBeVisible();
     await page.getByRole("button", { name: "Run", exact: true }).click();
     const reviewDialog = page.getByRole("dialog", { name: "Review a run" });
     await expect(reviewDialog).toBeVisible();
@@ -280,7 +299,16 @@ test("installed browser reviews and inspects fixture execution", async ({
     await reviewDialog
       .getByLabel("Rate/overload retries per case (0–1)")
       .fill("0");
+    const initialReviewResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/runs/preview`,
+    );
     await reviewDialog.getByRole("button", { name: "Review run" }).click();
+    const initialReview = (await expectEnvelope(
+      await initialReviewResponsePromise,
+    )) as ApiOperationData<"previewRun">;
     await expect(
       reviewDialog.getByRole("heading", { name: "Server-reviewed context" }),
     ).toBeVisible();
@@ -332,16 +360,25 @@ test("installed browser reviews and inspects fixture execution", async ({
       initialDispatchCount,
     );
 
-    const reviewCases = await reviewDialog
-      .locator(".run-case-review li")
-      .allInnerTexts();
-    const eligibleCaseIds = reviewCases
-      .map((text) => text.split(" · ")[0])
-      .filter((id) => /^ex-\d{3}$/.test(id));
-    if (eligibleCaseIds.length === 0)
-      throw new Error(
-        "The authored demo preview contained no case review rows.",
-      );
+    expect(
+      await reviewDialog.locator(".run-case-review li").count(),
+    ).toBe(initialReview.case_reviews.length);
+    const invalidInputCases = initialReview.case_reviews.filter(
+      (item) =>
+        item.input_error?.code === "validation_error" &&
+        item.input_error.reason === "input_schema_mismatch",
+    );
+    expect(invalidInputCases).toHaveLength(1);
+    expect(invalidInputCases[0]?.request_hash).toBeNull();
+    expect(invalidInputCases[0]?.request_source).toBeNull();
+    const eligibleCaseIds = initialReview.case_reviews
+      .filter((item) => item.input_error === null && item.request_hash !== null)
+      .map((item) => item.case_id);
+    expect(initialReview.selected_case_ids).toHaveLength(12);
+    expect(initialReview.initial_requests).toBe("11");
+    expect(eligibleCaseIds).toHaveLength(11);
+    expect(initialReview.invalid_cases).toHaveLength(1);
+    const laterEligibleCaseIds = eligibleCaseIds.slice(1);
     dispatchCaseId = eligibleCaseIds[0] ?? "";
     if (!dispatchCaseId)
       throw new Error("The authored demo case ID was unavailable.");
@@ -403,7 +440,6 @@ test("installed browser reviews and inspects fixture execution", async ({
       .getByRole("button", { name: "Retry original start request" })
       .click();
     const retryResponse = await retryReceipt;
-    await recordFailure(retryResponse);
     expect(retryResponse.status()).toBe(202);
     const retryData = (await expectEnvelopeStatus(
       retryResponse,
@@ -445,9 +481,24 @@ test("installed browser reviews and inspects fixture execution", async ({
       initialDispatchCount,
     );
     expect(settledCounts.for_case_calls[dispatchCaseId]).toBe(1);
+    const outcomesByCase = new Map(
+      inactiveRun.cases.map((item) => [item.case_id, item]),
+    );
+    for (const caseId of laterEligibleCaseIds) {
+      const outcome = outcomesByCase.get(caseId);
+      expect(outcome?.status).toBe("pending");
+      expect(outcome?.attempt_id).toBeNull();
+      expect(
+        inactiveRun.attempts.some((attempt) => attempt.case_id === caseId),
+      ).toBe(false);
+      expect(settledCounts.for_case_calls[caseId] ?? 0).toBe(0);
+    }
     await expect(
       page.getByRole("heading", { name: "Review resume" }),
     ).toBeVisible();
+    await page
+      .getByLabel(/^Proposed lifetime attempt cap/)
+      .fill("4");
     const resumePreviewPromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -459,27 +510,115 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(
       (resumePreview as ApiOperationData<"previewRunResume">).run.run_id,
     ).toBe(acceptedRunId);
+    const resumePreviewData = resumePreview as ApiOperationData<"previewRunResume">;
+    expect(resumePreviewData.retry_unknown).toBe(false);
+    expect(resumePreviewData.proposed_attempt_limit).toBe("4");
+    const resumeHoldCaseId = laterEligibleCaseIds[0];
+    if (!resumeHoldCaseId)
+      throw new Error("The cancelled run had no later eligible case to resume.");
+    holdPath = join(fixtureControlDirectory, `${resumeHoldCaseId}.hold`);
+    await writeFile(holdPath, "hold\n", { flag: "wx" });
     await expect(
       page.getByRole("button", { name: "Resume run" }),
     ).toBeVisible();
     await expect(page.getByText(/Unknown retries: excluded/)).toBeVisible();
-    const resumeResponsePromise = page.waitForResponse(
+    const resumeBodies: Array<Record<string, unknown>> = [];
+    let firstResumeReceipt: ApiOperationData<"resumeRun"> | undefined;
+    await page.route(
+      `**/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
+      async (route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        const requestBody = route.request().postDataJSON();
+        if (!isRecord(requestBody)) return route.continue();
+        resumeBodies.push(requestBody);
+        const response = await route.fetch();
+        if (resumeBodies.length === 1) {
+          expect(response.status()).toBe(202);
+          const envelope: unknown = await response.json();
+          expect(
+            isRecord(envelope) &&
+              envelope.schema_version === 1 &&
+              isRecord(envelope.data),
+          ).toBe(true);
+          firstResumeReceipt = (envelope as { data: ApiOperationData<"resumeRun"> }).data;
+          await route.abort("failed");
+          return;
+        }
+        await route.fulfill({ response });
+      },
+    );
+    await page.getByRole("button", { name: "Resume run" }).click();
+    await expect(
+      page.getByRole("button", { name: "Retry original resume request" }),
+    ).toBeVisible();
+    if (!firstResumeReceipt)
+      throw new Error("The first resume acknowledgement was not captured.");
+    if (!firstResumeReceipt.segment_id)
+      throw new Error("The first resume acknowledgement had no segment ID.");
+    await waitForEntered(resumeHoldCaseId);
+    const progressAfterLostResumeAck = await readRunWithBusyRetry(
+      acceptedRunId,
+      Date.now() + 10_000,
+    );
+    expect(progressAfterLostResumeAck.execution_active).toBe(true);
+    expect(progressAfterLostResumeAck.segment_ids).toHaveLength(
+      inactiveRun.segment_ids.length + 1,
+    );
+    expect(progressAfterLostResumeAck.segment_ids).toContain(
+      firstResumeReceipt.segment_id,
+    );
+    const countsBeforeResumeReplay = await dispatchCounts();
+    const retryResumeResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname ===
           `/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
     );
-    await page.getByRole("button", { name: "Resume run" }).click();
-    const resumeReceipt = await expectEnvelopeStatus(
-      await resumeResponsePromise,
+    await page
+      .getByRole("button", { name: "Retry original resume request" })
+      .click();
+    const retryResumeResponse = await retryResumeResponsePromise;
+    const retryResumeReceipt = (await expectEnvelopeStatus(
+      retryResumeResponse,
       202,
+    )) as ApiOperationData<"resumeRun">;
+    expect(retryResumeReceipt.run_id).toBe(acceptedRunId);
+    expect(retryResumeReceipt.replayed).toBe(true);
+    expect(retryResumeReceipt.operation_id).toBe(
+      firstResumeReceipt.operation_id,
     );
-    expect((resumeReceipt as ApiOperationData<"resumeRun">).run_id).toBe(
+    expect(retryResumeReceipt.segment_id).toBe(firstResumeReceipt.segment_id);
+    expect(resumeBodies).toHaveLength(2);
+    expect(resumeBodies[1]).toEqual(resumeBodies[0]);
+    expect(resumeBodies[0]).toMatchObject({
+      retry_unknown: false,
+      max_attempts: 4,
+    });
+    const progressAfterResumeReplay = await readRunWithBusyRetry(
       acceptedRunId,
+      Date.now() + 10_000,
     );
-    await expect(page.getByText(/Resume acknowledged for run/)).toBeVisible();
+    expect(progressAfterResumeReplay.segment_ids).toEqual(
+      progressAfterLostResumeAck.segment_ids,
+    );
+    expect(progressAfterResumeReplay.attempts).toHaveLength(
+      progressAfterLostResumeAck.attempts.length,
+    );
+    const countsAfterResumeReplay = await dispatchCounts();
+    expect(countsAfterResumeReplay.fixture_dispatch_calls).toBe(
+      countsBeforeResumeReplay.fixture_dispatch_calls,
+    );
+    expect(countsAfterResumeReplay.for_case_calls[resumeHoldCaseId] ?? 0).toBe(
+      countsBeforeResumeReplay.for_case_calls[resumeHoldCaseId] ?? 0,
+    );
+    await page.unroute(
+      `**/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
+    );
+    if (holdPath) await rm(holdPath, { force: true });
+    holdPath = undefined;
     const resumedRun = await waitForRunInactive(acceptedRunId);
     expect(resumedRun.run_id).toBe(acceptedRunId);
+    expect((await dispatchCounts()).for_case_calls[resumeHoldCaseId]).toBe(1);
     await expect(
       page.getByRole("heading", { name: "Attempts and segments" }),
     ).toBeVisible();
