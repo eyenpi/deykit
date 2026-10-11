@@ -668,8 +668,8 @@ export async function runSavedAnswersWorkflow(
     expect(
       detail.probabilities.map((item) => [item.option_id, item.probability]),
     ).toEqual([
-      ["report", "0.62"],
       ["question", "0.2"],
+      ["report", "0.62"],
       ["request", "0.14"],
       ["other", "0.04"],
     ]);
@@ -792,8 +792,8 @@ export async function runSavedAnswersWorkflow(
       caseInspector.getByRole("heading", { name: "Reported probabilities" }),
     ).toBeVisible();
     for (const exactProbability of [
-      "Report · report: 0.62",
       "Question · question: 0.2",
+      "Report · report: 0.62",
       "Request · request: 0.14",
       "Other · other: 0.04",
     ])
