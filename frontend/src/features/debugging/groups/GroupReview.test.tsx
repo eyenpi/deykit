@@ -1,8 +1,17 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { ApiOperationBody, ApiOperationData } from "../../../api/client";
 import { disconnectedWorkspace } from "../../../workspace/gateway";
-import type { ProjectOverview, WorkspaceGateway } from "../../../workspace/gateway";
+import type {
+  ProjectOverview,
+  WorkspaceGateway,
+} from "../../../workspace/gateway";
 import { WorkspaceNavigation } from "../../../workspace/navigation";
 import { GroupReview } from "./GroupReview";
 
@@ -37,7 +46,17 @@ const preview = {
         schema_version: 1,
         run_id: null,
         option_order: ["option-a", "option-b"],
-        requests: [{ case_id: "case-1", input_hash: "b".repeat(64), request_hash: "c".repeat(64), compiler: "fixture-compiler", compiler_version: "1", requested_model: "fixture-model", schema_version: 1 }],
+        requests: [
+          {
+            case_id: "case-1",
+            input_hash: "b".repeat(64),
+            request_hash: "c".repeat(64),
+            compiler: "fixture-compiler",
+            compiler_version: "1",
+            requested_model: "fixture-model",
+            schema_version: 1,
+          },
+        ],
       },
       preview: {
         schema_version: 1,
@@ -50,7 +69,13 @@ const preview = {
         dry_run: true,
         invalid_cases: [],
         review_context_hash: "a".repeat(64),
-        settings: { max_attempts: "100", concurrency: "2", timeout_seconds: "60", deadline_seconds: "600", max_retries_per_case: "1" },
+        settings: {
+          max_attempts: "100",
+          concurrency: "2",
+          timeout_seconds: "60",
+          deadline_seconds: "600",
+          max_retries_per_case: "1",
+        },
         requested_model: "fixture-model",
         selected_case_ids: ["case-1"],
         initial_requests: "1",
@@ -58,8 +83,34 @@ const preview = {
     },
     {
       schema_version: 1,
-      identity: { schema_version: 1, run_id: null, option_order: ["option-b", "option-a"], requests: [] },
-      preview: { schema_version: 1, decision_id: "decision-1", dataset_id: "dataset-1", mode: "fixture", fixture_set_id: "fixture-1", provider_id: "fixture-provider", development_case_count: "1", dry_run: true, invalid_cases: [], review_context_hash: "a".repeat(64), settings: { max_attempts: "100", concurrency: "2", timeout_seconds: "60", deadline_seconds: "600", max_retries_per_case: "1" }, requested_model: "fixture-model", selected_case_ids: ["case-1"], initial_requests: "1" },
+      identity: {
+        schema_version: 1,
+        run_id: null,
+        option_order: ["option-b", "option-a"],
+        requests: [],
+      },
+      preview: {
+        schema_version: 1,
+        decision_id: "decision-1",
+        dataset_id: "dataset-1",
+        mode: "fixture",
+        fixture_set_id: "fixture-1",
+        provider_id: "fixture-provider",
+        development_case_count: "1",
+        dry_run: true,
+        invalid_cases: [],
+        review_context_hash: "a".repeat(64),
+        settings: {
+          max_attempts: "100",
+          concurrency: "2",
+          timeout_seconds: "60",
+          deadline_seconds: "600",
+          max_retries_per_case: "1",
+        },
+        requested_model: "fixture-model",
+        selected_case_ids: ["case-1"],
+        initial_requests: "1",
+      },
     },
   ],
 } as unknown as ApiOperationData<"previewChoiceOrder">;
@@ -90,47 +141,105 @@ it("keeps the reviewed seed and operation identity across an unknown group start
     mode: "fixture",
     replayed: true,
   } as ApiOperationData<"startChoiceOrder">;
-  const start = vi.fn(async ({ body }: { body: ApiOperationBody<"startChoiceOrder"> }) => {
-    startBodies.push(body);
-    attempt += 1;
-    if (attempt === 1) throw new Error("connection closed after dispatch");
-    return response({ ...accepted, operation_id: body.operation_id });
-  });
+  const start = vi.fn(
+    async ({ body }: { body: ApiOperationBody<"startChoiceOrder"> }) => {
+      startBodies.push(body);
+      attempt += 1;
+      if (attempt === 1) throw new Error("connection closed after dispatch");
+      return response({ ...accepted, operation_id: body.operation_id });
+    },
+  );
   const gateway = {
     ...disconnectedWorkspace,
     debugging: {
       ...disconnectedWorkspace.debugging,
-      diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, preview: previewCall, start },
+      diagnostics: {
+        ...disconnectedWorkspace.debugging.diagnostics,
+        preview: previewCall,
+        start,
+      },
     },
     authoring: {
       ...disconnectedWorkspace.authoring,
       examples: {
         ...disconnectedWorkspace.authoring.examples,
-        listCases: async () => response({ schema_version: 1, dataset_etag: "e".repeat(64), items: [], next_cursor: null, total: "0" }),
+        listCases: async () =>
+          response({
+            schema_version: 1,
+            dataset_etag: "e".repeat(64),
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
       },
-      providers: { ...disconnectedWorkspace.authoring.providers, list: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
-      fixtures: { ...disconnectedWorkspace.authoring.fixtures, list: async () => response({ schema_version: 1, items: [fixture], next_cursor: null, total: "1" }) },
-      decisions: { ...disconnectedWorkspace.authoring.decisions, revisions: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
+      providers: {
+        ...disconnectedWorkspace.authoring.providers,
+        list: async () =>
+          response({
+            schema_version: 1,
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
+      },
+      fixtures: {
+        ...disconnectedWorkspace.authoring.fixtures,
+        list: async () =>
+          response({
+            schema_version: 1,
+            items: [fixture],
+            next_cursor: null,
+            total: "1",
+          }),
+      },
+      decisions: {
+        ...disconnectedWorkspace.authoring.decisions,
+        revisions: async () =>
+          response({
+            schema_version: 1,
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
+      },
     },
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
   const onStarted = vi.fn();
-  const view = render(<GroupReview project={project} decision={project.decisions[0]} gateway={gateway} navigation={navigation} onClose={vi.fn()} onStarted={onStarted} kind="diagnostic" />);
+  const view = render(
+    <GroupReview
+      project={project}
+      decision={project.decisions[0]}
+      gateway={gateway}
+      navigation={navigation}
+      onClose={vi.fn()}
+      onStarted={onStarted}
+      kind="diagnostic"
+    />,
+  );
 
   await screen.findByText("Authored fixture");
-  fireEvent.change(screen.getByLabelText("Fixture set"), { target: { value: "fixture-1" } });
-  fireEvent.change(screen.getByLabelText(/Seed/), { target: { value: "9007199254740993" } });
+  fireEvent.change(screen.getByLabelText("Fixture set"), {
+    target: { value: "fixture-1" },
+  });
+  fireEvent.change(screen.getByLabelText(/Seed/), {
+    target: { value: "9007199254740993" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Review choice order" }));
   await screen.findByText("Reviewed group context");
   expect(screen.getByText("9007199254740993")).toBeTruthy();
   expect(screen.getByText("c".repeat(64))).toBeTruthy();
 
-  const startButton = screen.getByRole("button", { name: "Start reviewed group" });
+  const startButton = screen.getByRole("button", {
+    name: "Start reviewed group",
+  });
   fireEvent.click(startButton);
   fireEvent.click(startButton);
   await screen.findByText(/connection closed after dispatch/);
   expect(start).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole("button", { name: "Retry original start request" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retry original start request" }),
+  );
   await screen.findByText(/Group accepted:/);
   expect(start).toHaveBeenCalledTimes(2);
   expect(startBodies[1]).toEqual(startBodies[0]);
@@ -155,44 +264,136 @@ it("retries an unknown start through the original adapter after a gateway replac
   } as ApiOperationData<"listFixtureSets">["items"][number];
   const startCalls: unknown[] = [];
   let attempt = 0;
-  const originalStart = vi.fn(async (request: { body: ApiOperationBody<"startChoiceOrder"> }) => {
-    startCalls.push(request);
-    attempt += 1;
-    if (attempt === 1) throw new Error("connection closed after dispatch");
-    return response({ schema_version: 1, kind: "choice_order", group_id: "group-1", member_run_ids: ["run-1", "run-2"], operation_id: request.body.operation_id, mode: "fixture", replayed: true } as ApiOperationData<"startChoiceOrder">);
-  });
-  const replacementStart = vi.fn(async () => response({
-    schema_version: 1, kind: "choice_order", group_id: "wrong-group", member_run_ids: [], operation_id: "wrong-operation", mode: "fixture", replayed: false,
-  } as ApiOperationData<"startChoiceOrder">));
+  const originalStart = vi.fn(
+    async (request: { body: ApiOperationBody<"startChoiceOrder"> }) => {
+      startCalls.push(request);
+      attempt += 1;
+      if (attempt === 1) throw new Error("connection closed after dispatch");
+      return response({
+        schema_version: 1,
+        kind: "choice_order",
+        group_id: "group-1",
+        member_run_ids: ["run-1", "run-2"],
+        operation_id: request.body.operation_id,
+        mode: "fixture",
+        replayed: true,
+      } as ApiOperationData<"startChoiceOrder">);
+    },
+  );
+  const replacementStart = vi.fn(async () =>
+    response({
+      schema_version: 1,
+      kind: "choice_order",
+      group_id: "wrong-group",
+      member_run_ids: [],
+      operation_id: "wrong-operation",
+      mode: "fixture",
+      replayed: false,
+    } as ApiOperationData<"startChoiceOrder">),
+  );
   const authoring = {
     ...disconnectedWorkspace.authoring,
-    examples: { ...disconnectedWorkspace.authoring.examples, listCases: async () => response({ schema_version: 1, dataset_etag: "e".repeat(64), items: [], next_cursor: null, total: "0" }) },
-    providers: { ...disconnectedWorkspace.authoring.providers, list: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
-    fixtures: { ...disconnectedWorkspace.authoring.fixtures, list: async () => response({ schema_version: 1, items: [fixture], next_cursor: null, total: "1" }) },
-    decisions: { ...disconnectedWorkspace.authoring.decisions, revisions: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
+    examples: {
+      ...disconnectedWorkspace.authoring.examples,
+      listCases: async () =>
+        response({
+          schema_version: 1,
+          dataset_etag: "e".repeat(64),
+          items: [],
+          next_cursor: null,
+          total: "0",
+        }),
+    },
+    providers: {
+      ...disconnectedWorkspace.authoring.providers,
+      list: async () =>
+        response({
+          schema_version: 1,
+          items: [],
+          next_cursor: null,
+          total: "0",
+        }),
+    },
+    fixtures: {
+      ...disconnectedWorkspace.authoring.fixtures,
+      list: async () =>
+        response({
+          schema_version: 1,
+          items: [fixture],
+          next_cursor: null,
+          total: "1",
+        }),
+    },
+    decisions: {
+      ...disconnectedWorkspace.authoring.decisions,
+      revisions: async () =>
+        response({
+          schema_version: 1,
+          items: [],
+          next_cursor: null,
+          total: "0",
+        }),
+    },
   };
   const gateway = {
     ...disconnectedWorkspace,
-    debugging: { ...disconnectedWorkspace.debugging, diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, preview: async () => response(preview), start: originalStart } },
+    debugging: {
+      ...disconnectedWorkspace.debugging,
+      diagnostics: {
+        ...disconnectedWorkspace.debugging.diagnostics,
+        preview: async () => response(preview),
+        start: originalStart,
+      },
+    },
     authoring,
   } as unknown as WorkspaceGateway;
   const replacementGateway = {
     ...gateway,
-    debugging: { ...gateway.debugging, diagnostics: { ...gateway.debugging.diagnostics, start: replacementStart } },
+    debugging: {
+      ...gateway.debugging,
+      diagnostics: {
+        ...gateway.debugging.diagnostics,
+        start: replacementStart,
+      },
+    },
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
   const onStarted = vi.fn();
-  const view = render(<GroupReview project={project} decision={project.decisions[0]} gateway={gateway} navigation={navigation} onClose={vi.fn()} onStarted={onStarted} kind="diagnostic" />);
+  const view = render(
+    <GroupReview
+      project={project}
+      decision={project.decisions[0]}
+      gateway={gateway}
+      navigation={navigation}
+      onClose={vi.fn()}
+      onStarted={onStarted}
+      kind="diagnostic"
+    />,
+  );
 
   await screen.findByText("Authored fixture");
-  fireEvent.change(screen.getByLabelText("Fixture set"), { target: { value: "fixture-1" } });
+  fireEvent.change(screen.getByLabelText("Fixture set"), {
+    target: { value: "fixture-1" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Review choice order" }));
   await screen.findByText("Reviewed group context");
   fireEvent.click(screen.getByRole("button", { name: "Start reviewed group" }));
   await screen.findByText(/connection closed after dispatch/);
 
-  view.rerender(<GroupReview project={project} decision={project.decisions[0]} gateway={replacementGateway} navigation={navigation} onClose={vi.fn()} onStarted={onStarted} kind="diagnostic" />);
-  fireEvent.click(screen.getByRole("button", { name: "Retry original start request" }));
+  view.rerender(
+    <GroupReview
+      project={project}
+      decision={project.decisions[0]}
+      gateway={replacementGateway}
+      navigation={navigation}
+      onClose={vi.fn()}
+      onStarted={onStarted}
+      kind="diagnostic"
+    />,
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retry original start request" }),
+  );
   await waitFor(() => expect(originalStart).toHaveBeenCalledTimes(2));
   expect(replacementStart).not.toHaveBeenCalled();
   expect(startCalls[1]).toEqual(startCalls[0]);
@@ -216,39 +417,112 @@ it("does not publish an accepted receipt after an A-to-B-to-A scope transition",
     created_at: "2026-10-11T00:00:00Z",
   } as ApiOperationData<"listFixtureSets">["items"][number];
   const previewCall = vi.fn(async () => response(preview));
-  type StartResponse = Awaited<ReturnType<WorkspaceGateway["debugging"]["diagnostics"]["start"]>>;
+  type StartResponse = Awaited<
+    ReturnType<WorkspaceGateway["debugging"]["diagnostics"]["start"]>
+  >;
   let resolveStart: ((value: StartResponse) => void) | undefined;
-  const start = vi.fn(({ body }: { body: ApiOperationBody<"startChoiceOrder"> }) => new Promise<StartResponse>((resolve) => {
-    resolveStart = (value) => resolve(value);
-    void body;
-  }));
+  const start = vi.fn(
+    ({ body }: { body: ApiOperationBody<"startChoiceOrder"> }) =>
+      new Promise<StartResponse>((resolve) => {
+        resolveStart = (value) => resolve(value);
+        void body;
+      }),
+  );
   const gateway = {
     ...disconnectedWorkspace,
-    debugging: { ...disconnectedWorkspace.debugging, diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, preview: previewCall, start } },
+    debugging: {
+      ...disconnectedWorkspace.debugging,
+      diagnostics: {
+        ...disconnectedWorkspace.debugging.diagnostics,
+        preview: previewCall,
+        start,
+      },
+    },
     authoring: {
       ...disconnectedWorkspace.authoring,
-      examples: { ...disconnectedWorkspace.authoring.examples, listCases: async () => response({ schema_version: 1, dataset_etag: "e".repeat(64), items: [], next_cursor: null, total: "0" }) },
-      providers: { ...disconnectedWorkspace.authoring.providers, list: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
-      fixtures: { ...disconnectedWorkspace.authoring.fixtures, list: async () => response({ schema_version: 1, items: [fixture], next_cursor: null, total: "1" }) },
-      decisions: { ...disconnectedWorkspace.authoring.decisions, revisions: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
+      examples: {
+        ...disconnectedWorkspace.authoring.examples,
+        listCases: async () =>
+          response({
+            schema_version: 1,
+            dataset_etag: "e".repeat(64),
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
+      },
+      providers: {
+        ...disconnectedWorkspace.authoring.providers,
+        list: async () =>
+          response({
+            schema_version: 1,
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
+      },
+      fixtures: {
+        ...disconnectedWorkspace.authoring.fixtures,
+        list: async () =>
+          response({
+            schema_version: 1,
+            items: [fixture],
+            next_cursor: null,
+            total: "1",
+          }),
+      },
+      decisions: {
+        ...disconnectedWorkspace.authoring.decisions,
+        revisions: async () =>
+          response({
+            schema_version: 1,
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
+      },
     },
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
   const onStarted = vi.fn();
-  const props = { project, gateway, navigation, onClose: vi.fn(), onStarted, kind: "diagnostic" as const };
-  const view = render(<GroupReview {...props} decision={project.decisions[0]} />);
+  const props = {
+    project,
+    gateway,
+    navigation,
+    onClose: vi.fn(),
+    onStarted,
+    kind: "diagnostic" as const,
+  };
+  const view = render(
+    <GroupReview {...props} decision={project.decisions[0]} />,
+  );
   await screen.findByText("Authored fixture");
-  fireEvent.change(screen.getByLabelText("Fixture set"), { target: { value: "fixture-1" } });
+  fireEvent.change(screen.getByLabelText("Fixture set"), {
+    target: { value: "fixture-1" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "Review choice order" }));
   await screen.findByText("Reviewed group context");
   fireEvent.click(screen.getByRole("button", { name: "Start reviewed group" }));
   expect(start).toHaveBeenCalledTimes(1);
 
-  view.rerender(<GroupReview {...props} decision={{ id: "decision-2", name: "Different decision" }} />);
+  view.rerender(
+    <GroupReview
+      {...props}
+      decision={{ id: "decision-2", name: "Different decision" }}
+    />,
+  );
   view.rerender(<GroupReview {...props} decision={project.decisions[0]} />);
   await act(async () => {
     resolveStart?.({
-      data: { schema_version: 1, kind: "choice_order", group_id: "group-stale", member_run_ids: ["run-1", "run-2"], operation_id: start.mock.calls[0][0].body.operation_id, mode: "fixture", replayed: true },
+      data: {
+        schema_version: 1,
+        kind: "choice_order",
+        group_id: "group-stale",
+        member_run_ids: ["run-1", "run-2"],
+        operation_id: start.mock.calls[0][0].body.operation_id,
+        mode: "fixture",
+        replayed: true,
+      },
       warnings: [],
     });
   });

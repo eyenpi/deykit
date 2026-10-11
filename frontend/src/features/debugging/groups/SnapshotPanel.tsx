@@ -19,7 +19,9 @@ export function SnapshotPanel({
     <section aria-labelledby="saved-snapshots-title">
       <h2 id="saved-snapshots-title">Saved snapshots</h2>
       {snapshots.length === 0 ? (
-        <p className="muted">Pending snapshot. No immutable result is saved yet.</p>
+        <p className="muted">
+          Pending snapshot. No immutable result is saved yet.
+        </p>
       ) : (
         <div className="field">
           <label htmlFor="group-snapshot-select">Selected snapshot</label>
@@ -52,8 +54,8 @@ export function SnapshotPanel({
       )}
       {selectedId && (
         <p className="muted">
-          The selected snapshot stays pinned while new snapshots arrive. Choose a
-          different snapshot explicitly to change this view.
+          The selected snapshot stays pinned while new snapshots arrive. Choose
+          a different snapshot explicitly to change this view.
         </p>
       )}
       {selectedId && (

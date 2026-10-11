@@ -45,16 +45,22 @@ const CASE_STATUSES = new Set([
 ]);
 
 function optionIds(value: unknown): value is (string | null)[] {
-  return Array.isArray(value) && value.every(
-    (option): option is string | null =>
-      option === null || typeof option === "string",
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (option): option is string | null =>
+        option === null || typeof option === "string",
+    )
   );
 }
 
 function caseStatuses(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(
-    (status): status is string =>
-      typeof status === "string" && CASE_STATUSES.has(status),
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (status): status is string =>
+        typeof status === "string" && CASE_STATUSES.has(status),
+    )
   );
 }
 
