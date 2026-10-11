@@ -11,9 +11,9 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { operationMetadata } from "../src/api/generated/operations";
+import validators from "../src/api/generated/validators.cjs";
 import type { ApiOperationId } from "../src/api/generated/operations";
 import type { ApiOperationBody } from "../src/api/client";
-import { decodeRegistration } from "../src/api/codecs";
 
 export type DebuggingWorkflow = "S" | "C" | "G" | "R";
 
@@ -724,12 +724,18 @@ export async function openPreparedProject(
   if (
     !isRecord(registrationBody) ||
     registrationBody.schema_version !== 1 ||
-    !isRecord(registrationBody.data)
+    !isRecord(registrationBody.data) ||
+    !validators.validateRegistrationDTO(registrationBody.data)
   )
     throw new Error("The prepared project registration receipt was malformed.");
-  const registrationId = decodeRegistration(registrationBody.data);
+  const registrationId = registrationBody.data.registration_id;
   const project = registrationBody.data.project;
-  if (!isRecord(project) || typeof project.name !== "string")
+  if (
+    typeof registrationId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(registrationId) ||
+    !isRecord(project) ||
+    typeof project.name !== "string"
+  )
     throw new Error("The prepared project registration receipt was malformed.");
   await expect(
     page.getByRole("heading", { name: project.name, exact: true }),
