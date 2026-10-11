@@ -130,7 +130,7 @@ def test_diagnostic_snapshot_reader_is_pinned_and_read_only(setup, monkeypatch):
     monkeypatch.setattr(source, "capture_snapshot", lambda: corrupted_records)
     with pytest.raises(ServiceFailure) as corrupt_reference:
         diagnostics.list_snapshots(started.group.group_id)
-    assert corrupt_reference.value.error.reason == "frozen_resource_missing"
+    assert corrupt_reference.value.error.reason == "group_snapshot_context_mismatch"
     assert len(factory.calls) == 6
 
 
@@ -198,3 +198,19 @@ def test_check_snapshot_survives_current_regression_removal(setup, monkeypatch):
     with pytest.raises(ServiceFailure) as wrong_kind:
         DiagnosticService(runner).read_snapshot(started.group.group_id, selected.id)
     assert wrong_kind.value.error.reason == "diagnostic_snapshot_missing"
+
+    stored = source.read(ResourceKey("check_snapshots", selected.id))
+    assert stored is not None
+    broken_result = selected.results[0].model_copy(update={"run_id": "foreign-run"})
+    broken = selected.model_copy(update={"results": (broken_result,)})
+    broken = broken.model_copy(update={"content_hash": content_hash(broken)})
+    body = dump_record(broken)
+    bad_stored = replace(stored, body=body, etag=bytes_hash(body))
+    original_records = original_capture()
+    corrupted_records = tuple(
+        bad_stored if item.key == stored.key else item for item in original_records
+    )
+    monkeypatch.setattr(source, "capture_snapshot", lambda: corrupted_records)
+    with pytest.raises(ServiceFailure) as corrupt_reference:
+        checks.list_snapshots(started.group.group_id)
+    assert corrupt_reference.value.error.reason == "group_snapshot_context_mismatch"
