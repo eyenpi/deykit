@@ -169,7 +169,8 @@ export function ReportSheet({
   const [rawInputs, setRawInputs] = useState(false);
   const [rawRequests, setRawRequests] = useState(false);
   const [rawResponses, setRawResponses] = useState(false);
-  const [checking, setChecking] = useState(false);
+  const [checkingView, setCheckingView] = useState({ scopeEpoch, value: false });
+  const checking = checkingView.scopeEpoch === scopeEpoch && checkingView.value;
   const [error, setError] = useState<string>();
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [view, setView] = useState<{
@@ -247,7 +248,7 @@ export function ReportSheet({
   async function verifyTarget() {
     const id = targetId.trim();
     if (!id || busy) return;
-    setChecking(true);
+    setCheckingView({ scopeEpoch, value: true });
     setError(undefined);
     setVerified(undefined);
     const epoch = scopeEpochRef.current;
@@ -320,7 +321,8 @@ export function ReportSheet({
     } catch (cause) {
       if (epoch === scopeEpochRef.current) setError(safeMessage(cause));
     } finally {
-      if (epoch === scopeEpochRef.current) setChecking(false);
+      if (epoch === scopeEpochRef.current)
+        setCheckingView({ scopeEpoch: epoch, value: false });
     }
   }
 

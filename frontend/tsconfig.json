@@ -22,6 +22,7 @@
     "tests",
     "vite.config.ts",
     "playwright.config.ts",
-    "playwright.installed.config.ts"
+    "playwright.installed.config.ts",
+    "playwright.debugging.config.ts"
   ]
 }
