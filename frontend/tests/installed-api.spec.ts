@@ -303,12 +303,43 @@ async function runInstalledProviderFixtureTail({
   const fixtureDemoSubmit = page
     .getByRole("dialog")
     .getByRole("button", { name: "Try support demo", exact: true });
+  let openedRegistrationId: string | undefined;
+  let openedArchiveRead: Promise<Response> | undefined;
   const fixtureDemoReply = page.waitForResponse(
     (response) =>
       response.url().endsWith("/projects/demo") &&
       response.request().method() === "POST",
     { timeout: 15_000 },
   );
+  await enterPhase("Fixture demo Overview archive admission");
+  await page.route("**/api/v1/projects/demo", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    if (response.status() === 200) {
+      const envelope: {
+        data: ApiOperationData<"createAuthoredDemo">;
+      } = await response.json();
+      const registrationId = envelope.data.registration.registration_id;
+      if (/^[A-Za-z0-9_-]+$/.test(registrationId)) {
+        openedRegistrationId = registrationId;
+        openedArchiveRead = page.waitForResponse(
+          (candidate) => {
+            const url = new URL(candidate.url());
+            return (
+              candidate.request().method() === "GET" &&
+              url.pathname ===
+                `/api/v1/projects/${registrationId}/decisions` &&
+              url.searchParams.get("include_archived") === "true" &&
+              url.searchParams.get("limit") === "50"
+            );
+          },
+          { timeout: 0 },
+        );
+        void openedArchiveRead.catch(() => undefined);
+      }
+    }
+    await route.fulfill({ response });
+  });
   await fixtureDemoSubmit.click();
   const fixtureDemoResponse = await fixtureDemoReply;
   await expectDirectDataEnvelope(
@@ -321,9 +352,53 @@ async function runInstalledProviderFixtureTail({
   const fixtureRegistrationId =
     fixtureDemoEnvelope.data.registration.registration_id;
   expect(fixtureRegistrationId).toMatch(/^[A-Za-z0-9_-]+$/);
-  await expect(
-    page.getByRole("heading", { name: "Sandbox", exact: true }),
-  ).toBeVisible();
+  expect(openedRegistrationId).toBe(fixtureRegistrationId);
+  if (!openedArchiveRead)
+    throw new Error("The fixture demo Overview read was not observed.");
+  const fixtureArchiveResponsePromise = openedArchiveRead;
+  const fixtureOverviewReadiness = (async () => {
+    const response = await fixtureArchiveResponsePromise;
+    await expectDirectDataEnvelope(
+      response,
+      new URL(response.url()).pathname,
+    );
+    await response.body();
+    const envelope: {
+      data: ApiOperationData<"listDecisions">;
+    } = await response.json();
+    expect(
+      envelope.data.items.every((item) => !item.decision.record.archived),
+    ).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: "Sandbox", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No archived decisions.", { exact: true }),
+    ).toBeVisible();
+  })();
+  void fixtureOverviewReadiness.catch(() => undefined);
+  const fixtureOverviewTimeout = new Error(
+    "The fixture demo Overview read did not settle.",
+  );
+  let fixtureOverviewTimer: ReturnType<typeof setTimeout> | undefined;
+  const fixtureOverviewDeadline = new Promise<never>((_, reject) => {
+    fixtureOverviewTimer = setTimeout(() => reject(fixtureOverviewTimeout), 15_000);
+  });
+  try {
+    await Promise.race([fixtureOverviewReadiness, fixtureOverviewDeadline]);
+  } catch (error) {
+    try {
+      await recordSafeProgress();
+    } catch {
+      // Preserve the actual readiness failure if progress cannot be written.
+    }
+    throw error;
+  } finally {
+    if (fixtureOverviewTimer !== undefined)
+      clearTimeout(fixtureOverviewTimer);
+  }
+  await enterPhase("Fixture demo Overview ready");
+  await page.unroute("**/api/v1/projects/demo");
   const fixtureHeaders = authorizedHeaders;
   const fixtureProvidersResponse = await page.request.get(
     `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
