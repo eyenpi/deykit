@@ -52,6 +52,13 @@ type InstalledProviderFixtureTail = {
   origin: string;
   apiResponses: string[];
   enterPhase: (name: string) => Promise<void>;
+  recordProjectNavigationFacts: (facts: {
+    start_hash: boolean;
+    welcome_heading_present: boolean;
+    fixture_heading_present: boolean;
+    guard_dialog_present: boolean;
+    alert_present: boolean;
+  }) => Promise<void>;
   captureScreenshot: (name: string) => Promise<void>;
   expectDirectDataEnvelope: (
     response: APIResponse | Response,
@@ -68,6 +75,7 @@ async function runInstalledProviderFixtureTail({
   origin,
   apiResponses,
   enterPhase,
+  recordProjectNavigationFacts,
   captureScreenshot,
   expectDirectDataEnvelope,
 }: InstalledProviderFixtureTail) {
@@ -275,10 +283,22 @@ async function runInstalledProviderFixtureTail({
 
   // Inspect the packaged authored fixture through the installed UI and API.
   // The test never invokes provider networking or requests raw-source display.
+  await enterPhase("Switching from Fixtures to Projects");
   await page.getByRole("button", { name: "Projects", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Welcome to deykit." }),
-  ).toBeVisible();
+  const welcomeHeading = page.getByRole("heading", {
+    name: "Welcome to deykit.",
+  });
+  try {
+    await expect(welcomeHeading).toBeVisible();
+  } catch (error) {
+    await recordProjectNavigationFacts(
+      await captureProjectNavigationFacts(page),
+    );
+    throw error;
+  }
+  await recordProjectNavigationFacts(
+    await captureProjectNavigationFacts(page),
+  );
   await page
     .getByRole("button", { name: "Try support demo", exact: true })
     .click();
@@ -706,6 +726,24 @@ async function runInstalledProviderFixtureTail({
   await enterPhase("Connected authoring workflow complete");
 }
 
+async function captureProjectNavigationFacts(page: Page) {
+  const [startHash, welcomeHeading, fixtureHeading, guardDialog, alert] =
+    await Promise.all([
+      page.evaluate(() => window.location.hash === "#/"),
+      page.getByRole("heading", { name: "Welcome to deykit." }).count(),
+      page.getByRole("heading", { name: "Fixture library" }).count(),
+      page.getByRole("dialog", { name: "Unsaved changes" }).count(),
+      page.getByRole("alert").count(),
+    ]);
+  return {
+    start_hash: startHash,
+    welcome_heading_present: welcomeHeading > 0,
+    fixture_heading_present: fixtureHeading > 0,
+    guard_dialog_present: guardDialog > 0,
+    alert_present: alert > 0,
+  };
+}
+
 test("installed history retains a pending revision restore through Back and exact retry", async ({
   page,
 }, testInfo) => {
@@ -876,6 +914,9 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
   let archiveReceiptsIdentical = false;
   let restoreReceiptsIdentical = false;
   let saveAndDiscardWereBlocked = false;
+  let projectNavigationFacts:
+    | Awaited<ReturnType<typeof captureProjectNavigationFacts>>
+    | undefined;
   const pendingRouteCategories = new Set<string>();
 
   function decisionListQueryMatches(request: Request): boolean {
@@ -957,6 +998,7 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
           archive_receipts_identical: archiveReceiptsIdentical,
           restore_receipts_identical: restoreReceiptsIdentical,
           save_and_discard_were_blocked: saveAndDiscardWereBlocked,
+          project_navigation_facts: projectNavigationFacts,
           pending_route_categories: [...pendingRouteCategories].sort(),
           api_failures: apiFailures,
           screenshots,
@@ -1426,6 +1468,10 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
       stage = name;
       await recordSafeProgress();
     },
+    recordProjectNavigationFacts: async (facts) => {
+      projectNavigationFacts = facts;
+      await recordSafeProgress();
+    },
     captureScreenshot: captureSafeScreenshot,
     expectDirectDataEnvelope: async (response, path) => {
       await recordSafeFailure(response, path);
@@ -1764,6 +1810,9 @@ test("installed browser authors exact decision source and previews imports throu
         pending_route_categories: string[];
       }
     | undefined;
+  let projectNavigationFacts:
+    | Awaited<ReturnType<typeof captureProjectNavigationFacts>>
+    | undefined;
   let activeSplitReadEvents:
     | Array<{
         event: "body" | "body_error" | "cancelled";
@@ -1819,6 +1868,7 @@ test("installed browser authors exact decision source and previews imports throu
       archive_readiness_facts: archiveReadinessFacts,
       restore_replay_facts: restoreReplayFacts,
       restore_projection_facts: restoreProjectionFacts,
+      project_navigation_facts: projectNavigationFacts,
     });
     const sequence = ++progressSequence;
     const write = progressWriteQueue.then(async () => {
@@ -6874,6 +6924,10 @@ test("installed browser authors exact decision source and previews imports throu
     origin,
     apiResponses,
     enterPhase,
+    recordProjectNavigationFacts: async (facts) => {
+      projectNavigationFacts = facts;
+      await recordProgress();
+    },
     captureScreenshot,
     expectDirectDataEnvelope,
   });
