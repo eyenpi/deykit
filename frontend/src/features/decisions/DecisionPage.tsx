@@ -1282,11 +1282,13 @@ export function DecisionPage({
       archiveRequest.current = body;
       archiveAction.current = action;
       if (action === "restore") {
-        receipt = (await operations.restore({ registrationId, decisionId, body }))
-          .data;
+        receipt = (
+          await operations.restore({ registrationId, decisionId, body })
+        ).data;
       } else {
-        receipt = (await operations.archive({ registrationId, decisionId, body }))
-          .data;
+        receipt = (
+          await operations.archive({ registrationId, decisionId, body })
+        ).data;
       }
     } catch (cause) {
       if (!isCurrentPage()) return;
@@ -1311,7 +1313,9 @@ export function DecisionPage({
     setRecord(updated);
     actionLock.current = false;
     setRenameWorking(false);
-    setNotice(receipt.record.archived ? "Decision archived." : "Decision restored.");
+    setNotice(
+      receipt.record.archived ? "Decision archived." : "Decision restored.",
+    );
     try {
       await onArchiveChanged();
     } catch (cause) {

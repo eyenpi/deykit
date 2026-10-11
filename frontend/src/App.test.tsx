@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -86,9 +92,7 @@ it("retries a committed archive before navigating and loading the overview", asy
     id: registrationId,
     name: "Archive flow project",
     path: "/tmp/archive-flow",
-    decisions: archiveCommitted
-      ? []
-      : [{ id: decisionId, name: decisionName }],
+    decisions: archiveCommitted ? [] : [{ id: decisionId, name: decisionName }],
     datasets: [],
     warnings: [],
   });
@@ -167,17 +171,22 @@ it("retries a committed archive before navigating and loading the overview", asy
     within(archiveDialog).getByRole("button", { name: "Archive decision" }),
   );
   fireEvent.click(
-    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("button", {
-      name: "Archive flow project",
-    }),
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "button",
+      {
+        name: "Archive flow project",
+      },
+    ),
   );
   const submittingPrompt = await screen.findByRole("dialog", {
     name: "Unsaved changes",
   });
   expect(
     (
-      within(submittingPrompt).getByRole("button", { name: "Save and leave" })
-    as HTMLButtonElement).disabled,
+      within(submittingPrompt).getByRole("button", {
+        name: "Save and leave",
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
   expect(
     (
@@ -194,17 +203,22 @@ it("retries a committed archive before navigating and loading the overview", asy
     name: "Retry same archive action",
   });
   fireEvent.click(
-    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("button", {
-      name: "Archive flow project",
-    }),
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "button",
+      {
+        name: "Archive flow project",
+      },
+    ),
   );
   const unknownPrompt = await screen.findByRole("dialog", {
     name: "Unsaved changes",
   });
   expect(
     (
-      within(unknownPrompt).getByRole("button", { name: "Save and leave" })
-    as HTMLButtonElement).disabled,
+      within(unknownPrompt).getByRole("button", {
+        name: "Save and leave",
+      }) as HTMLButtonElement
+    ).disabled,
   ).toBe(true);
   expect(
     (

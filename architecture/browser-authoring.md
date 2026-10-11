@@ -52,6 +52,14 @@ change, the author must review it before deliberately reapplying staged work.
 Discarding the pending local edits can leave the page, but it does not undo the
 committed label or case write.
 
+Archive and restore actions retain their original request after an unknown
+outcome. A valid receipt is adopted before releasing the action lock and
+requesting navigation. The decision page navigates to Overview before refreshing
+the project, so removing an archived decision cannot dispose its pending
+navigation guard. Late receipts cannot publish into a replacement page. Overview
+restore also adopts the receipt into its owned archive list and refreshes the
+active decision projection without repeating the write.
+
 The browser may author project content, labels, profiles, and fixtures. It does not
 expose run dispatch, progress, resume, result review, comparison, reevaluation, or
 diagnostic UI. A browser acceptance claim requires the packaged static assets with
