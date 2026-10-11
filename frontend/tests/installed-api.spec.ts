@@ -507,6 +507,7 @@ test("installed archive restore retains exact actions and projects receipts", as
       page.getByRole("heading", { name: "Sandbox", exact: true }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(archivedRow).toBeVisible({ timeout: 15_000 });
+    archiveRowVisible = true;
     await expect(archiveDialog).toHaveCount(0);
     await expect.poll(() => pendingReads.size, { timeout: 15_000 }).toBe(0);
     archiveHeadingVisible = true;
@@ -592,14 +593,16 @@ test("installed archive restore retains exact actions and projects receipts", as
     exact: true,
   });
   await expect(retryRestore).toBeVisible();
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Providers", exact: true })
-    .click();
+  stage = "restore unknown";
+  restoreRetryPresent = true;
+  await recordSafeProgress();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
   const navigationPrompt = page.getByRole("dialog", {
     name: "Unsaved changes",
   });
   await expect(navigationPrompt).toBeVisible();
+  navigationPromptVisible = true;
+  await recordSafeProgress();
   await expect(
     navigationPrompt.getByRole("button", { name: "Save and leave" }),
   ).toBeDisabled();
@@ -610,6 +613,7 @@ test("installed archive restore retains exact actions and projects receipts", as
   stage = "restore unknown navigation blocked";
   await captureSafeScreenshot("focused-restore-navigation-blocked.png");
   await navigationPrompt.getByRole("button", { name: "Keep editing" }).click();
+  navigationPromptVisible = false;
   stage = "restore retry";
   const restoreReplayResponse = page.waitForResponse(
     (response) =>
