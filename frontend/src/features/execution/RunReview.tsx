@@ -426,7 +426,11 @@ export function RunReview({
                   <input
                     inputMode="numeric"
                     value={settings[key]}
-                    onChange={(event) => { setSettings((current) => ({ ...current, [key]: event.currentTarget.value })); markChanged(); }}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettings((current) => ({ ...current, [key]: value }));
+                      markChanged();
+                    }}
                   />
                 </label>
               ))}

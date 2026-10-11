@@ -102,7 +102,11 @@ it("retries an unknown run start with the exact reviewed request and operation i
     requests: [requestSource],
     created_at: "2026-10-11T00:00:00Z",
   };
-  const previewCall = vi.fn(async () => result(preview));
+  const previewBodies: ApiOperationBody<"previewRun">[] = [];
+  const previewCall = vi.fn(async ({ body }: { body: ApiOperationBody<"previewRun"> }) => {
+    previewBodies.push(body);
+    return result(preview);
+  });
   const startCalls: ApiOperationBody<"startRun">[] = [];
   const accepted: ApiOperationData<"startRun"> = {
     schema_version: 1,
@@ -177,12 +181,18 @@ it("retries an unknown run start with the exact reviewed request and operation i
         screen.getByRole("button", { name: "Review run" }).hasAttribute("disabled"),
       ).toBe(false);
     });
+    const concurrency = screen.getByLabelText("Concurrency (1–64)");
+    await user.clear(concurrency);
+    await user.type(concurrency, "1");
     await user.click(await screen.findByRole("button", { name: "Review run" }));
     expect(await screen.findByRole("region", { name: "Reviewed run context" })).toBeTruthy();
     expect(previewCall).toHaveBeenCalledTimes(1);
+    expect(previewBodies[0]?.request.settings?.concurrency).toBe(1);
     await user.click(screen.getByRole("button", { name: "Start reviewed run" }));
     expect(await screen.findByRole("button", { name: "Retry original start request" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Start reviewed run" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Start reviewed run" }).hasAttribute("disabled"),
+    ).toBe(true);
     expect(startCalls).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "Retry original start request" }));

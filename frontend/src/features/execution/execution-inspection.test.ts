@@ -59,6 +59,27 @@ describe("execution evidence source projection", () => {
     expect(detail.setCorrect).toBe(true);
   });
 
+  it("ignores supplemental answer properties but still validates required fields", () => {
+    const withSupplement = {
+      ...caseDetailSource,
+      answer: {
+        ...caseDetailSource.answer,
+        supplemental_source: '{"extension":9007199254740993}',
+      },
+    };
+    const detail = decodeCaseDetail(withSupplement);
+    expect(detail.answer).toEqual(caseDetailSource.answer);
+    expect(Object.keys(detail.answer ?? {})).not.toContain("supplemental_source");
+
+    const malformed = {
+      ...caseDetailSource,
+      answer: { ...caseDetailSource.answer, reported_model: 17 },
+    } as ApiOperationData<"readResult">["source"];
+    expect(() => decodeCaseDetail(malformed)).toThrowError(
+      expect.objectContaining({ code: "response_invalid" }),
+    );
+  });
+
   it("fails closed when a required service count is not a safe integer", () => {
     const malformed = {
       ...caseDetailSource,

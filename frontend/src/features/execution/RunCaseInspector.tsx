@@ -353,8 +353,9 @@ export function RunCaseInspector({
             {(["input", "request", "response", "attempts"] as const).map((key) => (
               <label key={key}>
                 <input type="checkbox" checked={reveal[key]} onChange={(event) => {
-                  setReveal((current) => ({ ...current, [key]: event.currentTarget.checked }));
-                  if (!event.currentTarget.checked) setDetail(undefined);
+                  const checked = event.currentTarget.checked;
+                  setReveal((current) => ({ ...current, [key]: checked }));
+                  if (!checked) setDetail(undefined);
                 }} />
                 Include {key}
               </label>

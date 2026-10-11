@@ -115,18 +115,7 @@ function nullableTextRecord(
 ): Readonly<Record<string, string | null>> | null {
   if (value === null) return null;
   const answer = object(value);
-  const required = [
-    "option_id",
-    "question_id",
-    "probabilities_source",
-    "native_confidence_source",
-    "native_confidence_semantics",
-    "reported_model",
-  ] as const;
   if (
-    Reflect.ownKeys(answer).some(
-      (key) => typeof key !== "string" || !required.includes(key as (typeof required)[number]),
-    ) ||
     !nullableText(answer.option_id) ||
     !nullableText(answer.question_id) ||
     !nullableText(answer.probabilities_source) ||
