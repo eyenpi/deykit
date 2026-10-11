@@ -93,6 +93,16 @@ describe("execution evidence source projection", () => {
     expect(detail.attempts[0]?.number).toBe(exactCount);
   });
 
+  it("accepts zero annotations but rejects zero attempt numbers", () => {
+    expect(decodeResultRow(caseDetailSource).annotationCount).toBe("0");
+    expect(() =>
+      decodeCaseDetail({
+        ...caseDetailSource,
+        attempts: [{ ...attemptSource, number: "0" }],
+      }),
+    ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
+  });
+
   it("rejects noncanonical or nontext count values", () => {
     const malformedValues: unknown[] = [
       0,
@@ -103,7 +113,6 @@ describe("execution evidence source projection", () => {
       Number.NaN,
       null,
       undefined,
-      "0",
       "-1",
       "+1",
       "01",
