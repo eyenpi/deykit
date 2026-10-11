@@ -632,13 +632,41 @@ export function ReportPage({
   reportId: string;
   operations: DebuggingGateway["reports"];
 }) {
-  const scopeEpoch = useRenderedScopeEpoch(`${registrationId}|${reportId}`);
+  const scopeKey = `${registrationId}|${reportId}`;
+  const [refreshToken, setRefreshToken] = useState(0);
+  const renderedIdentity = useRef({
+    scopeKey,
+    operations,
+    refreshToken: 0,
+    epoch: 0,
+  });
+  if (
+    renderedIdentity.current.scopeKey !== scopeKey ||
+    renderedIdentity.current.operations !== operations ||
+    renderedIdentity.current.refreshToken !== refreshToken
+  )
+    renderedIdentity.current = {
+      scopeKey,
+      operations,
+      refreshToken,
+      epoch: renderedIdentity.current.epoch + 1,
+    };
+  const scopeEpoch = renderedIdentity.current.epoch;
   const scopeEpochRef = useRef(scopeEpoch);
   scopeEpochRef.current = scopeEpoch;
-  const [report, setReport] = useState<Report>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>();
-  const [refreshToken, setRefreshToken] = useState(0);
+  const [metadata, setMetadata] = useState<{
+    scopeEpoch: number;
+    report?: Report;
+    loading: boolean;
+    error?: string;
+  }>({ scopeEpoch, loading: true });
+  const currentMetadata: typeof metadata =
+    metadata.scopeEpoch === scopeEpoch
+      ? metadata
+      : { scopeEpoch, loading: true };
+  const report = currentMetadata.report;
+  const loading = currentMetadata.loading;
+  const error = currentMetadata.error;
   const [format, setFormat] = useState<"json" | "markdown">("json");
   type ReportByteView = {
     scopeEpoch: number;
@@ -661,6 +689,14 @@ export function ReportPage({
   const downloading = currentByteView.busy;
   const downloadTicket = useRef(0);
   const mounted = useRef(false);
+  const activeDownload = useRef<
+    | {
+        scopeEpoch: number;
+        ticket: number;
+        controller: AbortController;
+      }
+    | undefined
+  >(undefined);
   const objectUrl = useRef<
     { url: string; scopeEpoch: number; ticket: number } | undefined
   >(undefined);
@@ -682,23 +718,32 @@ export function ReportPage({
 
   useEffect(() => {
     const epoch = scopeEpoch;
+    const sourceOperations = operations;
     const controller = new AbortController();
     let active = true;
-    setLoading(true);
-    setError(undefined);
     downloadTicket.current += 1;
     setByteView({
       scopeEpoch: epoch,
       ticket: downloadTicket.current,
       busy: false,
     });
-    setReport(undefined);
-    void operations
+    setMetadata({ scopeEpoch: epoch, loading: true });
+    const queuedDownload = activeDownload.current;
+    if (queuedDownload) {
+      queuedDownload.controller.abort();
+      activeDownload.current = undefined;
+    }
+    void sourceOperations
       .read({ registrationId, reportId, signal: controller.signal })
       .then((result) => {
         if (result.data.report_id !== reportId)
           throw new Error("The service returned a different report.");
-        if (active && epoch === scopeEpochRef.current) setReport(result.data);
+        if (active && epoch === scopeEpochRef.current)
+          setMetadata({
+            scopeEpoch: epoch,
+            report: result.data,
+            loading: false,
+          });
       })
       .catch((cause: unknown) => {
         if (
@@ -706,14 +751,28 @@ export function ReportPage({
           epoch === scopeEpochRef.current &&
           !controller.signal.aborted
         )
-          setError(safeMessage(cause));
+          setMetadata({
+            scopeEpoch: epoch,
+            loading: false,
+            error: safeMessage(cause),
+          });
       })
       .finally(() => {
-        if (active && epoch === scopeEpochRef.current) setLoading(false);
+        if (active && epoch === scopeEpochRef.current)
+          setMetadata((previous) =>
+            previous.scopeEpoch === epoch
+              ? { ...previous, loading: false }
+              : previous,
+          );
       });
     return () => {
       active = false;
       controller.abort();
+      const currentDownload = activeDownload.current;
+      if (currentDownload?.scopeEpoch === epoch) {
+        currentDownload.controller.abort();
+        activeDownload.current = undefined;
+      }
       const currentUrl = objectUrl.current;
       if (currentUrl?.scopeEpoch === epoch) {
         URL.revokeObjectURL(currentUrl.url);
@@ -725,18 +784,26 @@ export function ReportPage({
   async function loadBytes(save: boolean) {
     const epoch = scopeEpoch;
     const requestedFormat = format;
+    const sourceOperations = operations;
     const ticket = ++downloadTicket.current;
+    const controller = new AbortController();
+    activeDownload.current = { scopeEpoch: epoch, ticket, controller };
     const isCurrent = () =>
       mounted.current &&
       scopeEpochRef.current === epoch &&
       downloadTicket.current === ticket;
     setByteView({ ...currentByteView, scopeEpoch: epoch, ticket, busy: true });
-    setError(undefined);
+    setMetadata((previous) =>
+      previous.scopeEpoch === epoch
+        ? { ...previous, error: undefined }
+        : previous,
+    );
     try {
-      const bytes = await operations.download({
+      const bytes = await sourceOperations.download({
         registrationId,
         reportId,
         query: { format: requestedFormat },
+        signal: controller.signal,
       });
       const text = await bytes.blob.text();
       if (!isCurrent()) return;
@@ -771,8 +838,15 @@ export function ReportPage({
           : previous,
       );
     } catch (cause) {
-      if (isCurrent()) setError(safeMessage(cause));
+      if (isCurrent())
+        setMetadata((previous) =>
+          previous.scopeEpoch === epoch
+            ? { ...previous, error: safeMessage(cause) }
+            : previous,
+        );
     } finally {
+      if (activeDownload.current?.ticket === ticket)
+        activeDownload.current = undefined;
       if (isCurrent())
         setByteView((previous) =>
           previous.scopeEpoch === epoch && previous.ticket === ticket

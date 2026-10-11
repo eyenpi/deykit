@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useLayoutEffect } from "react";
 import type { ReactNode } from "react";
 import { expect, it, vi } from "vitest";
 import type { ApiOperationData, ApiResult } from "../../api/client";
@@ -37,6 +38,11 @@ function reportIdentity(reportId: string) {
   return (_content: string, element: Element | null) =>
     element?.tagName === "P" &&
     element.textContent?.includes(`Report ${reportId};`) === true;
+}
+
+function ReportLayoutProbe({ observe }: { observe: () => void }) {
+  useLayoutEffect(() => observe(), [observe]);
+  return null;
 }
 
 function stubObjectUrls() {
@@ -244,6 +250,195 @@ it("keeps deferred report bytes inside their A-to-B-to-A rendered scope", async 
   }
 });
 
+it("hides the previous report synchronously while replacement metadata is pending", async () => {
+  type Read = ApiOperationData<"readReport">;
+  const pendingRead = deferred<ApiResult<Read>>();
+  let replacementReads = 0;
+  let downloadCalls = 0;
+  const operations = {
+    ...disconnectedWorkspace.debugging.reports,
+    read: (request: { reportId: string }) => {
+      if (request.reportId === "report-A") return result(report);
+      replacementReads += 1;
+      return pendingRead.promise;
+    },
+    download: async () => {
+      downloadCalls += 1;
+      return {
+        blob: new Blob(["replacement bytes"]),
+        filename: "replacement.json",
+      };
+    },
+  };
+  let layoutSnapshot:
+    | {
+        oldMetadataVisible: boolean;
+        downloadControls: number;
+        loading: boolean;
+      }
+    | undefined;
+  const observe = () => {
+    const page = document.querySelector("article.document");
+    const buttons = [...(page?.querySelectorAll("button") ?? [])];
+    layoutSnapshot = {
+      oldMetadataVisible:
+        page?.textContent?.includes("Report report-1;") ?? false,
+      downloadControls: buttons.filter((button) =>
+        /report bytes|^Download /.test(button.textContent?.trim() ?? ""),
+      ).length,
+      loading: page?.textContent?.includes("Loading report metadata…") ?? false,
+    };
+  };
+  const tree = render(
+    <>
+      <ReportPage
+        registrationId="registration-1"
+        reportId="report-A"
+        operations={operations}
+      />
+      <ReportLayoutProbe observe={observe} />
+    </>,
+  );
+  try {
+    await screen.findByText(reportIdentity("report-1"));
+    tree.rerender(
+      <>
+        <ReportPage
+          registrationId="registration-1"
+          reportId="report-B"
+          operations={operations}
+        />
+        <ReportLayoutProbe observe={observe} />
+      </>,
+    );
+    expect(layoutSnapshot).toEqual({
+      oldMetadataVisible: false,
+      downloadControls: 0,
+      loading: true,
+    });
+    await waitFor(() => expect(replacementReads).toBe(1));
+    expect(downloadCalls).toBe(0);
+
+    pendingRead.resolve({
+      data: { ...report, report_id: "report-B" },
+      warnings: [],
+    });
+    await screen.findByText(reportIdentity("report-B"));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Preview report bytes" }));
+    expect(downloadCalls).toBe(1);
+  } finally {
+    tree.unmount();
+  }
+});
+
+it("rejects a same-key replacement port response admitted before passive effects", async () => {
+  type Download = Awaited<
+    ReturnType<typeof disconnectedWorkspace.debugging.reports.download>
+  >;
+  type Read = ApiOperationData<"readReport">;
+  const staleDownload = deferred<Download>();
+  const replacementRead = deferred<ApiResult<Read>>();
+  let replacementReads = 0;
+  const originalOperations = {
+    ...disconnectedWorkspace.debugging.reports,
+    read: async () => result(report),
+    download: () => staleDownload.promise,
+  };
+  let replacementDownloads = 0;
+  const replacementOperations = {
+    ...disconnectedWorkspace.debugging.reports,
+    read: () => {
+      replacementReads += 1;
+      return replacementRead.promise;
+    },
+    download: async () => {
+      replacementDownloads += 1;
+      return { blob: new Blob(["new port bytes"]), filename: "new-port.json" };
+    },
+  };
+  const urls = stubObjectUrls();
+  const click = vi
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(() => undefined);
+  let layoutSnapshot:
+    | {
+        oldMetadataVisible: boolean;
+        downloadControls: number;
+        loading: boolean;
+      }
+    | undefined;
+  const observe = () => {
+    const page = document.querySelector("article.document");
+    const buttons = [...(page?.querySelectorAll("button") ?? [])];
+    layoutSnapshot = {
+      oldMetadataVisible:
+        page?.textContent?.includes("Report report-1;") ?? false,
+      downloadControls: buttons.filter((button) =>
+        /report bytes|^Download /.test(button.textContent?.trim() ?? ""),
+      ).length,
+      loading: page?.textContent?.includes("Loading report metadata…") ?? false,
+    };
+    staleDownload.resolve({
+      blob: new Blob(["stale same-key bytes"]),
+      filename: "stale.json",
+    });
+  };
+  const tree = render(
+    <>
+      <ReportPage
+        registrationId="registration-1"
+        reportId="report-1"
+        operations={originalOperations}
+      />
+      <ReportLayoutProbe observe={() => undefined} />
+    </>,
+  );
+  const user = userEvent.setup();
+  try {
+    await screen.findByText(reportIdentity("report-1"));
+    await user.click(screen.getByRole("button", { name: "Download JSON" }));
+    tree.rerender(
+      <>
+        <ReportPage
+          registrationId="registration-1"
+          reportId="report-1"
+          operations={replacementOperations}
+        />
+        <ReportLayoutProbe observe={observe} />
+      </>,
+    );
+    expect(layoutSnapshot).toEqual({
+      oldMetadataVisible: false,
+      downloadControls: 0,
+      loading: true,
+    });
+    await waitFor(() => expect(replacementReads).toBe(1));
+    expect(replacementDownloads).toBe(0);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(urls.created).toEqual([]);
+    expect(click).not.toHaveBeenCalled();
+
+    replacementRead.resolve({ data: report, warnings: [] });
+    await screen.findByText(reportIdentity("report-1"));
+    await user.click(
+      screen.getByRole("button", { name: "Preview report bytes" }),
+    );
+    await screen.findByText("new port bytes");
+    expect(replacementDownloads).toBe(1);
+    expect(urls.created).toEqual([]);
+    expect(click).not.toHaveBeenCalled();
+  } finally {
+    tree.unmount();
+    click.mockRestore();
+    urls.restore();
+  }
+});
+
 it("ignores a pending saved download after unmount without creating a URL or clicking", async () => {
   type Download = Awaited<
     ReturnType<typeof disconnectedWorkspace.debugging.reports.download>
@@ -316,7 +511,6 @@ it("binds saved report URLs to their exact bytes and revokes them on format, sco
       operations={operations}
     />,
   );
-  const user = userEvent.setup();
   try {
     await screen.findByText(reportIdentity("report-1"));
     vi.useFakeTimers();
