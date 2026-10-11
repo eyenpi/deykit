@@ -3,8 +3,38 @@ import type { ApiOperationData } from "../../api/client";
 
 type ResultRowSource =
   ApiOperationData<"listResults">["items"][number]["source"];
-type CaseDetailSource = ApiOperationData<"readResult">["source"];
+type CaseDetailData = ApiOperationData<"readResult">;
 type CountText = string;
+
+export interface ResultContextView {
+  runId: string;
+  evaluationId: string | null;
+  resultSnapshotId: string;
+  resultContentHash: string;
+  labelSnapshotId: string;
+  labelContentHash: string;
+  decisionId: string;
+  decisionRevisionId: string;
+  decisionDefinitionHash: string;
+  datasetId: string;
+  datasetSnapshotId: string;
+  datasetContentHash: string;
+  evaluationMode: string;
+  throughEventSequence: CountText;
+}
+
+export interface AssessmentCountsView {
+  all: CountText;
+  inspect: CountText;
+  incorrect: CountText;
+  unlabelled: CountText;
+}
+
+export interface ProbabilityView {
+  optionId: string;
+  optionName: string;
+  probability: string;
+}
 
 export interface ResultRowView {
   caseId: string;
@@ -19,6 +49,10 @@ export interface ResultRowView {
 }
 
 export interface CaseDetailView extends ResultRowView {
+  context: ResultContextView;
+  caseInputHash: string;
+  probabilities: readonly ProbabilityView[];
+  probabilitiesUnavailableReason: string | null;
   runId: string;
   resultSnapshotId: string;
   labelSnapshotId: string;
@@ -91,6 +125,98 @@ function positiveCountText(value: unknown): value is CountText {
   return typeof value === "string" && /^[1-9][0-9]*$/.test(value);
 }
 
+function resultContext(value: unknown): ResultContextView {
+  const context = object(value);
+  if (
+    !text(context.run_id) ||
+    !nullableText(context.evaluation_id) ||
+    !text(context.result_snapshot_id) ||
+    !text(context.result_content_hash) ||
+    !text(context.label_snapshot_id) ||
+    !text(context.label_content_hash) ||
+    !text(context.decision_id) ||
+    !text(context.decision_revision_id) ||
+    !text(context.decision_definition_hash) ||
+    !text(context.dataset_id) ||
+    !text(context.dataset_snapshot_id) ||
+    !text(context.dataset_content_hash) ||
+    !text(context.evaluation_mode) ||
+    !nonnegativeCountText(context.through_event_sequence)
+  )
+    return invalid();
+  return {
+    runId: context.run_id,
+    evaluationId: context.evaluation_id,
+    resultSnapshotId: context.result_snapshot_id,
+    resultContentHash: context.result_content_hash,
+    labelSnapshotId: context.label_snapshot_id,
+    labelContentHash: context.label_content_hash,
+    decisionId: context.decision_id,
+    decisionRevisionId: context.decision_revision_id,
+    decisionDefinitionHash: context.decision_definition_hash,
+    datasetId: context.dataset_id,
+    datasetSnapshotId: context.dataset_snapshot_id,
+    datasetContentHash: context.dataset_content_hash,
+    evaluationMode: context.evaluation_mode,
+    throughEventSequence: context.through_event_sequence,
+  };
+}
+
+export function decodeResultContext(value: unknown): ResultContextView {
+  return resultContext(value);
+}
+
+export function decodeAssessmentCounts(value: unknown): AssessmentCountsView {
+  const counts = object(value);
+  if (
+    !nonnegativeCountText(counts.all) ||
+    !nonnegativeCountText(counts.inspect) ||
+    !nonnegativeCountText(counts.incorrect) ||
+    !nonnegativeCountText(counts.unlabelled)
+  )
+    return invalid();
+  return {
+    all: counts.all,
+    inspect: counts.inspect,
+    incorrect: counts.incorrect,
+    unlabelled: counts.unlabelled,
+  };
+}
+
+export function sameResultContext(
+  left: ResultContextView,
+  right: ResultContextView,
+): boolean {
+  return (
+    left.runId === right.runId &&
+    left.evaluationId === right.evaluationId &&
+    left.resultSnapshotId === right.resultSnapshotId &&
+    left.resultContentHash === right.resultContentHash &&
+    left.labelSnapshotId === right.labelSnapshotId &&
+    left.labelContentHash === right.labelContentHash &&
+    left.decisionId === right.decisionId &&
+    left.decisionRevisionId === right.decisionRevisionId &&
+    left.decisionDefinitionHash === right.decisionDefinitionHash &&
+    left.datasetId === right.datasetId &&
+    left.datasetSnapshotId === right.datasetSnapshotId &&
+    left.datasetContentHash === right.datasetContentHash &&
+    left.evaluationMode === right.evaluationMode &&
+    left.throughEventSequence === right.throughEventSequence
+  );
+}
+
+export function sameAssessmentCounts(
+  left: AssessmentCountsView,
+  right: AssessmentCountsView,
+): boolean {
+  return (
+    left.all === right.all &&
+    left.inspect === right.inspect &&
+    left.incorrect === right.incorrect &&
+    left.unlabelled === right.unlabelled
+  );
+}
+
 function rowView(value: unknown): ResultRowView {
   const row = object(value);
   if (
@@ -146,8 +272,8 @@ function nullableTextRecord(
   };
 }
 
-export function decodeCaseDetail(source: CaseDetailSource): CaseDetailView {
-  const detail = object(source);
+export function decodeCaseDetail(data: CaseDetailData): CaseDetailView {
+  const detail = object(data.source);
   const row = rowView(detail);
   if (
     !text(detail.run_id) ||
@@ -161,7 +287,10 @@ export function decodeCaseDetail(source: CaseDetailSource): CaseDetailView {
     !nullableText(detail.label_provenance) ||
     !Array.isArray(detail.annotations) ||
     !Array.isArray(detail.attempts) ||
-    !nullableText(detail.input_source)
+    !nullableText(detail.input_source) ||
+    !text(data.case_input_hash) ||
+    !nullableText(data.probabilities_unavailable_reason) ||
+    !Array.isArray(data.probabilities)
   )
     return invalid();
   const annotations = detail.annotations.map((value) => {
@@ -204,8 +333,35 @@ export function decodeCaseDetail(source: CaseDetailSource): CaseDetailView {
       responseSource: attempt.response_source ?? null,
     };
   });
+  const probabilities = data.probabilities.map((value) => {
+    const probability = object(value);
+    if (
+      !text(probability.option_id) ||
+      !text(probability.option_name) ||
+      typeof probability.probability !== "string" ||
+      !/^(?:0(?:\.[0-9]+)?|1(?:\.0+)?)$/.test(probability.probability)
+    )
+      return invalid();
+    return {
+      optionId: probability.option_id,
+      optionName: probability.option_name,
+      probability: probability.probability,
+    };
+  });
+  const context = resultContext(data.context);
+  if (
+    context.runId !== detail.run_id ||
+    context.resultSnapshotId !== detail.result_snapshot_id ||
+    context.labelSnapshotId !== detail.label_snapshot_id ||
+    context.evaluationId !== detail.evaluation_id
+  )
+    return invalid();
   return {
     ...row,
+    context,
+    caseInputHash: data.case_input_hash,
+    probabilities,
+    probabilitiesUnavailableReason: data.probabilities_unavailable_reason,
     runId: detail.run_id,
     resultSnapshotId: detail.result_snapshot_id,
     labelSnapshotId: detail.label_snapshot_id,

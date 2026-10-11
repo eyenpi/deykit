@@ -3,9 +3,11 @@ import { safeMessage } from "../../api/client";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import type {
+  DebuggingGateway,
   DecisionAuthoringOperations,
   ExecutionGateway,
   ProjectOverview,
+  ExampleAuthoringOperations,
 } from "../../workspace/gateway";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import { RetainedMutation } from "../../workspace/mutation-controller";
@@ -32,6 +34,8 @@ export function RunDetail({
   evaluationId,
   caseId,
   execution,
+  debugging,
+  labelOperations,
   navigation,
   project,
   readRevision,
@@ -41,6 +45,8 @@ export function RunDetail({
   evaluationId?: string;
   caseId?: string;
   execution: ExecutionGateway;
+  debugging: DebuggingGateway;
+  labelOperations: ExampleAuthoringOperations;
   navigation: WorkspaceNavigation;
   project: ProjectOverview;
   readRevision: DecisionAuthoringOperations["revision"];
@@ -351,6 +357,10 @@ export function RunDetail({
     project.id === registrationId &&
     project.decisions.some((decision) => decision.id === run.decision_id) &&
     project.datasets.some((dataset) => dataset.id === run.dataset_id);
+  const returnGroup =
+    navigation.current.kind === "run"
+      ? navigation.current.returnGroup
+      : undefined;
   if (!associationValid)
     return (
       <article className="document">
@@ -381,11 +391,21 @@ export function RunDetail({
         <div className="actions">
           <button
             type="button"
-            onClick={() =>
-              void navigation.navigate({ kind: "runs", registrationId })
-            }
+            onClick={() => {
+              if (returnGroup)
+                void navigation.navigate({
+                  kind: returnGroup.kind,
+                  registrationId,
+                  groupId: returnGroup.groupId,
+                });
+              else void navigation.navigate({ kind: "runs", registrationId });
+            }}
           >
-            Runs
+            {returnGroup
+              ? returnGroup.kind === "diagnostic"
+                ? "Back to choice-order diagnostic"
+                : "Back to regression check"
+              : "Runs"}
           </button>
           <button
             type="button"
@@ -681,6 +701,8 @@ export function RunDetail({
             registrationId={registrationId}
             run={run}
             execution={execution}
+          debugging={debugging}
+          labelOperations={labelOperations}
             readRevision={readRevision}
             navigation={navigation}
             evaluationId={evaluationId}

@@ -52,73 +52,139 @@ const caseDetailSource: ApiOperationData<"readResult">["source"] = {
   input_source: exactInput,
 };
 
+function detailData(
+  source: ApiOperationData<"readResult">["source"] = caseDetailSource,
+  probabilities: ApiOperationData<"readResult">["probabilities"] = [],
+): ApiOperationData<"readResult"> {
+  return {
+    schema_version: 1,
+    source,
+    case_input_hash: "b".repeat(64),
+    context: {
+      run_id: "run-1",
+      evaluation_id: "evaluation-1",
+      result_snapshot_id: "result-snapshot-1",
+      result_content_hash: "c".repeat(64),
+      label_snapshot_id: "label-snapshot-1",
+      label_content_hash: "d".repeat(64),
+      decision_id: "decision-1",
+      decision_revision_id: "revision-1",
+      decision_definition_hash: "e".repeat(64),
+      dataset_id: "dataset-1",
+      dataset_snapshot_id: "dataset-snapshot-1",
+      dataset_content_hash: "f".repeat(64),
+      evaluation_mode: "original",
+      through_event_sequence: "1",
+    },
+    probabilities,
+    probabilities_unavailable_reason: "probabilities_not_provided",
+  };
+}
+
+const caseDetailData = detailData();
+
 describe("execution evidence source projection", () => {
   it("retains opaque sanitized strings byte-for-byte and keeps source distinct from hashes", () => {
-    const detail = decodeCaseDetail(caseDetailSource);
+    const detail = decodeCaseDetail(caseDetailData);
     expect(detail.inputSource).toBe(exactInput);
     expect(detail.attempts[0]?.requestBodySource).toBe(exactRequest);
     expect(detail.attempts[0]?.requestBodyHash).toBe("a".repeat(64));
     expect(detail.answer?.native_confidence_source).toBeNull();
     expect(detail.setCorrect).toBe(true);
+    expect(detail.caseInputHash).toBe("b".repeat(64));
+    expect(detail.context.resultContentHash).toBe("c".repeat(64));
+    expect(detail.probabilitiesUnavailableReason).toBe(
+      "probabilities_not_provided",
+    );
   });
 
   it("ignores supplemental answer properties but still validates required fields", () => {
-    const withSupplement = {
+    const withSupplement = detailData({
       ...caseDetailSource,
       answer: {
         ...answerSource,
         supplemental_source: '{"extension":9007199254740993}',
       },
-    };
+    });
     const detail = decodeCaseDetail(withSupplement);
     expect(detail.answer).toEqual(answerSource);
     expect(Object.keys(detail.answer ?? {})).not.toContain(
       "supplemental_source",
     );
 
-    const malformed = {
+    const malformed = detailData({
       ...caseDetailSource,
       answer: { ...answerSource, reported_model: 17 },
-    };
+    });
     expect(() => decodeCaseDetail(malformed)).toThrowError(
       expect.objectContaining({ code: "response_invalid" }),
     );
   });
 
+  it("keeps server probability decimals as exact text and validates context association", () => {
+    const probabilities = [
+      { option_id: "option-1", option_name: "Question", probability: "0.62" },
+      { option_id: "option-2", option_name: "Request", probability: "0.14" },
+    ] satisfies ApiOperationData<"readResult">["probabilities"];
+    const detail = decodeCaseDetail(detailData(caseDetailSource, probabilities));
+    expect(detail.probabilities.map((row) => row.probability)).toEqual([
+      "0.62",
+      "0.14",
+    ]);
+    expect(() =>
+      decodeCaseDetail({
+        ...detailData(),
+        context: { ...detailData().context, label_snapshot_id: "other-label" },
+      }),
+    ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
+    expect(() =>
+      decodeCaseDetail(
+        detailData(caseDetailSource, [
+          { option_id: "option-1", option_name: "Question", probability: "1.01" },
+        ]),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
+  });
+
   it("accepts omitted request and response sources for opt-in projections", () => {
-    const metadataOnly = decodeCaseDetail({
-      ...caseDetailSource,
-      attempts: [attemptMetadata],
-    });
+    const metadataOnly = decodeCaseDetail(
+      detailData({ ...caseDetailSource, attempts: [attemptMetadata] }),
+    );
     expect(metadataOnly.attempts[0]?.requestBodySource).toBeNull();
     expect(metadataOnly.attempts[0]?.responseSource).toBeNull();
 
-    const undefinedSources = decodeCaseDetail({
-      ...caseDetailSource,
-      attempts: [
+    const undefinedSources = decodeCaseDetail(
+      detailData({
+        ...caseDetailSource,
+        attempts: [
         {
           ...attemptMetadata,
           request_body_source: undefined,
           response_source: undefined,
         },
-      ],
-    });
+        ],
+      }),
+    );
     expect(undefinedSources.attempts[0]?.requestBodySource).toBeNull();
     expect(undefinedSources.attempts[0]?.responseSource).toBeNull();
 
-    const requestOnly = decodeCaseDetail({
-      ...caseDetailSource,
-      attempts: [{ ...attemptMetadata, request_body_source: exactRequest }],
-    });
+    const requestOnly = decodeCaseDetail(
+      detailData({
+        ...caseDetailSource,
+        attempts: [{ ...attemptMetadata, request_body_source: exactRequest }],
+      }),
+    );
     expect(requestOnly.attempts[0]?.requestBodySource).toBe(exactRequest);
     expect(requestOnly.attempts[0]?.responseSource).toBeNull();
 
-    const responseOnly = decodeCaseDetail({
-      ...caseDetailSource,
-      attempts: [
-        { ...attemptMetadata, response_source: '{"answer":"option-1"}' },
-      ],
-    });
+    const responseOnly = decodeCaseDetail(
+      detailData({
+        ...caseDetailSource,
+        attempts: [
+          { ...attemptMetadata, response_source: '{"answer":"option-1"}' },
+        ],
+      }),
+    );
     expect(responseOnly.attempts[0]?.requestBodySource).toBeNull();
     expect(responseOnly.attempts[0]?.responseSource).toBe(
       '{"answer":"option-1"}',
@@ -128,27 +194,33 @@ describe("execution evidence source projection", () => {
   it("rejects malformed request or response source values when present", () => {
     for (const value of [0, false, {}, []]) {
       expect(() =>
-        decodeCaseDetail({
-          ...caseDetailSource,
-          attempts: [{ ...attemptMetadata, request_body_source: value }],
-        }),
+        decodeCaseDetail(
+          detailData({
+            ...caseDetailSource,
+            attempts: [{ ...attemptMetadata, request_body_source: value }],
+          }),
+        ),
       ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
       expect(() =>
-        decodeCaseDetail({
-          ...caseDetailSource,
-          attempts: [{ ...attemptMetadata, response_source: value }],
-        }),
+        decodeCaseDetail(
+          detailData({
+            ...caseDetailSource,
+            attempts: [{ ...attemptMetadata, response_source: value }],
+          }),
+        ),
       ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
     }
   });
 
   it("preserves exact large API count text without numeric conversion", () => {
     const exactCount = "9007199254740993";
-    const detail = decodeCaseDetail({
-      ...caseDetailSource,
-      annotation_count: exactCount,
-      attempts: [{ ...attemptSource, number: exactCount }],
-    });
+    const detail = decodeCaseDetail(
+      detailData({
+        ...caseDetailSource,
+        annotation_count: exactCount,
+        attempts: [{ ...attemptSource, number: exactCount }],
+      }),
+    );
     expect(detail.annotationCount).toBe(exactCount);
     expect(detail.attempts[0]?.number).toBe(exactCount);
   });
@@ -156,10 +228,12 @@ describe("execution evidence source projection", () => {
   it("accepts zero annotations but rejects zero attempt numbers", () => {
     expect(decodeResultRow(caseDetailSource).annotationCount).toBe("0");
     expect(() =>
-      decodeCaseDetail({
-        ...caseDetailSource,
-        attempts: [{ ...attemptSource, number: "0" }],
-      }),
+      decodeCaseDetail(
+        detailData({
+          ...caseDetailSource,
+          attempts: [{ ...attemptSource, number: "0" }],
+        }),
+      ),
     ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
   });
 
@@ -184,10 +258,12 @@ describe("execution evidence source projection", () => {
         decodeResultRow({ ...caseDetailSource, annotation_count: value }),
       ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
       expect(() =>
-        decodeCaseDetail({
-          ...caseDetailSource,
-          attempts: [{ ...attemptSource, number: value }],
-        }),
+        decodeCaseDetail(
+          detailData({
+            ...caseDetailSource,
+            attempts: [{ ...attemptSource, number: value }],
+          }),
+        ),
       ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
     }
   });

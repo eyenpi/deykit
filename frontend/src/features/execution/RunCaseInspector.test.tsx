@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it } from "vitest";
-import type { ApiOperationData } from "../../api/client";
+import type { ApiOperationArguments, ApiOperationData } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
 import type { ExecutionGateway } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
@@ -97,6 +97,29 @@ const rowSource: ApiOperationData<"readResult">["source"] = {
   input_source: null,
 };
 
+function context(
+  resultSnapshotId: string,
+  labelSnapshotId: string,
+  evaluationId: string | null,
+): ApiOperationData<"listResults">["context"] {
+  return {
+    run_id: run.run_id,
+    evaluation_id: evaluationId,
+    result_snapshot_id: resultSnapshotId,
+    result_content_hash: "b".repeat(64),
+    label_snapshot_id: labelSnapshotId,
+    label_content_hash: "c".repeat(64),
+    decision_id: run.decision_id,
+    decision_revision_id: "revision-1",
+    decision_definition_hash: "d".repeat(64),
+    dataset_id: run.dataset_id,
+    dataset_snapshot_id: "dataset-snapshot-1",
+    dataset_content_hash: "e".repeat(64),
+    evaluation_mode: "original",
+    through_event_sequence: "1",
+  };
+}
+
 const revision: ApiOperationData<"readDecisionRevision"> = {
   schema_version: 1,
   editor_source: "{}",
@@ -138,6 +161,13 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
           evaluation_id: null,
           result_snapshot_id: "result-snapshot-1",
           label_snapshot_id: "label-snapshot-1",
+          context: context("result-snapshot-1", "label-snapshot-1", null),
+          assessment_counts: {
+            all: "1",
+            inspect: "0",
+            incorrect: "0",
+            unlabelled: "0",
+          },
           selected_count: "1",
           filtered_count: "1",
           status_counts: { valid: "1" },
@@ -150,6 +180,10 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
         const includeInput = args.query?.include_input === "true";
         return result<ApiOperationData<"readResult">>({
           schema_version: 1,
+          case_input_hash: "f".repeat(64),
+          context: context("result-snapshot-1", "label-snapshot-1", null),
+          probabilities: [],
+          probabilities_unavailable_reason: "probabilities_not_provided",
           source: {
             ...rowSource,
             input_source: includeInput ? exactInput : null,
@@ -169,6 +203,8 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
       registrationId="registration-1"
       run={run}
       execution={execution}
+      debugging={disconnectedWorkspace.debugging}
+      labelOperations={disconnectedWorkspace.authoring.examples}
       readRevision={async () => result(revision)}
       navigation={navigation}
       caseId="case-1"
@@ -213,6 +249,13 @@ function resultPage(
     evaluation_id: null,
     result_snapshot_id: snapshot,
     label_snapshot_id: `label-${snapshot}`,
+    context: context(snapshot, `label-${snapshot}`, null),
+    assessment_counts: {
+      all: "2",
+      inspect: "0",
+      incorrect: "0",
+      unlabelled: "0",
+    },
     selected_count: "2",
     filtered_count: "2",
     status_counts: { valid: "2" },
@@ -239,6 +282,8 @@ function mountInspector(
       registrationId="registration-1"
       run={selectedRun}
       execution={execution}
+      debugging={disconnectedWorkspace.debugging}
+      labelOperations={disconnectedWorkspace.authoring.examples}
       readRevision={async () => result(revision)}
       navigation={navigation}
       evaluationId={evaluationId}
@@ -247,6 +292,74 @@ function mountInspector(
   );
   return { tree, navigation };
 }
+
+it("keeps the frozen pair while the service reports status-intersected global assessments", async () => {
+  const queries: NonNullable<ApiOperationArguments<"listResults">["query"]>[] = [];
+  const execution: ExecutionGateway = {
+    ...disconnectedWorkspace.execution,
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      listEvaluations: async () =>
+        result({ items: [], next_cursor: null, total: "0" }),
+      listResults: async ({ query }) => {
+        queries.push(query ?? {});
+        const validOnly = query?.status === "valid";
+        const statuses = Array.from({ length: 12 }, (_, index) =>
+          index < 10 ? "valid" : index === 10 ? "input_invalid" : "response_error",
+        );
+        const items = statuses
+          .map((status, index) => ({
+            source: {
+              ...rowSource,
+              case_id: `fixture-case-${index + 1}`,
+              status,
+            },
+          }))
+          .filter((item) => !validOnly || item.source.status === "valid");
+        return result<ApiOperationData<"listResults">>({
+          ...resultPage("result-snapshot-1", rowSource, null),
+          selected_count: "12",
+          filtered_count: validOnly ? "10" : "12",
+          status_counts: { valid: "10", input_invalid: "1", response_error: "1" },
+          assessment_counts: validOnly
+            ? { all: "10", inspect: "2", incorrect: "2", unlabelled: "2" }
+            : { all: "12", inspect: "4", incorrect: "2", unlabelled: "2" },
+          items,
+        });
+      },
+    },
+  };
+  const { tree, navigation } = mountInspector(execution);
+  const user = userEvent.setup();
+  try {
+    await screen.findByRole("status", { name: "Published result snapshot" });
+    const counts = screen.getByLabelText("Global assessment counts");
+    await waitFor(() => {
+      expect(counts.textContent).toContain("All12");
+      expect(counts.textContent).toContain("Needs inspection4");
+      expect(counts.textContent).toContain("Incorrect2");
+      expect(counts.textContent).toContain("Unlabelled2");
+    });
+    await user.selectOptions(screen.getByLabelText("Status"), "valid");
+    await waitFor(() => expect(queries).toHaveLength(2));
+    await waitFor(() => {
+      const filteredCounts = screen.getByLabelText("Global assessment counts");
+      expect(filteredCounts.textContent).toContain("All10");
+      expect(filteredCounts.textContent).toContain("Needs inspection2");
+      expect(filteredCounts.textContent).toContain("Incorrect2");
+      expect(filteredCounts.textContent).toContain("Unlabelled2");
+    });
+    expect(queries[1]).toMatchObject({
+      status: "valid",
+      expected_result_snapshot_id: "result-snapshot-1",
+      expected_label_snapshot_id: "label-result-snapshot-1",
+    });
+    expect(screen.getByRole("status", { name: "Published result snapshot" }).textContent).toContain("Result snapshot result-snapshot-1; label snapshot label-result-snapshot-1.");
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
 
 it("omits absent evaluation filters and preserves a selected evaluation", async () => {
   const evaluation: ApiOperationData<"readEvaluation"> = {
@@ -278,12 +391,25 @@ it("omits absent evaluation filters and preserves a selected evaluation", async 
           ...resultPage("result-snapshot-1", rowSource, null),
           evaluation_id: evaluation.evaluation_id,
           label_snapshot_id: evaluation.label_snapshot_id,
+          context: context(
+            evaluation.result_snapshot_id,
+            evaluation.label_snapshot_id,
+            evaluation.evaluation_id,
+          ),
         });
       },
       readResult: async ({ query }) => {
         detailQueries.push(query);
         return result<ApiOperationData<"readResult">>({
           schema_version: 1,
+          case_input_hash: "f".repeat(64),
+          context: context(
+            evaluation.result_snapshot_id,
+            evaluation.label_snapshot_id,
+            evaluation.evaluation_id,
+          ),
+          probabilities: [],
+          probabilities_unavailable_reason: "probabilities_not_provided",
           source: {
             ...rowSource,
             evaluation_id: evaluation.evaluation_id,
@@ -420,6 +546,10 @@ it("rejects a case detail whose result and label snapshots differ from the first
       readResult: async () =>
         result<ApiOperationData<"readResult">>({
           schema_version: 1,
+          case_input_hash: "f".repeat(64),
+          context: context("result-snapshot-1", "label-result-snapshot-1", null),
+          probabilities: [],
+          probabilities_unavailable_reason: "probabilities_not_provided",
           source: {
             ...rowSource,
             result_snapshot_id: "result-snapshot-2",

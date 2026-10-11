@@ -102,6 +102,8 @@ function RunRoute({
       registrationId={route.registrationId}
       runId={route.runId}
       execution={execution}
+      debugging={disconnectedWorkspace.debugging}
+      labelOperations={disconnectedWorkspace.authoring.examples}
       readRevision={disconnectedWorkspace.authoring.decisions.revision}
       project={project}
       navigation={navigation}

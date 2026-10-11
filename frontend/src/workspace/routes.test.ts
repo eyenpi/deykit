@@ -59,6 +59,7 @@ describe("workspace routes", () => {
       runId: "run-2",
       evaluationId: "evaluation-3",
       caseId: "case-4",
+      returnGroup: { kind: "diagnostic", groupId: "group-5" },
     };
     expect(routeFromHash(routeToHash(list))).toEqual(list);
     expect(routeFromHash(routeToHash(detail))).toEqual(detail);
@@ -72,6 +73,57 @@ describe("workspace routes", () => {
     ).toBeNull();
     expect(
       routeFromHash("#/p/registration-1/runs/run-2?case=bad%2Fid"),
+    ).toBeNull();
+  });
+
+  it("round-trips stable debugging resource routes", () => {
+    const routes: WorkspaceRoute[] = [
+      { kind: "comparisons", registrationId: "registration-1" },
+      {
+        kind: "comparison",
+        registrationId: "registration-1",
+        comparisonId: "comparison-1",
+      },
+      {
+        kind: "regressions",
+        registrationId: "registration-1",
+        decisionId: "decision-1",
+      },
+      { kind: "reports", registrationId: "registration-1" },
+      {
+        kind: "report",
+        registrationId: "registration-1",
+        reportId: "report-1",
+      },
+      {
+        kind: "diagnostic",
+        registrationId: "registration-1",
+        groupId: "group-2",
+      },
+      {
+        kind: "diagnostic",
+        registrationId: "registration-1",
+        groupId: "group-2",
+        snapshotId: "snapshot-3",
+      },
+      {
+        kind: "check",
+        registrationId: "registration-1",
+        groupId: "group-4",
+        snapshotId: "snapshot-5",
+      },
+    ];
+    for (const route of routes)
+      expect(routeFromHash(routeToHash(route))).toEqual(route);
+    expect(
+      routeFromHash("#/p/registration-1/comparisons/comparison-1?source=x"),
+    ).toBeNull();
+    expect(routeFromHash("#/p/registration-1/reports/report-1/extra")).toBeNull();
+    expect(
+      routeFromHash("#/p/registration-1/runs/run-1?group_kind=check"),
+    ).toBeNull();
+    expect(
+      routeFromHash("#/p/registration-1/runs/run-1?group_kind=other&group_id=x"),
     ).toBeNull();
   });
 

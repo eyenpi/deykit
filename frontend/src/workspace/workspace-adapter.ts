@@ -1,5 +1,6 @@
 import { ApiClient } from "../api/client";
 import type {
+  ApiDownloadArguments,
   ApiOperationArguments,
   ApiOperationBody,
   ApiWarning,
@@ -11,7 +12,11 @@ import {
   decodeRecentProjects,
   decodeRegistration,
 } from "../api/codecs";
-import type { ExecutionGateway, WorkspaceGateway } from "./gateway";
+import type {
+  DebuggingGateway,
+  ExecutionGateway,
+  WorkspaceGateway,
+} from "./gateway";
 import type { AuthoringGateway } from "./gateway";
 import { RegistrationReadSequencer } from "./read-sequencer";
 
@@ -31,6 +36,7 @@ export function createWorkspaceGateway(
   return {
     authoring: createAuthoringGateway(client, reads, read),
     execution: createExecutionGateway(client, reads, read),
+    debugging: createDebuggingGateway(client, reads, read),
     async recentProjects(signal) {
       const result = await client.operation(
         "listRecentProjects",
@@ -213,6 +219,241 @@ function createExecutionGateway(
           path: {
             registration_id: registrationId,
             evaluation_id: evaluationId,
+          },
+        }),
+    },
+  };
+}
+
+function createDebuggingGateway(
+  client: ApiClient,
+  sequencer: RegistrationReadSequencer,
+  read: <T>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    perform: () => Promise<T>,
+  ) => Promise<T>,
+): DebuggingGateway {
+  const sourceRead = <K extends ApiJsonOperationId>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    operation: K,
+    args: ApiOperationArguments<K>,
+  ) => {
+    const captured = captureOperationArguments(args);
+    return read(registrationId, signal, () =>
+      client.operation(operation, captured),
+    );
+  };
+  const sourceMutation = <K extends ApiJsonOperationId>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    operation: K,
+    args: ApiOperationArguments<K>,
+  ) => {
+    const captured = captureOperationArguments(args);
+    return sequencer.enqueueMutation(registrationId, signal, () =>
+      client.operation(operation, captured),
+    );
+  };
+  const sourceDownload = (
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    args: ApiDownloadArguments<"downloadReport">,
+  ) => {
+    const captured = structuredClone({ ...args, signal: undefined });
+    return read(registrationId, signal, () =>
+      client.download("downloadReport", captured),
+    );
+  };
+  return {
+    evaluations: {
+      create: ({ registrationId, runId, body, signal }) =>
+        sourceMutation(registrationId, signal, "createEvaluation", {
+          path: { registration_id: registrationId, run_id: runId },
+          body,
+        }),
+      reevaluate: ({ registrationId, runId, body, signal }) =>
+        sourceMutation(registrationId, signal, "reevaluateRun", {
+          path: { registration_id: registrationId, run_id: runId },
+          body,
+        }),
+    },
+    annotations: {
+      add: ({ registrationId, runId, caseId, body, signal }) =>
+        sourceMutation(registrationId, signal, "addAnnotation", {
+          path: {
+            registration_id: registrationId,
+            run_id: runId,
+            case_id: caseId,
+          },
+          body,
+        }),
+      list: ({ registrationId, runId, query, signal }) =>
+        sourceRead(registrationId, signal, "listAnnotations", {
+          path: { registration_id: registrationId, run_id: runId },
+          query,
+        }),
+      read: ({ registrationId, annotationId, signal }) =>
+        sourceRead(registrationId, signal, "readAnnotation", {
+          path: {
+            registration_id: registrationId,
+            annotation_id: annotationId,
+          },
+        }),
+    },
+    comparisons: {
+      create: ({ registrationId, body, signal }) =>
+        sourceMutation(registrationId, signal, "createComparison", {
+          path: { registration_id: registrationId },
+          body,
+        }),
+      list: ({ registrationId, query, signal }) =>
+        sourceRead(registrationId, signal, "listComparisons", {
+          path: { registration_id: registrationId },
+          query,
+        }),
+      read: ({ registrationId, comparisonId, signal }) =>
+        sourceRead(registrationId, signal, "readComparison", {
+          path: {
+            registration_id: registrationId,
+            comparison_id: comparisonId,
+          },
+        }),
+    },
+    regressions: {
+      add: ({ registrationId, decisionId, body, signal }) =>
+        sourceMutation(registrationId, signal, "addRegression", {
+          path: {
+            registration_id: registrationId,
+            decision_id: decisionId,
+          },
+          body,
+        }),
+      list: ({ registrationId, decisionId, signal }) =>
+        sourceRead(registrationId, signal, "listRegressions", {
+          path: {
+            registration_id: registrationId,
+            decision_id: decisionId,
+          },
+        }),
+      remove: ({ registrationId, decisionId, regressionId, body, signal }) =>
+        sourceMutation(registrationId, signal, "removeRegression", {
+          path: {
+            registration_id: registrationId,
+            decision_id: decisionId,
+            regression_id: regressionId,
+          },
+          body,
+        }),
+    },
+    reports: {
+      create: ({ registrationId, body, signal }) =>
+        sourceMutation(registrationId, signal, "createReport", {
+          path: { registration_id: registrationId },
+          body,
+        }),
+      list: ({ registrationId, query, signal }) =>
+        sourceRead(registrationId, signal, "listReports", {
+          path: { registration_id: registrationId },
+          query,
+        }),
+      read: ({ registrationId, reportId, signal }) =>
+        sourceRead(registrationId, signal, "readReport", {
+          path: { registration_id: registrationId, report_id: reportId },
+        }),
+      download: ({ registrationId, reportId, query, signal }) =>
+        sourceDownload(registrationId, signal, {
+          path: { registration_id: registrationId, report_id: reportId },
+          query,
+          signal,
+        }),
+    },
+    diagnostics: {
+      preview: ({ registrationId, body, signal }) =>
+        sourceRead(registrationId, signal, "previewChoiceOrder", {
+          path: { registration_id: registrationId },
+          body,
+        }),
+      start: ({ registrationId, body, signal }) =>
+        sourceMutation(registrationId, signal, "startChoiceOrder", {
+          path: { registration_id: registrationId },
+          body,
+        }),
+      read: ({ registrationId, groupId, signal }) =>
+        sourceRead(registrationId, signal, "readChoiceOrder", {
+          path: { registration_id: registrationId, group_id: groupId },
+        }),
+      cancel: ({ registrationId, groupId, body, signal }) =>
+        sourceMutation(registrationId, signal, "cancelChoiceOrder", {
+          path: { registration_id: registrationId, group_id: groupId },
+          body,
+        }),
+      previewResume: ({ registrationId, groupId, body, query, signal }) =>
+        sourceRead(registrationId, signal, "previewChoiceOrderResume", {
+          path: { registration_id: registrationId, group_id: groupId },
+          body,
+          query,
+        }),
+      resume: ({ registrationId, groupId, body, signal }) =>
+        sourceMutation(registrationId, signal, "resumeChoiceOrder", {
+          path: { registration_id: registrationId, group_id: groupId },
+          body,
+        }),
+      listSnapshots: ({ registrationId, groupId, signal }) =>
+        sourceRead(registrationId, signal, "listChoiceOrderSnapshots", {
+          path: { registration_id: registrationId, group_id: groupId },
+        }),
+      readSnapshot: ({ registrationId, groupId, snapshotId, signal }) =>
+        sourceRead(registrationId, signal, "readChoiceOrderSnapshot", {
+          path: {
+            registration_id: registrationId,
+            group_id: groupId,
+            snapshot_id: snapshotId,
+          },
+        }),
+    },
+    checks: {
+      preview: ({ registrationId, body, signal }) =>
+        sourceRead(registrationId, signal, "previewRegressionCheck", {
+          path: { registration_id: registrationId },
+          body,
+        }),
+      start: ({ registrationId, body, signal }) =>
+        sourceMutation(registrationId, signal, "startRegressionCheck", {
+          path: { registration_id: registrationId },
+          body,
+        }),
+      read: ({ registrationId, groupId, signal }) =>
+        sourceRead(registrationId, signal, "readCheck", {
+          path: { registration_id: registrationId, group_id: groupId },
+        }),
+      cancel: ({ registrationId, groupId, body, signal }) =>
+        sourceMutation(registrationId, signal, "cancelCheck", {
+          path: { registration_id: registrationId, group_id: groupId },
+          body,
+        }),
+      previewResume: ({ registrationId, groupId, body, query, signal }) =>
+        sourceRead(registrationId, signal, "previewCheckResume", {
+          path: { registration_id: registrationId, group_id: groupId },
+          body,
+          query,
+        }),
+      resume: ({ registrationId, groupId, body, signal }) =>
+        sourceMutation(registrationId, signal, "resumeCheck", {
+          path: { registration_id: registrationId, group_id: groupId },
+          body,
+        }),
+      listSnapshots: ({ registrationId, groupId, signal }) =>
+        sourceRead(registrationId, signal, "listCheckSnapshots", {
+          path: { registration_id: registrationId, group_id: groupId },
+        }),
+      readSnapshot: ({ registrationId, groupId, snapshotId, signal }) =>
+        sourceRead(registrationId, signal, "readCheckSnapshot", {
+          path: {
+            registration_id: registrationId,
+            group_id: groupId,
+            snapshot_id: snapshotId,
           },
         }),
     },
