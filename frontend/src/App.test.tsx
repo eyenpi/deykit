@@ -1,10 +1,15 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { ApiError } from "./api/client";
+import type { ApiOperationData } from "./api/client";
 import { disconnectedWorkspace } from "./workspace/gateway";
-import type { WorkspaceGateway } from "./workspace/gateway";
+import type {
+  DecisionAuthoringOperations,
+  ProjectOverview,
+  WorkspaceGateway,
+} from "./workspace/gateway";
 
 beforeEach(() => {
   window.history.replaceState(null, "", "#/");
@@ -16,6 +21,214 @@ it("reports unavailable service without fictional recent projects or run control
   expect(screen.queryByText("Sandbox")).toBeNull();
   expect(screen.queryByRole("button", { name: "Run…" })).toBeNull();
   expect(screen.queryByText("Accuracy")).toBeNull();
+});
+
+it("retries a committed archive before navigating and loading the overview", async () => {
+  const registrationId = "archive-registration";
+  const decisionId = "archive-decision";
+  const decisionName = "Archive flow decision";
+  let archiveCommitted = false;
+  const archivedDecision: ApiOperationData<"archiveDecision"> = {
+    etag: "decision-etag-2",
+    record: {
+      schema_version: 1,
+      id: decisionId,
+      name: decisionName,
+      archived: true,
+    },
+  };
+  let rejectFirstArchive: ((cause: unknown) => void) | undefined;
+  const firstArchive = new Promise<{
+    data: ApiOperationData<"archiveDecision">;
+    warnings: [];
+  }>((_resolve, reject) => {
+    rejectFirstArchive = reject;
+  });
+  const archive = vi
+    .fn<DecisionAuthoringOperations["archive"]>()
+    .mockImplementationOnce(() => firstArchive)
+    .mockImplementationOnce(async () => {
+      archiveCommitted = true;
+      return { data: archivedDecision, warnings: [] };
+    });
+  const listedDecision = (archived: boolean) => ({
+    schema_version: 1 as const,
+    decision: {
+      etag: archived ? archivedDecision.etag : "decision-etag-1",
+      record: {
+        schema_version: 1 as const,
+        id: decisionId,
+        name: decisionName,
+        archived,
+      },
+    },
+    draft: {
+      etag: "draft-etag-1",
+      record: {
+        schema_version: 1 as const,
+        decision_id: decisionId,
+        editor_source: "{}",
+        base_revision_id: null,
+        updated_at: "2026-10-11T00:00:00Z",
+      },
+    },
+  });
+  const list = vi.fn<DecisionAuthoringOperations["list"]>(async () => ({
+    data: {
+      schema_version: 1,
+      items: [listedDecision(archiveCommitted)],
+      next_cursor: null,
+      total: "1",
+    },
+    warnings: [],
+  }));
+  const project = (): ProjectOverview => ({
+    id: registrationId,
+    name: "Archive flow project",
+    path: "/tmp/archive-flow",
+    decisions: archiveCommitted
+      ? []
+      : [{ id: decisionId, name: decisionName }],
+    datasets: [],
+    warnings: [],
+  });
+  const gateway: WorkspaceGateway = {
+    authoring: {
+      ...disconnectedWorkspace.authoring,
+      decisions: {
+        ...disconnectedWorkspace.authoring.decisions,
+        list,
+        read: async () => ({
+          data: {
+            schema_version: 1,
+            decision: {
+              etag: "decision-etag-1",
+              record: {
+                schema_version: 1,
+                id: decisionId,
+                name: decisionName,
+                archived: false,
+                latest_revision_id: null,
+              },
+            },
+            draft: {
+              etag: "draft-etag-1",
+              record: {
+                schema_version: 1,
+                decision_id: decisionId,
+                editor_source: "{}",
+                base_revision_id: null,
+                updated_at: "2026-10-11T00:00:00Z",
+              },
+            },
+          },
+          warnings: [],
+        }),
+        projectEditor: async ({ body }) => ({
+          data: {
+            schema_version: 1,
+            editor_source: body.editor_source,
+            form: null,
+            form_unavailable_reason: "invalid_editor_source",
+            source_hash: null,
+            validation_advice: [],
+          },
+          warnings: [],
+        }),
+        archive,
+      },
+    },
+    recentProjects: async () => ({ items: [], warnings: [] }),
+    openProject: async () => project(),
+    projectOverview: vi.fn(async () => project()),
+    reconnect: async () => undefined,
+  };
+  const user = userEvent.setup();
+  render(<App gateway={gateway} />);
+  await user.click(screen.getByRole("button", { name: /Open project/ }));
+  await user.type(
+    screen.getByLabelText("Project folder path"),
+    "/tmp/archive-flow",
+  );
+  await user.click(screen.getByRole("button", { name: "Open project" }));
+  await screen.findByRole("heading", { name: "Archive flow project" });
+  await user.click(
+    within(screen.getByRole("main")).getByRole("button", {
+      name: decisionName,
+    }),
+  );
+  await screen.findByLabelText("Decision name");
+
+  await user.click(screen.getByRole("button", { name: "Archive decision" }));
+  const archiveDialog = screen.getByRole("dialog", {
+    name: "Archive this decision?",
+  });
+  await user.click(
+    within(archiveDialog).getByRole("button", { name: "Archive decision" }),
+  );
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("button", {
+      name: "Archive flow project",
+    }),
+  );
+  const submittingPrompt = await screen.findByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  expect(
+    (
+      within(submittingPrompt).getByRole("button", { name: "Save and leave" })
+    as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (
+      within(submittingPrompt).getByRole("button", {
+        name: "Discard changes",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  await user.click(
+    within(submittingPrompt).getByRole("button", { name: "Keep editing" }),
+  );
+  rejectFirstArchive?.(new TypeError("The first archive reply was lost."));
+  const retry = await screen.findByRole("button", {
+    name: "Retry same archive action",
+  });
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("button", {
+      name: "Archive flow project",
+    }),
+  );
+  const unknownPrompt = await screen.findByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  expect(
+    (
+      within(unknownPrompt).getByRole("button", { name: "Save and leave" })
+    as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (
+      within(unknownPrompt).getByRole("button", {
+        name: "Discard changes",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  await user.click(
+    within(unknownPrompt).getByRole("button", { name: "Keep editing" }),
+  );
+  const originalRequest = archive.mock.calls[0]?.[0];
+  await user.click(retry);
+  await waitFor(() => expect(archive).toHaveBeenCalledTimes(2));
+  expect(archive.mock.calls[1]?.[0]).toEqual(originalRequest);
+  expect(archive.mock.calls[1]?.[0].body.operation_id).toBe(
+    originalRequest?.body.operation_id,
+  );
+
+  await screen.findByRole("table", { name: "Archived decisions" });
+  await screen.findByRole("row", { name: /Archive flow decision/ });
+  expect(gateway.projectOverview).toHaveBeenCalledTimes(1);
+  expect(list).toHaveBeenCalledTimes(2);
+  expect(window.location.hash).toBe(`#/p/${registrationId}`);
 });
 it("keeps project form values and operation ID after a failed mutation", async () => {
   const gateway: WorkspaceGateway = {

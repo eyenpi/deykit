@@ -115,7 +115,7 @@ export function DecisionPage({
   onDecisionRenamed: (name: string) => void;
   onHistory: () => void;
   onExamples: () => void;
-  onArchiveChanged: () => void;
+  onArchiveChanged: () => Promise<void>;
 }) {
   const [record, setRecord] = useState<DecisionDTO>();
   const [form, setForm] = useState<EditorForm | null>(null);
@@ -297,6 +297,10 @@ export function DecisionPage({
     versionRequest.current = undefined;
     versionBaselineContext.current = undefined;
     versionBaselinePending.current = false;
+    archiveRequest.current = undefined;
+    archiveAction.current = undefined;
+    setArchiveOutcomeUnknown(false);
+    setArchiveConfirm(false);
     setVersionOutcomeUnknown(false);
     setVersionBaselineIssue(undefined);
     setWorking(false);
@@ -616,9 +620,10 @@ export function DecisionPage({
     draftDirtyRef.current ||
     hasPendingEditorWork() ||
     versionBaselinePending.current ||
-    unresolvedWrite ||
-    working ||
-    renameWorking ||
+    versionRequest.current !== undefined ||
+    renameRequest.current !== undefined ||
+    archiveRequest.current !== undefined ||
+    autosave.current?.status.kind === "outcome-unknown" ||
     actionLock.current;
   const dirtyGuard = useDirtyNavigationGuard({
     dirty: decisionIsDirtyNow(),
@@ -1258,9 +1263,12 @@ export function DecisionPage({
   async function toggleArchive() {
     const current = recordRef.current;
     if (!current || actionLock.current) return;
+    const lifetime = pageLoadLifetime.current;
+    const isCurrentPage = () => pageLoadLifetime.current === lifetime;
     actionLock.current = true;
     setRenameWorking(true);
     setEditError(undefined);
+    let receipt: ApiOperationData<"archiveDecision"> | undefined;
     try {
       const action = current.decision.record.archived ? "restore" : "archive";
       const body =
@@ -1274,25 +1282,43 @@ export function DecisionPage({
       archiveRequest.current = body;
       archiveAction.current = action;
       if (action === "restore") {
-        await operations.restore({ registrationId, decisionId, body });
+        receipt = (await operations.restore({ registrationId, decisionId, body }))
+          .data;
       } else {
-        await operations.archive({ registrationId, decisionId, body });
+        receipt = (await operations.archive({ registrationId, decisionId, body }))
+          .data;
       }
-      archiveRequest.current = undefined;
-      archiveAction.current = undefined;
-      setArchiveOutcomeUnknown(false);
-      setArchiveConfirm(false);
-      onArchiveChanged();
     } catch (cause) {
+      if (!isCurrentPage()) return;
       if (uncertainOutcome(cause)) setArchiveOutcomeUnknown(true);
       else {
         archiveRequest.current = undefined;
         archiveAction.current = undefined;
       }
       setEditError(safeMessage(cause));
-    } finally {
       actionLock.current = false;
       setRenameWorking(false);
+      return;
+    }
+
+    if (!receipt || !isCurrentPage()) return;
+    archiveRequest.current = undefined;
+    archiveAction.current = undefined;
+    setArchiveOutcomeUnknown(false);
+    setArchiveConfirm(false);
+    const updated = { ...current, decision: receipt };
+    recordRef.current = updated;
+    setRecord(updated);
+    actionLock.current = false;
+    setRenameWorking(false);
+    setNotice(receipt.record.archived ? "Decision archived." : "Decision restored.");
+    try {
+      await onArchiveChanged();
+    } catch (cause) {
+      if (isCurrentPage())
+        setEditError(
+          `The decision was updated, but the project view could not be refreshed. ${safeMessage(cause)}`,
+        );
     }
   }
 

@@ -185,7 +185,7 @@ function mountDecision(overrides: Partial<DecisionAuthoringOperations> = {}) {
       onDecisionRenamed={() => undefined}
       onHistory={() => undefined}
       onExamples={() => undefined}
-      onArchiveChanged={() => undefined}
+      onArchiveChanged={async () => undefined}
     />
   );
   const mounted = render(page(decisionId));
