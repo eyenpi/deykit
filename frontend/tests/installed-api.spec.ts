@@ -755,6 +755,14 @@ async function runInstalledProviderFixtureTail({
   await enterPhase("Responsive 320px and reduced-motion review");
   await page.setViewportSize({ width: 320, height: 800 });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  // Resize listeners close the mobile menu. Let their render settle before
+  // opening it, including in the full workflow with the installed browser clock.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
   expect(
     await page.evaluate(
       () => matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -1759,12 +1767,15 @@ test("installed shell recovers a lost authored-demo response without duplicate w
 
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Welcome to deykit." }),
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Projects", exact: true })
     .click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
   const openMarkupProject = page.getByRole("button", {
     name: `Open project folder: ${markupName}`,
   });
@@ -6942,6 +6953,7 @@ test("installed browser authors exact decision source and previews imports throu
     await expect(retryRestore).toHaveCount(0);
     await expect(archivedRow).toHaveCount(0);
     await settleProjectReads();
+    await captureScreenshot("archive-restore-confirmed-overview.png");
   })();
   void restoreProjectionReadiness.catch(() => undefined);
   const restoreProjectionTimeout = new Error(
