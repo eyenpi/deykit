@@ -40,48 +40,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function assessmentCountsForBaseRows(
-  page: ApiOperationData<"listResults">,
-  filters: { status?: string; split?: string; tag?: string },
-): ApiOperationData<"listResults">["assessment_counts"] {
-  const rows = page.items.map((item) => record(item.source));
-  if (rows.some((row) => row === undefined))
-    throw new Error("The frozen result page contained a malformed source row.");
-  const base = rows.filter(
-    (row): row is Record<string, unknown> =>
-      row !== undefined &&
-      (filters.status === undefined || row.status === filters.status) &&
-      (filters.split === undefined || row.split === filters.split) &&
-      (filters.tag === undefined ||
-        (Array.isArray(row.tags) && row.tags.includes(filters.tag))),
-  );
-  const inspectStatuses = new Set([
-    "pending",
-    "input_invalid",
-    "response_error",
-    "unknown",
-  ]);
-  return {
-    all: String(base.length),
-    inspect: String(
-      base.filter(
-        (row) =>
-          row.set_correct === false || inspectStatuses.has(String(row.status)),
-      ).length,
-    ),
-    incorrect: String(base.filter((row) => row.set_correct === false).length),
-    unlabelled: String(
-      base.filter(
-        (row) =>
-          row.status === "valid" &&
-          typeof row.answer_option_id === "string" &&
-          Array.isArray(row.exclusion_reasons) &&
-          row.exclusion_reasons.includes("unlabelled"),
-      ).length,
-    ),
-  };
-}
-
 function sourceCaseIds(page: ApiOperationData<"listResults">): string[] {
   const ids = page.items.map((item) => item.source.case_id);
   expect(ids.every((id) => typeof id === "string")).toBe(true);
@@ -324,23 +282,32 @@ export async function runSavedAnswersWorkflow(
         return source?.status === "valid" && source.set_correct === false;
       }),
     ).toBe(true);
-    const taggedSource = originalPage.items
-      .map((item) => record(item.source))
-      .find(
+    const sourceRows = originalPage.items.map((item) => record(item.source));
+    if (
+      sourceRows.length !== 12 ||
+      sourceRows.some(
         (source) =>
-          typeof source?.split === "string" &&
-          Array.isArray(source.tags) &&
-          source.tags.length > 0 &&
-          source.tags.every((tag) => typeof tag === "string"),
+          source === undefined ||
+          source.split !== "development" ||
+          !Array.isArray(source.tags) ||
+          source.tags.length !== 0,
+      )
+    )
+      throw new Error(
+        "The imported M11 result boundary no longer matches its authored development split and empty tags.",
       );
-    if (!taggedSource || typeof taggedSource.split !== "string")
-      throw new Error("The seeded result rows had no authored split/tag pair.");
-    const selectedSplit = taggedSource.split;
-    const firstTag = Array.isArray(taggedSource.tags)
-      ? taggedSource.tags.find((tag): tag is string => typeof tag === "string")
-      : undefined;
-    if (typeof firstTag !== "string")
-      throw new Error("The seeded result rows had no authored tag value.");
+    const selectedSplit = "development";
+    // This immutable imported fixture has no tags; exercise its explicit empty-match tag boundary.
+    // Positive-tag result filtering remains covered by the offline backend cases.
+    const unmatchedTag = "m12-qualification-no-matches";
+    expect(
+      sourceRows.every(
+        (source) =>
+          source !== undefined &&
+          Array.isArray(source.tags) &&
+          !source.tags.includes(unmatchedTag),
+      ),
+    ).toBe(true);
     await page
       .getByRole("combobox", { name: "Assessment", exact: true })
       .selectOption("all");
@@ -370,10 +337,7 @@ export async function runSavedAnswersWorkflow(
       splitPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
-      assessmentCountsForBaseRows(originalPage, {
-        status: "valid",
-        split: selectedSplit,
-      }),
+      { all: "10", inspect: "2", incorrect: "2", unlabelled: "2" },
     );
     const splitTagRead = await captureOperation(
       page,
@@ -383,11 +347,11 @@ export async function runSavedAnswersWorkflow(
         run_id: qualification.seedMetadata.run_id,
       },
       async () => {
-        await page.getByLabel("Tag", { exact: true }).fill(firstTag);
+        await page.getByLabel("Tag", { exact: true }).fill(unmatchedTag);
       },
       (query) =>
         query.get("split") === selectedSplit &&
-        query.get("tag") === firstTag &&
+        query.get("tag") === unmatchedTag &&
         query.get("status") === "valid" &&
         query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
     );
@@ -400,23 +364,10 @@ export async function runSavedAnswersWorkflow(
       splitTagPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
-      assessmentCountsForBaseRows(originalPage, {
-        status: "valid",
-        split: selectedSplit,
-        tag: firstTag,
-      }),
+      { all: "0", inspect: "0", incorrect: "0", unlabelled: "0" },
     );
-    expect(splitTagPage.filtered_count).not.toBe("0");
-    expect(
-      splitTagPage.items.every((item) => {
-        const source = record(item.source);
-        return (
-          source?.split === selectedSplit &&
-          Array.isArray(source.tags) &&
-          source.tags.includes(firstTag)
-        );
-      }),
-    ).toBe(true);
+    expect(splitTagPage.filtered_count).toBe("0");
+    expect(splitTagPage.items).toHaveLength(0);
     const allStatusRead = await captureOperation(
       page,
       "listResults",
@@ -431,8 +382,8 @@ export async function runSavedAnswersWorkflow(
       },
       (query) =>
         !query.has("status") &&
-        query.get("split") === taggedSource.split &&
-        query.get("tag") === firstTag &&
+        query.get("split") === selectedSplit &&
+        query.get("tag") === unmatchedTag &&
         query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
     );
     const allStatusPage = decodeSuccessEnvelope<
@@ -442,11 +393,10 @@ export async function runSavedAnswersWorkflow(
       allStatusPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
-      assessmentCountsForBaseRows(originalPage, {
-        split: selectedSplit,
-        tag: firstTag,
-      }),
+      { all: "0", inspect: "0", incorrect: "0", unlabelled: "0" },
     );
+    expect(allStatusPage.filtered_count).toBe("0");
+    expect(allStatusPage.items).toHaveLength(0);
     const allSplitRead = await captureOperation(
       page,
       "listResults",
@@ -461,7 +411,7 @@ export async function runSavedAnswersWorkflow(
       },
       (query) =>
         !query.has("split") &&
-        query.get("tag") === firstTag &&
+        query.get("tag") === unmatchedTag &&
         query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
     );
     const allSplitPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
@@ -473,8 +423,10 @@ export async function runSavedAnswersWorkflow(
       allSplitPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
-      assessmentCountsForBaseRows(originalPage, { tag: firstTag }),
+      { all: "0", inspect: "0", incorrect: "0", unlabelled: "0" },
     );
+    expect(allSplitPage.filtered_count).toBe("0");
+    expect(allSplitPage.items).toHaveLength(0);
     const allTagRead = await captureOperation(
       page,
       "listResults",
