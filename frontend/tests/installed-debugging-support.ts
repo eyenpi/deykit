@@ -428,12 +428,18 @@ export async function finishDebuggingQualification(
   reads: BrowserReadTracker,
   succeeded: boolean,
 ): Promise<void> {
+  let disposed = false;
   try {
     await reads.dispose();
-  } finally {
-    if (succeeded) await qualification.complete();
-    else await qualification.save();
+    disposed = true;
+  } catch (cause) {
+    if (succeeded) throw cause;
+    qualification.setWitness("read_disposal_failure", "failed");
+    await qualification.save();
+    return;
   }
+  if (succeeded && disposed) await qualification.complete();
+  else await qualification.save();
 }
 
 export async function captureResponse(

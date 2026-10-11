@@ -256,28 +256,29 @@ export async function runReportsWorkflow(
     await page
       .getByLabel("Right saved evaluation ID", { exact: true })
       .fill(rightEvaluationId);
-    const rightEvaluationReadPromise = captureOperation(
-      page,
-      "readEvaluation",
-      { registration_id: registrationId, evaluation_id: rightEvaluationId },
-      async () => {},
-    );
-    const leftEvaluationRead = await captureOperation(
-      page,
-      "readEvaluation",
-      {
-        registration_id: registrationId,
-        evaluation_id: qualification.seedMetadata.evaluation_id,
-      },
-      () =>
-        page
-          .getByRole("button", {
-            name: "Verify saved evaluations",
-            exact: true,
-          })
-          .click(),
-    );
-    const rightEvaluationRead = await rightEvaluationReadPromise;
+    const [rightEvaluationRead, leftEvaluationRead] = await Promise.all([
+      captureOperation(
+        page,
+        "readEvaluation",
+        { registration_id: registrationId, evaluation_id: rightEvaluationId },
+        async () => {},
+      ),
+      captureOperation(
+        page,
+        "readEvaluation",
+        {
+          registration_id: registrationId,
+          evaluation_id: qualification.seedMetadata.evaluation_id,
+        },
+        () =>
+          page
+            .getByRole("button", {
+              name: "Verify saved evaluations",
+              exact: true,
+            })
+            .click(),
+      ),
+    ]);
     expect(leftEvaluationRead.response.status()).toBe(200);
     expect(rightEvaluationRead.response.status()).toBe(200);
     const leftEvaluation = decodeSuccessEnvelope<

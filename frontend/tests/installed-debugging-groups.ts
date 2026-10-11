@@ -969,6 +969,7 @@ export async function runGroupsWorkflow(
     const childRunId = startReceipt.member_run_ids[0];
     if (!childRunId)
       throw new Error("The accepted group omitted its child run identity.");
+    await qualification.enterPhase("diagnostic-child-inspection");
     const childRunRead = await captureOperation(
       page,
       "readRun",
@@ -1001,6 +1002,7 @@ export async function runGroupsWorkflow(
     await expect(
       page.getByRole("heading", { name: "Group progress", exact: true }),
     ).toBeVisible();
+    await qualification.enterPhase("diagnostic-cancel-replay");
     const cancelPath = `/api/v1/projects/${registrationId}/diagnostics/${startReceipt.group_id}/cancel`;
     const cancelLoss = await installLostAcknowledgement(page, cancelPath, 200);
     try {
