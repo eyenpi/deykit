@@ -54,18 +54,11 @@ type DispatchCountSnapshot = {
 };
 
 function isCount(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= 0
-  );
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function isCountMap(value: unknown): value is Record<string, number> {
-  return (
-    isRecord(value) &&
-    Object.values(value).every(isCount)
-  );
+  return isRecord(value) && Object.values(value).every(isCount);
 }
 
 function isDispatchCountSnapshot(
@@ -697,9 +690,9 @@ test("installed browser reviews and inspects fixture execution", async ({
       expect(completedCounts.fixture_dispatch_by_case[caseId] ?? 0).toBe(1);
     }
     expect(completedCounts.for_case_by_case[invalidInputCaseId] ?? 0).toBe(0);
-    expect(completedCounts.fixture_dispatch_by_case[invalidInputCaseId] ?? 0).toBe(
-      0,
-    );
+    expect(
+      completedCounts.fixture_dispatch_by_case[invalidInputCaseId] ?? 0,
+    ).toBe(0);
     await expect(
       page.getByRole("heading", { name: "Attempts and segments" }),
     ).toBeVisible();

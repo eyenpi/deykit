@@ -172,9 +172,7 @@ class WitnessBackend:
 
     def for_case(self, case_id: str) -> ProviderTransport:
         self._witness.for_case_calls += 1
-        self._witness.for_case_by_case[case_id] = (
-            self._witness.for_case_by_case.get(case_id, 0) + 1
-        )
+        self._witness.for_case_by_case[case_id] = self._witness.for_case_by_case.get(case_id, 0) + 1
         self._witness.changed()
         return WitnessTransport(self._fixture.for_case(case_id), self._witness, case_id)
 
@@ -393,9 +391,7 @@ def _dependencies(
                         f.witness.dispatch_calls for f in backend_factories
                     ),
                     "for_case_calls": sum(f.witness.for_case_calls for f in backend_factories),
-                    "fixture_dispatch_by_case": dict(
-                        sorted(fixture_dispatch_by_case.items())
-                    ),
+                    "fixture_dispatch_by_case": dict(sorted(fixture_dispatch_by_case.items())),
                     "for_case_by_case": dict(sorted(for_case_by_case.items())),
                     "live_dispatch_calls": 0,
                 },
