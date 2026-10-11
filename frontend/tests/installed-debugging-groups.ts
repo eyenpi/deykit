@@ -1344,7 +1344,7 @@ export async function runGroupsWorkflow(
       );
     }
     await reads.waitForIdle();
-    await page.goBack();
+    await page.goto(diagnosticSnapshotRoute);
     await expect(
       page.getByRole("heading", { name: "Group progress", exact: true }),
     ).toBeVisible();
@@ -1642,10 +1642,11 @@ export async function runGroupsWorkflow(
         Buffer.compare(afterResume, diagnosticBytes[format]) === 0,
       );
     }
-    await page.goBack();
+    await page.goto(diagnosticSnapshotRoute);
     await expect(
       page.getByRole("heading", { name: "Group progress", exact: true }),
     ).toBeVisible();
+    await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId);
     await setReaddedCaseCurrentLabel(page, qualification, registrationId, () =>
       reads.waitForIdle(),
     );
