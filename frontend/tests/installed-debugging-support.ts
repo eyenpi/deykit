@@ -12,6 +12,7 @@ import { constants } from "node:fs";
 import { access, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { operationMetadata } from "../src/api/generated/operations";
 import type { ApiOperationId } from "../src/api/generated/operations";
+import type { ApiOperationBody } from "../src/api/client";
 
 export type DebuggingWorkflow = "S" | "C" | "G" | "R";
 
@@ -505,6 +506,7 @@ export type LostAcknowledgement = {
   firstResponseHash: string;
   replayResponseHash: string;
   sameRequestBytes: boolean;
+  firstRequestBody: Buffer;
   firstResponseBody: Buffer;
   replayResponseBody: Buffer;
 };
@@ -513,8 +515,62 @@ export type FirstAcknowledgement = {
   firstStatus: number;
   firstRequestHash: string;
   firstResponseHash: string;
+  firstRequestBody: Buffer;
   firstResponseBody: Buffer;
 };
+
+export type ExpectedCreateReportRequest = {
+  targetKind: "run" | "evaluation" | "comparison" | "diagnostic" | "check";
+  targetId: string;
+  raw: { inputs: boolean; requests: boolean; responses: boolean };
+  evaluationId?: string;
+  resultSnapshotId?: string;
+  groupSnapshotId?: string;
+};
+
+export function assertCreateReportRequestBody(
+  bytes: Uint8Array,
+  expected: ExpectedCreateReportRequest,
+): ApiOperationBody<"createReport"> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch {
+    throw new Error("The captured report request was not valid JSON.");
+  }
+  if (!isRecord(parsed))
+    throw new Error("The captured report request was not an object.");
+  const body = parsed as ApiOperationBody<"createReport">;
+  const expectedKeys = [
+    "operation_id",
+    "raw",
+    "schema_version",
+    "target_id",
+    "target_kind",
+  ];
+  if (expected.evaluationId !== undefined) expectedKeys.push("evaluation_id");
+  if (expected.resultSnapshotId !== undefined)
+    expectedKeys.push("result_snapshot_id");
+  if (expected.groupSnapshotId !== undefined)
+    expectedKeys.push("group_snapshot_id");
+  expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());
+  expect(body.schema_version).toBe(1);
+  expect(body.operation_id).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+  expect(body.target_kind).toBe(expected.targetKind);
+  expect(body.target_id).toBe(expected.targetId);
+  expect(body.raw).toEqual(expected.raw);
+  expect(Object.keys(body.raw ?? {}).sort()).toEqual([
+    "inputs",
+    "requests",
+    "responses",
+  ]);
+  expect(body.evaluation_id).toBe(expected.evaluationId);
+  expect(body.result_snapshot_id).toBe(expected.resultSnapshotId);
+  expect(body.group_snapshot_id).toBe(expected.groupSnapshotId);
+  return body;
+}
 
 export function installLostAcknowledgement(
   page: Page,
@@ -571,6 +627,7 @@ export function installLostAcknowledgement(
         firstStatus: first.status,
         firstRequestHash: bodySha256(first.request),
         firstResponseHash: bodySha256(first.response),
+        firstRequestBody: first.request,
         firstResponseBody: first.response,
       };
     },
@@ -584,6 +641,7 @@ export function installLostAcknowledgement(
         firstResponseHash: bodySha256(first.response),
         replayResponseHash: bodySha256(replay.response),
         sameRequestBytes: Buffer.compare(first.request, replay.request) === 0,
+        firstRequestBody: first.request,
         firstResponseBody: first.response,
         replayResponseBody: replay.response,
       };

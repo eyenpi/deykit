@@ -12,6 +12,7 @@ import { bodySha256 } from "./installed-debugging-support";
 import type { ApiOperationData } from "../src/api/client";
 import {
   assertExactArtifactBytes,
+  assertCreateReportRequestBody,
   captureResponse,
   captureOperation,
   decodeSuccessEnvelope,
@@ -288,6 +289,17 @@ export async function runReportsWorkflow(
         requests: target.rawMode === "requests",
         responses: target.rawMode === "responses",
       };
+      const requestExpectation = {
+        targetKind: target.kind,
+        targetId: target.id,
+        raw: expectedRaw,
+        ...(target.kind === "run"
+          ? {
+              evaluationId: qualification.seedMetadata.evaluation_id,
+              resultSnapshotId: qualification.seedMetadata.result_snapshot_id,
+            }
+          : {}),
+      };
       if (target.rawMode) {
         const label = `Include raw ${target.rawMode}`;
         await dialog.getByLabel(label, { exact: true }).check();
@@ -336,6 +348,17 @@ export async function runReportsWorkflow(
           const observed = lost.observation();
           expect(observed?.replayStatus).toBe(200);
           expect(observed?.sameRequestBytes).toBe(true);
+          if (!observed)
+            throw new Error(
+              "The original report request body was unavailable.",
+            );
+          expect(bodySha256(observed.firstRequestBody)).toBe(
+            observed.firstRequestHash,
+          );
+          assertCreateReportRequestBody(
+            observed.firstRequestBody,
+            requestExpectation,
+          );
           const first = decodeSuccessEnvelope<ApiOperationData<"createReport">>(
             observed?.firstResponseBody ?? Buffer.alloc(0),
             200,
@@ -385,6 +408,12 @@ export async function runReportsWorkflow(
           const receipt = decodeSuccessEnvelope<
             ApiOperationData<"createReport">
           >(await created.response.body(), 200, created.response.status());
+          const requestBody = created.response.request().postDataBuffer();
+          if (!requestBody)
+            throw new Error(
+              "The original report request body was unavailable.",
+            );
+          assertCreateReportRequestBody(requestBody, requestExpectation);
           expect(receipt.target_kind).toBe(target.kind);
           expect(receipt.target_id).toBe(target.id);
           expect(receipt.raw).toEqual(expectedRaw);

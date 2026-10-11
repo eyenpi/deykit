@@ -213,12 +213,15 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
     handler: TimerHandler,
     delay?: number,
   ) => {
+    if (typeof handler !== "function") {
+      throw new Error("The component registered a non-function interval.");
+    }
     if (delay === 2500) {
       pollingDelays.push(delay);
-      if (typeof handler === "function") pollingCallbacks.push(() => handler());
+      pollingCallbacks.push(() => handler());
       return -1;
     }
-    return nativeSetInterval.call(window, handler, delay);
+    return nativeSetInterval.call(window, () => handler(), delay);
   }) as typeof window.setInterval);
   const view = render(
     <GroupDetail
