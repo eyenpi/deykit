@@ -43,7 +43,6 @@ function safeRoutePattern(pathname: string): string {
     .join("/");
 }
 
-
 type InstalledProviderFixtureTail = {
   page: Page;
   testInfo: TestInfo;
@@ -931,8 +930,7 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
       progressPath,
       `${JSON.stringify(
         {
-          qualification_scope:
-            "focused archive restore provider fixture tail",
+          qualification_scope: "focused archive restore provider fixture tail",
           stage,
           list_request_seen: listRequestSeen,
           list_query_matches: listQueryMatches,
@@ -979,9 +977,7 @@ test("installed authoring tail covers archive restore, providers, and fixtures",
     const error = isRecord(body) ? body.error : undefined;
     const details = isRecord(error) ? error : undefined;
     apiFailures.push({
-      route_pattern: safeRoutePattern(
-        path ?? new URL(response.url()).pathname,
-      ),
+      route_pattern: safeRoutePattern(path ?? new URL(response.url()).pathname),
       status: response.status(),
       code: safeErrorIdentifier(details?.code),
       reason: safeErrorIdentifier(details?.reason),
