@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
-import type { APIResponse, Request, Response } from "@playwright/test";
+import type {
+  APIResponse,
+  Page,
+  Request,
+  Response,
+  TestInfo,
+} from "@playwright/test";
 import type { ApiOperationData } from "../src/api/client";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
@@ -35,6 +41,670 @@ function safeRoutePattern(pathname: string): string {
       /^\{[a-z_]+\}$/.test(segment) ? `:${segment.slice(1, -1)}` : segment,
     )
     .join("/");
+}
+
+
+type InstalledProviderFixtureTail = {
+  page: Page;
+  testInfo: TestInfo;
+  registrationId: string;
+  projectName: string;
+  capability: string;
+  origin: string;
+  apiResponses: string[];
+  enterPhase: (name: string) => Promise<void>;
+  captureScreenshot: (name: string) => Promise<void>;
+  expectDirectDataEnvelope: (
+    response: APIResponse | Response,
+    path: string,
+  ) => Promise<void>;
+};
+
+async function runInstalledProviderFixtureTail({
+  page,
+  testInfo,
+  registrationId,
+  projectName,
+  capability,
+  origin,
+  apiResponses,
+  enterPhase,
+  captureScreenshot,
+  expectDirectDataEnvelope,
+}: InstalledProviderFixtureTail) {
+  const authorizedHeaders = {
+    Origin: origin,
+    "X-Deykit-Capability": capability,
+  };
+  await expect(
+    page.getByRole("heading", { name: projectName, exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
+  await page.getByRole("button", { name: "Add provider profile" }).click();
+  await expect(
+    page.getByRole("heading", { name: "New profile" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Adapter")).toHaveValue("jev");
+  await page.getByLabel("Requested model ID").fill("jev-latest");
+  await page
+    .getByLabel("Destination")
+    .fill("https://api.typesafe.ai/v1/systemone");
+  const providerProfileSave = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "PUT" &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
+        /^\/api\/v1\/projects\/[^/]+\/providers\/[^/]+$/.test(pathname)
+      );
+    },
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "Save profile" }).click();
+  const providerProfileReceipt = await providerProfileSave;
+  expect(providerProfileReceipt.status()).toBe(200);
+  await providerProfileReceipt.body();
+  await expect(
+    page.getByText("Not configured · Unavailable", { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Explicit network check · 0 inference calls."),
+  ).toBeVisible();
+  const environmentName = "M08_FAKE_ENV";
+  await page.getByLabel("Environment variable name").fill(environmentName);
+  const environmentCredentialResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "POST" &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
+        pathname.endsWith("/credential-environment")
+      );
+    },
+    { timeout: 15_000 },
+  );
+  await page
+    .getByRole("button", { name: "Attach environment reference" })
+    .click();
+  const environmentCredentialReceipt = await environmentCredentialResponse;
+  expect(environmentCredentialReceipt.status()).toBe(200);
+  await environmentCredentialReceipt.body();
+  await expect(page.getByText(environmentName)).toHaveCount(0);
+  await expect(
+    page.getByText("Configured · Available", { exact: false }),
+  ).toBeVisible();
+  const modelListResponse = page.waitForResponse(
+    (response) => {
+      const pathname = new URL(response.url()).pathname;
+      return (
+        response.request().method() === "POST" &&
+        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
+        pathname.endsWith("/models")
+      );
+    },
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "Refresh model list" }).click();
+  const modelListReceipt = await modelListResponse;
+  expect(modelListReceipt.status()).toBe(200);
+  await modelListReceipt.body();
+  await expect(
+    page.getByText("fake-offline-model", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("1 models returned · network checked · 0 inference calls"),
+  ).toBeVisible();
+
+  const providerProfilesResponse = await page.request.get(
+    `/api/v1/projects/${registrationId}/providers?limit=100`,
+    { headers: authorizedHeaders },
+  );
+  await expectDirectDataEnvelope(
+    providerProfilesResponse,
+    new URL(providerProfilesResponse.url()).pathname,
+  );
+  const providerProfiles: {
+    data: ApiOperationData<"listProviderProfiles">;
+  } = await providerProfilesResponse.json();
+  const configuredProvider = providerProfiles.data.items.find(
+    (item) => item.adapter === "jev" && item.requested_model === "jev-latest",
+  );
+  if (!configuredProvider)
+    throw new Error("The saved provider profile was not listed.");
+  const credentialValue = "synthetic-installed-os-credential-never-real";
+  const credentialBodies: Array<Record<string, unknown>> = [];
+  let firstCredentialStatus: number | undefined;
+  await page.route(
+    `**/providers/${configuredProvider.id}/credential-os-store`,
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      credentialBodies.push(
+        route.request().postDataJSON() as Record<string, unknown>,
+      );
+      const response = await route.fetch();
+      if (credentialBodies.length === 1) {
+        firstCredentialStatus = response.status();
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        });
+        return;
+      }
+      await route.fulfill({ response });
+    },
+  );
+  const secretInput = page.getByLabel(
+    "Store a credential in the operating system",
+  );
+  await secretInput.fill(credentialValue);
+  await page.getByRole("button", { name: "Store credential" }).click();
+  await expect.poll(() => firstCredentialStatus, { timeout: 15_000 }).toBe(200);
+  await expect(
+    page.getByRole("button", { name: "Retry the same credential request" }),
+  ).toBeVisible();
+  await expect
+    .poll(async () => (await secretInput.inputValue()) === "")
+    .toBe(true);
+  await expect(secretInput).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Store credential" }),
+  ).toBeDisabled();
+  expect(
+    !(await page.locator("body").innerText()).includes(credentialValue),
+  ).toBe(true);
+  const credentialReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/credential-os-store") &&
+      response.request().method() === "POST",
+  );
+  await page
+    .getByRole("button", { name: "Retry the same credential request" })
+    .click();
+  const credentialResponse = await credentialReplayResponse;
+  expect(credentialResponse.status()).toBe(200);
+  await credentialResponse.body();
+  const credentialResult = (await credentialResponse.json())
+    .data as ApiOperationData<"setOSStoreCredential">;
+  await expect(
+    page.getByRole("button", { name: "Retry the same credential request" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Configured · Available", { exact: false }),
+  ).toBeVisible();
+  expect(firstCredentialStatus).toBe(200);
+  expect(credentialBodies).toHaveLength(2);
+  const originalCredentialBody = credentialBodies[0];
+  const replayedCredentialBody = credentialBodies[1];
+  expect(credentialResult.operation_id).toBe(
+    originalCredentialBody.operation_id,
+  );
+  expect(credentialResult.replayed).toBe(true);
+  expect(credentialResult.profile.id).toBe(configuredProvider.id);
+  const originalCredential = originalCredentialBody.credential_value;
+  const replayedCredential = replayedCredentialBody.credential_value;
+  expect(
+    typeof originalCredential === "string" &&
+      typeof replayedCredential === "string" &&
+      originalCredential === replayedCredential &&
+      originalCredential === credentialValue,
+  ).toBe(true);
+  const nonSecretCredentialFields = (body: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(body).filter(([field]) => field !== "credential_value"),
+    );
+  expect(nonSecretCredentialFields(replayedCredentialBody)).toEqual(
+    nonSecretCredentialFields(originalCredentialBody),
+  );
+  expect(
+    !(await page.locator("body").innerText()).includes(credentialValue),
+  ).toBe(true);
+  await page.unroute(
+    `**/providers/${configuredProvider.id}/credential-os-store`,
+  );
+  await captureScreenshot("provider-setup.png");
+
+  await enterPhase(
+    "Demo fixture profile safety and authored binding verification",
+  );
+  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
+  await captureScreenshot("fixture-setup.png");
+
+  // Inspect the packaged authored fixture through the installed UI and API.
+  // The test never invokes provider networking or requests raw-source display.
+  await page.getByRole("button", { name: "Projects", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome to deykit." }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Try support demo", exact: true })
+    .click();
+  const fixtureDemoPath = testInfo.outputPath("fixture-support-demo");
+  await page.getByLabel("Project folder path").fill(fixtureDemoPath);
+  const fixtureDemoSubmit = page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Try support demo", exact: true });
+  const fixtureDemoReply = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/projects/demo") &&
+      response.request().method() === "POST",
+    { timeout: 15_000 },
+  );
+  await fixtureDemoSubmit.click();
+  const fixtureDemoResponse = await fixtureDemoReply;
+  await expectDirectDataEnvelope(
+    fixtureDemoResponse,
+    new URL(fixtureDemoResponse.url()).pathname,
+  );
+  const fixtureDemoEnvelope: {
+    data: ApiOperationData<"createAuthoredDemo">;
+  } = await fixtureDemoResponse.json();
+  const fixtureRegistrationId =
+    fixtureDemoEnvelope.data.registration.registration_id;
+  expect(fixtureRegistrationId).toMatch(/^[A-Za-z0-9_-]+$/);
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
+  const fixtureHeaders = authorizedHeaders;
+  const fixtureProvidersResponse = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    fixtureProvidersResponse,
+    new URL(fixtureProvidersResponse.url()).pathname,
+  );
+  const fixtureProviderList: {
+    data: ApiOperationData<"listProviderProfiles">;
+  } = await fixtureProvidersResponse.json();
+  const fixtureProvider = fixtureProviderList.data.items.find(
+    (item) => item.adapter === "fixture",
+  );
+  if (!fixtureProvider)
+    throw new Error("The authored fixture provider was not listed.");
+  expect(fixtureProvider).toMatchObject({
+    requested_model: expect.stringMatching(/^authored-/),
+    destination: "fixture:jev-choice",
+    evidence_mode: "authored_fixture",
+  });
+  const fixturePage = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/fixtures?limit=50`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    fixturePage,
+    new URL(fixturePage.url()).pathname,
+  );
+  const fixturePageEnvelope: {
+    data: ApiOperationData<"listFixtureSets">;
+  } = await fixturePage.json();
+  const fixtureSummary = fixturePageEnvelope.data.items[0];
+  if (!fixtureSummary)
+    throw new Error("The authored fixture set was not listed.");
+  expect(fixtureSummary).toMatchObject({
+    decision_id: expect.any(String),
+    dataset_id: expect.any(String),
+    model_identity: expect.stringMatching(/^authored-/),
+  });
+  expect(Number(fixtureSummary.binding_count)).toBeGreaterThan(0);
+  expect(fixtureSummary.bindings.length).toBeGreaterThan(0);
+  for (const binding of fixtureSummary.bindings) {
+    expect(binding.case_id).toEqual(expect.any(String));
+    expect(binding.request_hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(binding.model_identity).toBe(fixtureSummary.model_identity);
+  }
+  await page.getByRole("button", { name: "Providers", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
+  await page
+    .getByRole("button", { name: fixtureProvider.id, exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Authored fixture profile" }),
+  ).toBeVisible();
+  await expect(page.locator(".fixture-provider")).toContainText(
+    fixtureProvider.requested_model,
+  );
+  await expect(page.getByLabel("Environment variable name")).toHaveCount(0);
+  await expect(
+    page.getByLabel("Store a credential in the operating system"),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Destination")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Refresh model list" }),
+  ).toHaveCount(0);
+  await captureScreenshot("fixture-provider-safe-details.png");
+  await page.getByRole("button", { name: "Open fixture library" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: fixtureSummary.name, exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: fixtureSummary.name, exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("table", { name: "Exact authored case bindings" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Show exact stored request source text",
+    }),
+  ).not.toBeChecked();
+  const fixtureDetail = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${fixtureSummary.id}?include_requests=false`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    fixtureDetail,
+    new URL(fixtureDetail.url()).pathname,
+  );
+  const hiddenFixtureDetail = (await fixtureDetail.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(hiddenFixtureDetail.id).toBe(fixtureSummary.id);
+  expect(hiddenFixtureDetail.decision_id).toBe(fixtureSummary.decision_id);
+  expect(hiddenFixtureDetail.dataset_id).toBe(fixtureSummary.dataset_id);
+  expect(hiddenFixtureDetail.model_identity).toBe(
+    fixtureSummary.model_identity,
+  );
+  expect(hiddenFixtureDetail.requests.length === 0).toBe(true);
+  await expect(page.getByLabel(/^Stored request source \d+$/)).toHaveCount(0);
+  await captureScreenshot("fixture-exact-bindings.png");
+
+  const fixtureRequestsVisibleResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
+      new URL(response.url()).searchParams.get("include_requests") === "true" &&
+      response.request().method() === "GET",
+  );
+  await page
+    .getByRole("checkbox", { name: "Show exact stored request source text" })
+    .check();
+  const fixtureRequestsVisible = await fixtureRequestsVisibleResponse;
+  expect(fixtureRequestsVisible.status()).toBe(200);
+  const revealedFixture = (await fixtureRequestsVisible.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  const requestSourceTextboxes = page.getByLabel(/^Stored request source \d+$/);
+  const fixtureRequestsHiddenResponse = page.waitForResponse(
+    (response) =>
+      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
+      new URL(response.url()).searchParams.get("include_requests") ===
+        "false" &&
+      response.request().method() === "GET",
+  );
+  let revealedSourceMatches: boolean[] = [];
+  let revealedSourcesAreReadOnly: boolean[] = [];
+  let fixtureRequestsHidden: Response;
+  try {
+    expect(revealedFixture.requests.length).toBeGreaterThan(0);
+    await expect(requestSourceTextboxes).toHaveCount(
+      revealedFixture.requests.length,
+    );
+    revealedSourceMatches = await Promise.all(
+      revealedFixture.requests.map(async (request, index) => {
+        const textbox = page.getByLabel(`Stored request source ${index + 1}`, {
+          exact: true,
+        });
+        return (await textbox.inputValue()) === request;
+      }),
+    );
+    revealedSourcesAreReadOnly = await Promise.all(
+      revealedFixture.requests.map(async (_, index) =>
+        requestSourceTextboxes
+          .nth(index)
+          .evaluate(
+            (element) =>
+              element instanceof HTMLTextAreaElement && element.readOnly,
+          ),
+      ),
+    );
+  } finally {
+    await page
+      .getByRole("checkbox", {
+        name: "Show exact stored request source text",
+      })
+      .uncheck();
+    fixtureRequestsHidden = await fixtureRequestsHiddenResponse;
+  }
+  const hiddenFixture = (await fixtureRequestsHidden.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(revealedSourceMatches.every(Boolean)).toBe(true);
+  expect(revealedSourcesAreReadOnly.every(Boolean)).toBe(true);
+  expect(fixtureRequestsHidden.status()).toBe(200);
+  expect(hiddenFixture.requests.length === 0).toBe(true);
+  await expect(requestSourceTextboxes).toHaveCount(0);
+
+  const bindingSources = execFileSync(
+    "python",
+    [
+      "-I",
+      "-c",
+      "import sys; from pathlib import Path; from deykit.contracts.codec import dump_record, load_record; from deykit.contracts.records import FixtureSet; record = load_record(FixtureSet, (Path(sys.argv[1]) / 'source' / 'fixtures' / (sys.argv[2] + '.json')).read_bytes()); print('\\n'.join(dump_record(binding).decode('utf-8') for binding in record.bindings))",
+      fixtureDemoPath,
+      fixtureSummary.id,
+    ],
+    { cwd: fixtureDemoPath, encoding: "utf8" },
+  )
+    .trimEnd()
+    .split("\n");
+  await page.getByLabel("Decision").selectOption(fixtureSummary.decision_id);
+  await page.getByLabel("Dataset").selectOption(fixtureSummary.dataset_id);
+  await page.getByRole("button", { name: "Author fixture set" }).click();
+  await page.getByLabel("Fixture set name").fill("Browser authored exact copy");
+  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
+  await page
+    .getByLabel("Strict binding source lines")
+    .fill(bindingSources.join("\n"));
+  const initialFixtureCreate = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname ===
+        `/api/v1/projects/${fixtureRegistrationId}/fixtures` &&
+      response.request().method() === "POST",
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "Create authored set" }).click();
+  const initialFixtureReceipt = await initialFixtureCreate;
+  expect(initialFixtureReceipt.status()).toBe(200);
+  await initialFixtureReceipt.body();
+  await expect(
+    page.getByRole("heading", { name: "Browser authored exact copy" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Authored fixture sets" })
+      .getByRole("button", {
+        name: "Browser authored exact copy",
+        exact: true,
+      }),
+  ).toBeVisible({ timeout: 15_000 });
+  const createdFixtureId = await page
+    .locator(".fixture-detail code")
+    .first()
+    .textContent();
+  if (typeof createdFixtureId !== "string")
+    throw new Error("The created fixture ID was not displayed.");
+  expect(createdFixtureId).toMatch(/^fixture-[A-Za-z0-9_-]+$/);
+  const createdFixture = await page.request.get(
+    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${createdFixtureId}?include_requests=false`,
+    { headers: fixtureHeaders },
+  );
+  await expectDirectDataEnvelope(
+    createdFixture,
+    new URL(createdFixture.url()).pathname,
+  );
+  const createdFixtureData = (await createdFixture.json())
+    .data as ApiOperationData<"readFixtureSet">;
+  expect(createdFixtureData).toMatchObject({
+    name: "Browser authored exact copy",
+    decision_id: fixtureSummary.decision_id,
+    dataset_id: fixtureSummary.dataset_id,
+    model_identity: fixtureSummary.model_identity,
+  });
+  expect(
+    createdFixtureData.bindings.map(
+      (binding: { request_hash: string }) => binding.request_hash,
+    ),
+  ).toEqual(
+    fixtureSummary.bindings.map(
+      (binding: { request_hash: string }) => binding.request_hash,
+    ),
+  );
+  expect(createdFixtureData.requests.length === 0).toBe(true);
+
+  await page.getByRole("button", { name: "Author fixture set" }).click();
+  await page
+    .getByLabel("Fixture set name")
+    .fill("Browser retained fixture request");
+  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
+  await page
+    .getByLabel("Strict binding source lines")
+    .fill(bindingSources.join("\n"));
+  const fixtureCreateBodies: Array<Record<string, unknown>> = [];
+  const fixtureCreateResults: ApiOperationData<"createFixtureSet">[] = [];
+  let firstFixtureCreateStatus: number | undefined;
+  let firstFixtureCreateAborted = false;
+  await page.route("**/api/v1/projects/*/fixtures", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    fixtureCreateBodies.push(
+      route.request().postDataJSON() as Record<string, unknown>,
+    );
+    const response = await route.fetch();
+    fixtureCreateResults.push(
+      (await response.json()).data as ApiOperationData<"createFixtureSet">,
+    );
+    if (fixtureCreateBodies.length === 1) {
+      firstFixtureCreateStatus = response.status();
+      await route.abort("failed");
+      firstFixtureCreateAborted = true;
+      return;
+    }
+    await route.fulfill({ response });
+  });
+  await page.getByRole("button", { name: "Create authored set" }).click();
+  await expect
+    .poll(() => firstFixtureCreateAborted, { timeout: 15_000 })
+    .toBe(true);
+  expect(firstFixtureCreateStatus).toBe(200);
+  await expect(
+    page.getByRole("button", { name: "Retry same create" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Close", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Examples", exact: true })
+    .click();
+  const fixtureUnknownGuard = page.getByRole("dialog", {
+    name: "Unsaved changes",
+  });
+  await expect(fixtureUnknownGuard).toBeVisible();
+  await expect(
+    fixtureUnknownGuard.getByRole("button", {
+      name: "Discard changes",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await fixtureUnknownGuard
+    .getByRole("button", { name: "Keep editing", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Fixture library" }),
+  ).toBeVisible();
+  const fixtureReplayResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/fixtures") &&
+      response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Retry same create" }).click();
+  const fixtureResponse = await fixtureReplayResponse;
+  expect(fixtureResponse.status()).toBe(200);
+  await fixtureResponse.body();
+  await expect(
+    page.getByRole("button", { name: "Retry same create" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Browser retained fixture request" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Authored fixture sets" })
+      .getByRole("button", {
+        name: "Browser retained fixture request",
+        exact: true,
+      }),
+  ).toBeVisible({ timeout: 15_000 });
+  expect(fixtureCreateBodies).toHaveLength(2);
+  expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
+  expect(fixtureCreateResults).toHaveLength(2);
+  expect(fixtureCreateResults.map((result) => result.replayed)).toEqual([
+    false,
+    true,
+  ]);
+  expect(fixtureCreateResults[1].operation_id).toBe(
+    fixtureCreateResults[0].operation_id,
+  );
+  expect(fixtureCreateResults[1].fixture.id).toBe(
+    fixtureCreateResults[0].fixture.id,
+  );
+  expect(fixtureCreateResults[1].fixture.name).toBe(
+    "Browser retained fixture request",
+  );
+  await page.unroute("**/api/v1/projects/*/fixtures");
+
+  await enterPhase("Responsive 320px and reduced-motion review");
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await page.evaluate(
+      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    ),
+  ).toBe(true);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual((await page.evaluate(() => window.innerWidth)) + 1);
+  await page.keyboard.press("Tab");
+  let visibleKeyboardStops = 0;
+  for (let index = 0; index < 12; index += 1) {
+    const visible = await page.evaluate(() => {
+      const active = document.activeElement;
+      return (
+        active instanceof HTMLElement &&
+        active !== document.body &&
+        active.getClientRects().length > 0
+      );
+    });
+    expect(visible).toBe(true);
+    visibleKeyboardStops += 1;
+    await page.keyboard.press("Tab");
+  }
+  expect(visibleKeyboardStops).toBe(12);
+  await captureScreenshot("authoring-narrow-320.png");
+
+  expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(
+    true,
+  );
+  expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(
+    true,
+  );
+  expect(!page.url().includes(capability as string)).toBe(true);
+  expect(
+    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
+  ).toEqual([0, 0]);
+  expect(
+    (await page.evaluate(
+      () => (document as Document & { cookie: string }).cookie,
+    )) === "",
+  ).toBe(true);
+  await enterPhase("Connected authoring workflow complete");
 }
 
 test("installed history retains a pending revision restore through Back and exact retry", async ({
@@ -165,7 +835,7 @@ test("installed history retains a pending revision restore through Back and exac
   }
 });
 
-test("installed archive restore retains exact actions and projects receipts", async ({
+test("installed authoring tail covers archive restore, providers, and fixtures", async ({
   page,
 }, testInfo) => {
   test.setTimeout(120_000);
@@ -179,6 +849,7 @@ test("installed archive restore retains exact actions and projects receipts", as
     code: string | null;
     reason: string | null;
   }> = [];
+  const apiResponses: string[] = [];
   const pendingReads = new Map<Request, string>();
   let stage = "demo setup";
   let listRequestSeen = false;
@@ -217,6 +888,7 @@ test("installed archive restore retains exact actions and projects receipts", as
   }
 
   page.on("request", (request) => {
+    apiResponses.push(request.url());
     if (request.method() !== "GET") return;
     const url = new URL(request.url());
     const routePattern = safeRoutePattern(url.pathname);
@@ -259,7 +931,8 @@ test("installed archive restore retains exact actions and projects receipts", as
       progressPath,
       `${JSON.stringify(
         {
-          qualification_scope: "focused archive restore diagnostic",
+          qualification_scope:
+            "focused archive restore provider fixture tail",
           stage,
           list_request_seen: listRequestSeen,
           list_query_matches: listQueryMatches,
@@ -297,13 +970,18 @@ test("installed archive restore retains exact actions and projects receipts", as
     );
   }
 
-  async function recordSafeFailure(response: Response) {
+  async function recordSafeFailure(
+    response: APIResponse | Response,
+    path?: string,
+  ) {
     if (response.status() < 400) return;
     const body: unknown = await response.json().catch(() => undefined);
     const error = isRecord(body) ? body.error : undefined;
     const details = isRecord(error) ? error : undefined;
     apiFailures.push({
-      route_pattern: safeRoutePattern(new URL(response.url()).pathname),
+      route_pattern: safeRoutePattern(
+        path ?? new URL(response.url()).pathname,
+      ),
       status: response.status(),
       code: safeErrorIdentifier(details?.code),
       reason: safeErrorIdentifier(details?.reason),
@@ -332,7 +1010,23 @@ test("installed archive restore retains exact actions and projects receipts", as
       response.url().endsWith("/projects/demo") &&
       response.request().method() === "POST",
   );
+  const bootstrapReply = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/session/bootstrap",
+    { timeout: 10_000 },
+  );
   await page.goto("/");
+  const bootstrapResponse = await bootstrapReply;
+  await recordSafeFailure(bootstrapResponse);
+  expect(bootstrapResponse.status()).toBe(200);
+  const bootstrapEnvelope: unknown = await bootstrapResponse.json();
+  if (
+    !isRecord(bootstrapEnvelope) ||
+    !isRecord(bootstrapEnvelope.data) ||
+    typeof bootstrapEnvelope.data.capability !== "string"
+  )
+    throw new Error("The local session capability was not initialized.");
+  const capability = bootstrapEnvelope.data.capability;
   await page.getByRole("button", { name: "Try support demo" }).click();
   await page.getByLabel("Project folder path").fill(demoPath);
   const demoSubmit = page
@@ -724,6 +1418,30 @@ test("installed archive restore retains exact actions and projects receipts", as
   await page.unroute(
     `**/projects/${registrationId}/decisions/${decisionId}/restore`,
   );
+  await runInstalledProviderFixtureTail({
+    page,
+    testInfo,
+    registrationId,
+    projectName: "Sandbox",
+    capability,
+    origin: new URL(page.url()).origin,
+    apiResponses,
+    enterPhase: async (name) => {
+      stage = name;
+      await recordSafeProgress();
+    },
+    captureScreenshot: captureSafeScreenshot,
+    expectDirectDataEnvelope: async (response, path) => {
+      await recordSafeFailure(response, path);
+      expect(response.status()).toBe(200);
+      const envelope: unknown = await response.json();
+      expect(
+        isRecord(envelope) &&
+          envelope.schema_version === 1 &&
+          isRecord(envelope.data),
+      ).toBe(true);
+    },
+  });
 });
 
 test("installed shell recovers a lost authored-demo response without duplicate writes", async ({
@@ -1133,7 +1851,10 @@ test("installed browser authors exact decision source and previews imports throu
     });
     await recordProgress();
   }
-  async function expectDirectDataEnvelope(response: APIResponse, path: string) {
+  async function expectDirectDataEnvelope(
+    response: APIResponse | Response,
+    path: string,
+  ) {
     await recordDirectApiFailure(response, path);
     expect(response.status()).toBe(200);
     const envelope: unknown = await response.json();
@@ -6148,604 +6869,16 @@ test("installed browser authors exact decision source and previews imports throu
   await recordProgress();
   await page.unroute(`**/decisions/${decisionId}/restore`);
 
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
-  await page.getByRole("button", { name: "Add provider profile" }).click();
-  await expect(
-    page.getByRole("heading", { name: "New profile" }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Adapter")).toHaveValue("jev");
-  await page.getByLabel("Requested model ID").fill("jev-latest");
-  await page
-    .getByLabel("Destination")
-    .fill("https://api.typesafe.ai/v1/systemone");
-  const providerProfileSave = page.waitForResponse(
-    (response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        response.request().method() === "PUT" &&
-        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
-        /^\/api\/v1\/projects\/[^/]+\/providers\/[^/]+$/.test(pathname)
-      );
-    },
-    { timeout: 15_000 },
-  );
-  await page.getByRole("button", { name: "Save profile" }).click();
-  const providerProfileReceipt = await providerProfileSave;
-  expect(providerProfileReceipt.status()).toBe(200);
-  await providerProfileReceipt.body();
-  await expect(
-    page.getByText("Not configured · Unavailable", { exact: false }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Explicit network check · 0 inference calls."),
-  ).toBeVisible();
-  const environmentName = "M08_FAKE_ENV";
-  await page.getByLabel("Environment variable name").fill(environmentName);
-  const environmentCredentialResponse = page.waitForResponse(
-    (response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        response.request().method() === "POST" &&
-        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
-        pathname.endsWith("/credential-environment")
-      );
-    },
-    { timeout: 15_000 },
-  );
-  await page
-    .getByRole("button", { name: "Attach environment reference" })
-    .click();
-  const environmentCredentialReceipt = await environmentCredentialResponse;
-  expect(environmentCredentialReceipt.status()).toBe(200);
-  await environmentCredentialReceipt.body();
-  await expect(page.getByText(environmentName)).toHaveCount(0);
-  await expect(
-    page.getByText("Configured · Available", { exact: false }),
-  ).toBeVisible();
-  const modelListResponse = page.waitForResponse(
-    (response) => {
-      const pathname = new URL(response.url()).pathname;
-      return (
-        response.request().method() === "POST" &&
-        pathname.startsWith(`/api/v1/projects/${registrationId}/providers/`) &&
-        pathname.endsWith("/models")
-      );
-    },
-    { timeout: 15_000 },
-  );
-  await page.getByRole("button", { name: "Refresh model list" }).click();
-  const modelListReceipt = await modelListResponse;
-  expect(modelListReceipt.status()).toBe(200);
-  await modelListReceipt.body();
-  await expect(
-    page.getByText("fake-offline-model", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("1 models returned · network checked · 0 inference calls"),
-  ).toBeVisible();
-
-  const providerProfilesResponse = await page.request.get(
-    `/api/v1/projects/${registrationId}/providers?limit=100`,
-    { headers: authorizedHeaders },
-  );
-  await expectDirectDataEnvelope(
-    providerProfilesResponse,
-    new URL(providerProfilesResponse.url()).pathname,
-  );
-  const configuredProvider = (
-    await providerProfilesResponse.json()
-  ).data.items.find(
-    (item: { adapter: string; requested_model: string }) =>
-      item.adapter === "jev" && item.requested_model === "jev-latest",
-  );
-  expect(configuredProvider).toBeTruthy();
-  const credentialValue = "synthetic-installed-os-credential-never-real";
-  const credentialBodies: Array<Record<string, unknown>> = [];
-  let firstCredentialStatus: number | undefined;
-  await page.route(
-    `**/providers/${configuredProvider.id}/credential-os-store`,
-    async (route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      credentialBodies.push(
-        route.request().postDataJSON() as Record<string, unknown>,
-      );
-      const response = await route.fetch();
-      if (credentialBodies.length === 1) {
-        firstCredentialStatus = response.status();
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: "{}",
-        });
-        return;
-      }
-      await route.fulfill({ response });
-    },
-  );
-  const secretInput = page.getByLabel(
-    "Store a credential in the operating system",
-  );
-  await secretInput.fill(credentialValue);
-  await page.getByRole("button", { name: "Store credential" }).click();
-  await expect.poll(() => firstCredentialStatus, { timeout: 15_000 }).toBe(200);
-  await expect(
-    page.getByRole("button", { name: "Retry the same credential request" }),
-  ).toBeVisible();
-  await expect
-    .poll(async () => (await secretInput.inputValue()) === "")
-    .toBe(true);
-  await expect(secretInput).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "Store credential" }),
-  ).toBeDisabled();
-  expect(
-    !(await page.locator("body").innerText()).includes(credentialValue),
-  ).toBe(true);
-  const credentialReplayResponse = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/credential-os-store") &&
-      response.request().method() === "POST",
-  );
-  await page
-    .getByRole("button", { name: "Retry the same credential request" })
-    .click();
-  const credentialResponse = await credentialReplayResponse;
-  expect(credentialResponse.status()).toBe(200);
-  await credentialResponse.body();
-  const credentialResult = (await credentialResponse.json())
-    .data as ApiOperationData<"setOSStoreCredential">;
-  await expect(
-    page.getByRole("button", { name: "Retry the same credential request" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Configured · Available", { exact: false }),
-  ).toBeVisible();
-  expect(firstCredentialStatus).toBe(200);
-  expect(credentialBodies).toHaveLength(2);
-  const originalCredentialBody = credentialBodies[0];
-  const replayedCredentialBody = credentialBodies[1];
-  expect(credentialResult.operation_id).toBe(
-    originalCredentialBody.operation_id,
-  );
-  expect(credentialResult.replayed).toBe(true);
-  expect(credentialResult.profile.id).toBe(configuredProvider.id);
-  const originalCredential = originalCredentialBody.credential_value;
-  const replayedCredential = replayedCredentialBody.credential_value;
-  expect(
-    typeof originalCredential === "string" &&
-      typeof replayedCredential === "string" &&
-      originalCredential === replayedCredential &&
-      originalCredential === credentialValue,
-  ).toBe(true);
-  const nonSecretCredentialFields = (body: Record<string, unknown>) =>
-    Object.fromEntries(
-      Object.entries(body).filter(([field]) => field !== "credential_value"),
-    );
-  expect(nonSecretCredentialFields(replayedCredentialBody)).toEqual(
-    nonSecretCredentialFields(originalCredentialBody),
-  );
-  expect(
-    !(await page.locator("body").innerText()).includes(credentialValue),
-  ).toBe(true);
-  await page.unroute(
-    `**/providers/${configuredProvider.id}/credential-os-store`,
-  );
-  await captureScreenshot("provider-setup.png");
-
-  await enterPhase(
-    "Demo fixture profile safety and authored binding verification",
-  );
-  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Fixtures" })).toBeVisible();
-  await captureScreenshot("fixture-setup.png");
-
-  // Inspect the packaged authored fixture through the installed UI and API.
-  // The test never invokes provider networking or requests raw-source display.
-  await page.getByRole("button", { name: "Projects", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Welcome to deykit." }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Try support demo", exact: true })
-    .click();
-  const fixtureDemoPath = testInfo.outputPath("fixture-support-demo");
-  await page.getByLabel("Project folder path").fill(fixtureDemoPath);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Try support demo", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Sandbox", exact: true }),
-  ).toBeVisible();
-  const fixtureRegistrationId = new URL(page.url()).hash.match(
-    /^#\/p\/([A-Za-z0-9_-]+)/,
-  )?.[1] as string;
-  const fixtureHeaders = {
-    Origin: origin,
-    "X-Deykit-Capability": capability as string,
-  };
-  const fixtureProvidersResponse = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/providers?limit=100`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    fixtureProvidersResponse,
-    new URL(fixtureProvidersResponse.url()).pathname,
-  );
-  const fixtureProvider = (
-    await fixtureProvidersResponse.json()
-  ).data.items.find((item: { adapter: string }) => item.adapter === "fixture");
-  expect(fixtureProvider).toMatchObject({
-    requested_model: expect.stringMatching(/^authored-/),
-    destination: "fixture:jev-choice",
-    evidence_mode: "authored_fixture",
+  await runInstalledProviderFixtureTail({
+    page,
+    testInfo,
+    registrationId,
+    projectName,
+    capability,
+    origin,
+    apiResponses,
+    enterPhase,
+    captureScreenshot,
+    expectDirectDataEnvelope,
   });
-  const fixturePage = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/fixtures?limit=50`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    fixturePage,
-    new URL(fixturePage.url()).pathname,
-  );
-  const fixtureSummary = (await fixturePage.json()).data.items[0];
-  expect(fixtureSummary).toMatchObject({
-    decision_id: expect.any(String),
-    dataset_id: expect.any(String),
-    model_identity: expect.stringMatching(/^authored-/),
-  });
-  expect(Number(fixtureSummary.binding_count)).toBeGreaterThan(0);
-  expect(fixtureSummary.bindings.length).toBeGreaterThan(0);
-  for (const binding of fixtureSummary.bindings) {
-    expect(binding.case_id).toEqual(expect.any(String));
-    expect(binding.request_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(binding.model_identity).toBe(fixtureSummary.model_identity);
-  }
-  await page.getByRole("button", { name: "Providers", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
-  await page
-    .getByRole("button", { name: fixtureProvider.id, exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Authored fixture profile" }),
-  ).toBeVisible();
-  await expect(page.locator(".fixture-provider")).toContainText(
-    fixtureProvider.requested_model,
-  );
-  await expect(page.getByLabel("Environment variable name")).toHaveCount(0);
-  await expect(
-    page.getByLabel("Store a credential in the operating system"),
-  ).toHaveCount(0);
-  await expect(page.getByLabel("Destination")).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Refresh model list" }),
-  ).toHaveCount(0);
-  await captureScreenshot("fixture-provider-safe-details.png");
-  await page.getByRole("button", { name: "Open fixture library" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Fixture library" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Fixtures", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Fixture library" }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: fixtureSummary.name, exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: fixtureSummary.name, exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("table", { name: "Exact authored case bindings" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("checkbox", {
-      name: "Show exact stored request source text",
-    }),
-  ).not.toBeChecked();
-  const fixtureDetail = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${fixtureSummary.id}?include_requests=false`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    fixtureDetail,
-    new URL(fixtureDetail.url()).pathname,
-  );
-  const hiddenFixtureDetail = (await fixtureDetail.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  expect(hiddenFixtureDetail.id).toBe(fixtureSummary.id);
-  expect(hiddenFixtureDetail.decision_id).toBe(fixtureSummary.decision_id);
-  expect(hiddenFixtureDetail.dataset_id).toBe(fixtureSummary.dataset_id);
-  expect(hiddenFixtureDetail.model_identity).toBe(
-    fixtureSummary.model_identity,
-  );
-  expect(hiddenFixtureDetail.requests.length === 0).toBe(true);
-  await expect(page.getByLabel(/^Stored request source \d+$/)).toHaveCount(0);
-  await captureScreenshot("fixture-exact-bindings.png");
-
-  const fixtureRequestsVisibleResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
-      new URL(response.url()).searchParams.get("include_requests") === "true" &&
-      response.request().method() === "GET",
-  );
-  await page
-    .getByRole("checkbox", { name: "Show exact stored request source text" })
-    .check();
-  const fixtureRequestsVisible = await fixtureRequestsVisibleResponse;
-  expect(fixtureRequestsVisible.status()).toBe(200);
-  const revealedFixture = (await fixtureRequestsVisible.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  const requestSourceTextboxes = page.getByLabel(/^Stored request source \d+$/);
-  const fixtureRequestsHiddenResponse = page.waitForResponse(
-    (response) =>
-      response.url().includes(`/fixtures/${fixtureSummary.id}`) &&
-      new URL(response.url()).searchParams.get("include_requests") ===
-        "false" &&
-      response.request().method() === "GET",
-  );
-  let revealedSourceMatches: boolean[] = [];
-  let revealedSourcesAreReadOnly: boolean[] = [];
-  let fixtureRequestsHidden: Response;
-  try {
-    expect(revealedFixture.requests.length).toBeGreaterThan(0);
-    await expect(requestSourceTextboxes).toHaveCount(
-      revealedFixture.requests.length,
-    );
-    revealedSourceMatches = await Promise.all(
-      revealedFixture.requests.map(async (request, index) => {
-        const textbox = page.getByLabel(`Stored request source ${index + 1}`, {
-          exact: true,
-        });
-        return (await textbox.inputValue()) === request;
-      }),
-    );
-    revealedSourcesAreReadOnly = await Promise.all(
-      revealedFixture.requests.map(async (_, index) =>
-        requestSourceTextboxes
-          .nth(index)
-          .evaluate(
-            (element) =>
-              element instanceof HTMLTextAreaElement && element.readOnly,
-          ),
-      ),
-    );
-  } finally {
-    await page
-      .getByRole("checkbox", {
-        name: "Show exact stored request source text",
-      })
-      .uncheck();
-    fixtureRequestsHidden = await fixtureRequestsHiddenResponse;
-  }
-  const hiddenFixture = (await fixtureRequestsHidden.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  expect(revealedSourceMatches.every(Boolean)).toBe(true);
-  expect(revealedSourcesAreReadOnly.every(Boolean)).toBe(true);
-  expect(fixtureRequestsHidden.status()).toBe(200);
-  expect(hiddenFixture.requests.length === 0).toBe(true);
-  await expect(requestSourceTextboxes).toHaveCount(0);
-
-  const bindingSources = execFileSync(
-    "python",
-    [
-      "-I",
-      "-c",
-      "import sys; from pathlib import Path; from deykit.contracts.codec import dump_record, load_record; from deykit.contracts.records import FixtureSet; record = load_record(FixtureSet, (Path(sys.argv[1]) / 'source' / 'fixtures' / (sys.argv[2] + '.json')).read_bytes()); print('\\n'.join(dump_record(binding).decode('utf-8') for binding in record.bindings))",
-      fixtureDemoPath,
-      fixtureSummary.id,
-    ],
-    { cwd: fixtureDemoPath, encoding: "utf8" },
-  )
-    .trimEnd()
-    .split("\n");
-  await page.getByLabel("Decision").selectOption(fixtureSummary.decision_id);
-  await page.getByLabel("Dataset").selectOption(fixtureSummary.dataset_id);
-  await page.getByRole("button", { name: "Author fixture set" }).click();
-  await page.getByLabel("Fixture set name").fill("Browser authored exact copy");
-  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
-  await page
-    .getByLabel("Strict binding source lines")
-    .fill(bindingSources.join("\n"));
-  const initialFixtureCreate = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname ===
-        `/api/v1/projects/${fixtureRegistrationId}/fixtures` &&
-      response.request().method() === "POST",
-    { timeout: 15_000 },
-  );
-  await page.getByRole("button", { name: "Create authored set" }).click();
-  const initialFixtureReceipt = await initialFixtureCreate;
-  expect(initialFixtureReceipt.status()).toBe(200);
-  await initialFixtureReceipt.body();
-  await expect(
-    page.getByRole("heading", { name: "Browser authored exact copy" }),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByRole("table", { name: "Authored fixture sets" })
-      .getByRole("button", {
-        name: "Browser authored exact copy",
-        exact: true,
-      }),
-  ).toBeVisible({ timeout: 15_000 });
-  const createdFixtureId = await page
-    .locator(".fixture-detail code")
-    .first()
-    .textContent();
-  expect(createdFixtureId).toMatch(/^fixture-[A-Za-z0-9_-]+$/);
-  const createdFixture = await page.request.get(
-    `/api/v1/projects/${fixtureRegistrationId}/fixtures/${createdFixtureId as string}?include_requests=false`,
-    { headers: fixtureHeaders },
-  );
-  await expectDirectDataEnvelope(
-    createdFixture,
-    new URL(createdFixture.url()).pathname,
-  );
-  const createdFixtureData = (await createdFixture.json())
-    .data as ApiOperationData<"readFixtureSet">;
-  expect(createdFixtureData).toMatchObject({
-    name: "Browser authored exact copy",
-    decision_id: fixtureSummary.decision_id,
-    dataset_id: fixtureSummary.dataset_id,
-    model_identity: fixtureSummary.model_identity,
-  });
-  expect(
-    createdFixtureData.bindings.map(
-      (binding: { request_hash: string }) => binding.request_hash,
-    ),
-  ).toEqual(
-    fixtureSummary.bindings.map(
-      (binding: { request_hash: string }) => binding.request_hash,
-    ),
-  );
-  expect(createdFixtureData.requests.length === 0).toBe(true);
-
-  await page.getByRole("button", { name: "Author fixture set" }).click();
-  await page
-    .getByLabel("Fixture set name")
-    .fill("Browser retained fixture request");
-  await page.getByLabel("Model identity").fill(fixtureSummary.model_identity);
-  await page
-    .getByLabel("Strict binding source lines")
-    .fill(bindingSources.join("\n"));
-  const fixtureCreateBodies: Array<Record<string, unknown>> = [];
-  const fixtureCreateResults: ApiOperationData<"createFixtureSet">[] = [];
-  let firstFixtureCreateStatus: number | undefined;
-  let firstFixtureCreateAborted = false;
-  await page.route("**/api/v1/projects/*/fixtures", async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    fixtureCreateBodies.push(
-      route.request().postDataJSON() as Record<string, unknown>,
-    );
-    const response = await route.fetch();
-    fixtureCreateResults.push(
-      (await response.json()).data as ApiOperationData<"createFixtureSet">,
-    );
-    if (fixtureCreateBodies.length === 1) {
-      firstFixtureCreateStatus = response.status();
-      await route.abort("failed");
-      firstFixtureCreateAborted = true;
-      return;
-    }
-    await route.fulfill({ response });
-  });
-  await page.getByRole("button", { name: "Create authored set" }).click();
-  await expect
-    .poll(() => firstFixtureCreateAborted, { timeout: 15_000 })
-    .toBe(true);
-  expect(firstFixtureCreateStatus).toBe(200);
-  await expect(
-    page.getByRole("button", { name: "Retry same create" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Close", exact: true }),
-  ).toBeDisabled();
-  await page
-    .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Examples", exact: true })
-    .click();
-  const fixtureUnknownGuard = page.getByRole("dialog", {
-    name: "Unsaved changes",
-  });
-  await expect(fixtureUnknownGuard).toBeVisible();
-  await expect(
-    fixtureUnknownGuard.getByRole("button", {
-      name: "Discard changes",
-      exact: true,
-    }),
-  ).toBeDisabled();
-  await fixtureUnknownGuard
-    .getByRole("button", { name: "Keep editing", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Fixture library" }),
-  ).toBeVisible();
-  const fixtureReplayResponse = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/fixtures") &&
-      response.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: "Retry same create" }).click();
-  const fixtureResponse = await fixtureReplayResponse;
-  expect(fixtureResponse.status()).toBe(200);
-  await fixtureResponse.body();
-  await expect(
-    page.getByRole("button", { name: "Retry same create" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Browser retained fixture request" }),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByRole("table", { name: "Authored fixture sets" })
-      .getByRole("button", {
-        name: "Browser retained fixture request",
-        exact: true,
-      }),
-  ).toBeVisible({ timeout: 15_000 });
-  expect(fixtureCreateBodies).toHaveLength(2);
-  expect(fixtureCreateBodies[1]).toEqual(fixtureCreateBodies[0]);
-  expect(fixtureCreateResults).toHaveLength(2);
-  expect(fixtureCreateResults.map((result) => result.replayed)).toEqual([
-    false,
-    true,
-  ]);
-  expect(fixtureCreateResults[1].operation_id).toBe(
-    fixtureCreateResults[0].operation_id,
-  );
-  expect(fixtureCreateResults[1].fixture.id).toBe(
-    fixtureCreateResults[0].fixture.id,
-  );
-  expect(fixtureCreateResults[1].fixture.name).toBe(
-    "Browser retained fixture request",
-  );
-  await page.unroute("**/api/v1/projects/*/fixtures");
-
-  await enterPhase("Responsive 320px and reduced-motion review");
-  await page.setViewportSize({ width: 320, height: 800 });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  expect(
-    await page.evaluate(
-      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
-    ),
-  ).toBe(true);
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual((await page.evaluate(() => window.innerWidth)) + 1);
-  await page.keyboard.press("Tab");
-  let visibleKeyboardStops = 0;
-  for (let index = 0; index < 12; index += 1) {
-    const visible = await page.evaluate(() => {
-      const active = document.activeElement;
-      return (
-        active instanceof HTMLElement &&
-        active !== document.body &&
-        active.getClientRects().length > 0
-      );
-    });
-    expect(visible).toBe(true);
-    visibleKeyboardStops += 1;
-    await page.keyboard.press("Tab");
-  }
-  expect(visibleKeyboardStops).toBe(12);
-  await captureScreenshot("authoring-narrow-320.png");
-
-  expect(apiResponses.every((url) => new URL(url).origin === origin)).toBe(
-    true,
-  );
-  expect(apiResponses.every((url) => !url.includes(capability as string))).toBe(
-    true,
-  );
-  expect(!page.url().includes(capability as string)).toBe(true);
-  expect(
-    await page.evaluate(() => [localStorage.length, sessionStorage.length]),
-  ).toEqual([0, 0]);
-  expect(
-    (await page.evaluate(
-      () => (document as Document & { cookie: string }).cookie,
-    )) === "",
-  ).toBe(true);
-  await enterPhase("Connected authoring workflow complete");
 });
