@@ -1087,6 +1087,44 @@ export async function runSavedAnswersWorkflow(
     await reads.waitForIdle();
 
     await qualification.enterPhase("annotation-lost-ack-and-replay");
+    const annotationDetailRead = await captureOperation(
+      page,
+      "readResult",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+        case_id: "ex-003",
+      },
+      () =>
+        page
+          .getByRole("table", { name: "Frozen result rows" })
+          .getByRole("button", { name: "ex-003", exact: true })
+          .click(),
+      (query) =>
+        query.get("evaluation_id") === reevaluated.evaluation_id &&
+        query.get("expected_result_snapshot_id") ===
+          qualification.seedMetadata.result_snapshot_id &&
+        query.get("expected_label_snapshot_id") ===
+          reevaluated.label_snapshot_id &&
+        query.get("include_input") === "false" &&
+        query.get("include_request") === "false" &&
+        query.get("include_response") === "false" &&
+        query.get("include_attempts") === "false",
+    );
+    const annotationDetail = decodeSuccessEnvelope<
+      ApiOperationData<"readResult">
+    >(
+      await annotationDetailRead.response.body(),
+      200,
+      annotationDetailRead.response.status(),
+    );
+    expect(annotationDetail.evaluation_id).toBe(reevaluated.evaluation_id);
+    expect(annotationDetail.context.result_snapshot_id).toBe(
+      qualification.seedMetadata.result_snapshot_id,
+    );
+    expect(annotationDetail.context.label_snapshot_id).toBe(
+      reevaluated.label_snapshot_id,
+    );
     const note = "M12 authored note for ex-003";
     const annotationPath = `/api/v1/projects/${registrationId}/runs/${qualification.seedMetadata.run_id}/annotations`;
     const annotationLoss = await installLostAcknowledgement(
