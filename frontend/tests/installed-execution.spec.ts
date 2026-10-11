@@ -1139,7 +1139,10 @@ test("installed browser reviews and inspects fixture execution", async ({
       (response) =>
         response.request().method() === "GET" &&
         new URL(response.url()).pathname === requestResultPath &&
-        new URL(response.url()).searchParams.get("include_request") === "true",
+        new URL(response.url()).searchParams.get("include_request") === "true" &&
+        new URL(response.url()).searchParams.get("include_input") === "false" &&
+        new URL(response.url()).searchParams.get("include_response") === "false" &&
+        new URL(response.url()).searchParams.get("include_attempts") === "false",
     );
     await inspector.getByLabel("Include request").check();
     const requestRevealResponse = await requestRevealResponsePromise;
@@ -1168,7 +1171,10 @@ test("installed browser reviews and inspects fixture execution", async ({
       (response) =>
         response.request().method() === "GET" &&
         new URL(response.url()).pathname === requestResultPath &&
-        new URL(response.url()).searchParams.get("include_request") === "false",
+        new URL(response.url()).searchParams.get("include_request") === "false" &&
+        new URL(response.url()).searchParams.get("include_input") === "false" &&
+        new URL(response.url()).searchParams.get("include_response") === "false" &&
+        new URL(response.url()).searchParams.get("include_attempts") === "false",
     );
     await inspector.getByLabel("Include request").uncheck();
     const hideRequestResponse = await hideRequestResponsePromise;
@@ -1179,10 +1185,13 @@ test("installed browser reviews and inspects fixture execution", async ({
       !Array.isArray(hideRequestData.source.attempts)
     )
       throw new Error("The cleared request evidence envelope was invalid.");
-    const hiddenRequestAttempt: unknown = hideRequestData.source.attempts[0];
-    if (!isRecord(hiddenRequestAttempt))
-      throw new Error("The cleared request attempt was unavailable.");
-    expect(hiddenRequestAttempt.request_body_source).toBeUndefined();
+    expect(hideRequestData.source.run_id).toBe(acceptedRunId);
+    expect(hideRequestData.source.case_id).toBe(dispatchCaseId);
+    expect(hideRequestData.source.evaluation_id).toBeNull();
+    expect(hideRequestData.source.result_snapshot_id).toBe(resultSnapshotId);
+    expect(hideRequestData.source.label_snapshot_id).toBe(labelSnapshotId);
+    expect(hideRequestData.source.input_source).toBeNull();
+    expect(hideRequestData.source.attempts).toHaveLength(0);
     await expect(
       inspector.getByText("Sanitized request", { exact: true }),
     ).toHaveCount(0);
