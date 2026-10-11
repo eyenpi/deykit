@@ -86,7 +86,12 @@ def register(
 ) -> None:
     def service_for(registration_id: str) -> LabelService:
         source: ApiProjectSource = registry.require(registration_id).source
-        return LabelService(source, dependencies.clock, dependencies.id_factory)
+        return LabelService(
+            source,
+            dependencies.clock,
+            dependencies.id_factory,
+            capture_snapshot=source.capture_snapshot,
+        )
 
     @router.get(
         "/projects/{registration_id}/decisions/{decision_id}/datasets/{dataset_id}/labels",

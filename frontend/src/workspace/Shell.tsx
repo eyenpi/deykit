@@ -1,31 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { CommandMenu } from "./CommandMenu";
+import type { WorkspaceCommand } from "./CommandMenu";
 import type { ProjectOverview, ResourceSummary } from "./gateway";
-export type View =
-  | "start"
-  | "overview"
-  | "decision"
-  | "examples"
-  | "runs"
-  | "results"
-  | "providers"
-  | "help";
+import type { WorkspaceRoute } from "./routes";
+
 export function Shell({
-  view,
+  route,
   onNavigate,
   project,
   decision,
-  onSelectDecision,
   children,
   decisionActions,
+  commands,
 }: {
-  view: View;
-  onNavigate: (view: View) => void;
+  route: WorkspaceRoute;
+  onNavigate: (route: WorkspaceRoute) => Promise<boolean>;
   project?: ProjectOverview;
   decision?: ResourceSummary;
-  onSelectDecision: (decision: ResourceSummary) => void;
   children: ReactNode;
   decisionActions?: ReactNode;
+  commands: readonly WorkspaceCommand[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -35,10 +30,7 @@ export function Shell({
     if (expanded) firstNavigation.current?.focus();
   }, [expanded]);
   useEffect(() => {
-    // Focus must not remain in navigation that becomes hidden at the breakpoint.
     const media = window.matchMedia("(max-width: 760px)");
-    // Browsers may blur a CSS-hidden control before firing the media event.
-    // Retain the last focus target so breakpoint changes can restore it visibly.
     let lastFocused = document.activeElement;
     function rememberFocus(event: FocusEvent) {
       if (event.target instanceof Element) lastFocused = event.target;
@@ -62,16 +54,27 @@ export function Shell({
       document.removeEventListener("focusin", rememberFocus);
     };
   }, []);
+
   function closeMenu() {
     setExpanded(false);
     if (expanded) menuButton.current?.focus();
   }
-  function navigate(next: View) {
-    onNavigate(next);
-    closeMenu();
+
+  function go(next: WorkspaceRoute) {
+    void onNavigate(next).then((moved) => {
+      if (moved) closeMenu();
+    });
   }
-  const decisionView =
-    decision && ["decision", "examples", "runs", "results"].includes(view);
+
+  const registrationId = project?.id;
+  const activeDecisionId =
+    route.kind === "decision" ||
+    route.kind === "examples" ||
+    route.kind === "decision-history"
+      ? route.decisionId
+      : undefined;
+  const decisionContext = !!decision && !!activeDecisionId;
+
   return (
     <div
       className="workspace"
@@ -94,71 +97,126 @@ export function Shell({
         className={`sidebar ${expanded ? "expanded" : ""}`}
         id="workspace-navigation"
       >
-        <button className="brand" onClick={() => navigate("start")}>
+        <button className="brand" onClick={() => go({ kind: "start" })}>
           deykit
         </button>
         <nav aria-label="Workspace">
+          <CommandMenu commands={commands} onNavigate={onNavigate} />
           <button
             ref={firstNavigation}
-            aria-current={view === "start" ? "page" : undefined}
-            onClick={() => navigate("start")}
+            aria-current={route.kind === "start" ? "page" : undefined}
+            onClick={() => go({ kind: "start" })}
           >
             Projects
           </button>
-          {project && (
+          {project && registrationId && (
             <>
               <button
                 className="project-link"
-                aria-current={view === "overview" ? "page" : undefined}
-                onClick={() => navigate("overview")}
+                aria-current={route.kind === "overview" ? "page" : undefined}
+                onClick={() => go({ kind: "overview", registrationId })}
               >
                 {project.name}
               </button>
               <p className="nav-label">Decisions</p>
-              {project.decisions.map((item) => (
-                <div key={item.id}>
-                  <button
-                    onClick={() => {
-                      onSelectDecision(item);
-                      navigate("decision");
-                    }}
-                  >
-                    {item.name}
-                  </button>
-                  {decision?.id === item.id && (
-                    <div className="decision-nav">
-                      {(
-                        ["decision", "examples", "runs", "results"] as const
-                      ).map((section) => (
+              {project.decisions.map((item) => {
+                const selected = activeDecisionId === item.id;
+                return (
+                  <div key={item.id}>
+                    <button
+                      aria-current={selected ? "page" : undefined}
+                      onClick={() =>
+                        go({
+                          kind: "decision",
+                          registrationId,
+                          decisionId: item.id,
+                        })
+                      }
+                    >
+                      {item.name}
+                    </button>
+                    {selected && (
+                      <div className="decision-nav">
                         <button
-                          key={section}
-                          aria-current={view === section ? "page" : undefined}
-                          onClick={() => navigate(section)}
+                          aria-current={
+                            route.kind === "decision" ? "page" : undefined
+                          }
+                          onClick={() =>
+                            go({
+                              kind: "decision",
+                              registrationId,
+                              decisionId: item.id,
+                            })
+                          }
                         >
-                          {section[0].toUpperCase() + section.slice(1)}
+                          Decision
                         </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                        <button
+                          aria-current={
+                            route.kind === "examples" ? "page" : undefined
+                          }
+                          onClick={() =>
+                            go({
+                              kind: "examples",
+                              registrationId,
+                              decisionId: item.id,
+                            })
+                          }
+                        >
+                          Examples
+                        </button>
+                        <button
+                          aria-current={
+                            route.kind === "decision-history"
+                              ? "page"
+                              : undefined
+                          }
+                          onClick={() =>
+                            go({
+                              kind: "decision-history",
+                              registrationId,
+                              decisionId: item.id,
+                            })
+                          }
+                        >
+                          History
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <button
+                aria-current={
+                  route.kind === "examples" && route.decisionId === null
+                    ? "page"
+                    : undefined
+                }
+                onClick={() =>
+                  go({ kind: "examples", registrationId, decisionId: null })
+                }
+              >
+                Project examples
+              </button>
             </>
           )}
         </nav>
-        <nav className="sidebar-bottom" aria-label="Utilities">
-          <button
-            aria-current={view === "providers" ? "page" : undefined}
-            onClick={() => navigate("providers")}
-          >
-            Providers
-          </button>
-          <button
-            aria-current={view === "help" ? "page" : undefined}
-            onClick={() => navigate("help")}
-          >
-            Help
-          </button>
-        </nav>
+        {project && registrationId && (
+          <nav className="sidebar-bottom" aria-label="Utilities">
+            <button
+              aria-current={route.kind === "providers" ? "page" : undefined}
+              onClick={() => go({ kind: "providers", registrationId })}
+            >
+              Providers
+            </button>
+            <button
+              aria-current={route.kind === "fixtures" ? "page" : undefined}
+              onClick={() => go({ kind: "fixtures", registrationId })}
+            >
+              Fixtures
+            </button>
+          </nav>
+        )}
       </aside>
       <div className="workspace-content">
         <header className="toolbar">
@@ -176,18 +234,20 @@ export function Shell({
           </button>
           <nav aria-label="Breadcrumb">
             <span>
-              {project && view !== "start" && view !== "help"
+              {project && route.kind !== "start"
                 ? project.name
                 : "Local workspace"}
             </span>
-            {decisionView && (
+            {decisionContext && (
               <>
                 <span aria-hidden="true"> / </span>
-                <span>{decision.name}</span>
+                <span>{decision?.name}</span>
               </>
             )}
           </nav>
-          {decisionView && <div className="actions">{decisionActions}</div>}
+          {decisionContext && decisionActions && (
+            <div className="actions">{decisionActions}</div>
+          )}
         </header>
         <main id="main-content" tabIndex={-1}>
           {children}

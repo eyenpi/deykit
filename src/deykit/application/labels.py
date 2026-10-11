@@ -8,7 +8,9 @@ from pydantic import ValidationError
 
 from deykit.application import label_validation as admission
 from deykit.application.dataset_support import decoded, fail, identifier, intent, page, required
+from deykit.application.errors import ServiceFailure
 from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
 from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
 from deykit.contracts.ports import (
@@ -100,19 +102,72 @@ class LabelMutation:
 
 class LabelService:
     def __init__(
-        self, source: ProjectSource, clock: Clock, id_factory: Callable[[], str] = new_id
+        self,
+        source: ProjectSource,
+        clock: Clock,
+        id_factory: Callable[[], str] = new_id,
+        *,
+        capture_snapshot: Callable[[], tuple[StoredRecord, ...]] | None = None,
     ) -> None:
         self.source, self.clock, self.id_factory = source, clock, id_factory
+        self.capture_snapshot = capture_snapshot
 
     def _context(self, decision_id: str) -> tuple[ChoiceDefinition, str, str]:
         decision = required(self.source, ResourceKey("decisions", identifier(decision_id)))
         decoded(DecisionRecord, decision)
         draft = required(self.source, ResourceKey("drafts", decision_id))
+        return self._context_from_records(decision, draft)
+
+    @staticmethod
+    def _context_from_records(
+        decision: StoredRecord, draft: StoredRecord
+    ) -> tuple[ChoiceDefinition, str, str]:
+        decoded(DecisionRecord, decision)
         try:
             definition = load_record(ChoiceDefinition, decoded(DecisionDraft, draft).editor_source)
         except (JsonError, ValidationError):
             fail("invalid_decision_draft")
         return definition, decision.etag, draft.etag
+
+    @staticmethod
+    def _view_from_records(
+        decision_id: str,
+        dataset_id: str,
+        case_id: str,
+        question_id: str,
+        definition: ChoiceDefinition,
+        decision_etag: str,
+        draft_etag: str,
+        case: CaseRecord,
+        stored_label: StoredRecord | None,
+    ) -> LabelView:
+        label = admit_label_record(stored_label) if stored_label else None
+        if label is not None and (
+            label.decision_id,
+            label.dataset_id,
+            label.case_id,
+            label.question_id,
+        ) != (decision_id, dataset_id, case_id, question_id):
+            fail("label_identity_mismatch")
+        input_hash = JsonDocument(case.input_source).content_hash
+        review = LabelReview(
+            decision_id,
+            dataset_id,
+            case_id,
+            question_id,
+            input_hash,
+            decision_etag,
+            draft_etag,
+            stored_label.etag if stored_label else None,
+        )
+        return LabelView(
+            review,
+            case,
+            definition,
+            label,
+            label_applicability(label, definition, input_hash) if label else (),
+            missing_options(definition, question_id, label.acceptable_option_ids) if label else (),
+        )
 
     def read(
         self, decision_id: str, dataset_id: str, case_id: str, *, question_id: str | None = None
@@ -129,32 +184,16 @@ class LabelService:
             stored = self.source.read(
                 ResourceKey("labels", label_id(case_id, question), (decision_id, dataset_id))
             )
-            label = self._label(stored) if stored else None
-            if label is not None and (
-                label.decision_id,
-                label.dataset_id,
-                label.case_id,
-                label.question_id,
-            ) != (decision_id, dataset_id, case_id, question):
-                fail("label_identity_mismatch")
-            input_hash = JsonDocument(case.input_source).content_hash
-            review = LabelReview(
+            return self._view_from_records(
                 decision_id,
                 dataset_id,
                 case_id,
                 question,
-                input_hash,
+                definition,
                 decision_etag,
                 draft_etag,
-                stored.etag if stored else None,
-            )
-            return LabelView(
-                review,
                 case,
-                definition,
-                label,
-                label_applicability(label, definition, input_hash) if label else (),
-                missing_options(definition, question, label.acceptable_option_ids) if label else (),
+                stored,
             )
 
     def list(
@@ -178,6 +217,16 @@ class LabelService:
             admission.resource(cursor)
         if not 1 <= admission.integer(limit, "invalid_page_limit") <= 500:
             fail("invalid_page_limit")
+        capture_snapshot = self.capture_snapshot
+        if capture_snapshot is not None:
+            return self._list_from_snapshot(
+                capture_snapshot,
+                decision_id,
+                dataset_id,
+                status=status,
+                cursor=cursor,
+                limit=limit,
+            )
         with self.source.consistent_read():
             definition, _, _ = self._context(decision_id)
             required(self.source, ResourceKey("datasets", identifier(dataset_id)))
@@ -199,6 +248,94 @@ class LabelService:
             visible = tuple(
                 key
                 for key, view in views.items()
+                if status is None or status == view.status or status in view.reasons
+            )
+            chosen, next_cursor = page(visible, cursor, limit)
+            return LabelPage(tuple(views[key] for key in chosen), len(visible), next_cursor)
+
+    def _list_from_snapshot(
+        self,
+        capture_snapshot: Callable[[], tuple[StoredRecord, ...]],
+        decision_id: str,
+        dataset_id: str,
+        *,
+        status: str | None,
+        cursor: str | None,
+        limit: int,
+    ) -> LabelPage:
+        with self.source.consistent_read():
+            records = capture_snapshot()
+            index: dict[ResourceKey, StoredRecord] = {}
+            scoped_ids: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+            for record in records:
+                if record.key in index:
+                    fail("duplicate_captured_key", "incompatible_data")
+                index[record.key] = record
+                scoped_ids.setdefault((record.key.collection, record.key.scope), []).append(
+                    record.key.resource_id
+                )
+
+            def snapshot_required(key: ResourceKey) -> StoredRecord:
+                record = index.get(key)
+                if record is None:
+                    raise ServiceFailure(
+                        ServiceError(code="not_found", resource_id=key.resource_id)
+                    )
+                return record
+
+            definition, decision_etag, draft_etag = self._context_from_records(
+                snapshot_required(ResourceKey("decisions", identifier(decision_id))),
+                snapshot_required(ResourceKey("drafts", decision_id)),
+            )
+            dataset_stored = snapshot_required(ResourceKey("datasets", identifier(dataset_id)))
+            decoded(DatasetRecord, dataset_stored)
+
+            case_ids = scoped_ids.get(("cases", (dataset_id,)), [])
+            cases: dict[str, CaseRecord] = {}
+            for case_key in case_ids:
+                stored_case = snapshot_required(ResourceKey("cases", case_key, (dataset_id,)))
+                decoded_case = decoded(CaseRecord, stored_case)
+                if decoded_case.id != case_key or decoded_case.dataset_id != dataset_id:
+                    fail("invalid_record")
+                cases[case_key] = decoded_case
+
+            pairs = {(case_key, definition.questions[0].id) for case_key in case_ids}
+            labels: dict[tuple[str, str], StoredRecord] = {}
+            for label_key in scoped_ids.get(("labels", (decision_id, dataset_id)), []):
+                stored_label = snapshot_required(
+                    ResourceKey("labels", label_key, (decision_id, dataset_id))
+                )
+                label = self._label(stored_label)
+                pair = (label.case_id, label.question_id)
+                labels[pair] = stored_label
+                pairs.add(pair)
+
+            views: dict[str, LabelView] = {}
+            for case_key, question_key in sorted(pairs):
+                case = cases.get(case_key)
+                if case is None:
+                    case = decoded(
+                        CaseRecord,
+                        snapshot_required(ResourceKey("cases", case_key, (dataset_id,))),
+                    )
+                    if case.id != case_key or case.dataset_id != dataset_id:
+                        fail("invalid_record")
+                view = self._view_from_records(
+                    decision_id,
+                    dataset_id,
+                    case_key,
+                    question_key,
+                    definition,
+                    decision_etag,
+                    draft_etag,
+                    case,
+                    labels.get((case_key, question_key)),
+                )
+                views[label_id(case_key, question_key)] = view
+
+            visible = tuple(
+                key
+                for key, view in sorted(views.items())
                 if status is None or status == view.status or status in view.reasons
             )
             chosen, next_cursor = page(visible, cursor, limit)
