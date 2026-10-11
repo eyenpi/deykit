@@ -23,7 +23,9 @@ type LabelReceipt =
   ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
 
 function labelReceipt(
-  request: Parameters<typeof disconnectedWorkspace.authoring.examples.saveLabels>[0],
+  request: Parameters<
+    typeof disconnectedWorkspace.authoring.examples.saveLabels
+  >[0],
   labelId: string,
   replayed = false,
 ): ApiResult<LabelReceipt> {
