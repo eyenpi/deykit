@@ -9,7 +9,9 @@ import { ReportPage, ReportSheet } from "./ReportPages";
 
 vi.mock("../../components/Modal", () => ({
   Modal: ({ children, title }: { children: ReactNode; title: string }) => (
-    <div role="dialog" aria-label={title}>{children}</div>
+    <div role="dialog" aria-label={title}>
+      {children}
+    </div>
   ),
 }));
 
@@ -45,31 +47,46 @@ const report: ApiOperationData<"readReport"> = {
 };
 
 it("clears bytes and preview when changing the requested report format", async () => {
-  const requests: Parameters<typeof disconnectedWorkspace.debugging.reports.download>[0][] = [];
+  const requests: Parameters<
+    typeof disconnectedWorkspace.debugging.reports.download
+  >[0][] = [];
   const operations = {
     ...disconnectedWorkspace.debugging.reports,
     read: async () => result(report),
     download: async (request: (typeof requests)[number]) => {
       requests.push(request);
       return {
-        blob: new Blob([request.query.format === "json" ? '{"report":1}' : "# Report\n"]),
+        blob: new Blob([
+          request.query.format === "json" ? '{"report":1}' : "# Report\n",
+        ]),
         filename: request.query.format === "json" ? "report.json" : "report.md",
       };
     },
   };
   render(
-    <ReportPage registrationId="registration-1" reportId="report-1" operations={operations} />,
+    <ReportPage
+      registrationId="registration-1"
+      reportId="report-1"
+      operations={operations}
+    />,
   );
   const user = userEvent.setup();
   await screen.findByText(/Report report-1/);
-  await user.click(screen.getByRole("button", { name: "Preview report bytes" }));
+  await user.click(
+    screen.getByRole("button", { name: "Preview report bytes" }),
+  );
   expect(await screen.findByText('{"report":1}')).toBeTruthy();
   expect(screen.getByRole("status").textContent).toContain("as json");
 
-  await user.selectOptions(screen.getByLabelText("Download format"), "markdown");
+  await user.selectOptions(
+    screen.getByLabelText("Download format"),
+    "markdown",
+  );
   expect(screen.queryByText('{"report":1}')).toBeNull();
   expect(screen.queryByRole("status")).toBeNull();
-  await user.click(screen.getByRole("button", { name: "Preview report bytes" }));
+  await user.click(
+    screen.getByRole("button", { name: "Preview report bytes" }),
+  );
   expect(await screen.findByText("# Report")).toBeTruthy();
   await waitFor(() => expect(requests).toHaveLength(2));
   expect(requests[0]?.query.format).toBe("json");
@@ -110,18 +127,30 @@ it("keeps a new report-target verification active when an older target read sett
   );
   const user = userEvent.setup();
   try {
-    await user.selectOptions(screen.getByLabelText("Target kind"), "evaluation");
+    await user.selectOptions(
+      screen.getByLabelText("Target kind"),
+      "evaluation",
+    );
     await user.type(screen.getByLabelText("Target ID"), "evaluation-A");
-    await user.click(screen.getByRole("button", { name: "Verify saved target" }));
-    expect(screen.getByRole("button", { name: "Verifying target…" })).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Verifying target…" }),
+    ).toBeTruthy();
 
-    await user.selectOptions(screen.getByLabelText("Target kind"), "comparison");
+    await user.selectOptions(
+      screen.getByLabelText("Target kind"),
+      "comparison",
+    );
     await user.clear(screen.getByLabelText("Target ID"));
     await user.type(screen.getByLabelText("Target ID"), "comparison-B");
     const verify = screen.getByRole("button", { name: "Verify saved target" });
     expect((verify as HTMLButtonElement).disabled).toBe(false);
     await user.click(verify);
-    expect(screen.getByRole("button", { name: "Verifying target…" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Verifying target…" }),
+    ).toBeTruthy();
 
     evaluationRead.resolve({
       data: {
@@ -140,8 +169,18 @@ it("keeps a new report-target verification active when an older target read sett
       },
       warnings: [],
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Verifying target…" })).toBeTruthy());
-    expect((screen.getByRole("button", { name: "Verifying target…" }) as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Verifying target…" }),
+      ).toBeTruthy(),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Verifying target…",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(screen.queryByLabelText("Verified report target")).toBeNull();
 
     comparisonRead.resolve({
@@ -160,8 +199,12 @@ it("keeps a new report-target verification active when an older target read sett
       warnings: [],
     });
     expect(await screen.findByLabelText("Verified report target")).toBeTruthy();
-    expect(screen.getByLabelText("Verified report target").textContent).toContain("Comparison comparison-B");
-    expect(screen.getByRole("button", { name: "Verify saved target" })).toBeTruthy();
+    expect(
+      screen.getByLabelText("Verified report target").textContent,
+    ).toContain("Comparison comparison-B");
+    expect(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    ).toBeTruthy();
   } finally {
     tree.unmount();
     navigation.dispose();

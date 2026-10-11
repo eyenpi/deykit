@@ -12,7 +12,9 @@ function result<T>(data: T) {
 it("retains an evaluation body after an unknown response and blocks a duplicate submit", async () => {
   window.history.replaceState(null, "", "#/p/registration-1/runs/run-1");
   const navigation = new WorkspaceNavigation(window);
-  const calls: Parameters<typeof disconnectedWorkspace.debugging.evaluations.create>[0][] = [];
+  const calls: Parameters<
+    typeof disconnectedWorkspace.debugging.evaluations.create
+  >[0][] = [];
   const receipt: ApiOperationData<"createEvaluation"> = {
     schema_version: 1,
     evaluation_id: "evaluation-1",
@@ -55,12 +57,22 @@ it("retains an evaluation body after an unknown response and blocks a duplicate 
     const save = screen.getByRole("button", { name: "Save evaluation" });
     fireEvent.click(save);
     fireEvent.click(save);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Retry original unchanged request" })).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Retry original unchanged request",
+        }),
+      ).toBeTruthy(),
+    );
     expect(calls).toHaveLength(1);
     const retained = calls[0];
     if (!retained) throw new Error("The evaluation request was not captured.");
-    await screen.getByRole("button", { name: "Retry original unchanged request" }).click();
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("evaluation-1"));
+    await screen
+      .getByRole("button", { name: "Retry original unchanged request" })
+      .click();
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("evaluation-1"),
+    );
     expect(calls).toHaveLength(2);
     expect(calls[1]).toEqual(retained);
     expect(calls[1]?.body.operation_id).toBe(retained.body.operation_id);

@@ -294,7 +294,8 @@ function mountInspector(
 }
 
 it("keeps the frozen pair while the service reports status-intersected global assessments", async () => {
-  const queries: NonNullable<ApiOperationArguments<"listResults">["query"]>[] = [];
+  const queries: NonNullable<ApiOperationArguments<"listResults">["query"]>[] =
+    [];
   const execution: ExecutionGateway = {
     ...disconnectedWorkspace.execution,
     inspection: {
@@ -305,7 +306,11 @@ it("keeps the frozen pair while the service reports status-intersected global as
         queries.push(query ?? {});
         const validOnly = query?.status === "valid";
         const statuses = Array.from({ length: 12 }, (_, index) =>
-          index < 10 ? "valid" : index === 10 ? "input_invalid" : "response_error",
+          index < 10
+            ? "valid"
+            : index === 10
+              ? "input_invalid"
+              : "response_error",
         );
         const items = statuses
           .map((status, index) => ({
@@ -320,7 +325,11 @@ it("keeps the frozen pair while the service reports status-intersected global as
           ...resultPage("result-snapshot-1", rowSource, null),
           selected_count: "12",
           filtered_count: validOnly ? "10" : "12",
-          status_counts: { valid: "10", input_invalid: "1", response_error: "1" },
+          status_counts: {
+            valid: "10",
+            input_invalid: "1",
+            response_error: "1",
+          },
           assessment_counts: validOnly
             ? { all: "10", inspect: "2", incorrect: "2", unlabelled: "2" }
             : { all: "12", inspect: "4", incorrect: "2", unlabelled: "2" },
@@ -354,7 +363,12 @@ it("keeps the frozen pair while the service reports status-intersected global as
       expected_result_snapshot_id: "result-snapshot-1",
       expected_label_snapshot_id: "label-result-snapshot-1",
     });
-    expect(screen.getByRole("status", { name: "Published result snapshot" }).textContent).toContain("Result snapshot result-snapshot-1; label snapshot label-result-snapshot-1.");
+    expect(
+      screen.getByRole("status", { name: "Published result snapshot" })
+        .textContent,
+    ).toContain(
+      "Result snapshot result-snapshot-1; label snapshot label-result-snapshot-1.",
+    );
   } finally {
     tree.unmount();
     navigation.dispose();
@@ -547,7 +561,11 @@ it("rejects a case detail whose result and label snapshots differ from the first
         result<ApiOperationData<"readResult">>({
           schema_version: 1,
           case_input_hash: "f".repeat(64),
-          context: context("result-snapshot-1", "label-result-snapshot-1", null),
+          context: context(
+            "result-snapshot-1",
+            "label-result-snapshot-1",
+            null,
+          ),
           probabilities: [],
           probabilities_unavailable_reason: "probabilities_not_provided",
           source: {

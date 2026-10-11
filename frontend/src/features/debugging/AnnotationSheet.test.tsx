@@ -9,7 +9,9 @@ import { AnnotationSheet } from "./AnnotationSheet";
 
 vi.mock("../../components/Modal", () => ({
   Modal: ({ children, title }: { children: ReactNode; title: string }) => (
-    <div role="dialog" aria-label={title}>{children}</div>
+    <div role="dialog" aria-label={title}>
+      {children}
+    </div>
   ),
 }));
 
@@ -21,7 +23,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function annotation(caseId: string, note: string): ApiOperationData<"readAnnotation"> {
+function annotation(
+  caseId: string,
+  note: string,
+): ApiOperationData<"readAnnotation"> {
   return {
     schema_version: 1,
     annotation_id: `annotation-${caseId}`,
@@ -37,11 +42,14 @@ function annotation(caseId: string, note: string): ApiOperationData<"readAnnotat
 it("does not publish an obsolete annotation list across A-to-B-to-A scope changes", async () => {
   window.history.replaceState(null, "", "#/p/registration-1/runs/run-1");
   const navigation = new WorkspaceNavigation(window);
-  const pending: Array<ReturnType<typeof deferred<ApiResult<ApiOperationData<"listAnnotations">>>>> = [];
+  const pending: Array<
+    ReturnType<typeof deferred<ApiResult<ApiOperationData<"listAnnotations">>>>
+  > = [];
   const operations = {
     ...disconnectedWorkspace.debugging.annotations,
     list: () => {
-      const request = deferred<ApiResult<ApiOperationData<"listAnnotations">>>();
+      const request =
+        deferred<ApiResult<ApiOperationData<"listAnnotations">>>();
       pending.push(request);
       return request.promise;
     },
@@ -62,11 +70,19 @@ it("does not publish an obsolete annotation list across A-to-B-to-A scope change
     await waitFor(() => expect(pending).toHaveLength(3));
 
     pending[0]?.resolve({
-      data: { items: [annotation("case-A", "stale A1")], next_cursor: null, total: "1" },
+      data: {
+        items: [annotation("case-A", "stale A1")],
+        next_cursor: null,
+        total: "1",
+      },
       warnings: [],
     });
     pending[1]?.resolve({
-      data: { items: [annotation("case-B", "stale B")], next_cursor: null, total: "1" },
+      data: {
+        items: [annotation("case-B", "stale B")],
+        next_cursor: null,
+        total: "1",
+      },
       warnings: [],
     });
     await Promise.resolve();
@@ -74,7 +90,11 @@ it("does not publish an obsolete annotation list across A-to-B-to-A scope change
     expect(screen.queryByText("stale B")).toBeNull();
 
     pending[2]?.resolve({
-      data: { items: [annotation("case-A", "current A2")], next_cursor: null, total: "1" },
+      data: {
+        items: [annotation("case-A", "current A2")],
+        next_cursor: null,
+        total: "1",
+      },
       warnings: [],
     });
     expect(await screen.findByText("current A2")).toBeTruthy();
@@ -88,7 +108,9 @@ it("does not publish an obsolete annotation list across A-to-B-to-A scope change
 it("replays the exact annotation once and keeps a receipt when the follow-up list read fails", async () => {
   window.history.replaceState(null, "", "#/p/registration-1/runs/run-1");
   const navigation = new WorkspaceNavigation(window);
-  const requests: Parameters<typeof disconnectedWorkspace.debugging.annotations.add>[0][] = [];
+  const requests: Parameters<
+    typeof disconnectedWorkspace.debugging.annotations.add
+  >[0][] = [];
   let listReads = 0;
   let writes = 0;
   const operations = {
@@ -132,16 +154,34 @@ it("replays the exact annotation once and keeps a receipt when the follow-up lis
     const save = screen.getByRole("button", { name: "Save annotation" });
     fireEvent.click(save);
     fireEvent.click(save);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Retry original unchanged annotation" })).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "Retry original unchanged annotation",
+        }),
+      ).toBeTruthy(),
+    );
     expect(requests).toHaveLength(1);
     const original = requests[0];
     if (!original) throw new Error("The annotation request was not captured.");
-    await user.click(screen.getByRole("button", { name: "Retry original unchanged annotation" }));
-    expect(await screen.findByText(/Annotation annotation-case-A is saved/)).toBeTruthy();
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("read unavailable"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Retry original unchanged annotation",
+      }),
+    );
+    expect(
+      await screen.findByText(/Annotation annotation-case-A is saved/),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "read unavailable",
+      ),
+    );
     expect(requests).toHaveLength(2);
     expect(requests[1]).toEqual(original);
-    await user.click(screen.getByRole("button", { name: "Refresh annotations" }));
+    await user.click(
+      screen.getByRole("button", { name: "Refresh annotations" }),
+    );
     expect(await screen.findByText("saved note")).toBeTruthy();
     expect(writes).toBe(2);
   } finally {

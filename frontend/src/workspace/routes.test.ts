@@ -118,12 +118,16 @@ describe("workspace routes", () => {
     expect(
       routeFromHash("#/p/registration-1/comparisons/comparison-1?source=x"),
     ).toBeNull();
-    expect(routeFromHash("#/p/registration-1/reports/report-1/extra")).toBeNull();
+    expect(
+      routeFromHash("#/p/registration-1/reports/report-1/extra"),
+    ).toBeNull();
     expect(
       routeFromHash("#/p/registration-1/runs/run-1?group_kind=check"),
     ).toBeNull();
     expect(
-      routeFromHash("#/p/registration-1/runs/run-1?group_kind=other&group_id=x"),
+      routeFromHash(
+        "#/p/registration-1/runs/run-1?group_kind=other&group_id=x",
+      ),
     ).toBeNull();
   });
 

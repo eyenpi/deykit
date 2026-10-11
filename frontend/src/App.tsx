@@ -17,7 +17,11 @@ import { RunList } from "./features/execution/RunList";
 import { RunDetail } from "./features/execution/RunDetail";
 import { ComparisonPage } from "./features/debugging/ComparisonPage";
 import { RegressionList } from "./features/debugging/RegressionList";
-import { ReportList, ReportPage, ReportSheet } from "./features/debugging/ReportPages";
+import {
+  ReportList,
+  ReportPage,
+  ReportSheet,
+} from "./features/debugging/ReportPages";
 import { GroupReview } from "./features/debugging/groups/GroupReview";
 import { GroupDetail } from "./features/debugging/groups/GroupDetail";
 import type { GroupReportTarget } from "./features/debugging/groups/GroupDetail";
@@ -80,7 +84,8 @@ export function App({
   const [groupReview, setGroupReview] = useState<
     { decisionId: string; kind: "diagnostic" | "check" } | undefined
   >();
-  const [groupReportTarget, setGroupReportTarget] = useState<GroupReportTarget>();
+  const [groupReportTarget, setGroupReportTarget] =
+    useState<GroupReportTarget>();
   const [createdName, setCreatedName] = useState<string>();
   const [createdError, setCreatedError] = useState<string>();
   const openHeading = useRef<HTMLHeadingElement>(null);
@@ -553,17 +558,24 @@ export function App({
               }
             }}
           />
-          <section className="debugging-controls" aria-label="Decision diagnostics">
+          <section
+            className="debugging-controls"
+            aria-label="Decision diagnostics"
+          >
             <h2>Diagnostics and checks</h2>
             <button
               type="button"
-              onClick={() => setGroupReview({ decisionId: decision.id, kind: "diagnostic" })}
+              onClick={() =>
+                setGroupReview({ decisionId: decision.id, kind: "diagnostic" })
+              }
             >
               Preview choice-order diagnostic
             </button>
             <button
               type="button"
-              onClick={() => setGroupReview({ decisionId: decision.id, kind: "check" })}
+              onClick={() =>
+                setGroupReview({ decisionId: decision.id, kind: "check" })
+              }
             >
               Preview regression check
             </button>
@@ -648,7 +660,9 @@ export function App({
         <ComparisonPage
           key={`${project.id}:comparison:${route.kind === "comparison" ? route.comparisonId : "list"}`}
           registrationId={project.id}
-          comparisonId={route.kind === "comparison" ? route.comparisonId : undefined}
+          comparisonId={
+            route.kind === "comparison" ? route.comparisonId : undefined
+          }
           debugging={gateway.debugging}
           execution={gateway.execution}
           navigation={navigation}
@@ -821,7 +835,11 @@ export function App({
           onCreated={(reportId) => {
             const registrationId = project.id;
             setGroupReportTarget(undefined);
-            void navigation.navigate({ kind: "report", registrationId, reportId });
+            void navigation.navigate({
+              kind: "report",
+              registrationId,
+              reportId,
+            });
           }}
         />
       )}

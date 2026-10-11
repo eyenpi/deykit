@@ -511,7 +511,10 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   const read = vi.fn(async () => {
     readAttempt += 1;
     if (readAttempt > 1)
-      throw new ApiError("network_error", "progress read unavailable after receipt");
+      throw new ApiError(
+        "network_error",
+        "progress read unavailable after receipt",
+      );
     return response({
       group: progress,
       exit_code: 0,

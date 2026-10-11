@@ -1,4 +1,12 @@
-import { expect, type APIResponse, type Page, type Request, type Response, type Route, type TestInfo } from "@playwright/test";
+import {
+  expect,
+  type APIResponse,
+  type Page,
+  type Request,
+  type Response,
+  type Route,
+  type TestInfo,
+} from "@playwright/test";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
@@ -51,7 +59,11 @@ export type SafeProgress = {
   workflow: DebuggingWorkflow;
   active_phase: string;
   completed_phases: string[];
-  phases: Array<{ id: string; status: "active" | "complete"; elapsed_ms: number }>;
+  phases: Array<{
+    id: string;
+    status: "active" | "complete";
+    elapsed_ms: number;
+  }>;
   screenshots: string[];
   api_failures: Array<{
     route_pattern: string;
@@ -61,7 +73,11 @@ export type SafeProgress = {
     reason: string | null;
   }>;
   pending_reads: Record<string, number>;
-  fixture_calls: { fixture_dispatch_calls: number; for_case_calls: number; live_dispatch_calls: number };
+  fixture_calls: {
+    fixture_dispatch_calls: number;
+    for_case_calls: number;
+    live_dispatch_calls: number;
+  };
   equality: Record<string, boolean>;
   timings_ms: Record<string, number>;
   witnesses: Record<string, string | number | boolean | null>;
@@ -69,7 +85,8 @@ export type SafeProgress = {
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`Missing installed qualification environment: ${name}`);
+  if (!value)
+    throw new Error(`Missing installed qualification environment: ${name}`);
   return value;
 }
 
@@ -91,11 +108,17 @@ export function routeTemplate(pathname: string): string {
       (template) =>
         template.length === actual.length &&
         template.every((segment, index) =>
-          /^\{[a-z_]+\}$/.test(segment) ? actual[index] !== "" : actual[index] === segment,
+          /^\{[a-z_]+\}$/.test(segment)
+            ? actual[index] !== ""
+            : actual[index] === segment,
         ),
     );
   return match
-    ? match.map((segment) => /^\{[a-z_]+\}$/.test(segment) ? `:${segment.slice(1, -1)}` : segment).join("/")
+    ? match
+        .map((segment) =>
+          /^\{[a-z_]+\}$/.test(segment) ? `:${segment.slice(1, -1)}` : segment,
+        )
+        .join("/")
     : "<unknown-route>";
 }
 
@@ -114,12 +137,18 @@ export class DebuggingQualification {
   private readonly testInfo: TestInfo;
   private saveQueue: Promise<void> = Promise.resolve();
 
-  private constructor(testInfo: TestInfo, workflow: DebuggingWorkflow, seedMetadata: SeedMetadata) {
+  private constructor(
+    testInfo: TestInfo,
+    workflow: DebuggingWorkflow,
+    seedMetadata: SeedMetadata,
+  ) {
     this.testInfo = testInfo;
     this.workflow = workflow;
     this.projectPath = requiredEnvironment("DEYKIT_DEBUGGING_PROJECT");
     this.secondaryProjectPath = process.env.DEYKIT_DEBUGGING_SECONDARY_PROJECT;
-    this.controlDirectory = requiredEnvironment("DEYKIT_FIXTURE_CONTROL_DIRECTORY");
+    this.controlDirectory = requiredEnvironment(
+      "DEYKIT_FIXTURE_CONTROL_DIRECTORY",
+    );
     this.installedPython = requiredEnvironment("DEYKIT_INSTALLED_PYTHON");
     this.workerPath = requiredEnvironment("DEYKIT_INSTALLED_PROJECT_WORKER");
     this.sourceEvidencePath = process.env.DEYKIT_DEBUGGING_G_SOURCE_EVIDENCE;
@@ -133,7 +162,11 @@ export class DebuggingQualification {
       screenshots: [],
       api_failures: [],
       pending_reads: {},
-      fixture_calls: { fixture_dispatch_calls: 0, for_case_calls: 0, live_dispatch_calls: 0 },
+      fixture_calls: {
+        fixture_dispatch_calls: 0,
+        for_case_calls: 0,
+        live_dispatch_calls: 0,
+      },
       equality: {},
       timings_ms: {},
       witnesses: {},
@@ -142,11 +175,20 @@ export class DebuggingQualification {
 
   static async create(testInfo: TestInfo): Promise<DebuggingQualification> {
     const workflowValue = requiredEnvironment("DEYKIT_DEBUGGING_WORKFLOW");
-    if (!(workflowValue === "S" || workflowValue === "C" || workflowValue === "G" || workflowValue === "R"))
+    if (!(
+      workflowValue === "S" ||
+      workflowValue === "C" ||
+      workflowValue === "G" ||
+      workflowValue === "R"
+    ))
       throw new Error("Installed qualification workflow is invalid.");
-    const raw = await readFile(requiredEnvironment("DEYKIT_DEBUGGING_SEED_METADATA"), "utf8");
+    const raw = await readFile(
+      requiredEnvironment("DEYKIT_DEBUGGING_SEED_METADATA"),
+      "utf8",
+    );
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) throw new Error("Installed seed metadata is malformed.");
+    if (!isRecord(parsed))
+      throw new Error("Installed seed metadata is malformed.");
     const metadata = parsed as unknown as SeedMetadata;
     if (
       metadata.workflow !== workflowValue ||
@@ -189,18 +231,29 @@ export class DebuggingQualification {
   async configure(): Promise<void> {
     this.testInfo.setTimeout(WORKFLOW_TIMEOUT_MS[this.workflow]);
     this.progress.active_phase = "project-open";
-    this.progress.phases[0] = { id: "project-open", status: "active", elapsed_ms: 0 };
+    this.progress.phases[0] = {
+      id: "project-open",
+      status: "active",
+      elapsed_ms: 0,
+    };
     await this.save();
   }
 
   async enterPhase(id: string): Promise<void> {
-    if (!/^[a-z][a-z0-9-]{0,79}$/.test(id)) throw new Error("Qualification phase name is invalid.");
-    const current = this.progress.phases.find((phase) => phase.id === this.progress.active_phase);
+    if (!/^[a-z][a-z0-9-]{0,79}$/.test(id))
+      throw new Error("Qualification phase name is invalid.");
+    const current = this.progress.phases.find(
+      (phase) => phase.id === this.progress.active_phase,
+    );
     if (current) current.status = "complete";
     if (!this.progress.completed_phases.includes(this.progress.active_phase))
       this.progress.completed_phases.push(this.progress.active_phase);
     this.progress.active_phase = id;
-    this.progress.phases.push({ id, status: "active", elapsed_ms: this.elapsedMs() });
+    this.progress.phases.push({
+      id,
+      status: "active",
+      elapsed_ms: this.elapsedMs(),
+    });
     await this.save();
   }
 
@@ -213,23 +266,29 @@ export class DebuggingQualification {
   }
 
   setEquality(name: string, value: boolean): void {
-    if (!/^[a-z][a-z0-9_]{0,79}$/.test(name)) throw new Error("Qualification equality name is invalid.");
+    if (!/^[a-z][a-z0-9_]{0,79}$/.test(name))
+      throw new Error("Qualification equality name is invalid.");
     this.progress.equality[name] = value;
   }
 
   setWitness(name: string, value: string | number | boolean | null): void {
-    if (!/^[a-z][a-z0-9_]{0,79}$/.test(name)) throw new Error("Qualification witness name is invalid.");
+    if (!/^[a-z][a-z0-9_]{0,79}$/.test(name))
+      throw new Error("Qualification witness name is invalid.");
     if (typeof value === "string" && !/^[A-Za-z0-9_.:-]{1,256}$/.test(value))
-      throw new Error("Qualification witness value is not a safe identifier or hash.");
+      throw new Error(
+        "Qualification witness value is not a safe identifier or hash.",
+      );
     this.progress.witnesses[name] = value;
   }
 
   async captureScreenshot(page: Page, name: string): Promise<void> {
-    if (!/^[a-z0-9-]{1,80}\.png$/.test(name)) throw new Error("Screenshot name is invalid.");
+    if (!/^[a-z0-9-]{1,80}\.png$/.test(name))
+      throw new Error("Screenshot name is invalid.");
     const path = this.testInfo.outputPath(name);
     await page.screenshot({ path, fullPage: true });
     await this.testInfo.attach(name, { path, contentType: "image/png" });
-    if (!this.progress.screenshots.includes(name)) this.progress.screenshots.push(name);
+    if (!this.progress.screenshots.includes(name))
+      this.progress.screenshots.push(name);
     await this.save();
   }
 
@@ -239,7 +298,8 @@ export class DebuggingQualification {
     let reason: string | null = null;
     try {
       const body: unknown = await response.json();
-      const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+      const error =
+        isRecord(body) && isRecord(body.error) ? body.error : undefined;
       code = safeIdentifier(error?.code);
       reason = safeIdentifier(error?.reason);
     } catch {
@@ -260,7 +320,9 @@ export class DebuggingQualification {
   }
 
   async save(): Promise<void> {
-    const active = this.progress.phases.find((phase) => phase.id === this.progress.active_phase);
+    const active = this.progress.phases.find(
+      (phase) => phase.id === this.progress.active_phase,
+    );
     if (active) active.elapsed_ms = this.elapsedMs();
     const snapshot = `${JSON.stringify(this.progress, null, 2)}\n`;
     this.saveQueue = this.saveQueue.then(() =>
@@ -270,12 +332,18 @@ export class DebuggingQualification {
   }
 
   async complete(): Promise<void> {
-    const current = this.progress.phases.find((phase) => phase.id === this.progress.active_phase);
+    const current = this.progress.phases.find(
+      (phase) => phase.id === this.progress.active_phase,
+    );
     if (current) current.status = "complete";
     if (!this.progress.completed_phases.includes(this.progress.active_phase))
       this.progress.completed_phases.push(this.progress.active_phase);
     this.progress.active_phase = "complete";
-    this.progress.phases.push({ id: "complete", status: "complete", elapsed_ms: this.elapsedMs() });
+    this.progress.phases.push({
+      id: "complete",
+      status: "complete",
+      elapsed_ms: this.elapsedMs(),
+    });
     await this.save();
   }
 }
@@ -326,7 +394,9 @@ export async function captureResponse(
   action: () => Promise<void>,
   timeoutMs = BODY_TIMEOUT_MS,
 ): Promise<{ response: Response; body: Buffer }> {
-  const responsePromise = page.waitForResponse(predicate, { timeout: timeoutMs });
+  const responsePromise = page.waitForResponse(predicate, {
+    timeout: timeoutMs,
+  });
   void responsePromise.catch(() => undefined);
   await action();
   const response = await responsePromise;
@@ -335,7 +405,10 @@ export async function captureResponse(
     const body = await Promise.race([
       response.body(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("An installed response body did not settle.")), timeoutMs);
+        timer = setTimeout(
+          () => reject(new Error("An installed response body did not settle.")),
+          timeoutMs,
+        );
       }),
     ]);
     return { response, body };
@@ -353,11 +426,15 @@ export async function captureOperation(
   timeoutMs = BODY_TIMEOUT_MS,
 ): Promise<{ response: Response; body: Buffer }> {
   const metadata = operationMetadata[operation];
-  const expectedPath = metadata.path.replace(/\{([a-z_]+)\}/g, (_whole, name: string) => {
-    const value = pathParameters[name];
-    if (!value) throw new Error("An installed operation path parameter is missing.");
-    return encodeURIComponent(value);
-  });
+  const expectedPath = metadata.path.replace(
+    /\{([a-z_]+)\}/g,
+    (_whole, name: string) => {
+      const value = pathParameters[name];
+      if (!value)
+        throw new Error("An installed operation path parameter is missing.");
+      return encodeURIComponent(value);
+    },
+  );
   const captured = await captureResponse(
     page,
     (response) => {
@@ -402,25 +479,30 @@ export function installLostAcknowledgement(
   firstObservation: () => FirstAcknowledgement | undefined;
   dispose: () => Promise<void>;
 }> {
-  let first:
-    | { status: number; request: Buffer; response: Buffer }
-    | undefined;
-  let replay:
-    | { status: number; request: Buffer; response: Buffer }
-    | undefined;
+  let first: { status: number; request: Buffer; response: Buffer } | undefined;
+  let replay: { status: number; request: Buffer; response: Buffer } | undefined;
   const handler = async (route: Route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (request.method() !== "POST" || url.pathname !== path || first && replay) {
+    if (
+      request.method() !== "POST" ||
+      url.pathname !== path ||
+      (first && replay)
+    ) {
       await route.continue();
       return;
     }
     const requestBody = request.postDataBuffer();
-    if (!requestBody) throw new Error("The retained API request body was unavailable.");
+    if (!requestBody)
+      throw new Error("The retained API request body was unavailable.");
     const upstream = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
     const responseBody = await upstream.body();
     if (!first) {
-      first = { status: upstream.status(), request: requestBody, response: responseBody };
+      first = {
+        status: upstream.status(),
+        request: requestBody,
+        response: responseBody,
+      };
       if (upstream.status() === expectedSuccessStatus) {
         await route.abort("failed");
         return;
@@ -428,7 +510,11 @@ export function installLostAcknowledgement(
       await route.fulfill({ response: upstream });
       return;
     }
-    replay = { status: upstream.status(), request: requestBody, response: responseBody };
+    replay = {
+      status: upstream.status(),
+      request: requestBody,
+      response: responseBody,
+    };
     await route.fulfill({ response: upstream });
   };
   const pattern = `**${path}`;
@@ -497,14 +583,19 @@ export async function openPreparedProject(
   projectPath: string,
 ): Promise<{ registrationId: string; registrationBody: unknown }> {
   const bootstrap = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === "/api/v1/session/bootstrap",
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/session/bootstrap",
     { timeout: BODY_TIMEOUT_MS },
   );
   await page.goto("/");
   const bootstrapResponse = await bootstrap;
   expect(bootstrapResponse.status()).toBe(200);
   const bootstrapBody: unknown = await bootstrapResponse.json();
-  if (!isRecord(bootstrapBody) || !isRecord(bootstrapBody.data) || typeof bootstrapBody.data.capability !== "string")
+  if (
+    !isRecord(bootstrapBody) ||
+    !isRecord(bootstrapBody.data) ||
+    typeof bootstrapBody.data.capability !== "string"
+  )
     throw new Error("The local project session was not initialized.");
 
   const registrationPromise = page.waitForResponse(
@@ -514,18 +605,32 @@ export async function openPreparedProject(
     { timeout: BODY_TIMEOUT_MS },
   );
   await page.getByRole("button", { name: "Open project", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Open project", exact: true });
+  const dialog = page.getByRole("dialog", {
+    name: "Open project",
+    exact: true,
+  });
   await dialog.getByLabel("Project folder path").fill(projectPath);
-  await dialog.getByRole("button", { name: "Open project", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Open project", exact: true })
+    .click();
   const registrationResponse = await registrationPromise;
   expect(registrationResponse.status()).toBe(200);
   const registrationBody: unknown = await registrationResponse.json();
-  if (!isRecord(registrationBody) || !isRecord(registrationBody.data) || !isRecord(registrationBody.data.registration))
+  if (
+    !isRecord(registrationBody) ||
+    !isRecord(registrationBody.data) ||
+    !isRecord(registrationBody.data.registration)
+  )
     throw new Error("The prepared project registration receipt was malformed.");
   const registrationId = registrationBody.data.registration.registration_id;
-  if (typeof registrationId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(registrationId))
+  if (
+    typeof registrationId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(registrationId)
+  )
     throw new Error("The prepared project registration receipt was invalid.");
-  await expect(page.getByRole("heading", { name: "Sandbox", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sandbox", exact: true }),
+  ).toBeVisible();
   await registrationResponse.body();
   return { registrationId, registrationBody };
 }
@@ -547,7 +652,9 @@ export async function waitForCountFile(
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error("The installed fixture-dispatch witness did not reach its bounded count.");
+  throw new Error(
+    "The installed fixture-dispatch witness did not reach its bounded count.",
+  );
 }
 
 export type FixtureCounts = {
@@ -598,7 +705,8 @@ export async function waitForBarrierEntry(
   caseId: string,
   timeoutMs = 12_000,
 ): Promise<void> {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(caseId)) throw new Error("Fixture case ID is invalid.");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(caseId))
+    throw new Error("Fixture case ID is invalid.");
   const enteredPath = `${controlDirectory}/${caseId}.entered`;
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
@@ -617,7 +725,10 @@ export async function waitForAnyBarrierEntry(
   caseIds: readonly string[],
   timeoutMs = 12_000,
 ): Promise<string> {
-  if (caseIds.length === 0 || caseIds.some((caseId) => !/^[A-Za-z0-9_-]{1,128}$/.test(caseId)))
+  if (
+    caseIds.length === 0 ||
+    caseIds.some((caseId) => !/^[A-Za-z0-9_-]{1,128}$/.test(caseId))
+  )
     throw new Error("Fixture case IDs are invalid.");
   const deadline = performance.now() + timeoutMs;
   while (performance.now() < deadline) {
@@ -638,7 +749,8 @@ export async function createFixtureHold(
   controlDirectory: string,
   caseId: string,
 ): Promise<{ path: string; release: () => Promise<void> }> {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(caseId)) throw new Error("Fixture case ID is invalid.");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(caseId))
+    throw new Error("Fixture case ID is invalid.");
   await unlink(`${controlDirectory}/${caseId}.entered`).catch(() => undefined);
   const path = `${controlDirectory}/${caseId}.hold`;
   const handle = await open(path, "wx", 0o600);
@@ -664,12 +776,27 @@ export async function invokeReportWitness(
   reportId: string,
   outputPath: string,
 ): Promise<void> {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(reportId)) throw new Error("Report ID is invalid.");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(reportId))
+    throw new Error("Report ID is invalid.");
   await new Promise<void>((resolve, reject) => {
     const child = spawn(
       qualification.installedPython,
-      ["-I", qualification.workerPath, "report-witness", "--project", projectPath, "--report-id", reportId, "--output", outputPath],
-      { cwd: projectPath, stdio: ["ignore", "ignore", "ignore"], windowsHide: true },
+      [
+        "-I",
+        qualification.workerPath,
+        "report-witness",
+        "--project",
+        projectPath,
+        "--report-id",
+        reportId,
+        "--output",
+        outputPath,
+      ],
+      {
+        cwd: projectPath,
+        stdio: ["ignore", "ignore", "ignore"],
+        windowsHide: true,
+      },
     );
     let timedOut = false;
     let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
@@ -694,16 +821,29 @@ export async function invokeReportWitness(
 
 export async function readReportWitness(path: string, reportId: string) {
   const raw: unknown = JSON.parse(await readFile(path, "utf8"));
-  if (!isRecord(raw) || raw.report_id !== reportId || raw.read_only_witness !== true || !isRecord(raw.artifacts))
+  if (
+    !isRecord(raw) ||
+    raw.report_id !== reportId ||
+    raw.read_only_witness !== true ||
+    !isRecord(raw.artifacts)
+  )
     throw new Error("The installed report witness metadata is invalid.");
   const formats = ["json", "markdown"] as const;
-  const output: Record<(typeof formats)[number], { file: string; bytes_hash: string; byte_count: number }> = {
+  const output: Record<
+    (typeof formats)[number],
+    { file: string; bytes_hash: string; byte_count: number }
+  > = {
     json: { file: "", bytes_hash: "", byte_count: 0 },
     markdown: { file: "", bytes_hash: "", byte_count: 0 },
   };
   for (const format of formats) {
     const artifact = raw.artifacts[format];
-    if (!isRecord(artifact) || typeof artifact.file !== "string" || typeof artifact.bytes_hash !== "string" || !Number.isSafeInteger(artifact.byte_count))
+    if (
+      !isRecord(artifact) ||
+      typeof artifact.file !== "string" ||
+      typeof artifact.bytes_hash !== "string" ||
+      !Number.isSafeInteger(artifact.byte_count)
+    )
       throw new Error("The installed report witness artifact is invalid.");
     output[format] = {
       file: artifact.file,
@@ -720,10 +860,12 @@ export async function assertExactArtifactBytes(
   expectedHash: string,
 ): Promise<boolean> {
   const expected = await readFile(expectedPath);
-  return actual.byteLength === expected.byteLength &&
+  return (
+    actual.byteLength === expected.byteLength &&
     bodySha256(actual) === expectedHash &&
     bodySha256(expected) === expectedHash &&
-    Buffer.compare(Buffer.from(actual), expected) === 0;
+    Buffer.compare(Buffer.from(actual), expected) === 0
+  );
 }
 
 export class BrowserReadTracker {
@@ -732,23 +874,27 @@ export class BrowserReadTracker {
   private readonly onRequest = (request: Request) => {
     if (request.method() !== "GET") return;
     const url = new URL(request.url());
-    if (url.origin !== this.baseOrigin || !url.pathname.startsWith("/api/")) return;
+    if (url.origin !== this.baseOrigin || !url.pathname.startsWith("/api/"))
+      return;
     this.pending.set(request, routeTemplate(url.pathname));
     this.publish();
   };
   private readonly onResponse = (response: Response) => {
     const request = response.request();
     if (!this.pending.has(request)) return;
-    void response.body().then(
-      async () => {
-        try {
-          await this.qualification.observeFailure(response);
-        } finally {
-          this.settle(request);
-        }
-      },
-      () => this.settle(request),
-    ).catch(() => this.settle(request));
+    void response
+      .body()
+      .then(
+        async () => {
+          try {
+            await this.qualification.observeFailure(response);
+          } finally {
+            this.settle(request);
+          }
+        },
+        () => this.settle(request),
+      )
+      .catch(() => this.settle(request));
   };
   private readonly onFailure = (request: Request) => this.settle(request);
 
@@ -770,7 +916,8 @@ export class BrowserReadTracker {
 
   private publish(): void {
     const counts: Record<string, number> = {};
-    for (const route of this.pending.values()) counts[route] = (counts[route] ?? 0) + 1;
+    for (const route of this.pending.values())
+      counts[route] = (counts[route] ?? 0) + 1;
     this.qualification.setPendingReads(counts);
     void this.qualification.save();
   }
@@ -780,7 +927,9 @@ export class BrowserReadTracker {
     while (this.pending.size > 0 && performance.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 50));
     if (this.pending.size > 0)
-      throw new Error("Installed browser reads did not finish their response bodies.");
+      throw new Error(
+        "Installed browser reads did not finish their response bodies.",
+      );
   }
 
   async dispose(): Promise<void> {

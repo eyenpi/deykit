@@ -205,8 +205,10 @@ export function routeFromHash(hash: string): WorkspaceRoute | null {
       if (
         (evaluationId !== undefined && !validId(evaluationId)) ||
         (runCaseId !== undefined && !validId(runCaseId)) ||
-        ((groupKind === null) !== (groupId === null)) ||
-        (groupKind !== null && groupKind !== "diagnostic" && groupKind !== "check") ||
+        (groupKind === null) !== (groupId === null) ||
+        (groupKind !== null &&
+          groupKind !== "diagnostic" &&
+          groupKind !== "check") ||
         (groupId !== null && !validId(groupId))
       )
         return null;

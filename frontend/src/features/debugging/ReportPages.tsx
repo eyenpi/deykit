@@ -1,20 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { safeMessage } from "../../api/client";
-import type { ApiDownload, ApiOperationBody, ApiOperationData } from "../../api/client";
+import type {
+  ApiDownload,
+  ApiOperationBody,
+  ApiOperationData,
+} from "../../api/client";
 import { Modal } from "../../components/Modal";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
-import type { DebuggingGateway, ExecutionGateway } from "../../workspace/gateway";
+import type {
+  DebuggingGateway,
+  ExecutionGateway,
+} from "../../workspace/gateway";
 import type { GroupReportTarget } from "./groups/GroupDetail";
 import { useRenderedScopeEpoch } from "./useRenderedScopeEpoch";
 
 type Report = ApiOperationData<"readReport">;
 type CreateBody = ApiOperationBody<"createReport">;
-type ReportTarget = "run" | "evaluation" | "comparison" | "diagnostic" | "check";
+type ReportTarget =
+  "run" | "evaluation" | "comparison" | "diagnostic" | "check";
 type VerifiedTarget = {
   kind: ReportTarget;
   id: string;
@@ -69,11 +77,12 @@ export function ReportList({
     let active = true;
     setLoading(true);
     setError(undefined);
-    void debugging.reports.list({
-      registrationId,
-      query: { limit: 50 },
-      signal: controller.signal,
-    })
+    void debugging.reports
+      .list({
+        registrationId,
+        query: { limit: 50 },
+        signal: controller.signal,
+      })
       .then((result) => {
         if (active) setItems(result.data.items);
       })
@@ -97,27 +106,40 @@ export function ReportList({
           Create report from verified target
         </button>
       </div>
-      <p>Reports preserve the exact selected evidence boundary. Raw inputs, requests, and responses start disabled.</p>
-      {error && <ErrorSummary message={error} retry={() => setRefreshToken((value) => value + 1)} />}
+      <p>
+        Reports preserve the exact selected evidence boundary. Raw inputs,
+        requests, and responses start disabled.
+      </p>
+      {error && (
+        <ErrorSummary
+          message={error}
+          retry={() => setRefreshToken((value) => value + 1)}
+        />
+      )}
       {loading ? <LoadingState>Loading saved reports…</LoadingState> : null}
-      {!loading && items.length === 0 ? <p className="muted">No saved reports.</p> : null}
+      {!loading && items.length === 0 ? (
+        <p className="muted">No saved reports.</p>
+      ) : null}
       {items.length > 0 && (
         <ul aria-label="Saved reports">
           {items.map((item) => (
             <li key={item.report_id}>
               <button
                 type="button"
-                onClick={() => void navigation.navigate({
-                  kind: "report",
-                  registrationId,
-                  reportId: item.report_id,
-                })}
+                onClick={() =>
+                  void navigation.navigate({
+                    kind: "report",
+                    registrationId,
+                    reportId: item.report_id,
+                  })
+                }
               >
-                {item.target_kind ?? "Unavailable target"}: {item.target_id ?? item.report_id}
+                {item.target_kind ?? "Unavailable target"}:{" "}
+                {item.target_id ?? item.report_id}
               </button>
               <p className="muted">
-                {item.created_at} · report <code>{item.report_id}</code> · content hash{" "}
-                <code>{item.content_hash}</code>
+                {item.created_at} · report <code>{item.report_id}</code> ·
+                content hash <code>{item.content_hash}</code>
               </p>
             </li>
           ))}
@@ -133,7 +155,11 @@ export function ReportList({
           onCreated={(reportId) => {
             setCreateOpen(false);
             setRefreshToken((value) => value + 1);
-            void navigation.navigate({ kind: "report", registrationId, reportId });
+            void navigation.navigate({
+              kind: "report",
+              registrationId,
+              reportId,
+            });
           }}
         />
       )}
@@ -158,7 +184,9 @@ export function ReportSheet({
   onCreated: (reportId: string) => void;
   initialTarget?: GroupReportTarget;
 }) {
-  const [kind, setKind] = useState<ReportTarget>(initialTarget?.targetKind ?? "run");
+  const [kind, setKind] = useState<ReportTarget>(
+    initialTarget?.targetKind ?? "run",
+  );
   const [targetId, setTargetId] = useState(initialTarget?.targetId ?? "");
   const [verified, setVerified] = useState<VerifiedTarget>();
   const scopeEpoch = useRenderedScopeEpoch(
@@ -169,7 +197,10 @@ export function ReportSheet({
   const [rawInputs, setRawInputs] = useState(false);
   const [rawRequests, setRawRequests] = useState(false);
   const [rawResponses, setRawResponses] = useState(false);
-  const [checkingView, setCheckingView] = useState({ scopeEpoch, value: false });
+  const [checkingView, setCheckingView] = useState({
+    scopeEpoch,
+    value: false,
+  });
   const checking = checkingView.scopeEpoch === scopeEpoch && checkingView.value;
   const [error, setError] = useState<string>();
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -177,41 +208,55 @@ export function ReportSheet({
     scopeEpoch: number;
     state: MutationState<Report>;
   }>({ scopeEpoch, state: { kind: "idle" } });
-  const mutation = useRef<RetainedMutation<ReportIntent, Report> | undefined>(undefined);
+  const mutation = useRef<RetainedMutation<ReportIntent, Report> | undefined>(
+    undefined,
+  );
   if (!mutation.current) {
-    mutation.current = new RetainedMutation(async (intent) => {
-      const result = await intent.operations.create({
-        registrationId: intent.registrationId,
-        body: intent.body,
-      });
-      if (
-        result.data.target_kind !== intent.kind ||
-        result.data.target_id !== intent.id ||
-        (intent.body.evaluation_id !== undefined &&
-          intent.body.evaluation_id !== null &&
-          !result.data.evaluation_ids.includes(intent.body.evaluation_id)) ||
-        (intent.body.result_snapshot_id !== undefined &&
-          intent.body.result_snapshot_id !== null &&
-          !result.data.result_snapshot_ids.includes(intent.body.result_snapshot_id)) ||
-        (intent.kind === "diagnostic" &&
-          result.data.diagnostic_snapshot_id !== intent.groupSnapshotId) ||
-        (intent.kind === "check" &&
-          result.data.check_snapshot_id !== intent.groupSnapshotId) ||
-        ((intent.kind === "run" || intent.kind === "evaluation" || intent.kind === "comparison") &&
-          intent.groupSnapshotId !== undefined)
-      )
-        throw new Error("The report receipt does not match the verified target.");
-      return result.data;
-    }, (next) => {
-      const owner = mutation.current?.originalRequest;
-      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
-    });
+    mutation.current = new RetainedMutation(
+      async (intent) => {
+        const result = await intent.operations.create({
+          registrationId: intent.registrationId,
+          body: intent.body,
+        });
+        if (
+          result.data.target_kind !== intent.kind ||
+          result.data.target_id !== intent.id ||
+          (intent.body.evaluation_id !== undefined &&
+            intent.body.evaluation_id !== null &&
+            !result.data.evaluation_ids.includes(intent.body.evaluation_id)) ||
+          (intent.body.result_snapshot_id !== undefined &&
+            intent.body.result_snapshot_id !== null &&
+            !result.data.result_snapshot_ids.includes(
+              intent.body.result_snapshot_id,
+            )) ||
+          (intent.kind === "diagnostic" &&
+            result.data.diagnostic_snapshot_id !== intent.groupSnapshotId) ||
+          (intent.kind === "check" &&
+            result.data.check_snapshot_id !== intent.groupSnapshotId) ||
+          ((intent.kind === "run" ||
+            intent.kind === "evaluation" ||
+            intent.kind === "comparison") &&
+            intent.groupSnapshotId !== undefined)
+        )
+          throw new Error(
+            "The report receipt does not match the verified target.",
+          );
+        return result.data;
+      },
+      (next) => {
+        const owner = mutation.current?.originalRequest;
+        if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+      },
+    );
   }
-  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const state =
+    view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
   const mutationKind = mutation.current.state.kind;
   const retainedOwner = mutation.current.originalRequest;
-  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
-  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
+  const retainedViewStale =
+    retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy =
+    mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const dirty =
@@ -223,7 +268,9 @@ export function ReportSheet({
     dirty: dirty || busy,
     isDirtyNow: () => dirtyRef.current || busyRef.current,
     save: async () => {
-      throw new Error("Verify the report target and create the report before leaving.");
+      throw new Error(
+        "Verify the report target and create the report before leaving.",
+      );
     },
     discard: () => {
       if (!busyRef.current) {
@@ -241,7 +288,8 @@ export function ReportSheet({
     isBlockedNow: () => busyRef.current,
   });
   useEffect(
-    () => navigation.registerDirtyGuard(`${registrationId}:report:create`, guard),
+    () =>
+      navigation.registerDirtyGuard(`${registrationId}:report:create`, guard),
     [guard, navigation, registrationId],
   );
 
@@ -257,7 +305,9 @@ export function ReportSheet({
         const result = await execution.runs.read({ registrationId, runId: id });
         const run = result.data;
         if (run.run_id !== id || !run.latest_result_snapshot_id)
-          throw new Error("This run has no verified result snapshot to report.");
+          throw new Error(
+            "This run has no verified result snapshot to report.",
+          );
         if (epoch !== scopeEpochRef.current) return;
         setVerified({
           kind,
@@ -267,7 +317,10 @@ export function ReportSheet({
           content: `Run ${run.run_id}\nResult ${run.latest_result_snapshot_id}\nEvidence mode ${run.sources.evidence_mode ?? "Unavailable"}`,
         });
       } else if (kind === "evaluation") {
-        const result = await execution.inspection.readEvaluation({ registrationId, evaluationId: id });
+        const result = await execution.inspection.readEvaluation({
+          registrationId,
+          evaluationId: id,
+        });
         const evaluation = result.data;
         if (evaluation.evaluation_id !== id)
           throw new Error("The service returned a different saved evaluation.");
@@ -282,7 +335,10 @@ export function ReportSheet({
           content: `Evaluation ${evaluation.evaluation_id}\nRun ${evaluation.run_id}\nResult ${evaluation.result_snapshot_id}\nLabels ${evaluation.label_snapshot_id}\nMode ${evaluation.mode}`,
         });
       } else if (kind === "comparison") {
-        const result = await debugging.comparisons.read({ registrationId, comparisonId: id });
+        const result = await debugging.comparisons.read({
+          registrationId,
+          comparisonId: id,
+        });
         const comparison = result.data;
         if (comparison.comparison_id !== id)
           throw new Error("The service returned a different saved comparison.");
@@ -299,12 +355,19 @@ export function ReportSheet({
           initialTarget.targetKind !== kind ||
           initialTarget.targetId !== id
         )
-          throw new Error("The report target is missing its pinned group snapshot.");
+          throw new Error(
+            "The report target is missing its pinned group snapshot.",
+          );
         const groupSnapshotId = initialTarget.groupSnapshotId;
-        const request = { registrationId, groupId: id, snapshotId: groupSnapshotId };
-        const result = kind === "diagnostic"
-          ? await debugging.diagnostics.readSnapshot(request)
-          : await debugging.checks.readSnapshot(request);
+        const request = {
+          registrationId,
+          groupId: id,
+          snapshotId: groupSnapshotId,
+        };
+        const result =
+          kind === "diagnostic"
+            ? await debugging.diagnostics.readSnapshot(request)
+            : await debugging.checks.readSnapshot(request);
         if (
           result.data.snapshot.group_id !== id ||
           result.data.snapshot.id !== groupSnapshotId
@@ -328,15 +391,27 @@ export function ReportSheet({
 
   async function create(event: FormEvent) {
     event.preventDefault();
-    if (!verified || busy || verified.id !== targetId.trim() || verified.kind !== kind) return;
+    if (
+      !verified ||
+      busy ||
+      verified.id !== targetId.trim() ||
+      verified.kind !== kind
+    )
+      return;
     const body: CreateBody = {
       schema_version: 1,
       operation_id: crypto.randomUUID(),
       target_kind: verified.kind,
       target_id: verified.id,
-      ...(verified.evaluationId ? { evaluation_id: verified.evaluationId } : {}),
-      ...(verified.resultSnapshotId ? { result_snapshot_id: verified.resultSnapshotId } : {}),
-      ...(verified.groupSnapshotId ? { group_snapshot_id: verified.groupSnapshotId } : {}),
+      ...(verified.evaluationId
+        ? { evaluation_id: verified.evaluationId }
+        : {}),
+      ...(verified.resultSnapshotId
+        ? { result_snapshot_id: verified.resultSnapshotId }
+        : {}),
+      ...(verified.groupSnapshotId
+        ? { group_snapshot_id: verified.groupSnapshotId }
+        : {}),
       raw: {
         inputs: rawInputs,
         requests: rawRequests,
@@ -348,12 +423,15 @@ export function ReportSheet({
       registrationId,
       kind: verified.kind,
       id: verified.id,
-      ...(verified.groupSnapshotId ? { groupSnapshotId: verified.groupSnapshotId } : {}),
+      ...(verified.groupSnapshotId
+        ? { groupSnapshotId: verified.groupSnapshotId }
+        : {}),
       body,
       scopeEpoch: epoch,
       operations: debugging.reports,
     });
-    if (receipt && epoch === scopeEpochRef.current) onCreated(receipt.report_id);
+    if (receipt && epoch === scopeEpochRef.current)
+      onCreated(receipt.report_id);
   }
 
   async function retryOriginal() {
@@ -377,7 +455,10 @@ export function ReportSheet({
       }}
     >
       <form className="modal-body" onSubmit={(event) => void create(event)}>
-        <p>Verify the selected resource first. This report uses its actual saved identity and result boundary.</p>
+        <p>
+          Verify the selected resource first. This report uses its actual saved
+          identity and result boundary.
+        </p>
         <label className="field">
           Target kind
           <select
@@ -418,21 +499,55 @@ export function ReportSheet({
             }}
           />
         </label>
-        <button type="button" disabled={checking || busy || state.kind === "committed"} onClick={() => void verifyTarget()}>
+        <button
+          type="button"
+          disabled={checking || busy || state.kind === "committed"}
+          onClick={() => void verifyTarget()}
+        >
           {checking ? "Verifying target…" : "Verify saved target"}
         </button>
-        {verified && <pre aria-label="Verified report target">{verified.content}</pre>}
+        {verified && (
+          <pre aria-label="Verified report target">{verified.content}</pre>
+        )}
         <fieldset disabled={busy || state.kind === "committed"}>
           <legend>Raw source options (each off by default)</legend>
-          <label><input type="checkbox" checked={rawInputs} onChange={(event) => setRawInputs(event.currentTarget.checked)} /> Include raw inputs</label>
-          <label><input type="checkbox" checked={rawRequests} onChange={(event) => setRawRequests(event.currentTarget.checked)} /> Include raw requests</label>
-          <label><input type="checkbox" checked={rawResponses} onChange={(event) => setRawResponses(event.currentTarget.checked)} /> Include raw responses</label>
+          <label>
+            <input
+              type="checkbox"
+              checked={rawInputs}
+              onChange={(event) => setRawInputs(event.currentTarget.checked)}
+            />{" "}
+            Include raw inputs
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={rawRequests}
+              onChange={(event) => setRawRequests(event.currentTarget.checked)}
+            />{" "}
+            Include raw requests
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={rawResponses}
+              onChange={(event) => setRawResponses(event.currentTarget.checked)}
+            />{" "}
+            Include raw responses
+          </label>
         </fieldset>
         {error && <ErrorSummary message={error} />}
-        {(state.kind === "failed" || state.kind === "conflict" || state.kind === "outcome-unknown") && <ErrorSummary message={state.message} />}
+        {(state.kind === "failed" ||
+          state.kind === "conflict" ||
+          state.kind === "outcome-unknown") && (
+          <ErrorSummary message={state.message} />
+        )}
         {retainedViewStale && mutationKind === "outcome-unknown" && (
           <section role="status">
-            <p>An earlier report request is unresolved and can only be retried unchanged.</p>
+            <p>
+              An earlier report request is unresolved and can only be retried
+              unchanged.
+            </p>
             <button type="button" onClick={() => void retryOriginal()}>
               Retry original unchanged report
             </button>
@@ -456,12 +571,28 @@ export function ReportSheet({
           </button>
         )}
         {state.kind === "committed" && (
-          <p role="status">Report <code>{state.receipt.report_id}</code> is saved. The report list/detail is a separate read.</p>
+          <p role="status">
+            Report <code>{state.receipt.report_id}</code> is saved. The report
+            list/detail is a separate read.
+          </p>
         )}
         <div className="actions">
-          <button type="submit" disabled={!verified || busy || state.kind === "committed"}>Create report</button>
-          {state.kind === "outcome-unknown" && <button type="button" onClick={() => void retryOriginal()}>Retry original unchanged report</button>}
-          {state.kind === "committed" && <button type="button" onClick={resetKnown}>Create another report</button>}
+          <button
+            type="submit"
+            disabled={!verified || busy || state.kind === "committed"}
+          >
+            Create report
+          </button>
+          {state.kind === "outcome-unknown" && (
+            <button type="button" onClick={() => void retryOriginal()}>
+              Retry original unchanged report
+            </button>
+          )}
+          {state.kind === "committed" && (
+            <button type="button" onClick={resetKnown}>
+              Create another report
+            </button>
+          )}
           <button
             type="button"
             disabled={busy}
@@ -477,7 +608,9 @@ export function ReportSheet({
           <section role="alert" aria-label="Discard report proposal">
             <p>Discard the verified report target and raw source choices?</p>
             <div className="actions">
-              <button type="button" onClick={onClose}>Discard proposal</button>
+              <button type="button" onClick={onClose}>
+                Discard proposal
+              </button>
               <button type="button" onClick={() => setConfirmDiscard(false)}>
                 Keep editing
               </button>
@@ -523,7 +656,8 @@ export function ReportPage({
     setDownload(undefined);
     setLoadedFormat(undefined);
     setReport(undefined);
-    void operations.read({ registrationId, reportId, signal: controller.signal })
+    void operations
+      .read({ registrationId, reportId, signal: controller.signal })
       .then((result) => {
         if (result.data.report_id !== reportId)
           throw new Error("The service returned a different report.");
@@ -607,9 +741,13 @@ export function ReportPage({
             <code>{report.content_hash}</code>; saved {report.created_at}.
           </p>
           <pre aria-label="Pinned report identity">{reportContext(report)}</pre>
-          {report.legacy && <p className="warning-summary">This report is a legacy record.</p>}
+          {report.legacy && (
+            <p className="warning-summary">This report is a legacy record.</p>
+          )}
           {report.nonexportable_reason && (
-            <p className="warning-summary">Export unavailable: {report.nonexportable_reason}</p>
+            <p className="warning-summary">
+              Export unavailable: {report.nonexportable_reason}
+            </p>
           )}
           <label className="field">
             Download format
@@ -636,19 +774,34 @@ export function ReportPage({
             </select>
           </label>
           <div className="actions">
-            <button type="button" disabled={downloading || !!report.nonexportable_reason} onClick={() => void loadBytes(false)}>
+            <button
+              type="button"
+              disabled={downloading || !!report.nonexportable_reason}
+              onClick={() => void loadBytes(false)}
+            >
               {downloading ? "Reading report bytes…" : "Preview report bytes"}
             </button>
-            <button type="button" disabled={downloading || !!report.nonexportable_reason} onClick={() => void loadBytes(true)}>
+            <button
+              type="button"
+              disabled={downloading || !!report.nonexportable_reason}
+              onClick={() => void loadBytes(true)}
+            >
               Download {format === "json" ? "JSON" : "Markdown"}
             </button>
           </div>
-          {download && loadedFormat && <p role="status">Read {download.blob.size} report bytes as {loadedFormat}; filename {download.filename}.</p>}
+          {download && loadedFormat && (
+            <p role="status">
+              Read {download.blob.size} report bytes as {loadedFormat}; filename{" "}
+              {download.filename}.
+            </p>
+          )}
           {downloadNotice && <p role="status">{downloadNotice}</p>}
           {preview !== undefined && (
             <section>
               <h2>Inert text preview</h2>
-              <pre className="source-editor" aria-label="Report text preview">{preview}</pre>
+              <pre className="source-editor" aria-label="Report text preview">
+                {preview}
+              </pre>
             </section>
           )}
         </>

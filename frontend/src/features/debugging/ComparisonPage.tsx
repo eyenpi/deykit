@@ -7,7 +7,10 @@ import { RetainedMutation } from "../../workspace/mutation-controller";
 import type { MutationState } from "../../workspace/mutation-controller";
 import { useDirtyNavigationGuard } from "../../workspace/NavigationGuardPrompt";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
-import type { DebuggingGateway, ExecutionGateway } from "../../workspace/gateway";
+import type {
+  DebuggingGateway,
+  ExecutionGateway,
+} from "../../workspace/gateway";
 import { useRenderedScopeEpoch } from "./useRenderedScopeEpoch";
 
 type Comparison = ApiOperationData<"readComparison">;
@@ -63,7 +66,9 @@ export function ComparisonPage({
   execution: ExecutionGateway;
   navigation: WorkspaceNavigation;
 }) {
-  const scopeEpoch = useRenderedScopeEpoch(`${registrationId}|${comparisonId ?? "create"}`);
+  const scopeEpoch = useRenderedScopeEpoch(
+    `${registrationId}|${comparisonId ?? "create"}`,
+  );
   const scopeEpochRef = useRef(scopeEpoch);
   scopeEpochRef.current = scopeEpoch;
   const [items, setItems] = useState<readonly Comparison[]>([]);
@@ -81,10 +86,14 @@ export function ComparisonPage({
     scopeEpoch: number;
     value: readonly [Evaluation, Evaluation] | undefined;
   }>({ scopeEpoch, value: undefined });
-  const verified = verifiedView.scopeEpoch === scopeEpoch ? verifiedView.value : undefined;
+  const verified =
+    verifiedView.scopeEpoch === scopeEpoch ? verifiedView.value : undefined;
   const setVerified = (value: readonly [Evaluation, Evaluation] | undefined) =>
     setVerifiedView({ scopeEpoch, value });
-  const [checkingView, setCheckingView] = useState({ scopeEpoch, value: false });
+  const [checkingView, setCheckingView] = useState({
+    scopeEpoch,
+    value: false,
+  });
   const checking = checkingView.scopeEpoch === scopeEpoch && checkingView.value;
   const [view, setView] = useState<{
     scopeEpoch: number;
@@ -94,39 +103,48 @@ export function ComparisonPage({
     RetainedMutation<ComparisonIntent, Comparison> | undefined
   >(undefined);
   if (!mutation.current) {
-    mutation.current = new RetainedMutation(async (intent) => {
-      const result = await intent.operations.create({
-        registrationId: intent.registrationId,
-        body: intent.body,
-      });
-      const receipt = result.data;
-      if (
-        receipt.left_evaluation_id !== intent.leftId ||
-        receipt.right_evaluation_id !== intent.rightId
-      )
-        throw new Error("The comparison receipt changed the requested sides.");
-      return receipt;
-    }, (next) => {
-      const owner = mutation.current?.originalRequest;
-      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
-    });
+    mutation.current = new RetainedMutation(
+      async (intent) => {
+        const result = await intent.operations.create({
+          registrationId: intent.registrationId,
+          body: intent.body,
+        });
+        const receipt = result.data;
+        if (
+          receipt.left_evaluation_id !== intent.leftId ||
+          receipt.right_evaluation_id !== intent.rightId
+        )
+          throw new Error(
+            "The comparison receipt changed the requested sides.",
+          );
+        return receipt;
+      },
+      (next) => {
+        const owner = mutation.current?.originalRequest;
+        if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+      },
+    );
   }
-  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const state =
+    view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
   const mutationKind = mutation.current.state.kind;
   const retainedOwner = mutation.current.originalRequest;
-  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
-  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
+  const retainedViewStale =
+    retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy =
+    mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const busyRef = useRef(busy);
   busyRef.current = busy;
-  const dirty =
-    state.kind !== "committed" && (!!leftId || !!rightId);
+  const dirty = state.kind !== "committed" && (!!leftId || !!rightId);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const { guard, prompt } = useDirtyNavigationGuard({
     dirty: dirty || busy,
     isDirtyNow: () => dirtyRef.current || busyRef.current,
     save: async () => {
-      throw new Error("Create the comparison or discard the selected IDs before leaving.");
+      throw new Error(
+        "Create the comparison or discard the selected IDs before leaving.",
+      );
     },
     discard: () => {
       if (!busyRef.current) {
@@ -141,7 +159,11 @@ export function ComparisonPage({
     isBlockedNow: () => busyRef.current,
   });
   useEffect(
-    () => navigation.registerDirtyGuard(`${registrationId}:comparison:create`, guard),
+    () =>
+      navigation.registerDirtyGuard(
+        `${registrationId}:comparison:create`,
+        guard,
+      ),
     [guard, navigation, registrationId],
   );
 
@@ -210,14 +232,17 @@ export function ComparisonPage({
         sides[0].run_id === "" ||
         sides[1].run_id === ""
       )
-        throw new Error("The saved evaluation details did not match the selected IDs.");
+        throw new Error(
+          "The saved evaluation details did not match the selected IDs.",
+        );
       setVerified(sides);
     } catch (cause) {
       if (epoch !== scopeEpochRef.current) return;
       setVerified(undefined);
       setError(safeMessage(cause));
     } finally {
-      if (epoch === scopeEpochRef.current) setCheckingView({ scopeEpoch: epoch, value: false });
+      if (epoch === scopeEpochRef.current)
+        setCheckingView({ scopeEpoch: epoch, value: false });
     }
   }
 
@@ -245,7 +270,11 @@ export function ComparisonPage({
   }
 
   function routeToComparison(id: string) {
-    void navigation.navigate({ kind: "comparison", registrationId, comparisonId: id });
+    void navigation.navigate({
+      kind: "comparison",
+      registrationId,
+      comparisonId: id,
+    });
   }
 
   const primaryCounts = comparison ? counts(comparison.outcomes) : undefined;
@@ -254,12 +283,18 @@ export function ComparisonPage({
   return (
     <article className="document">
       <h1>{comparisonId ? "Saved comparison" : "Comparisons"}</h1>
-      {error && <ErrorSummary message={error} retry={() => setRefreshToken((value) => value + 1)} />}
+      {error && (
+        <ErrorSummary
+          message={error}
+          retry={() => setRefreshToken((value) => value + 1)}
+        />
+      )}
       {comparison && (
         <section aria-label="Pinned comparison details">
           <p>
             Comparison <code>{comparison.comparison_id}</code>; content hash{" "}
-            <code>{comparison.content_hash}</code>; replayed {comparison.replayed ? "yes" : "no"}.
+            <code>{comparison.content_hash}</code>; replayed{" "}
+            {comparison.replayed ? "yes" : "no"}.
           </p>
           <dl>
             <dt>Left evaluation</dt>
@@ -273,7 +308,11 @@ export function ComparisonPage({
               {comparison.right_result_snapshot_id}
             </dd>
             <dt>Quality denominator</dt>
-            <dd>{typeof outcomes?.quality_denominator === "string" ? outcomes.quality_denominator : "Unavailable"}</dd>
+            <dd>
+              {typeof outcomes?.quality_denominator === "string"
+                ? outcomes.quality_denominator
+                : "Unavailable"}
+            </dd>
           </dl>
           <h2>Service-reported outcome buckets</h2>
           {primaryCounts ? (
@@ -291,21 +330,30 @@ export function ComparisonPage({
               ))}
             </dl>
           ) : (
-            <p>The service did not provide a supported primary bucket summary.</p>
+            <p>
+              The service did not provide a supported primary bucket summary.
+            </p>
           )}
         </section>
       )}
       {loading ? <LoadingState>Loading saved comparisons…</LoadingState> : null}
-      {!loading && items.length === 0 ? <p className="muted">No saved comparisons.</p> : null}
+      {!loading && items.length === 0 ? (
+        <p className="muted">No saved comparisons.</p>
+      ) : null}
       {items.length > 0 && (
         <ul aria-label="Saved comparisons">
           {items.map((item) => (
             <li key={item.comparison_id}>
-              <button type="button" onClick={() => routeToComparison(item.comparison_id)}>
-                {item.comparison_id}: {item.left_evaluation_id} versus {item.right_evaluation_id}
+              <button
+                type="button"
+                onClick={() => routeToComparison(item.comparison_id)}
+              >
+                {item.comparison_id}: {item.left_evaluation_id} versus{" "}
+                {item.right_evaluation_id}
               </button>
               <p className="muted">
-                {item.created_at} · content hash <code>{item.content_hash}</code>
+                {item.created_at} · content hash{" "}
+                <code>{item.content_hash}</code>
               </p>
             </li>
           ))}
@@ -314,13 +362,16 @@ export function ComparisonPage({
       {!comparisonId && (
         <section aria-label="Create a comparison">
           <h2>Compare saved evaluations</h2>
-          <p>Comparison uses two saved evaluations. Reading and comparison make zero provider calls.</p>
+          <p>
+            Comparison uses two saved evaluations. Reading and comparison make
+            zero provider calls.
+          </p>
           <form onSubmit={(event) => void create(event)}>
             <label className="field">
               Left saved evaluation ID
               <input
-              value={leftId}
-              disabled={busy || checking}
+                value={leftId}
+                disabled={busy || checking}
                 onChange={(event) => {
                   setLeftId(event.currentTarget.value);
                   setVerified(undefined);
@@ -330,8 +381,8 @@ export function ComparisonPage({
             <label className="field">
               Right saved evaluation ID
               <input
-              value={rightId}
-              disabled={busy || checking}
+                value={rightId}
+                disabled={busy || checking}
                 onChange={(event) => {
                   setRightId(event.currentTarget.value);
                   setVerified(undefined);
@@ -339,10 +390,17 @@ export function ComparisonPage({
               />
             </label>
             <div className="actions">
-              <button type="button" disabled={checking || busy} onClick={() => void verifySides()}>
+              <button
+                type="button"
+                disabled={checking || busy}
+                onClick={() => void verifySides()}
+              >
                 Verify saved evaluations
               </button>
-              <button type="submit" disabled={!verified || busy || state.kind === "committed"}>
+              <button
+                type="submit"
+                disabled={!verified || busy || state.kind === "committed"}
+              >
                 Create saved comparison
               </button>
               {state.kind === "outcome-unknown" && (
@@ -383,32 +441,41 @@ export function ComparisonPage({
                 <div key={item.evaluation_id}>
                   <dt>{index === 0 ? "Left" : "Right"} saved evaluation</dt>
                   <dd>
-                    {item.evaluation_id} · run {item.run_id} · {item.mode} · result{" "}
-                    {item.result_snapshot_id} · labels {item.label_snapshot_id}
+                    {item.evaluation_id} · run {item.run_id} · {item.mode} ·
+                    result {item.result_snapshot_id} · labels{" "}
+                    {item.label_snapshot_id}
                   </dd>
                 </div>
               ))}
             </dl>
           )}
-          {(state.kind === "failed" || state.kind === "conflict" || state.kind === "outcome-unknown") && (
+          {(state.kind === "failed" ||
+            state.kind === "conflict" ||
+            state.kind === "outcome-unknown") && (
             <ErrorSummary message={state.message} />
           )}
           {retainedViewStale && mutationKind === "outcome-unknown" && (
             <section role="status">
-              <p>An earlier comparison request is unresolved and can only be retried unchanged.</p>
+              <p>
+                An earlier comparison request is unresolved and can only be
+                retried unchanged.
+              </p>
               <button type="button" onClick={() => void retryOriginal()}>
                 Retry original unchanged comparison
               </button>
             </section>
           )}
           {retainedViewStale && mutationKind === "committed" && (
-            <button type="button" onClick={() => {
-              mutation.current?.reset();
-              setView({ scopeEpoch, state: { kind: "idle" } });
-              setLeftId("");
-              setRightId("");
-              setVerified(undefined);
-            }}>
+            <button
+              type="button"
+              onClick={() => {
+                mutation.current?.reset();
+                setView({ scopeEpoch, state: { kind: "idle" } });
+                setLeftId("");
+                setRightId("");
+                setVerified(undefined);
+              }}
+            >
               Start a comparison for this view
             </button>
           )}

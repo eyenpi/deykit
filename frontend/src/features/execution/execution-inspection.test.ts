@@ -126,7 +126,9 @@ describe("execution evidence source projection", () => {
       { option_id: "option-1", option_name: "Question", probability: "0.62" },
       { option_id: "option-2", option_name: "Request", probability: "0.14" },
     ] satisfies ApiOperationData<"readResult">["probabilities"];
-    const detail = decodeCaseDetail(detailData(caseDetailSource, probabilities));
+    const detail = decodeCaseDetail(
+      detailData(caseDetailSource, probabilities),
+    );
     expect(detail.probabilities.map((row) => row.probability)).toEqual([
       "0.62",
       "0.14",
@@ -140,7 +142,11 @@ describe("execution evidence source projection", () => {
     expect(() =>
       decodeCaseDetail(
         detailData(caseDetailSource, [
-          { option_id: "option-1", option_name: "Question", probability: "1.01" },
+          {
+            option_id: "option-1",
+            option_name: "Question",
+            probability: "1.01",
+          },
         ]),
       ),
     ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
@@ -157,11 +163,11 @@ describe("execution evidence source projection", () => {
       detailData({
         ...caseDetailSource,
         attempts: [
-        {
-          ...attemptMetadata,
-          request_body_source: undefined,
-          response_source: undefined,
-        },
+          {
+            ...attemptMetadata,
+            request_body_source: undefined,
+            response_source: undefined,
+          },
         ],
       }),
     );

@@ -85,7 +85,9 @@ export function ResultAssessmentControls({
           (intent.kind === "save" &&
             receipt.label_snapshot_id !== intent.body.label_snapshot_id)
         )
-          throw new Error("The evaluation receipt did not match its saved result.");
+          throw new Error(
+            "The evaluation receipt did not match its saved result.",
+          );
         return receipt;
       },
       (state) => {
@@ -95,14 +97,23 @@ export function ResultAssessmentControls({
           owner === scopeIdentity ||
           (state.kind !== "submitting" && state.kind !== "outcome-unknown")
         )
-          onBusyChange(state.kind === "submitting" || state.kind === "outcome-unknown");
+          onBusyChange(
+            state.kind === "submitting" || state.kind === "outcome-unknown",
+          );
       },
     );
   }
-  const state = view.scopeIdentity === scopeIdentity ? view.state : { kind: "idle" as const };
+  const state =
+    view.scopeIdentity === scopeIdentity
+      ? view.state
+      : { kind: "idle" as const };
   const mutationState = mutation.current.state;
-  const uncertain = mutationState.kind === "submitting" || mutationState.kind === "outcome-unknown";
-  const staleUnknown = view.scopeIdentity !== scopeIdentity && mutationState.kind === "outcome-unknown";
+  const uncertain =
+    mutationState.kind === "submitting" ||
+    mutationState.kind === "outcome-unknown";
+  const staleUnknown =
+    view.scopeIdentity !== scopeIdentity &&
+    mutationState.kind === "outcome-unknown";
   const uncertainRef = useRef(uncertain);
   uncertainRef.current = uncertain;
   const { guard, prompt } = useDirtyNavigationGuard({
@@ -175,7 +186,10 @@ export function ResultAssessmentControls({
   }
 
   return (
-    <section className="debugging-controls" aria-label="Saved result evaluation">
+    <section
+      className="debugging-controls"
+      aria-label="Saved result evaluation"
+    >
       <h3>Evaluation</h3>
       <p>
         These actions assess saved results and make zero provider calls. The
@@ -187,8 +201,9 @@ export function ResultAssessmentControls({
       </p>
       {selectedEvaluation && (
         <p>
-          Selected saved evaluation <code>{selectedEvaluation.evaluation_id}</code>;
-          result <code>{selectedEvaluation.result_snapshot_id}</code>, labels{" "}
+          Selected saved evaluation{" "}
+          <code>{selectedEvaluation.evaluation_id}</code>; result{" "}
+          <code>{selectedEvaluation.result_snapshot_id}</code>, labels{" "}
           <code>{selectedEvaluation.label_snapshot_id}</code>.
         </p>
       )}
@@ -239,7 +254,8 @@ export function ResultAssessmentControls({
           </button>
         )}
       </div>
-      {state.kind === "failed" || state.kind === "conflict" ||
+      {state.kind === "failed" ||
+      state.kind === "conflict" ||
       state.kind === "outcome-unknown" ? (
         <ErrorSummary message={state.message} />
       ) : null}
@@ -247,17 +263,22 @@ export function ResultAssessmentControls({
         <p role="status">
           Saved evaluation <code>{state.receipt.evaluation_id}</code> for result{" "}
           <code>{state.receipt.result_snapshot_id}</code> and labels{" "}
-          <code>{state.receipt.label_snapshot_id}</code>. Replayed: {" "}
+          <code>{state.receipt.label_snapshot_id}</code>. Replayed:{" "}
           {state.receipt.replayed ? "yes" : "no"}.
         </p>
       )}
       {originalScope && originalScope !== currentScope && uncertain && (
         <p role="status">
-          The retained request still belongs to its original pinned result. Retry
-          it unchanged before starting a request for this selection.
+          The retained request still belongs to its original pinned result.
+          Retry it unchanged before starting a request for this selection.
         </p>
       )}
-      {!isCurrent && <p role="status">The result selection is refreshing. New evaluation requests are paused until its frozen snapshot is confirmed.</p>}
+      {!isCurrent && (
+        <p role="status">
+          The result selection is refreshing. New evaluation requests are paused
+          until its frozen snapshot is confirmed.
+        </p>
+      )}
       {prompt}
     </section>
   );

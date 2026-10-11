@@ -98,9 +98,7 @@ export interface DebuggingGateway {
     list(
       request: ResourcePath & { query?: OperationQuery<"listComparisons"> },
     ): OperationResult<"listComparisons">;
-    read(
-      request: ComparisonPath,
-    ): OperationResult<"readComparison">;
+    read(request: ComparisonPath): OperationResult<"readComparison">;
   };
   regressions: {
     add(
@@ -134,7 +132,9 @@ type GroupOperations<Kind extends "diagnostic" | "check"> = {
   preview(
     request: ResourcePath & {
       body: OperationBody<
-        Kind extends "diagnostic" ? "previewChoiceOrder" : "previewRegressionCheck"
+        Kind extends "diagnostic"
+          ? "previewChoiceOrder"
+          : "previewRegressionCheck"
       >;
     },
   ): OperationResult<
@@ -149,7 +149,9 @@ type GroupOperations<Kind extends "diagnostic" | "check"> = {
   ): OperationResult<
     Kind extends "diagnostic" ? "startChoiceOrder" : "startRegressionCheck"
   >;
-  read(request: GroupPath): OperationResult<
+  read(
+    request: GroupPath,
+  ): OperationResult<
     Kind extends "diagnostic" ? "readChoiceOrder" : "readCheck"
   >;
   cancel(
@@ -162,14 +164,20 @@ type GroupOperations<Kind extends "diagnostic" | "check"> = {
   previewResume(
     request: GroupPath & {
       body: OperationBody<
-        Kind extends "diagnostic" ? "previewChoiceOrderResume" : "previewCheckResume"
+        Kind extends "diagnostic"
+          ? "previewChoiceOrderResume"
+          : "previewCheckResume"
       >;
       query?: OperationQuery<
-        Kind extends "diagnostic" ? "previewChoiceOrderResume" : "previewCheckResume"
+        Kind extends "diagnostic"
+          ? "previewChoiceOrderResume"
+          : "previewCheckResume"
       >;
     },
   ): OperationResult<
-    Kind extends "diagnostic" ? "previewChoiceOrderResume" : "previewCheckResume"
+    Kind extends "diagnostic"
+      ? "previewChoiceOrderResume"
+      : "previewCheckResume"
   >;
   resume(
     request: GroupPath & {
@@ -180,10 +188,16 @@ type GroupOperations<Kind extends "diagnostic" | "check"> = {
   ): OperationResult<
     Kind extends "diagnostic" ? "resumeChoiceOrder" : "resumeCheck"
   >;
-  listSnapshots(request: GroupPath): OperationResult<
-    Kind extends "diagnostic" ? "listChoiceOrderSnapshots" : "listCheckSnapshots"
+  listSnapshots(
+    request: GroupPath,
+  ): OperationResult<
+    Kind extends "diagnostic"
+      ? "listChoiceOrderSnapshots"
+      : "listCheckSnapshots"
   >;
-  readSnapshot(request: GroupSnapshotPath): OperationResult<
+  readSnapshot(
+    request: GroupSnapshotPath,
+  ): OperationResult<
     Kind extends "diagnostic" ? "readChoiceOrderSnapshot" : "readCheckSnapshot"
   >;
 };

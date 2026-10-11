@@ -37,7 +37,9 @@ export function AnnotationSheet({
   navigation: WorkspaceNavigation;
   onClose: () => void;
 }) {
-  const scopeEpoch = useRenderedScopeEpoch(`${registrationId}|${runId}|${caseId}`);
+  const scopeEpoch = useRenderedScopeEpoch(
+    `${registrationId}|${runId}|${caseId}`,
+  );
   const scopeEpochRef = useRef(scopeEpoch);
   scopeEpochRef.current = scopeEpoch;
   const [noteView, setNoteView] = useState({ scopeEpoch, value: "" });
@@ -61,31 +63,37 @@ export function AnnotationSheet({
     RetainedMutation<AnnotationIntent, Annotation> | undefined
   >(undefined);
   if (!mutation.current) {
-    mutation.current = new RetainedMutation(async (intent) => {
-      const result = await intent.operations.add({
-        registrationId: intent.registrationId,
-        runId: intent.runId,
-        caseId: intent.caseId,
-        body: intent.body,
-      });
-      const receipt = result.data;
-      if (
-        receipt.run_id !== intent.runId ||
-        receipt.case_id !== intent.caseId ||
-        receipt.note !== intent.body.note
-      )
-        throw new Error("The annotation receipt did not match this case.");
-      return receipt;
-    }, (next) => {
-      const owner = mutation.current?.originalRequest;
-      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
-    });
+    mutation.current = new RetainedMutation(
+      async (intent) => {
+        const result = await intent.operations.add({
+          registrationId: intent.registrationId,
+          runId: intent.runId,
+          caseId: intent.caseId,
+          body: intent.body,
+        });
+        const receipt = result.data;
+        if (
+          receipt.run_id !== intent.runId ||
+          receipt.case_id !== intent.caseId ||
+          receipt.note !== intent.body.note
+        )
+          throw new Error("The annotation receipt did not match this case.");
+        return receipt;
+      },
+      (next) => {
+        const owner = mutation.current?.originalRequest;
+        if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+      },
+    );
   }
-  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const state =
+    view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
   const mutationKind = mutation.current.state.kind;
   const retainedOwner = mutation.current.originalRequest;
-  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
-  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
+  const retainedViewStale =
+    retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy =
+    mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const dirty = note.trim().length > 0;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -105,7 +113,11 @@ export function AnnotationSheet({
     isBlockedNow: () => busyRef.current,
   });
   useEffect(
-    () => navigation.registerDirtyGuard(`${registrationId}:annotation:${runId}:${caseId}`, guard),
+    () =>
+      navigation.registerDirtyGuard(
+        `${registrationId}:annotation:${runId}:${caseId}`,
+        guard,
+      ),
     [caseId, guard, navigation, registrationId, runId],
   );
 
@@ -194,15 +206,18 @@ export function AnnotationSheet({
         <div className="modal-body">
           <p>
             Add a separate append-only note to case <code>{caseId}</code> in run{" "}
-            <code>{runId}</code>. This does not change the saved result or call a
-            provider.
+            <code>{runId}</code>. This does not change the saved result or call
+            a provider.
           </p>
           {state.kind === "outcome-unknown" && (
             <ErrorSummary message={state.message} />
           )}
           {retainedViewStale && mutationKind === "outcome-unknown" && (
             <section role="status">
-              <p>An earlier case annotation is unresolved and can only be retried unchanged.</p>
+              <p>
+                An earlier case annotation is unresolved and can only be retried
+                unchanged.
+              </p>
               <button type="button" onClick={() => void retryOriginal()}>
                 Retry original unchanged annotation
               </button>
@@ -287,12 +302,18 @@ export function AnnotationSheet({
                   Add another note
                 </button>
               )}
-              <button type="button" disabled={loading} onClick={() => void refresh()}>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void refresh()}
+              >
                 Refresh annotations
               </button>
             </div>
           </form>
-          {readError && <ErrorSummary message={readError} retry={() => void refresh()} />}
+          {readError && (
+            <ErrorSummary message={readError} retry={() => void refresh()} />
+          )}
           {loading ? (
             <LoadingState>Reading annotations…</LoadingState>
           ) : items.length === 0 ? (

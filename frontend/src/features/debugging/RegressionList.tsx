@@ -47,38 +47,49 @@ export function RegressionList({
     scopeEpoch: number;
     value: Regression | undefined;
   }>({ scopeEpoch, value: undefined });
-  const lastReceipt = lastReceiptView.scopeEpoch === scopeEpoch ? lastReceiptView.value : undefined;
+  const lastReceipt =
+    lastReceiptView.scopeEpoch === scopeEpoch
+      ? lastReceiptView.value
+      : undefined;
   const [view, setView] = useState<{
     scopeEpoch: number;
     state: MutationState<Regression>;
   }>({ scopeEpoch, state: { kind: "idle" } });
-  const mutation = useRef<RetainedMutation<RemoveIntent, Regression> | undefined>(
-    undefined,
-  );
+  const mutation = useRef<
+    RetainedMutation<RemoveIntent, Regression> | undefined
+  >(undefined);
   if (!mutation.current) {
-    mutation.current = new RetainedMutation(async (intent) => {
-      const result = await intent.operations.remove({
-        registrationId: intent.registrationId,
-        decisionId: intent.decisionId,
-        regressionId: intent.regressionId,
-        body: intent.body,
-      });
-      if (
-        result.data.decision_id !== intent.decisionId ||
-        result.data.regression_id !== intent.regressionId
-      )
-        throw new Error("The removal receipt did not match the selected regression.");
-      return result.data;
-    }, (next) => {
-      const owner = mutation.current?.originalRequest;
-      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
-    });
+    mutation.current = new RetainedMutation(
+      async (intent) => {
+        const result = await intent.operations.remove({
+          registrationId: intent.registrationId,
+          decisionId: intent.decisionId,
+          regressionId: intent.regressionId,
+          body: intent.body,
+        });
+        if (
+          result.data.decision_id !== intent.decisionId ||
+          result.data.regression_id !== intent.regressionId
+        )
+          throw new Error(
+            "The removal receipt did not match the selected regression.",
+          );
+        return result.data;
+      },
+      (next) => {
+        const owner = mutation.current?.originalRequest;
+        if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: next });
+      },
+    );
   }
-  const state = view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
+  const state =
+    view.scopeEpoch === scopeEpoch ? view.state : { kind: "idle" as const };
   const mutationKind = mutation.current.state.kind;
   const retainedOwner = mutation.current.originalRequest;
-  const retainedViewStale = retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
-  const busy = mutationKind === "submitting" || mutationKind === "outcome-unknown";
+  const retainedViewStale =
+    retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
+  const busy =
+    mutationKind === "submitting" || mutationKind === "outcome-unknown";
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const { guard, prompt } = useDirtyNavigationGuard({
@@ -94,7 +105,11 @@ export function RegressionList({
     isBlockedNow: () => busyRef.current,
   });
   useEffect(
-    () => navigation.registerDirtyGuard(`${registrationId}:regressions:${decisionId}`, guard),
+    () =>
+      navigation.registerDirtyGuard(
+        `${registrationId}:regressions:${decisionId}`,
+        guard,
+      ),
     [decisionId, guard, navigation, registrationId],
   );
 
@@ -105,7 +120,9 @@ export function RegressionList({
     try {
       const result = await operations.list({ registrationId, decisionId });
       if (result.data.items.some((item) => item.decision_id !== decisionId))
-        throw new Error("The service returned a regression for another decision.");
+        throw new Error(
+          "The service returned a regression for another decision.",
+        );
       if (epoch === scopeEpochRef.current)
         setItemsView({ scopeEpoch: epoch, value: result.data.items });
     } catch (cause) {
@@ -119,11 +136,14 @@ export function RegressionList({
     let active = true;
     setLoading(true);
     setError(undefined);
-    void operations.list({ registrationId, decisionId, signal: controller.signal })
+    void operations
+      .list({ registrationId, decisionId, signal: controller.signal })
       .then((result) => {
         if (!active) return;
         if (result.data.items.some((item) => item.decision_id !== decisionId))
-          throw new Error("The service returned a regression for another decision.");
+          throw new Error(
+            "The service returned a regression for another decision.",
+          );
         setItemsView({ scopeEpoch, value: result.data.items });
       })
       .catch((cause: unknown) => {
@@ -170,7 +190,8 @@ export function RegressionList({
       if (owner?.scopeEpoch === scopeEpochRef.current)
         setLastReceiptView({ scopeEpoch: owner.scopeEpoch, value: receipt });
       mutation.current?.reset();
-      if (owner) setView({ scopeEpoch: owner.scopeEpoch, state: { kind: "idle" } });
+      if (owner)
+        setView({ scopeEpoch: owner.scopeEpoch, state: { kind: "idle" } });
       if (owner?.scopeEpoch === scopeEpochRef.current) await refresh();
     }
   }
@@ -188,7 +209,10 @@ export function RegressionList({
       )}
       {retainedViewStale && mutationKind === "outcome-unknown" && (
         <section role="status">
-          <p>An earlier regression removal is unresolved and can only be retried unchanged.</p>
+          <p>
+            An earlier regression removal is unresolved and can only be retried
+            unchanged.
+          </p>
           <button type="button" onClick={() => void retryOriginal()}>
             Retry original unchanged removal
           </button>
@@ -197,8 +221,12 @@ export function RegressionList({
       {(state.kind === "failed" || state.kind === "conflict") && (
         <ErrorSummary message={state.message} />
       )}
-      {loading ? <LoadingState>Loading regression examples…</LoadingState> : null}
-      {!loading && items.length === 0 ? <p className="muted">No regression examples are saved.</p> : null}
+      {loading ? (
+        <LoadingState>Loading regression examples…</LoadingState>
+      ) : null}
+      {!loading && items.length === 0 ? (
+        <p className="muted">No regression examples are saved.</p>
+      ) : null}
       {items.length > 0 && (
         <div className="table-region">
           <table>
@@ -220,7 +248,9 @@ export function RegressionList({
                     {item.case_id} · <code>{item.regression_id}</code>
                   </td>
                   <td>{item.acceptable_option_ids.join(", ")}</td>
-                  <td>{item.provenance} · split {item.original_split}</td>
+                  <td>
+                    {item.provenance} · split {item.original_split}
+                  </td>
                   <td>
                     {item.removed
                       ? "Removed"

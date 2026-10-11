@@ -2,7 +2,9 @@ import { defineConfig } from "@playwright/test";
 
 const baseURL = process.env.DEYKIT_INSTALLED_API_URL;
 if (!baseURL)
-  throw new Error("Set DEYKIT_INSTALLED_API_URL to the installed server origin.");
+  throw new Error(
+    "Set DEYKIT_INSTALLED_API_URL to the installed server origin.",
+  );
 
 export default defineConfig({
   testDir: "./tests",
@@ -22,5 +24,7 @@ export default defineConfig({
     trace: "off",
     video: "off",
   },
-  projects: [{ name: "installed-debugging-chromium", use: { browserName: "chromium" } }],
+  projects: [
+    { name: "installed-debugging-chromium", use: { browserName: "chromium" } },
+  ],
 });

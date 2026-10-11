@@ -361,7 +361,8 @@ export function RunDetail({
     project.id === registrationId &&
     project.decisions.some((decision) => decision.id === run.decision_id) &&
     project.datasets.some((dataset) => dataset.id === run.dataset_id) &&
-    (returnGroup === undefined || run.execution_group_id === returnGroup.groupId);
+    (returnGroup === undefined ||
+      run.execution_group_id === returnGroup.groupId);
   if (!associationValid)
     return (
       <article className="document">
@@ -444,7 +445,9 @@ export function RunDetail({
         </div>
         {run.execution_group_id && !returnGroup && (
           <p role="status">
-            This run belongs to group <code>{run.execution_group_id}</code>. Resume, cancellation, and lifetime-cap review belong in that group’s workspace.
+            This run belongs to group <code>{run.execution_group_id}</code>.
+            Resume, cancellation, and lifetime-cap review belong in that group’s
+            workspace.
           </p>
         )}
         {error && (
@@ -707,8 +710,8 @@ export function RunDetail({
             registrationId={registrationId}
             run={run}
             execution={execution}
-          debugging={debugging}
-          labelOperations={labelOperations}
+            debugging={debugging}
+            labelOperations={labelOperations}
             readRevision={readRevision}
             navigation={navigation}
             evaluationId={evaluationId}

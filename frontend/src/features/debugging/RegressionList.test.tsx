@@ -33,16 +33,26 @@ function savedRegression(removed = false): Regression {
 it("keeps a known removal receipt when list recovery fails and refreshes without another removal", async () => {
   window.history.replaceState(null, "", "#/p/registration-1/regressions");
   const navigation = new WorkspaceNavigation(window);
-  const removeRequests: Parameters<typeof disconnectedWorkspace.debugging.regressions.remove>[0][] = [];
+  const removeRequests: Parameters<
+    typeof disconnectedWorkspace.debugging.regressions.remove
+  >[0][] = [];
   let listCalls = 0;
   const operations = {
     ...disconnectedWorkspace.debugging.regressions,
     list: async () => {
       listCalls += 1;
-      if (listCalls === 2) throw new ApiError("read_unavailable", "list refresh unavailable", 503);
-      return { data: { items: [savedRegression(listCalls > 2)] }, warnings: [] };
+      if (listCalls === 2)
+        throw new ApiError("read_unavailable", "list refresh unavailable", 503);
+      return {
+        data: { items: [savedRegression(listCalls > 2)] },
+        warnings: [],
+      };
     },
-    remove: async (request: Parameters<typeof disconnectedWorkspace.debugging.regressions.remove>[0]) => {
+    remove: async (
+      request: Parameters<
+        typeof disconnectedWorkspace.debugging.regressions.remove
+      >[0],
+    ) => {
       removeRequests.push(request);
       return { data: savedRegression(true), warnings: [] };
     },
@@ -58,8 +68,14 @@ it("keeps a known removal receipt when list recovery fails and refreshes without
   );
   const user = userEvent.setup();
   try {
-    await user.click(await screen.findByRole("button", { name: "Remove from future checks" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("list refresh unavailable"));
+    await user.click(
+      await screen.findByRole("button", { name: "Remove from future checks" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "list refresh unavailable",
+      ),
+    );
     expect(screen.getByRole("status").textContent).toContain("regression-1");
     expect(removeRequests).toHaveLength(1);
     expect(removeRequests[0]?.regressionId).toBe("regression-1");

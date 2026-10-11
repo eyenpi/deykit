@@ -198,7 +198,9 @@ it("keeps group context on case navigation and withholds child run-level resume 
   );
   const user = userEvent.setup();
   try {
-    expect(await screen.findByRole("heading", { name: "Run run-1" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Run run-1" }),
+    ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Review resume" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "case-1" }));

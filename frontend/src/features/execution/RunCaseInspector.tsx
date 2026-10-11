@@ -122,7 +122,11 @@ export function RunCaseInspector({
     publishedSnapshot?.assessmentPopulationScope === assessmentPopulationScope;
   const detailCurrent = detailScope === requestedDetailScope;
   const localScopeLocked =
-    annotationOpen || currentLabelOpen || regressionOpen || evaluationBusy || contextChanged;
+    annotationOpen ||
+    currentLabelOpen ||
+    regressionOpen ||
+    evaluationBusy ||
+    contextChanged;
 
   function invalidateAfterContextConflict(cause: unknown) {
     if (!(cause instanceof ApiError) || cause.code !== "result_context_changed")
@@ -132,7 +136,12 @@ export function RunCaseInspector({
     setResultPage(undefined);
     setDetail(undefined);
     setDetailScope("");
-    setReveal({ input: false, request: false, response: false, attempts: false });
+    setReveal({
+      input: false,
+      request: false,
+      response: false,
+      attempts: false,
+    });
     setPublishedScope("");
     setContextChanged(true);
   }
@@ -192,11 +201,12 @@ export function RunCaseInspector({
     lastResultSource.current = sourceScope;
     lastReload.current = reload;
     const lastSnapshot = publishedSnapshotRef.current;
-    const priorSnapshot = sourceChanged || explicitRefresh
-      ? undefined
-      : lastSnapshot?.scope.startsWith(`${sourceScope}|`)
-        ? lastSnapshot
-        : undefined;
+    const priorSnapshot =
+      sourceChanged || explicitRefresh
+        ? undefined
+        : lastSnapshot?.scope.startsWith(`${sourceScope}|`)
+          ? lastSnapshot
+          : undefined;
     setLoading(true);
     setError(undefined);
     if (sourceChanged) {
@@ -260,10 +270,8 @@ export function RunCaseInspector({
                 }
               : priorSnapshot
                 ? {
-                    expected_result_snapshot_id:
-                      priorSnapshot.resultSnapshotId,
-                    expected_label_snapshot_id:
-                      priorSnapshot.labelSnapshotId,
+                    expected_result_snapshot_id: priorSnapshot.resultSnapshotId,
+                    expected_label_snapshot_id: priorSnapshot.labelSnapshotId,
                   }
                 : {}),
             ...(pinned ? { evaluation_id: pinned.evaluation_id } : {}),
@@ -307,7 +315,8 @@ export function RunCaseInspector({
         setPublishedSnapshot({
           scope: resultScope,
           epoch:
-            priorSnapshot?.resultSnapshotId === result.data.result_snapshot_id &&
+            priorSnapshot?.resultSnapshotId ===
+              result.data.result_snapshot_id &&
             priorSnapshot.labelSnapshotId === result.data.label_snapshot_id
               ? priorSnapshot.epoch
               : ++scopeEpoch.current,
@@ -372,8 +381,7 @@ export function RunCaseInspector({
         caseId,
         query: {
           ...(evaluationId ? { evaluation_id: evaluationId } : {}),
-          expected_result_snapshot_id:
-            publishedSnapshot.resultSnapshotId,
+          expected_result_snapshot_id: publishedSnapshot.resultSnapshotId,
           expected_label_snapshot_id: publishedSnapshot.labelSnapshotId,
           include_input: flags.input ? "true" : "false",
           include_request: flags.request ? "true" : "false",
@@ -414,9 +422,7 @@ export function RunCaseInspector({
                 requestBodySource: flags.request
                   ? attempt.requestBodySource
                   : null,
-                responseSource: flags.response
-                  ? attempt.responseSource
-                  : null,
+                responseSource: flags.response ? attempt.responseSource : null,
               }))
             : [],
         });
@@ -495,7 +501,10 @@ export function RunCaseInspector({
         context.resultSnapshotId !== capturedSnapshot.resultSnapshotId ||
         context.labelSnapshotId !== capturedSnapshot.labelSnapshotId ||
         !sameResultContext(context, capturedSnapshot.context) ||
-        !sameAssessmentCounts(assessmentCounts, capturedSnapshot.assessmentCounts) ||
+        !sameAssessmentCounts(
+          assessmentCounts,
+          capturedSnapshot.assessmentCounts,
+        ) ||
         (selectedEvaluation &&
           (result.data.evaluation_id !== selectedEvaluation.evaluation_id ||
             result.data.result_snapshot_id !==
@@ -565,7 +574,13 @@ export function RunCaseInspector({
         <h2>Frozen results</h2>
         <button
           type="button"
-          disabled={loading || annotationOpen || currentLabelOpen || regressionOpen || evaluationBusy}
+          disabled={
+            loading ||
+            annotationOpen ||
+            currentLabelOpen ||
+            regressionOpen ||
+            evaluationBusy
+          }
           onClick={() => setReload((value) => value + 1)}
         >
           Refresh frozen results
@@ -623,7 +638,9 @@ export function RunCaseInspector({
       {error && (
         <ErrorSummary
           message={error}
-          retry={localScopeLocked ? undefined : () => setReload((value) => value + 1)}
+          retry={
+            localScopeLocked ? undefined : () => setReload((value) => value + 1)
+          }
         />
       )}
       {loading && <LoadingState>Refreshing frozen results…</LoadingState>}
@@ -639,25 +656,34 @@ export function RunCaseInspector({
         <section aria-label="Frozen result context">
           <h3>Frozen source context</h3>
           <p>
-            Evaluation {publishedSnapshot.context.evaluationId ?? "original run"};{" "}
-            mode {publishedSnapshot.context.evaluationMode}; decision{" "}
+            Evaluation{" "}
+            {publishedSnapshot.context.evaluationId ?? "original run"}; mode{" "}
+            {publishedSnapshot.context.evaluationMode}; decision{" "}
             {publishedSnapshot.context.decisionId} revision{" "}
             {publishedSnapshot.context.decisionRevisionId}; dataset{" "}
             {publishedSnapshot.context.datasetId} snapshot{" "}
             {publishedSnapshot.context.datasetSnapshotId}.
           </p>
           <p>
-            Result content hash <code>{publishedSnapshot.context.resultContentHash}</code>; label content hash{" "}
-            <code>{publishedSnapshot.context.labelContentHash}</code>; definition hash{" "}
-            <code>{publishedSnapshot.context.decisionDefinitionHash}</code>; dataset hash{" "}
-            <code>{publishedSnapshot.context.datasetContentHash}</code>; through event{" "}
-            {publishedSnapshot.context.throughEventSequence}.
+            Result content hash{" "}
+            <code>{publishedSnapshot.context.resultContentHash}</code>; label
+            content hash{" "}
+            <code>{publishedSnapshot.context.labelContentHash}</code>;
+            definition hash{" "}
+            <code>{publishedSnapshot.context.decisionDefinitionHash}</code>;
+            dataset hash{" "}
+            <code>{publishedSnapshot.context.datasetContentHash}</code>; through
+            event {publishedSnapshot.context.throughEventSequence}.
           </p>
           <dl aria-label="Global assessment counts">
-            <dt>All</dt><dd>{publishedSnapshot.assessmentCounts.all}</dd>
-            <dt>Needs inspection</dt><dd>{publishedSnapshot.assessmentCounts.inspect}</dd>
-            <dt>Incorrect</dt><dd>{publishedSnapshot.assessmentCounts.incorrect}</dd>
-            <dt>Unlabelled</dt><dd>{publishedSnapshot.assessmentCounts.unlabelled}</dd>
+            <dt>All</dt>
+            <dd>{publishedSnapshot.assessmentCounts.all}</dd>
+            <dt>Needs inspection</dt>
+            <dd>{publishedSnapshot.assessmentCounts.inspect}</dd>
+            <dt>Incorrect</dt>
+            <dd>{publishedSnapshot.assessmentCounts.incorrect}</dd>
+            <dt>Unlabelled</dt>
+            <dd>{publishedSnapshot.assessmentCounts.unlabelled}</dd>
           </dl>
         </section>
       )}
@@ -816,7 +842,9 @@ export function RunCaseInspector({
       {resultsCurrent && cursor && (
         <button
           type="button"
-          disabled={loading || annotationOpen || currentLabelOpen || evaluationBusy}
+          disabled={
+            loading || annotationOpen || currentLabelOpen || evaluationBusy
+          }
           onClick={() => void loadMore()}
         >
           Load more results
@@ -829,31 +857,31 @@ export function RunCaseInspector({
         >
           <div className="document-title-row">
             <h3>{caseId}</h3>
-            <button type="button" disabled={localScopeLocked} onClick={() => selectCase(undefined)}>
+            <button
+              type="button"
+              disabled={localScopeLocked}
+              onClick={() => selectCase(undefined)}
+            >
               Close inspection
             </button>
           </div>
           {detailCurrent && detail && (
             <>
-              <button
-                type="button"
-                onClick={() => setAnnotationOpen(true)}
-              >
+              <button type="button" onClick={() => setAnnotationOpen(true)}>
                 Add annotation
               </button>
               {historicalDefinition && detail.questionId && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentLabelOpen(true)}
-                >
+                <button type="button" onClick={() => setCurrentLabelOpen(true)}>
                   Review current label
                 </button>
               )}
-              {detail.status === "valid" && historicalDefinition && detail.questionId && (
-                <button type="button" onClick={() => setRegressionOpen(true)}>
-                  Add regression example
-                </button>
-              )}
+              {detail.status === "valid" &&
+                historicalDefinition &&
+                detail.questionId && (
+                  <button type="button" onClick={() => setRegressionOpen(true)}>
+                    Add regression example
+                  </button>
+                )}
               <dl>
                 <dt>Answer</dt>
                 <dd>{detail.answer?.option_id ?? "Unavailable"}</dd>
@@ -879,7 +907,9 @@ export function RunCaseInspector({
                 <dt>Label provenance</dt>
                 <dd>{detail.labelProvenance ?? "Unavailable"}</dd>
                 <dt>Frozen case input hash</dt>
-                <dd><code>{detail.caseInputHash}</code></dd>
+                <dd>
+                  <code>{detail.caseInputHash}</code>
+                </dd>
               </dl>
               <section aria-label="Reported probabilities">
                 <h4>Reported probabilities</h4>
@@ -893,7 +923,9 @@ export function RunCaseInspector({
                   </ul>
                 ) : (
                   <p>
-                    Unavailable: {detail.probabilitiesUnavailableReason ?? "No probability data was recorded."}
+                    Unavailable:{" "}
+                    {detail.probabilitiesUnavailableReason ??
+                      "No probability data was recorded."}
                   </p>
                 )}
               </section>
@@ -946,21 +978,28 @@ export function RunCaseInspector({
                 onClose={() => setCurrentLabelOpen(false)}
               />
             )}
-          {regressionOpen && detailCurrent && detail && detail.status === "valid" && (
-            <RegressionSheet
-              key={`${registrationId}:${run.run_id}:${detail.caseId}:${detail.resultSnapshotId}`}
-              registrationId={registrationId}
-              decisionId={detail.context.decisionId}
-              decisionName={detail.context.decisionId}
-              runId={run.run_id}
-              caseId={detail.caseId}
-              resultSnapshotId={detail.resultSnapshotId}
-              options={historicalDefinition?.revision.record.definition.questions.find((question) => question.id === detail.questionId)?.options ?? []}
-              operations={debugging.regressions}
-              navigation={navigation}
-              onClose={() => setRegressionOpen(false)}
-            />
-          )}
+          {regressionOpen &&
+            detailCurrent &&
+            detail &&
+            detail.status === "valid" && (
+              <RegressionSheet
+                key={`${registrationId}:${run.run_id}:${detail.caseId}:${detail.resultSnapshotId}`}
+                registrationId={registrationId}
+                decisionId={detail.context.decisionId}
+                decisionName={detail.context.decisionId}
+                runId={run.run_id}
+                caseId={detail.caseId}
+                resultSnapshotId={detail.resultSnapshotId}
+                options={
+                  historicalDefinition?.revision.record.definition.questions.find(
+                    (question) => question.id === detail.questionId,
+                  )?.options ?? []
+                }
+                operations={debugging.regressions}
+                navigation={navigation}
+                onClose={() => setRegressionOpen(false)}
+              />
+            )}
           <fieldset>
             <legend>Reveal frozen evidence explicitly</legend>
             {(["input", "request", "response", "attempts"] as const).map(
