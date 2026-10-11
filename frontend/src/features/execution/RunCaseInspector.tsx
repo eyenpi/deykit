@@ -12,6 +12,11 @@ type Run = ApiOperationData<"readRun">;
 type EvaluationPage = ApiOperationData<"listEvaluations">;
 type Evaluation = ApiOperationData<"readEvaluation">;
 type ResultPage = ApiOperationData<"listResults">;
+type SnapshotIdentity = {
+  scope: string;
+  resultSnapshotId: string;
+  labelSnapshotId: string;
+};
 
 type Reveal = {
   input: boolean;
@@ -62,10 +67,13 @@ export function RunCaseInspector({
   const [reload, setReload] = useState(0);
   const moreController = useRef<AbortController | undefined>(undefined);
   const [publishedScope, setPublishedScope] = useState("");
+  const [publishedSnapshot, setPublishedSnapshot] =
+    useState<SnapshotIdentity>();
   const [detailScope, setDetailScope] = useState("");
   const resultScope = `${registrationId}|${run.run_id}|${evaluationId ?? ""}|${status}|${split}|${tag}|${reload}`;
   const requestedDetailScope = `${resultScope}|${caseId ?? ""}|${reveal.input}|${reveal.request}|${reveal.response}|${reveal.attempts}`;
-  const resultsCurrent = publishedScope === resultScope;
+  const resultsCurrent =
+    publishedScope === resultScope && publishedSnapshot?.scope === resultScope;
   const detailCurrent = detailScope === requestedDetailScope;
 
   useEffect(() => {
@@ -118,6 +126,7 @@ export function RunCaseInspector({
     setEvaluations(undefined);
     setRows([]);
     setResultPage(undefined);
+    setPublishedSnapshot(undefined);
     setDetail(undefined);
     setReveal({
       input: false,
@@ -179,6 +188,11 @@ export function RunCaseInspector({
             "The service returned results from a different frozen snapshot.",
           );
         setResultPage(result.data);
+        setPublishedSnapshot({
+          scope: resultScope,
+          resultSnapshotId: result.data.result_snapshot_id,
+          labelSnapshotId: result.data.label_snapshot_id,
+        });
         setRows(result.data.items.map((item) => decodeResultRow(item.source)));
         setCursor(result.data.next_cursor ?? undefined);
         setPublishedScope(resultScope);
@@ -206,7 +220,13 @@ export function RunCaseInspector({
   ]);
 
   useEffect(() => {
-    if (!caseId || !resultPage || publishedScope !== resultScope) return;
+    if (
+      !caseId ||
+      !resultPage ||
+      publishedScope !== resultScope ||
+      publishedSnapshot?.scope !== resultScope
+    )
+      return;
     const controller = new AbortController();
     moreController.current?.abort();
     moreController.current = controller;
@@ -235,8 +255,8 @@ export function RunCaseInspector({
           decoded.runId !== run.run_id ||
           decoded.caseId !== caseId ||
           decoded.evaluationId !== (evaluationId ?? null) ||
-          decoded.resultSnapshotId !== resultPage.result_snapshot_id ||
-          decoded.labelSnapshotId !== resultPage.label_snapshot_id ||
+          decoded.resultSnapshotId !== publishedSnapshot.resultSnapshotId ||
+          decoded.labelSnapshotId !== publishedSnapshot.labelSnapshotId ||
           (selectedEvaluation &&
             (decoded.resultSnapshotId !==
               selectedEvaluation.result_snapshot_id ||
@@ -262,6 +282,7 @@ export function RunCaseInspector({
     evaluationId,
     caseId,
     resultPage,
+    publishedSnapshot,
     reveal,
     selectedEvaluation,
     resultScope,
@@ -270,7 +291,14 @@ export function RunCaseInspector({
   ]);
 
   async function loadMore() {
-    if (!cursor || loading) return;
+    const capturedSnapshot = publishedSnapshot;
+    if (
+      !cursor ||
+      loading ||
+      !capturedSnapshot ||
+      capturedSnapshot.scope !== resultScope
+    )
+      return;
     const controller = new AbortController();
     moreController.current?.abort();
     moreController.current = controller;
@@ -297,6 +325,8 @@ export function RunCaseInspector({
       if (controller.signal.aborted) return;
       if (
         result.data.run_id !== run.run_id ||
+        result.data.result_snapshot_id !== capturedSnapshot.resultSnapshotId ||
+        result.data.label_snapshot_id !== capturedSnapshot.labelSnapshotId ||
         (selectedEvaluation &&
           (result.data.evaluation_id !== selectedEvaluation.evaluation_id ||
             result.data.result_snapshot_id !==

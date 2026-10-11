@@ -97,6 +97,28 @@ const rowSource: ApiOperationData<"readResult">["source"] = {
   input_source: null,
 };
 
+const revision: ApiOperationData<"readDecisionRevision"> = {
+  schema_version: 1,
+  editor_source: "{}",
+  revision: {
+    etag: "revision-etag-1",
+    record: {
+      schema_version: 1,
+      id: "revision-1",
+      decision_id: "decision-1",
+      created_at: "2026-10-11T00:00:00Z",
+      content_hash: "revision-hash-1",
+      definition: {
+        schema_version: 1,
+        input_kind: "json",
+        input_schema_source: '{"type":"object"}',
+        selected_fields: [],
+        questions: [{ id: "question-1", instructions: "Choose", options: [] }],
+      },
+    },
+  },
+};
+
 function result<T>(data: T) {
   return Promise.resolve({ data, warnings: [] });
 }
@@ -147,7 +169,7 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
       registrationId="registration-1"
       run={run}
       execution={execution}
-      readRevision={disconnectedWorkspace.authoring.decisions.revision}
+      readRevision={async () => result(revision)}
       navigation={navigation}
       caseId="case-1"
     />,
@@ -172,6 +194,113 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
     await waitFor(() => expect(reads).toHaveLength(3));
     expect(reads[2]?.query?.include_input).toBe("false");
     await waitFor(() => expect(screen.queryByText(exactInput)).toBeNull());
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+function resultPage(
+  snapshot: string,
+  source: ApiOperationData<"readResult">["source"],
+  nextCursor: string | null,
+): ApiOperationData<"listResults"> {
+  return {
+    schema_version: 1,
+    run_id: run.run_id,
+    evaluation_id: null,
+    result_snapshot_id: snapshot,
+    label_snapshot_id: `label-${snapshot}`,
+    selected_count: "2",
+    filtered_count: "2",
+    status_counts: { valid: "2" },
+    summary: {},
+    items: [{ source }],
+    next_cursor: nextCursor,
+  };
+}
+
+function mountInspector(
+  execution: ExecutionGateway,
+  caseId?: string,
+) {
+  window.history.replaceState(null, "", "#/p/registration-1/runs/run-inspector-1");
+  const navigation = new WorkspaceNavigation(window);
+  const tree = render(
+    <RunCaseInspector
+      registrationId="registration-1"
+      run={run}
+      execution={execution}
+      readRevision={async () => result(revision)}
+      navigation={navigation}
+      caseId={caseId}
+    />,
+  );
+  return { tree, navigation };
+}
+
+it("rejects a later result page from a different frozen snapshot", async () => {
+  const otherRow: ApiOperationData<"readResult">["source"] = {
+    ...rowSource,
+    case_id: "case-2",
+  };
+  let pageReads = 0;
+  const execution: ExecutionGateway = {
+    ...disconnectedWorkspace.execution,
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      listEvaluations: async () =>
+        result({ items: [], next_cursor: null, total: "0" }),
+      listResults: async () => {
+        pageReads += 1;
+        return result(
+          pageReads === 1
+            ? resultPage("result-snapshot-1", rowSource, "next")
+            : resultPage("result-snapshot-2", otherRow, null),
+        );
+      },
+    },
+  };
+  const { tree, navigation } = mountInspector(execution);
+  const user = userEvent.setup();
+  try {
+    expect(await screen.findByRole("button", { name: "case-1" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Load more results" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "case-1" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "case-2" })).toBeNull();
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("rejects a case detail whose result and label snapshots differ from the first page", async () => {
+  const execution: ExecutionGateway = {
+    ...disconnectedWorkspace.execution,
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      listEvaluations: async () =>
+        result({ items: [], next_cursor: null, total: "0" }),
+      listResults: async () =>
+        result(resultPage("result-snapshot-1", rowSource, null)),
+      readResult: async () =>
+        result<ApiOperationData<"readResult">>({
+          schema_version: 1,
+          source: {
+            ...rowSource,
+            result_snapshot_id: "result-snapshot-2",
+            label_snapshot_id: "label-result-snapshot-2",
+            input_source: exactInput,
+          },
+        }),
+    },
+  };
+  const { tree, navigation } = mountInspector(execution, "case-1");
+  try {
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByText(exactInput)).toBeNull();
+    expect(screen.getByRole("heading", { name: "case-1" })).toBeTruthy();
   } finally {
     tree.unmount();
     navigation.dispose();
