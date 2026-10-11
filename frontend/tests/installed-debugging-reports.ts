@@ -100,12 +100,17 @@ async function reopenSavedReport(
     "readReport",
     { registration_id: registrationId, report_id: reportId },
     async () => {
-      await page
-        .getByRole("button", {
-          name: `${targetKind}: ${targetId}`,
-          exact: true,
-        })
-        .click();
+      const reportList = page.getByRole("list", { name: "Saved reports" });
+      const reportRow = reportList
+        .getByRole("listitem")
+        .filter({ has: page.getByText(reportId, { exact: true }) });
+      await expect(reportRow).toHaveCount(1);
+      const targetButton = reportRow.getByRole("button", {
+        name: `${targetKind}: ${targetId}`,
+        exact: true,
+      });
+      await expect(targetButton).toHaveCount(1);
+      await targetButton.click();
       await expect(
         page.getByRole("heading", { name: "Saved report", exact: true }),
       ).toBeVisible();
@@ -519,14 +524,15 @@ export async function runReportsWorkflow(
         await expect(reportList.getByRole("listitem")).toHaveCount(
           expectedReportCount,
         );
+        const createdReportRow = reportList
+          .getByRole("listitem")
+          .filter({ has: page.getByText(reportId, { exact: true }) });
+        await expect(createdReportRow).toHaveCount(1);
         await expect(
-          reportList
-            .getByRole("listitem")
-            .filter({ hasText: reportId })
-            .getByRole("button", {
-              name: `${target.kind}: ${target.id}`,
-              exact: true,
-            }),
+          createdReportRow.getByRole("button", {
+            name: `${target.kind}: ${target.id}`,
+            exact: true,
+          }),
         ).toHaveCount(1);
         await reads.waitForIdle();
         const witnessPath = testInfo.outputPath(
@@ -839,9 +845,18 @@ export async function runReportsWorkflow(
               page.getByRole("heading", { name: "Saved reports", exact: true }),
             ).toBeVisible();
           }
-          const existing = page.getByRole("button", {
-            name: new RegExp("^" + target.kind + ": " + target.id),
+          const reportList = page.getByRole("list", {
+            name: "Saved reports",
           });
+          const reportRow = reportList
+            .getByRole("listitem")
+            .filter({ has: page.getByText(target.reportId, { exact: true }) });
+          await expect(reportRow).toHaveCount(1);
+          const existing = reportRow.getByRole("button", {
+            name: `${target.kind}: ${target.id}`,
+            exact: true,
+          });
+          await expect(existing).toHaveCount(1);
           await existing.click();
           await expect(
             page.locator('pre[aria-label="Pinned report identity"]'),
@@ -1181,9 +1196,17 @@ async function exerciseKnownReportDownloadFailures(
         await expect(
           page.getByRole("heading", { name: "Saved reports", exact: true }),
         ).toBeVisible();
-        await page
-          .getByRole("button", { name: new RegExp(`^run: ${reportId}`) })
-          .click();
+        const reportList = page.getByRole("list", { name: "Saved reports" });
+        const reportRow = reportList
+          .getByRole("listitem")
+          .filter({ has: page.getByText(reportId, { exact: true }) });
+        await expect(reportRow).toHaveCount(1);
+        const targetButton = reportRow.getByRole("button", {
+          name: `run: ${qualification.seedMetadata.run_id}`,
+          exact: true,
+        });
+        await expect(targetButton).toHaveCount(1);
+        await targetButton.click();
         await expect(
           page.getByRole("heading", { name: "Saved report", exact: true }),
         ).toBeVisible();

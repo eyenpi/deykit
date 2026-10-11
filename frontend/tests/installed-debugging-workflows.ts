@@ -1384,6 +1384,15 @@ export async function runComparisonWorkflow(
       }),
     ).toBeEnabled();
 
+    const runCompletionDeadline = performance.now() + 197_000;
+    const remainingRunCompletionMs = () => {
+      const remaining = Math.floor(runCompletionDeadline - performance.now());
+      if (remaining <= 0)
+        throw new Error(
+          "The revised run did not complete within its shared observation budget.",
+        );
+      return remaining;
+    };
     const startedCapture = await captureOperation(
       page,
       "startRun",
@@ -1406,15 +1415,17 @@ export async function runComparisonWorkflow(
     qualification.setWitness("revised_run_id", revisedRunId);
     await expect(
       page.getByRole("heading", { name: `Run ${revisedRunId}`, exact: true }),
-    ).toBeVisible();
-    await expect(page.locator(".run-detail .lead")).toContainText("completed");
+    ).toBeVisible({ timeout: remainingRunCompletionMs() });
+    await expect(page.locator(".run-detail .lead")).toContainText("completed", {
+      timeout: remainingRunCompletionMs(),
+    });
     const executionCounts = await waitForCountFile(
       qualification.controlDirectory,
       (counts) =>
         counts.fixture_dispatch_calls === 11 &&
         counts.for_case_calls === 11 &&
         counts.live_dispatch_calls === 0,
-      30_000,
+      remainingRunCompletionMs(),
     );
     expect(executionCounts.fixture_dispatch_by_case["ex-011"] ?? 0).toBe(0);
     expect(executionCounts.for_case_by_case["ex-011"] ?? 0).toBe(0);
