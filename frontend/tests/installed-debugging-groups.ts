@@ -159,6 +159,20 @@ async function downloadReportBytes(
   return response.body;
 }
 
+async function selectAuthoredAlternateCase(
+  page: Page,
+  waitForIdle: () => Promise<void>,
+): Promise<void> {
+  const casesTable = page.getByRole("table", { name: /^Cases in / });
+  const alternateCase = casesTable.getByRole("button", {
+    name: "ex-001",
+    exact: true,
+  });
+  await expect(alternateCase).toBeVisible();
+  await alternateCase.click();
+  await waitForIdle();
+}
+
 async function editDeleteAndReaddCaseThroughPublicInterfaces(
   page: Page,
   qualification: Awaited<
@@ -201,6 +215,8 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await expect(
     casesTable.getByRole("button", { name: "ex-003", exact: true }),
   ).toBeVisible();
+  await waitForIdle();
+  await selectAuthoredAlternateCase(page, waitForIdle);
   const selected = await captureOperation(
     page,
     "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get",
@@ -302,7 +318,15 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await qualification.setWitness("same_id_readd_hash", added.contentHash);
 
   await page
-    .getByRole("button", { name: "Project examples", exact: true })
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Content category", exact: true })
+    .click();
+  await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
+    "Content category",
+  );
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Examples", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
@@ -341,6 +365,8 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
     >(await caseList.body(), 200, caseList.status());
   }
   const refreshedTable = page.getByRole("table", { name: /^Cases in / });
+  await waitForIdle();
+  await selectAuthoredAlternateCase(page, waitForIdle);
   const casePath = `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/ex-003`;
   const labelPath = `/api/v1/projects/${registrationId}/decisions/${qualification.seedMetadata.decision_id}/datasets/${datasetId}/labels/ex-003`;
   const caseReadPromise = page.waitForResponse(
@@ -416,6 +442,8 @@ async function setReaddedCaseCurrentLabel(
   if ((await dataset.inputValue()) !== datasetId)
     await dataset.selectOption(datasetId);
   const casesTable = page.getByRole("table", { name: /^Cases in / });
+  await waitForIdle();
+  await selectAuthoredAlternateCase(page, waitForIdle);
   const currentLabelRead = await captureOperation(
     page,
     "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get",
