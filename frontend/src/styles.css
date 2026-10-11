@@ -513,6 +513,19 @@ code {
   padding-top: 18px;
   border-top: 1px solid var(--border);
 }
+.run-detail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.run-detail > *,
+.run-detail :is(section, div, dl, dt, dd, p, h1, h2, h3, h4, h5, code) {
+  min-width: 0;
+  max-width: 100%;
+}
+.run-detail .table-region,
+.run-detail .source-editor {
+  max-width: 100%;
+}
 .run-review-summary dl,
 .run-detail dl {
   display: grid;

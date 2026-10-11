@@ -1209,13 +1209,13 @@ test("installed browser reviews and inspects fixture execution", async ({
     const detailDocument = page.locator("article.run-detail");
     const detailBounds = await detailDocument.boundingBox();
     expect(detailBounds).not.toBeNull();
+    await screenshot("execution-run-inspection-mobile-320.png");
     const overflow = await page.evaluate(
       () =>
         document.documentElement.scrollWidth >
         document.documentElement.clientWidth,
     );
     expect(overflow).toBe(false);
-    await screenshot("execution-run-inspection-mobile-320.png");
     completed = true;
   } finally {
     if (holdPath) await rm(holdPath, { force: true }).catch(() => undefined);
