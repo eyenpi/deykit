@@ -786,7 +786,9 @@ export async function runSavedAnswersWorkflow(
       .getByRole("table", { name: "Frozen result rows" })
       .getByRole("button", { name: "ex-003", exact: true })
       .click();
-    await expect(caseInspector).toContainText("Case ex-003");
+    await expect(
+      caseInspector.getByRole("heading", { name: "ex-003", exact: true }),
+    ).toBeVisible();
     await reads.waitForIdle();
     await expect(
       caseInspector.getByRole("heading", { name: "Reported probabilities" }),
