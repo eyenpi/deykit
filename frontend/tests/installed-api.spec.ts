@@ -298,7 +298,7 @@ async function runInstalledProviderFixtureTail({
   }
   await recordProjectNavigationFacts(await captureProjectNavigationFacts(page));
   await page
-    .getByRole("button", { name: "Try support demo", exact: true })
+    .getByRole("button", { name: /^Try support demo/ })
     .click();
   const fixtureDemoPath = testInfo.outputPath("fixture-support-demo");
   await page.getByLabel("Project folder path").fill(fixtureDemoPath);
