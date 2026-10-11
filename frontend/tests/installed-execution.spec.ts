@@ -45,6 +45,42 @@ type SafeFailure = {
   reason: string | null;
 };
 
+type DispatchCountSnapshot = {
+  fixture_dispatch_calls: number;
+  fixture_dispatch_by_case: Record<string, number>;
+  for_case_calls: number;
+  for_case_by_case: Record<string, number>;
+  live_dispatch_calls: number;
+};
+
+function isCount(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  );
+}
+
+function isCountMap(value: unknown): value is Record<string, number> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every(isCount)
+  );
+}
+
+function isDispatchCountSnapshot(
+  value: unknown,
+): value is DispatchCountSnapshot {
+  return (
+    isRecord(value) &&
+    isCount(value.fixture_dispatch_calls) &&
+    isCount(value.for_case_calls) &&
+    isCount(value.live_dispatch_calls) &&
+    isCountMap(value.fixture_dispatch_by_case) &&
+    isCountMap(value.for_case_by_case)
+  );
+}
+
 test("installed browser reviews and inspects fixture execution", async ({
   page,
 }, testInfo) => {
@@ -81,6 +117,10 @@ test("installed browser reviews and inspects fixture execution", async ({
       progressPath,
       `${JSON.stringify({
         phases: [...phaseStatus].map(([id, status]) => ({ id, status })),
+        completed_phases: [...phaseStatus]
+          .filter(([, status]) => status === "passed")
+          .map(([id]) => id),
+        screenshots,
         active_phase: activePhase,
         api_failures: apiFailures,
       })}\n`,
@@ -151,13 +191,10 @@ test("installed browser reviews and inspects fixture execution", async ({
     const value: unknown = JSON.parse(
       await readFile(join(fixtureControlDirectory, "counts.json"), "utf8"),
     );
-    expect(isRecord(value)).toBe(true);
+    if (!isDispatchCountSnapshot(value))
+      throw new Error("The installed fixture count witness was invalid.");
     expect(value).toMatchObject({ live_dispatch_calls: 0 });
-    return value as {
-      fixture_dispatch_calls: number;
-      for_case_calls: Record<string, number>;
-      live_dispatch_calls: number;
-    };
+    return value;
   }
 
   async function waitForEntered(caseId: string) {
@@ -502,7 +539,8 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(settledCounts.fixture_dispatch_calls).toBeGreaterThan(
       initialDispatchCount,
     );
-    expect(settledCounts.for_case_calls[dispatchCaseId]).toBe(1);
+    expect(settledCounts.for_case_by_case[dispatchCaseId]).toBe(1);
+    expect(settledCounts.fixture_dispatch_by_case[dispatchCaseId]).toBe(1);
     const outcomesByCase = new Map(
       inactiveRun.cases.map((item) => [item.case_id, item]),
     );
@@ -513,7 +551,8 @@ test("installed browser reviews and inspects fixture execution", async ({
       expect(
         inactiveRun.attempts.some((attempt) => attempt.case_id === caseId),
       ).toBe(false);
-      expect(settledCounts.for_case_calls[caseId] ?? 0).toBe(0);
+      expect(settledCounts.for_case_by_case[caseId] ?? 0).toBe(0);
+      expect(settledCounts.fixture_dispatch_by_case[caseId] ?? 0).toBe(0);
     }
     await expect(
       page.getByRole("heading", { name: "Review resume" }),
@@ -633,6 +672,12 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(countsAfterResumeReplay.fixture_dispatch_calls).toBe(
       countsBeforeResumeReplay.fixture_dispatch_calls,
     );
+    expect(countsAfterResumeReplay.fixture_dispatch_by_case).toEqual(
+      countsBeforeResumeReplay.fixture_dispatch_by_case,
+    );
+    expect(countsAfterResumeReplay.for_case_by_case).toEqual(
+      countsBeforeResumeReplay.for_case_by_case,
+    );
     await page.unroute(
       `**/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
     );
@@ -645,10 +690,16 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(resumedRun.attempts).toHaveLength(11);
     const completedCounts = await dispatchCounts();
     expect(completedCounts.fixture_dispatch_calls).toBe(11);
+    expect(completedCounts.for_case_calls).toBe(11);
     expect(completedCounts.live_dispatch_calls).toBe(0);
-    for (const caseId of eligibleCaseIds)
-      expect(completedCounts.for_case_calls[caseId] ?? 0).toBe(1);
-    expect(completedCounts.for_case_calls[invalidInputCaseId] ?? 0).toBe(0);
+    for (const caseId of eligibleCaseIds) {
+      expect(completedCounts.for_case_by_case[caseId] ?? 0).toBe(1);
+      expect(completedCounts.fixture_dispatch_by_case[caseId] ?? 0).toBe(1);
+    }
+    expect(completedCounts.for_case_by_case[invalidInputCaseId] ?? 0).toBe(0);
+    expect(completedCounts.fixture_dispatch_by_case[invalidInputCaseId] ?? 0).toBe(
+      0,
+    );
     await expect(
       page.getByRole("heading", { name: "Attempts and segments" }),
     ).toBeVisible();

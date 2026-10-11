@@ -14,8 +14,9 @@ import os
 import signal
 import socket
 import time
+from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -109,6 +110,8 @@ class FakeModelLister:
 class DispatchWitness:
     for_case_calls: int = 0
     dispatch_calls: int = 0
+    for_case_by_case: dict[str, int] = field(default_factory=dict)
+    dispatch_by_case: dict[str, int] = field(default_factory=dict)
     publish: Callable[[], None] | None = None
 
     def changed(self) -> None:
@@ -130,6 +133,9 @@ class WitnessTransport:
         self, request: CompiledRequest, *, timeout_seconds: float
     ) -> DispatchOutcome:
         self._witness.dispatch_calls += 1
+        self._witness.dispatch_by_case[self._case_id] = (
+            self._witness.dispatch_by_case.get(self._case_id, 0) + 1
+        )
         self._witness.changed()
         control = os.environ.get("DEYKIT_FIXTURE_CONTROL_DIRECTORY")
         if control is not None:
@@ -166,6 +172,9 @@ class WitnessBackend:
 
     def for_case(self, case_id: str) -> ProviderTransport:
         self._witness.for_case_calls += 1
+        self._witness.for_case_by_case[case_id] = (
+            self._witness.for_case_by_case.get(case_id, 0) + 1
+        )
         self._witness.changed()
         return WitnessTransport(self._fixture.for_case(case_id), self._witness, case_id)
 
@@ -312,6 +321,11 @@ class QualificationServer(uvicorn.Server):
             "supervisor_run_tasks_empty": not supervisor._run_tasks,
             "supervisor_group_tasks_empty": not supervisor._group_tasks,
         }
+        fixture_dispatch_by_case: Counter[str] = Counter()
+        for_case_by_case: Counter[str] = Counter()
+        for item in self._backends:
+            fixture_dispatch_by_case.update(item.witness.dispatch_by_case)
+            for_case_by_case.update(item.witness.for_case_by_case)
         witness = {
             "lifespan_startup_completed": self._lifespan.startup_completed,
             "lifespan_startup_error": self._lifespan.startup_error,
@@ -338,9 +352,11 @@ class QualificationServer(uvicorn.Server):
             "model_list_inference_calls_contract": 0,
             "model_list_timeouts": self._model_lister.timeouts,
             "fixture_dispatch_calls": sum(item.witness.dispatch_calls for item in self._backends),
+            "fixture_dispatch_by_case": dict(sorted(fixture_dispatch_by_case.items())),
             "live_dispatch_calls": 0,
             "all_resolved_backends_fixture_only": True,
             "for_case_calls": sum(item.witness.for_case_calls for item in self._backends),
+            "for_case_by_case": dict(sorted(for_case_by_case.items())),
             "jev_api_key_present": "JEV_API_KEY" in os.environ,
         }
         _write_json(self._ready_file.with_suffix(".stopped.json"), witness)
@@ -365,6 +381,11 @@ def _dependencies(
         if control is not None:
             path = Path(control) / "counts.json"
             temporary = path.with_suffix(".tmp")
+            fixture_dispatch_by_case: Counter[str] = Counter()
+            for_case_by_case: Counter[str] = Counter()
+            for factory in backend_factories:
+                fixture_dispatch_by_case.update(factory.witness.dispatch_by_case)
+                for_case_by_case.update(factory.witness.for_case_by_case)
             _write_json(
                 temporary,
                 {
@@ -372,6 +393,10 @@ def _dependencies(
                         f.witness.dispatch_calls for f in backend_factories
                     ),
                     "for_case_calls": sum(f.witness.for_case_calls for f in backend_factories),
+                    "fixture_dispatch_by_case": dict(
+                        sorted(fixture_dispatch_by_case.items())
+                    ),
+                    "for_case_by_case": dict(sorted(for_case_by_case.items())),
                     "live_dispatch_calls": 0,
                 },
             )
