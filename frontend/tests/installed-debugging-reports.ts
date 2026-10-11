@@ -21,6 +21,7 @@ import {
   openPreparedProject,
   readReportWitness,
   startDebuggingQualification,
+  settleOnSandbox,
   waitForCountFile,
 } from "./installed-debugging-support";
 
@@ -51,7 +52,14 @@ type Target = {
 async function openReportPage(
   page: Page,
   registrationId: string,
-): Promise<void> {
+): Promise<ApiOperationData<"listReports"> | undefined> {
+  if (
+    await page
+      .getByRole("heading", { name: "Saved reports", exact: true })
+      .isVisible()
+      .catch(() => false)
+  )
+    return undefined;
   const response = await captureOperation(
     page,
     "listReports",
@@ -63,11 +71,51 @@ async function openReportPage(
       ).toBeVisible();
     },
   );
-  decodeSuccessEnvelope<ApiOperationData<"listReports">>(
+  return decodeSuccessEnvelope<ApiOperationData<"listReports">>(
     await response.response.body(),
     200,
     response.response.status(),
   );
+}
+
+async function reopenSavedReport(
+  page: Page,
+  registrationId: string,
+  targetKind: ReportKind,
+  targetId: string,
+  reportId: string,
+): Promise<ApiOperationData<"readReport">> {
+  const listing = await openReportPage(page, registrationId);
+  if (!listing)
+    throw new Error("A newly admitted saved report list was unavailable.");
+  expect(
+    listing.items.filter((item) => item.report_id === reportId),
+  ).toHaveLength(1);
+  const response = await captureOperation(
+    page,
+    "readReport",
+    { registration_id: registrationId, report_id: reportId },
+    async () => {
+      await page
+        .getByRole("button", {
+          name: `${targetKind}: ${targetId}`,
+          exact: true,
+        })
+        .click();
+      await expect(
+        page.getByRole("heading", { name: "Saved report", exact: true }),
+      ).toBeVisible();
+    },
+  );
+  const report = decodeSuccessEnvelope<ApiOperationData<"readReport">>(
+    response.body,
+    200,
+    response.response.status(),
+  );
+  expect(report.report_id).toBe(reportId);
+  expect(report.target_kind).toBe(targetKind);
+  expect(report.target_id).toBe(targetId);
+  return report;
 }
 
 export async function runReportsWorkflow(
@@ -138,12 +186,14 @@ export async function runReportsWorkflow(
       200,
       comparisonResponse.response.status(),
     );
-    const forward = comparisons.items.filter(
-      (item) =>
+    const forward = comparisons.items.filter((item) => {
+      const counts = object(item.outcomes.primary_counts);
+      return (
         item.left_evaluation_id === qualification.seedMetadata.evaluation_id &&
-        item.outcomes.primary_counts.improved === "1" &&
-        item.outcomes.primary_counts.regressed === "0",
-    );
+        counts.improved === "1" &&
+        counts.regressed === "0"
+      );
+    });
     expect(forward).toHaveLength(1);
     const comparisonId = safeId(forward[0]?.comparison_id);
     qualification.setWitness("comparison_id", comparisonId);
@@ -159,6 +209,13 @@ export async function runReportsWorkflow(
       { kind: "comparison", id: comparisonId, rawMode: "responses" },
     ];
     let replayUsed = false;
+    let expectedReportCount = 0;
+    const createdReports: Array<{
+      target: Target;
+      reportId: string;
+      contentHash: string;
+      bytes: Record<"json" | "markdown", Buffer>;
+    }> = [];
     for (const target of cTargets) {
       await qualification.enterPhase("create-c-" + target.kind + "-report");
       await openReportPage(page, registrationId);
@@ -182,7 +239,7 @@ export async function runReportsWorkflow(
           : target.kind === "evaluation"
             ? "readEvaluation"
             : "readComparison";
-      const params =
+      const params: Record<string, string> =
         target.kind === "run"
           ? { registration_id: registrationId, run_id: target.id }
           : target.kind === "evaluation"
@@ -190,14 +247,36 @@ export async function runReportsWorkflow(
             : { registration_id: registrationId, comparison_id: target.id };
       const verified = await captureOperation(page, operation, params, () =>
         dialog
-          .getByRole("button", { name: "Verify saved target", exact: true })
+          .getByRole("button", {
+            name: "Verify saved target",
+            exact: true,
+          })
           .click(),
       );
       expect(verified.response.status()).toBe(200);
       await verified.response.body();
       await expect(
-        dialog.getByRole("pre", { name: "Verified report target" }),
+        dialog.locator('pre[aria-label="Verified report target"]'),
       ).toBeVisible();
+      const verifiedText =
+        (await dialog
+          .locator('pre[aria-label="Verified report target"]')
+          .textContent()) ?? "";
+      if (target.kind === "run")
+        expect(
+          verifiedText.includes(
+            `Result ${qualification.seedMetadata.result_snapshot_id}`,
+          ),
+        ).toBe(true);
+      if (target.kind === "evaluation")
+        expect(
+          verifiedText.includes(
+            `Evaluation ${qualification.seedMetadata.evaluation_id}`,
+          ) &&
+            verifiedText.includes(
+              `Result ${qualification.seedMetadata.result_snapshot_id}`,
+            ),
+        ).toBe(true);
       for (const raw of [
         "Include raw inputs",
         "Include raw requests",
@@ -270,10 +349,23 @@ export async function runReportsWorkflow(
             observed?.replayStatus ?? 0,
           );
           expect(receipt.report_id).toBe(first.report_id);
+          expect(receipt.target_kind).toBe(target.kind);
+          expect(receipt.target_id).toBe(target.id);
           expect(first.raw).toEqual(expectedRaw);
           expect(receipt.raw).toEqual(expectedRaw);
-          expect(first.replayed).toBe(false);
-          expect(receipt.replayed).toBe(true);
+          expect(receipt.content_hash).toBe(first.content_hash);
+          if (target.kind === "run")
+            expect(receipt.result_snapshot_ids).toContain(
+              qualification.seedMetadata.result_snapshot_id,
+            );
+          if (target.kind === "evaluation") {
+            expect(receipt.evaluation_ids).toContain(
+              qualification.seedMetadata.evaluation_id,
+            );
+            expect(receipt.result_snapshot_ids).toContain(
+              qualification.seedMetadata.result_snapshot_id,
+            );
+          }
           reportId = receipt.report_id;
           replayUsed = true;
           qualification.setWitness(
@@ -295,8 +387,19 @@ export async function runReportsWorkflow(
           >(await created.response.body(), 200, created.response.status());
           expect(receipt.target_kind).toBe(target.kind);
           expect(receipt.target_id).toBe(target.id);
-          expect(receipt.replayed).toBe(false);
           expect(receipt.raw).toEqual(expectedRaw);
+          if (target.kind === "run")
+            expect(receipt.result_snapshot_ids).toContain(
+              qualification.seedMetadata.result_snapshot_id,
+            );
+          if (target.kind === "evaluation") {
+            expect(receipt.evaluation_ids).toContain(
+              qualification.seedMetadata.evaluation_id,
+            );
+            expect(receipt.result_snapshot_ids).toContain(
+              qualification.seedMetadata.result_snapshot_id,
+            );
+          }
           reportId = receipt.report_id;
         }
         qualification.setWitness(target.kind + "_report_id", reportId);
@@ -317,10 +420,33 @@ export async function runReportsWorkflow(
         expect(report.target_kind).toBe(target.kind);
         expect(report.target_id).toBe(target.id);
         expect(report.raw).toEqual(expectedRaw);
+        expectedReportCount += 1;
+        const listing = await openReportPage(page, registrationId);
+        if (!listing)
+          throw new Error("The saved report list was not freshly admitted.");
+        expect(listing.total).toBe(String(expectedReportCount));
+        expect(
+          listing.items.filter((item) => item.report_id === reportId),
+        ).toHaveLength(1);
+        expect(listing.items).toHaveLength(expectedReportCount);
+        const reportList = page.getByRole("list", { name: "Saved reports" });
+        await expect(reportList.getByRole("listitem")).toHaveCount(
+          expectedReportCount,
+        );
+        await expect(
+          reportList
+            .getByRole("listitem")
+            .filter({ hasText: reportId })
+            .getByRole("button", {
+              name: `${target.kind}: ${target.id}`,
+              exact: true,
+            }),
+        ).toHaveCount(1);
         await reads.waitForIdle();
         const witnessPath = testInfo.outputPath(
           "report-" + reportId + "-witness.json",
         );
+        await settleOnSandbox(page, reads);
         await invokeReportWitness(
           qualification,
           qualification.projectPath,
@@ -328,6 +454,16 @@ export async function runReportsWorkflow(
           witnessPath,
         );
         const witness = await readReportWitness(witnessPath, reportId);
+        const afterWitness = await reopenSavedReport(
+          page,
+          registrationId,
+          target.kind,
+          target.id,
+          reportId,
+        );
+        expect(afterWitness.content_hash).toBe(report.content_hash);
+        expect(afterWitness.raw).toEqual(expectedRaw);
+        const downloadedBytes = {} as Record<"json" | "markdown", Buffer>;
         for (const format of ["json", "markdown"] as const) {
           await page
             .getByLabel("Download format", { exact: true })
@@ -347,6 +483,7 @@ export async function runReportsWorkflow(
           );
           await assertReportDownload(response.response, format);
           const bytes = await response.response.body();
+          downloadedBytes[format] = bytes;
           expect(bytes.byteLength).toBeLessThanOrEqual(8 * 1024 * 1024);
           const expected = witness[format];
           expect(
@@ -361,12 +498,10 @@ export async function runReportsWorkflow(
             expected.bytes_hash,
           );
           await expect(
-            page
-              .getByRole("status")
-              .filter({
-                hasText:
-                  "Read " + bytes.byteLength + " report bytes as " + format,
-              }),
+            page.getByRole("status").filter({
+              hasText:
+                "Read " + bytes.byteLength + " report bytes as " + format,
+            }),
           ).toBeVisible();
         }
         if (target.kind === "run")
@@ -385,10 +520,190 @@ export async function runReportsWorkflow(
               },
             },
           );
+        createdReports.push({
+          target,
+          reportId,
+          contentHash: report.content_hash,
+          bytes: downloadedBytes,
+        });
       } finally {
         await lost?.dispose();
       }
       await reads.waitForIdle();
+    }
+
+    await qualification.enterPhase("change-current-label-after-reports");
+    const runs = await captureOperation(
+      page,
+      "listRuns",
+      { registration_id: registrationId },
+      () => page.getByRole("button", { name: "Runs", exact: true }).click(),
+    );
+    const runPage = decodeSuccessEnvelope<ApiOperationData<"listRuns">>(
+      runs.body,
+      200,
+      runs.response.status(),
+    );
+    expect(
+      runPage.items.some(
+        (item) => item.run_id === qualification.seedMetadata.run_id,
+      ),
+    ).toBe(true);
+    const results = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      () =>
+        page
+          .getByRole("button", {
+            name: qualification.seedMetadata.run_id,
+            exact: true,
+          })
+          .click(),
+      (query) => !query.has("evaluation_id"),
+    );
+    const resultPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      results.body,
+      200,
+      results.response.status(),
+    );
+    expect(resultPage.result_snapshot_id).toBe(
+      qualification.seedMetadata.result_snapshot_id,
+    );
+    const pinnedResults = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page
+          .getByLabel("Evaluation snapshot", { exact: true })
+          .selectOption(qualification.seedMetadata.evaluation_id);
+      },
+      (query) =>
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      pinnedResults.body,
+      200,
+      pinnedResults.response.status(),
+    );
+    await reads.waitForIdle();
+    const caseRow = page
+      .getByRole("table", { name: "Frozen result rows" })
+      .getByRole("row")
+      .filter({ hasText: "ex-003" });
+    await caseRow.getByRole("button", { name: "ex-003", exact: true }).click();
+    const inspector = page.getByRole("region", {
+      name: "Case ex-003 inspection",
+    });
+    const labelDialog = page.getByRole("dialog", {
+      name: "Review current label",
+      exact: true,
+    });
+    await inspector
+      .getByRole("button", { name: "Review current label", exact: true })
+      .click();
+    const question = labelDialog.getByLabel("Question · question", {
+      exact: true,
+    });
+    const report = labelDialog.getByLabel("Report · report", { exact: true });
+    await expect(question).toBeChecked();
+    await expect(report).not.toBeChecked();
+    await question.uncheck();
+    await report.check();
+    const labelWrite = await captureOperation(
+      page,
+      "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post",
+      {
+        registration_id: registrationId,
+        decision_id: qualification.seedMetadata.decision_id,
+        dataset_id: qualification.seedMetadata.dataset_id,
+      },
+      () =>
+        labelDialog
+          .getByRole("button", { name: "Save current label", exact: true })
+          .click(),
+    );
+    const labelReceipt = decodeSuccessEnvelope<
+      ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">
+    >(labelWrite.body, 200, labelWrite.response.status());
+    expect(labelReceipt.changes).toHaveLength(1);
+    expect(labelReceipt.changes[0]?.case_id).toBe("ex-003");
+    expect(labelReceipt.changes[0]?.label?.acceptable_option_ids).toEqual([
+      "report",
+    ]);
+    await reads.waitForIdle();
+    await page.keyboard.press("Escape");
+    await expect(labelDialog).toBeHidden();
+    await expect(caseRow).toContainText("question");
+    const refreshedListing = await openReportPage(page, registrationId);
+    if (!refreshedListing)
+      throw new Error("The saved report list did not refresh after labeling.");
+    expect(refreshedListing.items).toHaveLength(createdReports.length);
+    for (const saved of createdReports) {
+      const reportButton = page.getByRole("button", {
+        name: `${saved.target.kind}: ${saved.target.id}`,
+        exact: true,
+      });
+      const metadata = await captureOperation(
+        page,
+        "readReport",
+        { registration_id: registrationId, report_id: saved.reportId },
+        async () => {
+          await reportButton.click();
+          await expect(
+            page.getByRole("heading", { name: "Saved report", exact: true }),
+          ).toBeVisible();
+        },
+      );
+      const unchanged = decodeSuccessEnvelope<ApiOperationData<"readReport">>(
+        metadata.body,
+        200,
+        metadata.response.status(),
+      );
+      expect(unchanged.report_id).toBe(saved.reportId);
+      expect(unchanged.content_hash).toBe(saved.contentHash);
+      expect(unchanged.target_kind).toBe(saved.target.kind);
+      expect(unchanged.target_id).toBe(saved.target.id);
+      expect(unchanged.raw).toEqual({
+        inputs: saved.target.rawMode === "inputs",
+        requests: saved.target.rawMode === "requests",
+        responses: saved.target.rawMode === "responses",
+      });
+      for (const format of ["json", "markdown"] as const) {
+        await page
+          .getByLabel("Download format", { exact: true })
+          .selectOption(format);
+        const bytes = await captureOperation(
+          page,
+          "downloadReport",
+          { registration_id: registrationId, report_id: saved.reportId },
+          () =>
+            page
+              .getByRole("button", {
+                name: "Preview report bytes",
+                exact: true,
+              })
+              .click(),
+          (query) => query.get("format") === format,
+        );
+        await assertReportDownload(bytes.response, format);
+        expect(
+          Buffer.compare(await bytes.response.body(), saved.bytes[format]),
+        ).toBe(0);
+      }
+      await reads.waitForIdle();
+      const listing = await openReportPage(page, registrationId);
+      if (!listing)
+        throw new Error(
+          "The reports view did not remount after a report read.",
+        );
     }
 
     await qualification.enterPhase("read-g-saved-report-bytes");
@@ -461,6 +776,7 @@ export async function runReportsWorkflow(
       const witnessPath = testInfo.outputPath(
         "imported-" + target.reportId + "-witness.json",
       );
+      await settleOnSandbox(page, reads);
       await importReportWitness(
         qualification,
         secondaryPath,
@@ -470,6 +786,15 @@ export async function runReportsWorkflow(
       const witness = await readReportWitness(witnessPath, target.reportId);
       expect(witness.json.bytes_hash).toBe(target.hashes.json);
       expect(witness.markdown.bytes_hash).toBe(target.hashes.markdown);
+      const afterWitness = await reopenSavedReport(
+        page,
+        gProject.registrationId,
+        target.kind,
+        target.id,
+        target.reportId,
+      );
+      expect(afterWitness.content_hash).toBe(report.content_hash);
+      expect(afterWitness.raw).toEqual(report.raw);
       for (const format of ["json", "markdown"] as const) {
         await page
           .getByLabel("Download format", { exact: true })
@@ -540,6 +865,7 @@ async function exerciseKnownReportDownloadFailures(
   >,
 ): Promise<void> {
   const path = `/api/v1/projects/${registrationId}/reports/${reportId}/download`;
+  const metadataPath = `/api/v1/projects/${registrationId}/reports/${reportId}`;
   let reportPosts = 0;
   const countReportPost = (request: Request) => {
     if (
@@ -551,6 +877,73 @@ async function exerciseKnownReportDownloadFailures(
   };
   page.on("request", countReportPost);
   try {
+    let metadataForwarded = 0;
+    const metadataRoute = async (route: Route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      const actual = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
+      const actualBytes = await actual.body();
+      metadataForwarded += 1;
+      expect(actual.status()).toBe(200);
+      expect(bodySha256(actualBytes)).toMatch(/^[a-f0-9]{64}$/);
+      const errorBody = JSON.stringify({
+        schema_version: 1,
+        error: {
+          code: "internal_error",
+          message: "Request failed.",
+          reason: "storage_io",
+        },
+      });
+      await route.fulfill({
+        response: actual,
+        status: 503,
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(Buffer.byteLength(errorBody)),
+        },
+        body: errorBody,
+      });
+    };
+    await page.route((url) => url.pathname === metadataPath, metadataRoute);
+    try {
+      const metadataFailure = await captureResponse(
+        page,
+        (response) =>
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === metadataPath,
+        () => page.reload(),
+      );
+      expect(metadataFailure.response.status()).toBe(503);
+      await metadataFailure.response.body();
+      expect(metadataForwarded).toBe(1);
+      await expect(page.getByRole("alert")).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Try again", exact: true }),
+      ).toBeEnabled();
+    } finally {
+      await page.unroute((url) => url.pathname === metadataPath, metadataRoute);
+    }
+    const metadataRecovery = await captureOperation(
+      page,
+      "readReport",
+      { registration_id: registrationId, report_id: reportId },
+      () =>
+        page.getByRole("button", { name: "Try again", exact: true }).click(),
+    );
+    const recoveredMetadata = decodeSuccessEnvelope<
+      ApiOperationData<"readReport">
+    >(metadataRecovery.body, 200, metadataRecovery.response.status());
+    expect(recoveredMetadata.report_id).toBe(reportId);
+    expect(recoveredMetadata.target_kind).toBe("run");
+    expect(recoveredMetadata.raw).toEqual({
+      inputs: true,
+      requests: false,
+      responses: false,
+    });
+    expect(reportPosts).toBe(0);
+
     const cases = [
       "preview-service-unavailable",
       "download-service-unavailable",
@@ -560,7 +953,8 @@ async function exerciseKnownReportDownloadFailures(
     ] as const;
     let previousFormat: "json" | "markdown" = "markdown";
     for (const fault of cases) {
-      const format = previousFormat === "json" ? "markdown" : "json";
+      const format: "json" | "markdown" =
+        previousFormat === "json" ? "markdown" : "json";
       previousFormat = format;
       await page
         .getByLabel("Download format", { exact: true })

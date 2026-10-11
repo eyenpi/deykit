@@ -1,7 +1,7 @@
 import { expect, type Page, type TestInfo } from "@playwright/test";
 import type { ApiOperationData } from "../src/api/client";
 import {
-  bodySha256,
+  captureResponse,
   captureOperation,
   decodeSuccessEnvelope,
   finishDebuggingQualification,
@@ -115,10 +115,11 @@ export async function runSavedAnswersWorkflow(
         registration_id: registrationId,
         run_id: qualification.seedMetadata.run_id,
       },
-      () =>
-        evaluationSelection.selectOption(
+      async () => {
+        await evaluationSelection.selectOption(
           qualification.seedMetadata.evaluation_id,
-        ),
+        );
+      },
       (query) =>
         query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
     );
@@ -149,8 +150,11 @@ export async function runSavedAnswersWorkflow(
         registration_id: registrationId,
         run_id: qualification.seedMetadata.run_id,
       },
-      () =>
-        page.getByLabel("Results per page", { exact: true }).selectOption("5"),
+      async () => {
+        await page
+          .getByLabel("Results per page", { exact: true })
+          .selectOption("5");
+      },
       (query) =>
         query.get("limit") === "5" &&
         query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
@@ -217,6 +221,383 @@ export async function runSavedAnswersWorkflow(
     expect(pagedIds).toContain("ex-003");
     await reads.waitForIdle();
 
+    const statusFilterRead = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page.getByLabel("Status", { exact: true }).selectOption("valid");
+      },
+      (query) =>
+        query.get("status") === "valid" &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const validStatusPage = decodeSuccessEnvelope<
+      ApiOperationData<"listResults">
+    >(statusFilterRead.body, 200, statusFilterRead.response.status());
+    assertBaselineResultPage(
+      validStatusPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    expect(validStatusPage.filtered_count).toBe("10");
+    const incorrectFilterRead = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page
+          .getByLabel("Assessment", { exact: true })
+          .selectOption("incorrect");
+      },
+      (query) =>
+        query.get("status") === "valid" &&
+        query.get("assessment_filter") === "incorrect" &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const validIncorrectPage = decodeSuccessEnvelope<
+      ApiOperationData<"listResults">
+    >(incorrectFilterRead.body, 200, incorrectFilterRead.response.status());
+    assertBaselineResultPage(
+      validIncorrectPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    expect(validIncorrectPage.filtered_count).toBe("2");
+    expect(
+      validIncorrectPage.items.every((item) => {
+        const source = record(item.source);
+        return source?.status === "valid" && source.set_correct === false;
+      }),
+    ).toBe(true);
+    const taggedSource = originalPage.items
+      .map((item) => record(item.source))
+      .find(
+        (source) =>
+          typeof source?.split === "string" &&
+          Array.isArray(source.tags) &&
+          source.tags.length > 0 &&
+          source.tags.every((tag) => typeof tag === "string"),
+      );
+    if (!taggedSource || typeof taggedSource.split !== "string")
+      throw new Error("The seeded result rows had no authored split/tag pair.");
+    const selectedSplit = taggedSource.split;
+    const firstTag = Array.isArray(taggedSource.tags)
+      ? taggedSource.tags.find((tag): tag is string => typeof tag === "string")
+      : undefined;
+    if (typeof firstTag !== "string")
+      throw new Error("The seeded result rows had no authored tag value.");
+    await page.getByLabel("Assessment", { exact: true }).selectOption("all");
+    const splitRead = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page
+          .getByLabel("Split", { exact: true })
+          .selectOption(selectedSplit);
+      },
+      (query) =>
+        query.get("split") === selectedSplit &&
+        query.get("status") === "valid" &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const splitPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      splitRead.body,
+      200,
+      splitRead.response.status(),
+    );
+    assertBaselineResultPage(
+      splitPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    const splitTagRead = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page.getByLabel("Tag", { exact: true }).fill(firstTag);
+      },
+      (query) =>
+        query.get("split") === selectedSplit &&
+        query.get("tag") === firstTag &&
+        query.get("status") === "valid" &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const splitTagPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      splitTagRead.body,
+      200,
+      splitTagRead.response.status(),
+    );
+    assertBaselineResultPage(
+      splitTagPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    expect(splitTagPage.filtered_count).not.toBe("0");
+    expect(
+      splitTagPage.items.every((item) => {
+        const source = record(item.source);
+        return (
+          source?.split === selectedSplit &&
+          Array.isArray(source.tags) &&
+          source.tags.includes(firstTag)
+        );
+      }),
+    ).toBe(true);
+    const allStatusRead = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page.getByLabel("Status", { exact: true }).selectOption("");
+      },
+      (query) =>
+        !query.has("status") &&
+        query.get("split") === taggedSource.split &&
+        query.get("tag") === firstTag &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const allStatusPage = decodeSuccessEnvelope<
+      ApiOperationData<"listResults">
+    >(allStatusRead.body, 200, allStatusRead.response.status());
+    assertBaselineResultPage(
+      allStatusPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    const allSplitRead = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page.getByLabel("Split", { exact: true }).selectOption("");
+      },
+      (query) =>
+        !query.has("split") &&
+        query.get("tag") === firstTag &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const allSplitPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      await allSplitRead.response.body(),
+      200,
+      allSplitRead.response.status(),
+    );
+    assertBaselineResultPage(
+      allSplitPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    const allTagRead = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page.getByLabel("Tag", { exact: true }).fill("");
+      },
+      (query) =>
+        !query.has("tag") &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const allTagPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      await allTagRead.response.body(),
+      200,
+      allTagRead.response.status(),
+    );
+    assertBaselineResultPage(
+      allTagPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    const pageSizeReset = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page
+          .getByLabel("Results per page", { exact: true })
+          .selectOption("50");
+      },
+      (query) =>
+        query.get("limit") === "50" &&
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const resetPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      await pageSizeReset.response.body(),
+      200,
+      pageSizeReset.response.status(),
+    );
+    assertBaselineResultPage(
+      resetPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    await reads.waitForIdle();
+
+    await page
+      .getByRole("button", { name: "Content category", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Examples", exact: true }).click();
+    const exampleDataset = page.getByLabel("Dataset", { exact: true });
+    if (
+      (await exampleDataset.inputValue()) !==
+      qualification.seedMetadata.dataset_id
+    ) {
+      const listedCases = await captureOperation(
+        page,
+        "list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get",
+        {
+          registration_id: registrationId,
+          dataset_id: qualification.seedMetadata.dataset_id,
+        },
+        async () => {
+          const selected = await exampleDataset.inputValue();
+          if (selected) await exampleDataset.selectOption("");
+          await exampleDataset.selectOption(
+            qualification.seedMetadata.dataset_id,
+          );
+        },
+      );
+      decodeSuccessEnvelope<
+        ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">
+      >(listedCases.body, 200, listedCases.response.status());
+    } else {
+      await exampleDataset.selectOption("");
+      const listedCases = await captureOperation(
+        page,
+        "list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get",
+        {
+          registration_id: registrationId,
+          dataset_id: qualification.seedMetadata.dataset_id,
+        },
+        () =>
+          exampleDataset.selectOption(qualification.seedMetadata.dataset_id),
+      );
+      decodeSuccessEnvelope<
+        ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">
+      >(listedCases.body, 200, listedCases.response.status());
+    }
+    const backingCaseRead = await captureOperation(
+      page,
+      "read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get",
+      {
+        registration_id: registrationId,
+        dataset_id: qualification.seedMetadata.dataset_id,
+        case_id: "ex-003",
+      },
+      () =>
+        page
+          .getByRole("table", { name: /^Cases in / })
+          .getByRole("button", { name: "ex-003", exact: true })
+          .click(),
+    );
+    const backingCase = decodeSuccessEnvelope<
+      ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get">
+    >(backingCaseRead.body, 200, backingCaseRead.response.status());
+    const backingInputSource = backingCase.case.record.input_source;
+    if (typeof backingInputSource !== "string")
+      throw new Error("The authored case input source was not a string.");
+    const returnedRuns = await captureOperation(
+      page,
+      "listRuns",
+      { registration_id: registrationId },
+      async () => {
+        await page.getByRole("button", { name: "Runs", exact: true }).click();
+        await expect(
+          page.getByRole("heading", { name: "Runs", exact: true }),
+        ).toBeVisible();
+      },
+    );
+    const returnedRunPage = decodeSuccessEnvelope<ApiOperationData<"listRuns">>(
+      returnedRuns.body,
+      200,
+      returnedRuns.response.status(),
+    );
+    expect(
+      returnedRunPage.items.some(
+        (item) => item.run_id === qualification.seedMetadata.run_id,
+      ),
+    ).toBe(true);
+    const returnedResults = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      () =>
+        page
+          .getByRole("button", {
+            name: qualification.seedMetadata.run_id,
+            exact: true,
+          })
+          .click(),
+      (query) => !query.has("evaluation_id"),
+    );
+    const returnedResultPage = decodeSuccessEnvelope<
+      ApiOperationData<"listResults">
+    >(
+      await returnedResults.response.body(),
+      200,
+      returnedResults.response.status(),
+    );
+    expect(returnedResultPage.result_snapshot_id).toBe(
+      qualification.seedMetadata.result_snapshot_id,
+    );
+    const returnedPinnedResults = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page
+          .getByLabel("Evaluation snapshot", { exact: true })
+          .selectOption(qualification.seedMetadata.evaluation_id);
+      },
+      (query) =>
+        query.get("evaluation_id") === qualification.seedMetadata.evaluation_id,
+    );
+    const returnedPinnedPage = decodeSuccessEnvelope<
+      ApiOperationData<"listResults">
+    >(
+      await returnedPinnedResults.response.body(),
+      200,
+      returnedPinnedResults.response.status(),
+    );
+    assertBaselineResultPage(
+      returnedPinnedPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    await reads.waitForIdle();
+
     await qualification.enterPhase("probability-and-label-review");
     const caseRow = page
       .getByRole("table", { name: "Frozen result rows" })
@@ -247,10 +628,10 @@ export async function runSavedAnswersWorkflow(
       200,
       caseDetail.response.status(),
     );
-    expect(detail.result_snapshot_id).toBe(
+    expect(detail.context.result_snapshot_id).toBe(
       qualification.seedMetadata.result_snapshot_id,
     );
-    expect(detail.label_snapshot_id).toBe(
+    expect(detail.context.label_snapshot_id).toBe(
       qualification.seedMetadata.label_snapshot_id,
     );
     expect(
@@ -264,6 +645,118 @@ export async function runSavedAnswersWorkflow(
     const caseInspector = page.getByRole("region", {
       name: "Case ex-003 inspection",
     });
+    const inputToggle = caseInspector.getByLabel("Include input", {
+      exact: true,
+    });
+    const revealedInput = await captureOperation(
+      page,
+      "readResult",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+        case_id: "ex-003",
+      },
+      async () => {
+        await inputToggle.check();
+      },
+      (query) =>
+        query.get("evaluation_id") ===
+          qualification.seedMetadata.evaluation_id &&
+        query.get("expected_result_snapshot_id") ===
+          qualification.seedMetadata.result_snapshot_id &&
+        query.get("expected_label_snapshot_id") ===
+          qualification.seedMetadata.label_snapshot_id &&
+        query.get("include_input") === "true" &&
+        query.get("include_request") === "false" &&
+        query.get("include_response") === "false" &&
+        query.get("include_attempts") === "false",
+    );
+    const revealedDetail = decodeSuccessEnvelope<
+      ApiOperationData<"readResult">
+    >(
+      await revealedInput.response.body(),
+      200,
+      revealedInput.response.status(),
+    );
+    const revealedSource = record(revealedDetail.source)?.input_source;
+    expect(revealedSource === backingInputSource).toBe(true);
+    const displayedSource = await caseInspector
+      .locator("pre.source-editor")
+      .textContent();
+    expect(displayedSource === backingInputSource).toBe(true);
+    const hiddenAgain = await captureOperation(
+      page,
+      "readResult",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+        case_id: "ex-003",
+      },
+      async () => {
+        await inputToggle.uncheck();
+      },
+      (query) =>
+        query.get("evaluation_id") ===
+          qualification.seedMetadata.evaluation_id &&
+        query.get("expected_result_snapshot_id") ===
+          qualification.seedMetadata.result_snapshot_id &&
+        query.get("expected_label_snapshot_id") ===
+          qualification.seedMetadata.label_snapshot_id &&
+        query.get("include_input") === "false" &&
+        query.get("include_request") === "false" &&
+        query.get("include_response") === "false" &&
+        query.get("include_attempts") === "false",
+    );
+    const hiddenAgainDetail = decodeSuccessEnvelope<
+      ApiOperationData<"readResult">
+    >(await hiddenAgain.response.body(), 200, hiddenAgain.response.status());
+    expect(record(hiddenAgainDetail.source)?.input_source).toBeNull();
+    await expect(caseInspector.locator("pre.source-editor")).toHaveCount(0);
+    const otherCaseRow = page
+      .getByRole("table", { name: "Frozen result rows" })
+      .getByRole("row")
+      .filter({ hasText: "ex-004" });
+    const changedCase = await captureOperation(
+      page,
+      "readResult",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+        case_id: "ex-004",
+      },
+      async () => {
+        await otherCaseRow
+          .getByRole("button", { name: "ex-004", exact: true })
+          .click();
+      },
+      (query) =>
+        query.get("evaluation_id") ===
+          qualification.seedMetadata.evaluation_id &&
+        query.get("expected_result_snapshot_id") ===
+          qualification.seedMetadata.result_snapshot_id &&
+        query.get("expected_label_snapshot_id") ===
+          qualification.seedMetadata.label_snapshot_id &&
+        query.get("include_input") === "false",
+    );
+    const changedCaseDetail = decodeSuccessEnvelope<
+      ApiOperationData<"readResult">
+    >(await changedCase.response.body(), 200, changedCase.response.status());
+    expect(changedCaseDetail.context.result_snapshot_id).toBe(
+      qualification.seedMetadata.result_snapshot_id,
+    );
+    const changedCaseInspector = page.getByRole("region", {
+      name: "Case ex-004 inspection",
+    });
+    await expect(changedCaseInspector.locator("pre.source-editor")).toHaveCount(
+      0,
+    );
+    await reads.waitForIdle();
+    await page
+      .getByRole("table", { name: "Frozen result rows" })
+      .getByRole("button", { name: "ex-003", exact: true })
+      .click();
+    await expect(caseInspector).toContainText("Case ex-003");
+    await reads.waitForIdle();
     await expect(
       caseInspector.getByRole("heading", { name: "Reported probabilities" }),
     ).toBeVisible();
@@ -296,6 +789,16 @@ export async function runSavedAnswersWorkflow(
     await expect(reportOption).not.toBeChecked();
     await questionOption.uncheck();
     await reportOption.check();
+    let labelWriteCount = 0;
+    const countLabelWrite = (request: import("@playwright/test").Request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname ===
+          `/api/v1/projects/${registrationId}/decisions/${qualification.seedMetadata.decision_id}/datasets/${qualification.seedMetadata.dataset_id}/labels/batch`
+      )
+        labelWriteCount += 1;
+    };
+    page.on("request", countLabelWrite);
     const labelSave = await captureOperation(
       page,
       "batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post",
@@ -324,6 +827,97 @@ export async function runSavedAnswersWorkflow(
     await page.keyboard.press("Escape");
     await expect(labelDialog).toBeHidden();
     await expect(caseRow).toContainText("question");
+    expect(labelWriteCount).toBe(1);
+    const resultsPath = `/api/v1/projects/${registrationId}/runs/${qualification.seedMetadata.run_id}/results`;
+    let failedRead = false;
+    const failFirstResultsRead = async (
+      route: import("@playwright/test").Route,
+    ) => {
+      if (!failedRead && route.request().method() === "GET") {
+        failedRead = true;
+        const body = JSON.stringify({
+          schema_version: 1,
+          error: {
+            code: "internal_error",
+            message: "Request failed.",
+            reason: "storage_io",
+          },
+        });
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body,
+        });
+      } else {
+        await route.continue();
+      }
+    };
+    const resultsMatcher = (url: URL) => url.pathname === resultsPath;
+    try {
+      await page.route(resultsMatcher, failFirstResultsRead);
+      const failedRefresh = await captureResponse(
+        page,
+        (response) =>
+          response.request().method() === "GET" &&
+          new URL(response.url()).pathname === resultsPath,
+        () =>
+          page
+            .getByRole("button", {
+              name: "Refresh frozen results",
+              exact: true,
+            })
+            .click(),
+      );
+      expect(failedRead).toBe(true);
+      expect(failedRefresh.response.status()).toBe(503);
+      const failureBody: unknown = JSON.parse(
+        failedRefresh.body.toString("utf8"),
+      );
+      const failureEnvelope = record(failureBody);
+      const failure = record(failureEnvelope?.error);
+      expect(failure?.code).toBe("internal_error");
+      expect(failure?.reason).toBe("storage_io");
+      await expect(page.getByRole("alert")).toBeVisible();
+    } finally {
+      await page.unroute(resultsMatcher, failFirstResultsRead);
+    }
+    const refreshedResults = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      () =>
+        page
+          .getByRole("button", {
+            name: "Refresh frozen results",
+            exact: true,
+          })
+          .click(),
+      (query) =>
+        query.get("evaluation_id") ===
+          qualification.seedMetadata.evaluation_id &&
+        query.get("expected_result_snapshot_id") ===
+          qualification.seedMetadata.result_snapshot_id &&
+        query.get("expected_label_snapshot_id") ===
+          qualification.seedMetadata.label_snapshot_id,
+    );
+    const refreshedResultPage = decodeSuccessEnvelope<
+      ApiOperationData<"listResults">
+    >(
+      await refreshedResults.response.body(),
+      200,
+      refreshedResults.response.status(),
+    );
+    assertBaselineResultPage(
+      refreshedResultPage,
+      qualification.seedMetadata.result_snapshot_id,
+      qualification.seedMetadata.label_snapshot_id,
+    );
+    expect(labelWriteCount).toBe(1);
+    page.off("request", countLabelWrite);
+    await reads.waitForIdle();
 
     const evaluationControls = page.getByRole("region", {
       name: "Saved result evaluation",
@@ -370,6 +964,77 @@ export async function runSavedAnswersWorkflow(
       reevaluated.content_hash,
     );
     qualification.setWitness("reevaluation_id", reevaluated.evaluation_id);
+    await reads.waitForIdle();
+
+    await qualification.enterPhase("evaluation-switch-clears-raw-source");
+    const runList = await captureOperation(
+      page,
+      "listRuns",
+      { registration_id: registrationId },
+      () => page.getByRole("button", { name: "Runs", exact: true }).click(),
+    );
+    const listedRuns = decodeSuccessEnvelope<ApiOperationData<"listRuns">>(
+      runList.body,
+      200,
+      runList.response.status(),
+    );
+    expect(
+      listedRuns.items.some(
+        (item) => item.run_id === qualification.seedMetadata.run_id,
+      ),
+    ).toBe(true);
+    const reopenedRun = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      () =>
+        page
+          .getByRole("button", {
+            name: qualification.seedMetadata.run_id,
+            exact: true,
+          })
+          .click(),
+      (query) => !query.has("evaluation_id"),
+    );
+    const reopenedPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      await reopenedRun.response.body(),
+      200,
+      reopenedRun.response.status(),
+    );
+    expect(reopenedPage.result_snapshot_id).toBe(
+      qualification.seedMetadata.result_snapshot_id,
+    );
+    const switchedEvaluation = await captureOperation(
+      page,
+      "listResults",
+      {
+        registration_id: registrationId,
+        run_id: qualification.seedMetadata.run_id,
+      },
+      async () => {
+        await page
+          .getByLabel("Evaluation snapshot", { exact: true })
+          .selectOption(reevaluated.evaluation_id);
+      },
+      (query) =>
+        query.get("evaluation_id") === reevaluated.evaluation_id &&
+        query.get("expected_result_snapshot_id") ===
+          qualification.seedMetadata.result_snapshot_id,
+    );
+    const switchedPage = decodeSuccessEnvelope<ApiOperationData<"listResults">>(
+      await switchedEvaluation.response.body(),
+      200,
+      switchedEvaluation.response.status(),
+    );
+    expect(switchedPage.evaluation_id).toBe(reevaluated.evaluation_id);
+    expect(switchedPage.result_snapshot_id).toBe(
+      qualification.seedMetadata.result_snapshot_id,
+    );
+    expect(switchedPage.label_snapshot_id).toBe(reevaluated.label_snapshot_id);
+    await expect(page.locator("pre.source-editor")).toHaveCount(0);
     await reads.waitForIdle();
 
     await qualification.enterPhase("annotation-lost-ack-and-replay");
@@ -806,6 +1471,15 @@ export async function runComparisonWorkflow(
     expect(Object.keys(primaryCounts ?? {}).sort()).toEqual(
       [...allBuckets].sort(),
     );
+    const bucketTotal = allBuckets.reduce(
+      (total, bucket) => total + BigInt(String(primaryCounts?.[bucket])),
+      0n,
+    );
+    expect(bucketTotal).toBe(12n);
+    expect(outcomeData?.quality_denominator).toBe("8");
+    expect(outcomeData?.left_correct_count).toBe("6");
+    expect(outcomeData?.right_correct_count).toBe("7");
+    expect(outcomeData?.unlabelled_denominator).toBe("2");
     for (const bucket of allBuckets) {
       if (
         [
@@ -863,6 +1537,11 @@ export async function runComparisonWorkflow(
     const reversedCounts = record(record(reversed.outcomes)?.primary_counts);
     expect(reversedCounts?.improved).toBe("0");
     expect(reversedCounts?.regressed).toBe("1");
+    const reversedOutcomes = record(reversed.outcomes);
+    expect(reversedOutcomes?.quality_denominator).toBe("8");
+    expect(reversedOutcomes?.left_correct_count).toBe("7");
+    expect(reversedOutcomes?.right_correct_count).toBe("6");
+    expect(reversedOutcomes?.unlabelled_denominator).toBe("2");
     for (const bucket of allBuckets) {
       if (bucket === "improved" || bucket === "regressed") continue;
       expect(reversedCounts?.[bucket]).toBe(primaryCounts?.[bucket]);

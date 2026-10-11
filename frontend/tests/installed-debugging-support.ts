@@ -1,6 +1,5 @@
 import {
   expect,
-  type APIResponse,
   type Page,
   type Request,
   type Response,
@@ -100,6 +99,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isSafeId(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function isStringIdList(value: unknown, length: number): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length === length &&
+    value.every(isSafeId) &&
+    new Set(value).size === length
+  );
+}
+
+function isSeedMetadata(value: unknown): value is SeedMetadata {
+  if (!isRecord(value)) return false;
+  return (
+    (value.workflow === "S" ||
+      value.workflow === "C" ||
+      value.workflow === "G" ||
+      value.workflow === "R") &&
+    isSafeId(value.run_id) &&
+    isSafeId(value.evaluation_id) &&
+    isSafeId(value.result_snapshot_id) &&
+    isSafeId(value.label_snapshot_id) &&
+    isSafeId(value.decision_id) &&
+    isSafeId(value.dataset_id) &&
+    isSafeId(value.fixture_set_id) &&
+    isSafeId(value.original_fixture_set_id) &&
+    typeof value.evaluation_content_hash === "string" &&
+    /^[a-f0-9]{64}$/.test(value.evaluation_content_hash) &&
+    Number.isSafeInteger(value.imported_selected_count) &&
+    value.imported_selected_count === 12 &&
+    Number.isSafeInteger(value.imported_fixture_calls) &&
+    value.imported_fixture_calls === 11 &&
+    Number.isSafeInteger(value.preparation_dispatch_calls) &&
+    value.preparation_dispatch_calls === 0 &&
+    Number.isSafeInteger(value.prepared_binding_count) &&
+    (value.prepared_binding_count as number) >= 0 &&
+    value.original_records_unchanged === true &&
+    value.execution_records_unchanged === true &&
+    isStringIdList(value.original_order, 4) &&
+    isStringIdList(value.min_seed_alternate, 4) &&
+    isStringIdList(value.max_seed_alternate, 4)
+  );
+}
+
 export function routeTemplate(pathname: string): string {
   const actual = pathname.split("/");
   const match = Object.values(operationMetadata)
@@ -144,6 +189,7 @@ export class DebuggingQualification {
   ) {
     this.testInfo = testInfo;
     this.workflow = workflow;
+    this.seedMetadata = seedMetadata;
     this.projectPath = requiredEnvironment("DEYKIT_DEBUGGING_PROJECT");
     this.secondaryProjectPath = process.env.DEYKIT_DEBUGGING_SECONDARY_PROJECT;
     this.controlDirectory = requiredEnvironment(
@@ -187,9 +233,9 @@ export class DebuggingQualification {
       "utf8",
     );
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed))
+    if (!isSeedMetadata(parsed))
       throw new Error("Installed seed metadata is malformed.");
-    const metadata = parsed as unknown as SeedMetadata;
+    const metadata = parsed;
     if (
       metadata.workflow !== workflowValue ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(metadata.run_id) ||
@@ -292,7 +338,7 @@ export class DebuggingQualification {
     await this.save();
   }
 
-  async observeFailure(response: APIResponse | Response): Promise<void> {
+  async observeFailure(response: Response): Promise<void> {
     if (response.status() < 400) return;
     let code: string | null = null;
     let reason: string | null = null;
@@ -325,9 +371,9 @@ export class DebuggingQualification {
     );
     if (active) active.elapsed_ms = this.elapsedMs();
     const snapshot = `${JSON.stringify(this.progress, null, 2)}\n`;
-    this.saveQueue = this.saveQueue.then(() =>
-      writeFile(this.progressPath, snapshot, { mode: 0o600 }),
-    );
+    this.saveQueue = this.saveQueue.then(async () => {
+      await writeFile(this.progressPath, snapshot, { mode: 0o600 });
+    });
     await this.saveQueue;
   }
 
@@ -944,4 +990,15 @@ export class BrowserReadTracker {
       await this.qualification.save();
     }
   }
+}
+
+export async function settleOnSandbox(
+  page: Page,
+  reads: BrowserReadTracker,
+): Promise<void> {
+  const heading = page.getByRole("heading", { name: "Sandbox", exact: true });
+  if (!(await heading.isVisible().catch(() => false)))
+    await page.getByRole("button", { name: "Sandbox", exact: true }).click();
+  await expect(heading).toBeVisible();
+  await reads.waitForIdle();
 }

@@ -16,6 +16,7 @@ import {
   createFixtureHold,
   invokeReportWitness,
   readReportWitness,
+  settleOnSandbox,
 } from "./installed-debugging-support";
 
 const RE_ADDED_CASE_SOURCE = '"A deliberately different newly re-added input."';
@@ -106,18 +107,18 @@ async function readdSameCaseWithInstalledCli(
   const envelope = object(parsed);
   const data = object(envelope.data);
   const result = object(data.result);
-  const mutation = object(result.case);
-  const record = object(mutation.record);
+  const record = object(result.record);
+  const etag = result.etag;
   if (
     envelope.schema_version !== 1 ||
     record.id !== "ex-003" ||
-    typeof record.content_hash !== "string" ||
-    !/^[a-f0-9]{64}$/.test(record.content_hash)
+    typeof etag !== "string" ||
+    !/^[a-f0-9]{64}$/.test(etag)
   )
     throw new Error(
       "The installed case re-add receipt did not match the requested case.",
     );
-  return { contentHash: record.content_hash };
+  return { contentHash: etag };
 }
 
 async function downloadReportBytes(
@@ -179,7 +180,9 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
       page,
       "list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get",
       { registration_id: registrationId, dataset_id: datasetId },
-      () => dataset.selectOption(datasetId),
+      async () => {
+        await dataset.selectOption(datasetId);
+      },
     );
     const listed = decodeSuccessEnvelope<
       ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">
@@ -204,7 +207,7 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   const original = decodeSuccessEnvelope<
     ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get">
   >(selected.body, 200, selected.response.status());
-  const originalRecordHash = original.case.record.content_hash;
+  const originalRecordHash = original.case.etag;
   expect(original.case.record.id).toBe("ex-003");
 
   await page.getByRole("button", { name: "Edit input", exact: true }).click();
@@ -232,8 +235,11 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   const editReceipt = decodeSuccessEnvelope<
     ApiOperationData<"edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put">
   >(editResponse.body, 200, editResponse.response.status());
-  expect(editReceipt.case.record.id).toBe("ex-003");
-  const editedRecordHash = editReceipt.case.record.content_hash;
+  const editedCase = editReceipt.case;
+  if (!editedCase)
+    throw new Error("The installed case edit receipt omitted its case.");
+  expect(editedCase.record.id).toBe("ex-003");
+  const editedRecordHash = editedCase.etag;
   expect(editedRecordHash).not.toBe(originalRecordHash);
   await expect(editDialog).toBeHidden();
   await expect(
@@ -302,7 +308,9 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
       page,
       "list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get",
       { registration_id: registrationId, dataset_id: datasetId },
-      () => reloadedDataset.selectOption(datasetId),
+      async () => {
+        await reloadedDataset.selectOption(datasetId);
+      },
     );
     decodeSuccessEnvelope<
       ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">
@@ -354,9 +362,9 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
     ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get">
   >(caseBody, 200, caseResponse.status());
   expect(current.case.record.id).toBe("ex-003");
-  expect(current.case.record.content_hash).toBe(added.contentHash);
+  expect(current.case.etag).toBe(added.contentHash);
   expect(current.case.record.input_source).toBe(RE_ADDED_CASE_SOURCE);
-  expect(current.case.record.content_hash).not.toBe(originalRecordHash);
+  expect(current.case.etag).not.toBe(originalRecordHash);
   const currentLabel = decodeSuccessEnvelope<
     ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">
   >(labelBody, 200, labelResponse.status());
@@ -458,17 +466,43 @@ async function openSavedReport(
   targetId: string,
   reportId: string,
 ): Promise<void> {
-  if (
-    !(await page
-      .getByRole("heading", { name: "Saved reports", exact: true })
-      .isVisible()
-      .catch(() => false))
-  ) {
-    await page.getByRole("button", { name: "Reports", exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: "Saved reports", exact: true }),
-    ).toBeVisible();
-  }
+  const listRead = await captureOperation(
+    page,
+    "listReports",
+    { registration_id: registrationId },
+    async () => {
+      if (
+        await page
+          .getByRole("heading", { name: "Saved reports", exact: true })
+          .isVisible()
+          .catch(() => false)
+      )
+        await page.reload();
+      else
+        await page
+          .getByRole("button", { name: "Reports", exact: true })
+          .click();
+      await expect(
+        page.getByRole("heading", { name: "Saved reports", exact: true }),
+      ).toBeVisible();
+    },
+  );
+  const savedPage = decodeSuccessEnvelope<ApiOperationData<"listReports">>(
+    listRead.body,
+    200,
+    listRead.response.status(),
+  );
+  expect(savedPage.total).toBe(String(savedPage.items.length));
+  expect(
+    savedPage.items.filter((item) => item.report_id === reportId),
+  ).toHaveLength(1);
+  const reportList = page.getByRole("list", { name: "Saved reports" });
+  await expect(
+    reportList
+      .getByRole("listitem")
+      .filter({ hasText: reportId })
+      .getByRole("button", { name: `${kind}: ${targetId}`, exact: true }),
+  ).toHaveCount(1);
   const reportButton = page.getByRole("button", {
     name: new RegExp(`^${kind}: ${targetId}`),
   });
@@ -685,6 +719,21 @@ export async function runGroupsWorkflow(
       (member) => member.identity.option_order,
     );
     expect(previewOrders).toHaveLength(2);
+    expect(
+      new Set(previewOrders.map((order) => JSON.stringify(order))).size,
+    ).toBe(2);
+    const previewObservationPairs = preview.members.flatMap((member) =>
+      member.identity.requests.map(
+        (request) =>
+          `${JSON.stringify(member.identity.option_order)}:${request.case_id}`,
+      ),
+    );
+    expect(previewObservationPairs).toHaveLength(4);
+    expect(new Set(previewObservationPairs).size).toBe(4);
+    for (const member of preview.members)
+      expect(
+        member.identity.requests.map((request) => request.case_id).sort(),
+      ).toEqual([...caseIds].sort());
     expect(previewOrders[0]).toEqual(qualification.seedMetadata.original_order);
     expect(previewOrders[1]).toEqual(
       qualification.seedMetadata.min_seed_alternate,
@@ -702,6 +751,56 @@ export async function runGroupsWorkflow(
     qualification.setWitness(
       "diagnostic_original_ex003_input_hash",
       originalEx003InputHash,
+    );
+    const seedInput = review.dialog.getByLabel(
+      "Seed (signed 64-bit integer text)",
+      { exact: true },
+    );
+    await seedInput.fill("9223372036854775807");
+    const maxSeedPreviewResponse = await captureOperation(
+      page,
+      "previewChoiceOrder",
+      { registration_id: registrationId },
+      () =>
+        review.dialog
+          .getByRole("button", { name: "Review choice order", exact: true })
+          .click(),
+    );
+    const maxSeedPreview = decodeSuccessEnvelope<
+      ApiOperationData<"previewChoiceOrder">
+    >(
+      maxSeedPreviewResponse.body,
+      200,
+      maxSeedPreviewResponse.response.status(),
+    );
+    expect(maxSeedPreview.seed).toBe("9223372036854775807");
+    expect(maxSeedPreview.members[0]?.identity.option_order).toEqual(
+      qualification.seedMetadata.original_order,
+    );
+    expect(maxSeedPreview.members[1]?.identity.option_order).toEqual(
+      qualification.seedMetadata.max_seed_alternate,
+    );
+    expect(maxSeedPreview.dry_run).toBe(true);
+    await seedInput.fill("-9223372036854775808");
+    const restoredMinPreviewResponse = await captureOperation(
+      page,
+      "previewChoiceOrder",
+      { registration_id: registrationId },
+      () =>
+        review.dialog
+          .getByRole("button", { name: "Review choice order", exact: true })
+          .click(),
+    );
+    const restoredMinPreview = decodeSuccessEnvelope<
+      ApiOperationData<"previewChoiceOrder">
+    >(
+      restoredMinPreviewResponse.body,
+      200,
+      restoredMinPreviewResponse.response.status(),
+    );
+    expect(restoredMinPreview.seed).toBe("-9223372036854775808");
+    expect(restoredMinPreview.members[1]?.identity.option_order).toEqual(
+      qualification.seedMetadata.min_seed_alternate,
     );
     const noCalls = await waitForCountFile(
       qualification.controlDirectory,
@@ -788,6 +887,7 @@ export async function runGroupsWorkflow(
       expect(firstData.operation_id).toBe(replayData.operation_id);
       expect(firstData.group_id).toBe(replayData.group_id);
       expect(firstData.segment_id).toBe(replayData.segment_id);
+      expect(firstData.member_run_ids).toEqual(replayData.member_run_ids);
       startReceipt = decodeSuccessEnvelope<
         ApiOperationData<"startChoiceOrder">
       >(
@@ -796,7 +896,9 @@ export async function runGroupsWorkflow(
         replay?.replayStatus ?? 0,
       );
       expect(startReceipt.group_id).toBe(firstReceipt.group_id);
+      expect(startReceipt.operation_id).toBe(firstReceipt.operation_id);
       expect(startReceipt.segment_id).toBe(firstReceipt.segment_id);
+      expect(startReceipt.member_run_ids).toEqual(firstReceipt.member_run_ids);
       expect(startReceipt.replayed).toBe(true);
       qualification.setWitness("diagnostic_group_id", startReceipt.group_id);
       qualification.setWitness(
@@ -813,6 +915,41 @@ export async function runGroupsWorkflow(
 
     if (!startReceipt)
       throw new Error("The diagnostic start receipt was unavailable.");
+    const childRunId = startReceipt.member_run_ids[0];
+    if (!childRunId)
+      throw new Error("The accepted group omitted its child run identity.");
+    const childRunRead = await captureOperation(
+      page,
+      "readRun",
+      { registration_id: registrationId, run_id: childRunId },
+      () => page.getByRole("button", { name: childRunId, exact: true }).click(),
+    );
+    const childRun = decodeSuccessEnvelope<ApiOperationData<"readRun">>(
+      childRunRead.body,
+      200,
+      childRunRead.response.status(),
+    );
+    expect(childRun.run_id).toBe(childRunId);
+    expect(childRun.execution_group_id).toBe(startReceipt.group_id);
+    expect(childRun.execution_active).toBe(true);
+    await expect(
+      page.getByRole("heading", { name: `Run ${childRunId}`, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Cancel run", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Resume run", exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", {
+        name: "Back to choice-order diagnostic",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Group progress", exact: true }),
+    ).toBeVisible();
     const cancelPath = `/api/v1/projects/${registrationId}/diagnostics/${startReceipt.group_id}/cancel`;
     const cancelLoss = await installLostAcknowledgement(page, cancelPath, 200);
     try {
@@ -825,7 +962,18 @@ export async function runGroupsWorkflow(
           exact: true,
         }),
       ).toBeVisible();
-      expect(cancelLoss.firstObservation()?.firstStatus).toBe(200);
+      const firstCancel = cancelLoss.firstObservation();
+      expect(firstCancel?.firstStatus).toBe(200);
+      if (!firstCancel)
+        throw new Error(
+          "The original group cancellation body was unavailable.",
+        );
+      const firstCancelReceipt = decodeSuccessEnvelope<
+        ApiOperationData<"cancelChoiceOrder">
+      >(firstCancel.firstResponseBody, 200, firstCancel.firstStatus);
+      expect(firstCancelReceipt.group_id).toBe(startReceipt.group_id);
+      expect(firstCancelReceipt.kind).toBe("choice_order");
+      expect(firstCancelReceipt.replayed).toBe(false);
       await page
         .getByRole("button", {
           name: "Retry original cancellation",
@@ -836,6 +984,19 @@ export async function runGroupsWorkflow(
       expect(replay?.replayStatus).toBe(200);
       expect(replay?.sameRequestBytes).toBe(true);
       expect(replay?.firstRequestHash).toBe(replay?.replayRequestHash);
+      const replayedCancelReceipt = decodeSuccessEnvelope<
+        ApiOperationData<"cancelChoiceOrder">
+      >(
+        replay?.replayResponseBody ?? Buffer.alloc(0),
+        200,
+        replay?.replayStatus ?? 0,
+      );
+      expect(replayedCancelReceipt.group_id).toBe(firstCancelReceipt.group_id);
+      expect(replayedCancelReceipt.kind).toBe(firstCancelReceipt.kind);
+      expect(
+        replayedCancelReceipt.members.map((member) => member.run_id),
+      ).toEqual(firstCancelReceipt.members.map((member) => member.run_id));
+      expect(replayedCancelReceipt.replayed).toBe(true);
       qualification.setWitness(
         "diagnostic_cancel_request_sha256",
         replay?.firstRequestHash ?? "",
@@ -907,6 +1068,7 @@ export async function runGroupsWorkflow(
     expect(diagnosticDetail.snapshot.id).toBe(
       await snapshotSelect.inputValue(),
     );
+    const diagnosticSnapshotRoute = page.url();
     qualification.setWitness(
       "diagnostic_snapshot_content_hash",
       diagnosticDetail.snapshot.content_hash,
@@ -983,7 +1145,6 @@ export async function runGroupsWorkflow(
         200,
         replay?.replayStatus ?? 0,
       );
-      expect(receipt.replayed).toBe(true);
       expect(receipt.target_kind).toBe("diagnostic");
       expect(receipt.target_id).toBe(startReceipt?.group_id);
       expect(receipt.diagnostic_snapshot_id).toBe(diagnosticSnapshotId);
@@ -1014,18 +1175,23 @@ export async function runGroupsWorkflow(
     const immutableWitness = testInfo.outputPath(
       "diagnostic-report-witness.json",
     );
-    await import("./installed-debugging-support").then(
-      ({ invokeReportWitness }) =>
-        invokeReportWitness(
-          qualification,
-          qualification.projectPath,
-          diagnosticReportId,
-          immutableWitness,
-        ),
+    await settleOnSandbox(page, reads);
+    await invokeReportWitness(
+      qualification,
+      qualification.projectPath,
+      diagnosticReportId,
+      immutableWitness,
     );
     const artifacts = await import("./installed-debugging-support").then(
       ({ readReportWitness }) =>
         readReportWitness(immutableWitness, diagnosticReportId),
+    );
+    await openSavedReport(
+      page,
+      registrationId,
+      "diagnostic",
+      startReceipt.group_id,
+      diagnosticReportId,
     );
     qualification.setWitness(
       "diagnostic_report_json_sha256",
@@ -1075,6 +1241,7 @@ export async function runGroupsWorkflow(
     await expect(
       page.getByRole("heading", { name: "Group progress", exact: true }),
     ).toBeVisible();
+    expect(await snapshotSelect.inputValue()).toBe(diagnosticSnapshotId);
     await qualification.enterPhase("resume-diagnostic-group");
     const retryUnknown = page.getByLabel(
       "Retry members with unknown outcomes",
@@ -1103,7 +1270,22 @@ export async function runGroupsWorkflow(
           exact: true,
         }),
       ).toBeVisible();
-      expect(resumeLoss.firstObservation()?.firstStatus).toBe(202);
+      const firstResume = resumeLoss.firstObservation();
+      expect(firstResume?.firstStatus).toBe(202);
+      if (!firstResume)
+        throw new Error("The original group resume body was unavailable.");
+      const firstResumeReceipt = decodeSuccessEnvelope<
+        ApiOperationData<"resumeChoiceOrder">
+      >(firstResume.firstResponseBody, 202, firstResume.firstStatus);
+      expect(firstResumeReceipt.group_id).toBe(startReceipt.group_id);
+      expect(firstResumeReceipt.operation_id).not.toBe(
+        startReceipt.operation_id,
+      );
+      expect(firstResumeReceipt.segment_id).not.toBe(startReceipt.segment_id);
+      expect(firstResumeReceipt.member_run_ids).toEqual(
+        startReceipt.member_run_ids,
+      );
+      expect(firstResumeReceipt.replayed).toBe(false);
       await page
         .getByRole("button", {
           name: "Retry original resume request",
@@ -1121,6 +1303,11 @@ export async function runGroupsWorkflow(
         replay?.replayStatus ?? 0,
       );
       expect(accepted.group_id).toBe(startReceipt.group_id);
+      expect(accepted.operation_id).toBe(firstResumeReceipt.operation_id);
+      expect(accepted.segment_id).toBe(firstResumeReceipt.segment_id);
+      expect(accepted.member_run_ids).toEqual(
+        firstResumeReceipt.member_run_ids,
+      );
       expect(accepted.replayed).toBe(true);
     } finally {
       await resumeLoss.dispose();
@@ -1144,6 +1331,30 @@ export async function runGroupsWorkflow(
       for_case_calls: 4,
       live_dispatch_calls: 0,
     });
+    const finalProgressRead = await captureOperation(
+      page,
+      "readChoiceOrder",
+      { registration_id: registrationId, group_id: startReceipt.group_id },
+      () => page.reload(),
+    );
+    const finalProgress = decodeSuccessEnvelope<
+      ApiOperationData<"readChoiceOrder">
+    >(finalProgressRead.body, 200, finalProgressRead.response.status());
+    expect(finalProgress.group.group_id).toBe(startReceipt.group_id);
+    expect(finalProgress.group.kind).toBe("choice_order");
+    expect(finalProgress.group.attempt_limit).toBe("4");
+    expect(finalProgress.group.attempts_used).toBe("4");
+    expect(finalProgress.group.attempts_remaining).toBe("0");
+    expect(finalProgress.group.independent_case_count).toBe("2");
+    expect(finalProgress.group.initial_requests).toBe("4");
+    expect(finalProgress.group.members).toHaveLength(2);
+    expect(
+      finalProgress.group.members.every(
+        (member) =>
+          member.attempts_used === "2" && member.attempts_remaining === "0",
+      ),
+    ).toBe(true);
+    expect(await snapshotSelect.inputValue()).toBe(diagnosticSnapshotId);
     const resumedSnapshotValues = await snapshotSelect
       .locator("option")
       .evaluateAll((items) =>
@@ -1227,6 +1438,29 @@ export async function runGroupsWorkflow(
     await setReaddedCaseCurrentLabel(page, qualification, registrationId, () =>
       reads.waitForIdle(),
     );
+    const diagnosticAfterLabel = await captureOperation(
+      page,
+      "readChoiceOrderSnapshot",
+      {
+        registration_id: registrationId,
+        group_id: startReceipt.group_id,
+        snapshot_id: diagnosticSnapshotId,
+      },
+      async () => {
+        await page.goto(diagnosticSnapshotRoute);
+      },
+    );
+    const diagnosticAfterLabelDetail = decodeSuccessEnvelope<
+      ApiOperationData<"readChoiceOrderSnapshot">
+    >(diagnosticAfterLabel.body, 200, diagnosticAfterLabel.response.status());
+    expect(diagnosticAfterLabelDetail.snapshot.id).toBe(diagnosticSnapshotId);
+    expect(diagnosticAfterLabelDetail.snapshot.content_hash).toBe(
+      diagnosticDetail.snapshot.content_hash,
+    );
+    expect(diagnosticAfterLabelDetail.members).toEqual(
+      diagnosticDetail.members,
+    );
+    await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId);
     await openSavedReport(
       page,
       registrationId,
@@ -1293,7 +1527,7 @@ export async function runGroupsWorkflow(
       .fill("0");
     const checkPreviewResponse = await captureOperation(
       page,
-      "previewCheck",
+      "previewRegressionCheck",
       { registration_id: registrationId },
       () =>
         checkDialog
@@ -1301,7 +1535,7 @@ export async function runGroupsWorkflow(
           .click(),
     );
     const checkPreview = decodeSuccessEnvelope<
-      ApiOperationData<"previewCheck">
+      ApiOperationData<"previewRegressionCheck">
     >(
       await checkPreviewResponse.response.body(),
       200,
@@ -1394,6 +1628,27 @@ export async function runGroupsWorkflow(
       live_dispatch_calls: 0,
     });
     await reads.waitForIdle();
+    const checkProgressRead = await captureOperation(
+      page,
+      "readCheck",
+      { registration_id: registrationId, group_id: checkReceipt.group_id },
+      () => page.reload(),
+    );
+    const checkProgress = decodeSuccessEnvelope<ApiOperationData<"readCheck">>(
+      checkProgressRead.body,
+      200,
+      checkProgressRead.response.status(),
+    );
+    expect(checkProgress.group.group_id).toBe(checkReceipt.group_id);
+    expect(checkProgress.group.kind).toBe("regression_check");
+    expect(checkProgress.group.attempt_limit).toBe("1");
+    expect(checkProgress.group.attempts_used).toBe("1");
+    expect(checkProgress.group.attempts_remaining).toBe("0");
+    expect(checkProgress.group.independent_case_count).toBe("1");
+    expect(checkProgress.group.initial_requests).toBe("1");
+    expect(checkProgress.group.members).toHaveLength(1);
+    expect(checkProgress.group.members[0]?.attempts_used).toBe("1");
+    expect(checkProgress.group.members[0]?.attempts_remaining).toBe("0");
 
     await qualification.enterPhase("pin-check-snapshot-and-report");
     const checkSnapshotSelect = page.getByLabel("Selected snapshot", {
@@ -1457,6 +1712,7 @@ export async function runGroupsWorkflow(
       qualification.seedMetadata.result_snapshot_id,
     );
     qualification.setWitness("check_snapshot_id", checkSnapshotId);
+    const checkSnapshotRoute = page.url();
     await expect(
       page.getByRole("heading", {
         name: "Selected immutable snapshot",
@@ -1537,6 +1793,7 @@ export async function runGroupsWorkflow(
     );
     await reads.waitForIdle();
     const checkWitnessPath = testInfo.outputPath("check-report-witness.json");
+    await settleOnSandbox(page, reads);
     await invokeReportWitness(
       qualification,
       qualification.projectPath,
@@ -1545,6 +1802,13 @@ export async function runGroupsWorkflow(
     );
     const checkWitness = await readReportWitness(
       checkWitnessPath,
+      checkReportReceipt.report_id,
+    );
+    await openSavedReport(
+      page,
+      registrationId,
+      "check",
+      checkReceipt.group_id,
       checkReportReceipt.report_id,
     );
     qualification.setWitness(
@@ -1678,7 +1942,7 @@ export async function runGroupsWorkflow(
       .fill("0");
     const emptyScope = await captureOperation(
       page,
-      "previewCheck",
+      "previewRegressionCheck",
       { registration_id: registrationId },
       () =>
         defaultCheckDialog
@@ -1693,6 +1957,32 @@ export async function runGroupsWorkflow(
     await defaultCheckDialog
       .getByRole("button", { name: "Close", exact: true })
       .click();
+    const checkSnapshotAfterRemoval = await captureOperation(
+      page,
+      "readCheckSnapshot",
+      {
+        registration_id: registrationId,
+        group_id: checkReceipt.group_id,
+        snapshot_id: checkSnapshotId,
+      },
+      async () => {
+        await page.goto(checkSnapshotRoute);
+      },
+    );
+    const checkSnapshotAfterRemovalDetail = decodeSuccessEnvelope<
+      ApiOperationData<"readCheckSnapshot">
+    >(
+      checkSnapshotAfterRemoval.body,
+      200,
+      checkSnapshotAfterRemoval.response.status(),
+    );
+    expect(checkSnapshotAfterRemovalDetail.snapshot.id).toBe(checkSnapshotId);
+    expect(checkSnapshotAfterRemovalDetail.cases).toEqual(checkSnapshot.cases);
+    expect(checkSnapshotAfterRemovalDetail.expectation_failures).toBe("1");
+    expect(checkSnapshotAfterRemovalDetail.baseline_unavailable).toBe(
+      "frozen_regression_selection",
+    );
+    await expect(checkSnapshotSelect).toHaveValue(checkSnapshotId);
     await reads.waitForIdle();
     const removedCounts = await waitForCountFile(
       qualification.controlDirectory,
