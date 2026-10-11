@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { APIResponse, Response } from "@playwright/test";
+import type { APIResponse, Request, Response } from "@playwright/test";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ApiOperationData } from "../src/api/client";
@@ -53,6 +53,59 @@ type DispatchCountSnapshot = {
   live_dispatch_calls: number;
 };
 
+type ResumeObserverStage =
+  | "not_started"
+  | "original_submit"
+  | "unknown_ack"
+  | "resume_replay"
+  | "hold_released"
+  | "terminal_read"
+  | "completed"
+  | "failed";
+
+type SafeObservedRead = {
+  status: number;
+  response_elapsed_ms: number | null;
+  body_elapsed_ms: number | null;
+  code: string | null;
+  reason: string | null;
+  state: string | null;
+  active: boolean | null;
+  segment_count: number | null;
+  attempt_count: number | null;
+  pending_reads: number;
+};
+
+type ResumeObserver = {
+  start(): void;
+  acceptSegment(segmentId: string): void;
+  replayAcknowledged(): void;
+  barrierReleased(): void;
+  waitForTerminal(): Promise<ApiOperationData<"readRun">>;
+  renderedInactive(): void;
+  dispose(): Promise<void>;
+};
+
+const RESUME_OBSERVER_CEILING_MS = 197_000;
+const OBSERVED_RESPONSE_BODY_LIMIT_MS = 12_000;
+
+function isReadRunData(value: unknown): value is ApiOperationData<"readRun"> {
+  return (
+    isRecord(value) &&
+    typeof value.run_id === "string" &&
+    typeof value.state === "string" &&
+    typeof value.execution_active === "boolean" &&
+    typeof value.attempt_limit === "string" &&
+    typeof value.attempts_used === "string" &&
+    Array.isArray(value.segment_ids) &&
+    value.segment_ids.every((item) => typeof item === "string") &&
+    Array.isArray(value.attempts) &&
+    value.attempts.every(
+      (item) => isRecord(item) && typeof item.attempt_id === "string",
+    )
+  );
+}
+
 function isCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
@@ -100,25 +153,57 @@ test("installed browser reviews and inspects fixture execution", async ({
   const apiFailures: SafeFailure[] = [];
   const screenshots: string[] = [];
   let activePhase: string | null = null;
+  let activePhaseStartedAt: number | null = null;
   let completed = false;
   let capability: string | undefined;
   let bootstrapOrigin: string | undefined;
+  let resumeObserver: ResumeObserver | undefined;
+  let observerStage: ResumeObserverStage = "not_started";
+  let observerStageStartedAt: number | null = null;
+  let observerStartedAt: number | null = null;
+  let observerFailureReason: string | null = null;
+  let observedReadCount = 0;
+  let pendingObserverReads = 0;
+  const observedReads: SafeObservedRead[] = [];
+  let latestDispatchTotals: { fixture: number; live: number } | null = null;
+  let progressWriteQueue: Promise<void> = Promise.resolve();
   const progressPath = testInfo.outputPath("execution-progress.json");
 
-  async function recordProgress() {
-    await writeFile(
-      progressPath,
-      `${JSON.stringify({
+  function recordProgress(): Promise<void> {
+    const body = `${JSON.stringify({
         phases: [...phaseStatus].map(([id, status]) => ({ id, status })),
         completed_phases: [...phaseStatus]
           .filter(([, status]) => status === "passed")
           .map(([id]) => id),
         screenshots,
         active_phase: activePhase,
+        active_phase_elapsed_ms:
+          activePhaseStartedAt === null
+            ? null
+            : Math.round(performance.now() - activePhaseStartedAt),
+        resume_observer: {
+          stage: observerStage,
+          elapsed_ms:
+            observerStartedAt === null
+              ? null
+              : Math.round(performance.now() - observerStartedAt),
+          stage_elapsed_ms:
+            observerStageStartedAt === null
+              ? null
+              : Math.round(performance.now() - observerStageStartedAt),
+          failure_reason: observerFailureReason,
+          read_count: observedReadCount,
+          pending_reads: pendingObserverReads,
+          reads: observedReads,
+          actual_dispatch_totals: latestDispatchTotals,
+        },
         api_failures: apiFailures,
-      })}\n`,
-      "utf8",
+      })}\n`;
+    const write = progressWriteQueue.then(() =>
+      writeFile(progressPath, body, "utf8"),
     );
+    progressWriteQueue = write.catch(() => undefined);
+    return write;
   }
 
   async function enterPhase(id: string) {
@@ -126,6 +211,7 @@ test("installed browser reviews and inspects fixture execution", async ({
       throw new Error("Unknown installed execution phase.");
     if (activePhase) phaseStatus.set(activePhase, "passed");
     activePhase = id;
+    activePhaseStartedAt = performance.now();
     phaseStatus.set(id, "running");
     await recordProgress();
   }
@@ -187,7 +273,239 @@ test("installed browser reviews and inspects fixture execution", async ({
     if (!isDispatchCountSnapshot(value))
       throw new Error("The installed fixture count witness was invalid.");
     expect(value).toMatchObject({ live_dispatch_calls: 0 });
+    latestDispatchTotals = {
+      fixture: value.fixture_dispatch_calls,
+      live: value.live_dispatch_calls,
+    };
+    void recordProgress().catch(() => undefined);
     return value;
+  }
+
+  function createResumeObserver(
+    registrationId: string,
+    runId: string,
+  ): ResumeObserver {
+    const path = `/api/v1/projects/${registrationId}/runs/${runId}`;
+    const starts = new WeakMap<Request, number>();
+    const tasks = new Set<Promise<void>>();
+    let acceptedSegmentId: string | undefined;
+    let replayAt: number | undefined;
+    let releasedAt: number | undefined;
+    let ceilingAt: number | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let terminalRun: ApiOperationData<"readRun"> | undefined;
+    let resolveTerminal: (run: ApiOperationData<"readRun">) => void = () => {};
+    let rejectTerminal: (error: Error) => void = () => {};
+    const terminal = new Promise<ApiOperationData<"readRun">>((resolve, reject) => {
+      resolveTerminal = resolve;
+      rejectTerminal = reject;
+    });
+    void terminal.catch(() => undefined);
+
+    function stage(value: ResumeObserverStage) {
+      observerStage = value;
+      observerStageStartedAt = performance.now();
+      void recordProgress().catch(() => undefined);
+    }
+
+    function fail(reason: string) {
+      if (terminalRun || observerFailureReason !== null) return;
+      observerFailureReason = reason;
+      stage("failed");
+      rejectTerminal(new Error(`Resume progress observer failed: ${reason}`));
+    }
+
+    function addRead(read: SafeObservedRead) {
+      observedReadCount += 1;
+      observedReads.push(read);
+      if (observedReads.length > 64) observedReads.shift();
+    }
+
+    async function consume(response: Response, requestAt: number | undefined) {
+      const responseAt = performance.now();
+      const responseElapsed =
+        requestAt === undefined
+          ? null
+          : Math.max(0, Math.round(responseAt - requestAt));
+      const remaining = (ceilingAt ?? responseAt) - responseAt;
+      if (remaining <= 0) return fail("completion_ceiling");
+      const bodyStartedAt = performance.now();
+      const bodyPromise = response.json();
+      void bodyPromise.catch(() => undefined);
+      let bodyTimer: ReturnType<typeof setTimeout> | undefined;
+      let timedOut = false;
+      const timeout = new Promise<never>((_resolve, reject) => {
+        bodyTimer = setTimeout(() => {
+          timedOut = true;
+          reject(new Error("body_timeout"));
+        }, Math.min(OBSERVED_RESPONSE_BODY_LIMIT_MS, remaining));
+      });
+      let body: unknown;
+      try {
+        body = await Promise.race([bodyPromise, timeout]);
+      } catch {
+        addRead({
+          status: response.status(),
+          response_elapsed_ms: responseElapsed,
+          body_elapsed_ms: Math.round(performance.now() - bodyStartedAt),
+          code: null,
+          reason: timedOut ? "body_timeout" : "body_unreadable",
+          state: null,
+          active: null,
+          segment_count: null,
+          attempt_count: null,
+          pending_reads: pendingObserverReads,
+        });
+        if (response.status() === 200)
+          fail(timedOut ? "body_timeout" : "body_unreadable");
+        await recordProgress();
+        return;
+      } finally {
+        if (bodyTimer !== undefined) clearTimeout(bodyTimer);
+      }
+
+      const bodyElapsed = Math.round(performance.now() - bodyStartedAt);
+      if (response.status() !== 200) {
+        const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+        addRead({
+          status: response.status(),
+          response_elapsed_ms: responseElapsed,
+          body_elapsed_ms: bodyElapsed,
+          code: safeIdentifier(error?.code),
+          reason: safeIdentifier(error?.reason),
+          state: null,
+          active: null,
+          segment_count: null,
+          attempt_count: null,
+          pending_reads: pendingObserverReads,
+        });
+        await recordProgress();
+        return;
+      }
+      if (!isRecord(body) || body.schema_version !== 1 || !isReadRunData(body.data)) {
+        addRead({
+          status: 200,
+          response_elapsed_ms: responseElapsed,
+          body_elapsed_ms: bodyElapsed,
+          code: null,
+          reason: "invalid_progress_envelope",
+          state: null,
+          active: null,
+          segment_count: null,
+          attempt_count: null,
+          pending_reads: pendingObserverReads,
+        });
+        fail("invalid_progress_envelope");
+        await recordProgress();
+        return;
+      }
+      const run = body.data;
+      if (run.run_id !== runId) {
+        addRead({
+          status: 200,
+          response_elapsed_ms: responseElapsed,
+          body_elapsed_ms: bodyElapsed,
+          code: null,
+          reason: "run_association_mismatch",
+          state: null,
+          active: null,
+          segment_count: null,
+          attempt_count: null,
+          pending_reads: pendingObserverReads,
+        });
+        fail("run_association_mismatch");
+        await recordProgress();
+        return;
+      }
+      addRead({
+        status: 200,
+        response_elapsed_ms: responseElapsed,
+        body_elapsed_ms: bodyElapsed,
+        code: null,
+        reason: null,
+        state: safeIdentifier(run.state),
+        active: run.execution_active,
+        segment_count: run.segment_ids.length,
+        attempt_count: run.attempts.length,
+        pending_reads: pendingObserverReads,
+      });
+      const terminalRead =
+        acceptedSegmentId !== undefined &&
+        replayAt !== undefined &&
+        releasedAt !== undefined &&
+        requestAt !== undefined &&
+        requestAt >= replayAt &&
+        requestAt >= releasedAt &&
+        responseAt >= releasedAt &&
+        !run.execution_active &&
+        run.segment_ids.includes(acceptedSegmentId);
+      if (terminalRead) {
+        terminalRun = run;
+        stage("terminal_read");
+        await recordProgress();
+        resolveTerminal(run);
+        return;
+      }
+      await recordProgress();
+    }
+
+    const onRequest = (request: Request) => {
+      if (request.method() === "GET" && new URL(request.url()).pathname === path)
+        starts.set(request, performance.now());
+    };
+    const onResponse = (response: Response) => {
+      const request = response.request();
+      if (request.method() !== "GET" || new URL(response.url()).pathname !== path)
+        return;
+      pendingObserverReads += 1;
+      const task = consume(response, starts.get(request))
+        .catch(() => fail("read_observer_failed"))
+        .finally(() => {
+          pendingObserverReads = Math.max(0, pendingObserverReads - 1);
+          tasks.delete(task);
+          void recordProgress().catch(() => undefined);
+        });
+      tasks.add(task);
+      void recordProgress().catch(() => undefined);
+    };
+    page.on("request", onRequest);
+    page.on("response", onResponse);
+
+    return {
+      start() {
+        observerStartedAt = performance.now();
+        ceilingAt = observerStartedAt + RESUME_OBSERVER_CEILING_MS;
+        stage("original_submit");
+        timer = setTimeout(() => fail("completion_ceiling"), RESUME_OBSERVER_CEILING_MS);
+      },
+      acceptSegment(segmentId) {
+        acceptedSegmentId = segmentId;
+        stage("unknown_ack");
+      },
+      replayAcknowledged() {
+        replayAt = performance.now();
+        stage("resume_replay");
+      },
+      barrierReleased() {
+        releasedAt = performance.now();
+        stage("hold_released");
+      },
+      waitForTerminal() {
+        return terminal;
+      },
+      renderedInactive() {
+        if (!terminalRun) return fail("inactive_view_missing");
+        stage("completed");
+        if (timer !== undefined) clearTimeout(timer);
+      },
+      async dispose() {
+        page.off("request", onRequest);
+        page.off("response", onResponse);
+        if (timer !== undefined) clearTimeout(timer);
+        if (!terminalRun && observerFailureReason === null) fail("observer_disposed");
+        await Promise.allSettled([...tasks]);
+      },
+    };
   }
 
   async function waitForEntered(caseId: string) {
@@ -250,36 +568,6 @@ test("installed browser reviews and inspects fixture execution", async ({
     }
     throw new Error(
       "The installed run did not become inactive within the bound.",
-    );
-  }
-
-  async function waitForInactiveUiRead(registrationId: string, runId: string) {
-    const deadline = Date.now() + 25_000;
-    const path = `/api/v1/projects/${registrationId}/runs/${runId}`;
-    while (Date.now() < deadline) {
-      let response: Response;
-      try {
-        response = await page.waitForResponse(
-          (candidate) =>
-            candidate.request().method() === "GET" &&
-            candidate.status() === 200 &&
-            new URL(candidate.url()).pathname === path,
-          { timeout: Math.max(1, deadline - Date.now()) },
-        );
-      } catch {
-        throw new Error(
-          "The browser did not read settled run progress within the bound.",
-        );
-      }
-      const run = (await expectEnvelope(
-        response,
-      )) as ApiOperationData<"readRun">;
-      if (run.run_id !== runId)
-        throw new Error("The browser progress read returned another run.");
-      if (!run.execution_active) return run;
-    }
-    throw new Error(
-      "The browser did not read an inactive run within the bound.",
     );
   }
 
@@ -609,6 +897,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     await expect(page.getByText(/Unknown retries: excluded/)).toBeVisible();
     const resumeBodies: Array<Record<string, unknown>> = [];
     let firstResumeReceipt: ApiOperationData<"resumeRun"> | undefined;
+    resumeObserver = createResumeObserver(registrationId, acceptedRunId);
     await page.route(
       `**/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
       async (route) => {
@@ -634,6 +923,7 @@ test("installed browser reviews and inspects fixture execution", async ({
         await route.fulfill({ response });
       },
     );
+    resumeObserver.start();
     await page.getByRole("button", { name: "Resume run" }).click();
     await expect(
       page.getByRole("button", { name: "Retry original resume request" }),
@@ -642,6 +932,7 @@ test("installed browser reviews and inspects fixture execution", async ({
       throw new Error("The first resume acknowledgement was not captured.");
     if (!firstResumeReceipt.segment_id)
       throw new Error("The first resume acknowledgement had no segment ID.");
+    resumeObserver.acceptSegment(firstResumeReceipt.segment_id);
     await waitForEntered(resumeHoldCaseId);
     const countsBeforeResumeReplay = await dispatchCounts();
     const retryResumeResponsePromise = page.waitForResponse(
@@ -670,6 +961,7 @@ test("installed browser reviews and inspects fixture execution", async ({
       retry_unknown: false,
       max_attempts: 13,
     });
+    resumeObserver.replayAcknowledged();
     const countsAfterResumeReplay = await dispatchCounts();
     expect(countsAfterResumeReplay.fixture_dispatch_calls).toBe(
       countsBeforeResumeReplay.fixture_dispatch_calls,
@@ -683,13 +975,14 @@ test("installed browser reviews and inspects fixture execution", async ({
     await page.unroute(
       `**/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
     );
-    const resumedRunPromise = waitForInactiveUiRead(
-      registrationId,
-      acceptedRunId,
-    );
     if (holdPath) await rm(holdPath, { force: true });
     holdPath = undefined;
-    const resumedRun = await resumedRunPromise;
+    resumeObserver.barrierReleased();
+    const resumedRun = await resumeObserver.waitForTerminal();
+    await expect(
+      page.locator("article.run-detail p.lead").getByText(/· inactive/),
+    ).toBeVisible();
+    resumeObserver.renderedInactive();
     expect(resumedRun.run_id).toBe(acceptedRunId);
     expect(resumedRun.attempt_limit).toBe("13");
     expect(resumedRun.attempts_used).toBe("11");
@@ -765,6 +1058,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     completed = true;
   } finally {
     if (holdPath) await rm(holdPath, { force: true }).catch(() => undefined);
+    if (resumeObserver) await resumeObserver.dispose();
     if (activePhase)
       phaseStatus.set(activePhase, completed ? "passed" : "failed");
     await recordProgress().catch(() => undefined);

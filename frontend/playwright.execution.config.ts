@@ -20,7 +20,7 @@ export default defineConfig({
   outputDir: "./test-results/installed-execution",
   workers: 1,
   retries: 0,
-  timeout: 180_000,
+  timeout: 240_000,
   maxFailures: 1,
   use: { baseURL, headless: true },
   projects: [{ name: "installed-chromium", use: { browserName: "chromium" } }],
