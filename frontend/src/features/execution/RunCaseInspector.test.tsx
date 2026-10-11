@@ -220,11 +220,12 @@ function resultPage(
   };
 }
 
-function mountInspector(
-  execution: ExecutionGateway,
-  caseId?: string,
-) {
-  window.history.replaceState(null, "", "#/p/registration-1/runs/run-inspector-1");
+function mountInspector(execution: ExecutionGateway, caseId?: string) {
+  window.history.replaceState(
+    null,
+    "",
+    "#/p/registration-1/runs/run-inspector-1",
+  );
   const navigation = new WorkspaceNavigation(window);
   const tree = render(
     <RunCaseInspector

@@ -185,13 +185,16 @@ test("installed browser reviews and inspects fixture execution", async ({
         { headers: await bootstrapHeaders() },
       );
       if (response.status() === 200) {
-        const run = (await expectEnvelope(response)) as ApiOperationData<"readRun">;
+        const run = (await expectEnvelope(
+          response,
+        )) as ApiOperationData<"readRun">;
         if (run.run_id !== runId)
           throw new Error("The installed progress read returned another run.");
         return run;
       }
       const body: unknown = await response.json().catch(() => undefined);
-      const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+      const error =
+        isRecord(body) && isRecord(body.error) ? body.error : undefined;
       const sourceBusy =
         response.status() === 409 &&
         error?.code === "conflict" &&
@@ -203,7 +206,9 @@ test("installed browser reviews and inspects fixture execution", async ({
       busyReads += 1;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    throw new Error("The installed run progress read stayed busy past its bound.");
+    throw new Error(
+      "The installed run progress read stayed busy past its bound.",
+    );
   }
 
   async function waitForRunInactive(runId: string) {
@@ -360,9 +365,9 @@ test("installed browser reviews and inspects fixture execution", async ({
       initialDispatchCount,
     );
 
-    expect(
-      await reviewDialog.locator(".run-case-review li").count(),
-    ).toBe(initialReview.case_reviews.length);
+    expect(await reviewDialog.locator(".run-case-review li").count()).toBe(
+      initialReview.case_reviews.length,
+    );
     const invalidInputCases = initialReview.case_reviews.filter(
       (item) =>
         item.input_error?.code === "validation_error" &&
@@ -496,9 +501,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     await expect(
       page.getByRole("heading", { name: "Review resume" }),
     ).toBeVisible();
-    await page
-      .getByLabel(/^Proposed lifetime attempt cap/)
-      .fill("4");
+    await page.getByLabel(/^Proposed lifetime attempt cap/).fill("4");
     const resumePreviewPromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -510,12 +513,15 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(
       (resumePreview as ApiOperationData<"previewRunResume">).run.run_id,
     ).toBe(acceptedRunId);
-    const resumePreviewData = resumePreview as ApiOperationData<"previewRunResume">;
+    const resumePreviewData =
+      resumePreview as ApiOperationData<"previewRunResume">;
     expect(resumePreviewData.retry_unknown).toBe(false);
     expect(resumePreviewData.proposed_attempt_limit).toBe("4");
     const resumeHoldCaseId = laterEligibleCaseIds[0];
     if (!resumeHoldCaseId)
-      throw new Error("The cancelled run had no later eligible case to resume.");
+      throw new Error(
+        "The cancelled run had no later eligible case to resume.",
+      );
     holdPath = join(fixtureControlDirectory, `${resumeHoldCaseId}.hold`);
     await writeFile(holdPath, "hold\n", { flag: "wx" });
     await expect(
@@ -540,7 +546,9 @@ test("installed browser reviews and inspects fixture execution", async ({
               envelope.schema_version === 1 &&
               isRecord(envelope.data),
           ).toBe(true);
-          firstResumeReceipt = (envelope as { data: ApiOperationData<"resumeRun"> }).data;
+          firstResumeReceipt = (
+            envelope as { data: ApiOperationData<"resumeRun"> }
+          ).data;
           await route.abort("failed");
           return;
         }
