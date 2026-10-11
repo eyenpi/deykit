@@ -90,7 +90,7 @@ export function presentDiagnosticSummary(
     !countText(disagreement.denominator) ||
     (disagreement.value !== null &&
       (typeof disagreement.value !== "string" ||
-        !/^(?:0|1)\.\d{6}$/.test(disagreement.value))) ||
+        !/^(?:0\.\d{6}|1\.000000)$/.test(disagreement.value))) ||
     (disagreement.reason !== null && typeof disagreement.reason !== "string")
   )
     return undefined;

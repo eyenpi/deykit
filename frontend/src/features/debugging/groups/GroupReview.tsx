@@ -244,6 +244,13 @@ function ChoiceOrderReview(props: ReviewProps) {
   const mutationEpoch = useRef(0);
   const renderEpoch = useRef(0);
   const pendingIntentScope = useRef<string>();
+  const callbackScopeToken = useRef<number>();
+  const scopeToken = useRef(0);
+  const tokenScope = useRef(scope);
+  if (tokenScope.current !== scope) {
+    tokenScope.current = scope;
+    scopeToken.current += 1;
+  }
   gatewayRef.current = gateway;
   scopeRef.current = scope;
   const options = useReferenceOptions(gateway, project, decision.id, datasetId);
@@ -265,7 +272,7 @@ function ChoiceOrderReview(props: ReviewProps) {
         throw new Error("The service returned an incomplete group receipt.");
       return result.data;
     }, (state) => {
-      if (mounted.current && mutationEpoch.current === renderEpoch.current)
+      if (mounted.current && mutationEpoch.current === renderEpoch.current && callbackScopeToken.current === scopeToken.current)
         setMutationState(state);
     });
   }
@@ -418,17 +425,22 @@ function ChoiceOrderReview(props: ReviewProps) {
     };
     const intent: Intent = { kind: "diagnostic", registrationId: project.id, body };
     pendingIntentScope.current = scope;
+    callbackScopeToken.current = scopeToken.current;
     mutationEpoch.current = renderEpoch.current;
+    const dispatchScopeToken = scopeToken.current;
     const accepted = await mutation.current.submit(intent);
-    if (accepted?.kind === "choice_order" && mounted.current && pendingIntentScope.current === scope && scopeRef.current === scope)
+    if (accepted?.kind === "choice_order" && mounted.current && scopeToken.current === dispatchScopeToken && callbackScopeToken.current === dispatchScopeToken && pendingIntentScope.current === scope && scopeRef.current === scope)
       onStarted(accepted.group_id);
   }
 
   async function retryStart() {
     if (pendingIntentScope.current !== scope) return;
+    const dispatchScopeToken = callbackScopeToken.current;
+    if (dispatchScopeToken === undefined || dispatchScopeToken !== scopeToken.current) return;
+    callbackScopeToken.current = dispatchScopeToken;
     mutationEpoch.current = renderEpoch.current;
     const accepted = await mutation.current?.retryOriginal();
-    if (accepted?.kind === "choice_order" && mounted.current && pendingIntentScope.current === scope && scopeRef.current === scope)
+    if (accepted?.kind === "choice_order" && mounted.current && scopeToken.current === dispatchScopeToken && callbackScopeToken.current === dispatchScopeToken && pendingIntentScope.current === scope && scopeRef.current === scope)
       onStarted(accepted.group_id);
   }
 
@@ -492,7 +504,7 @@ function ChoiceOrderReview(props: ReviewProps) {
             <div className="actions"><button type="submit" className="primary" disabled={options.loading || reviewBusy || mutationBlocked}>{reviewBusy ? "Reviewing…" : "Review choice order"}</button><button type="button" onClick={close}>Close</button></div>
             {preview && <PreviewSummary preview={preview} kind="diagnostic" />}
             {preview && mutationState.kind === "idle" && <button type="button" className="primary" onClick={() => void start()}>Start reviewed group</button>}
-            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope} onClick={() => void retryStart()}>Retry original start request</button>}
+            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope || callbackScopeToken.current !== scopeToken.current} onClick={() => void retryStart()}>Retry original start request</button>}
             {mutationState.kind === "committed" && <p role="status">Group accepted: <code>{mutationState.receipt.group_id}</code></p>}
           </form>
         )}
@@ -529,6 +541,13 @@ function RegressionCheckReview(props: ReviewProps) {
   const mutationEpoch = useRef(0);
   const renderEpoch = useRef(0);
   const pendingIntentScope = useRef<string>();
+  const callbackScopeToken = useRef<number>();
+  const scopeToken = useRef(0);
+  const tokenScope = useRef(scope);
+  if (tokenScope.current !== scope) {
+    tokenScope.current = scope;
+    scopeToken.current += 1;
+  }
   const dirtyRef = useRef(dirty);
   const [mutationState, setMutationState] = useState<MutationState<GroupAccepted>>({ kind: "idle" });
   gatewayRef.current = gateway;
@@ -566,7 +585,7 @@ function RegressionCheckReview(props: ReviewProps) {
         throw new Error("The service returned an incomplete group receipt.");
       return result.data;
     }, (state) => {
-      if (mounted.current && mutationEpoch.current === renderEpoch.current) setMutationState(state);
+      if (mounted.current && mutationEpoch.current === renderEpoch.current && callbackScopeToken.current === scopeToken.current) setMutationState(state);
     });
   }
 
@@ -689,16 +708,21 @@ function RegressionCheckReview(props: ReviewProps) {
     const body: StartCheckBody = { schema_version: 1, operation_id: crypto.randomUUID(), expected_review_context_hash: preview.review_context_hash, request: previewRequest };
     const intent: Intent = { kind: "check", registrationId: project.id, body };
     pendingIntentScope.current = scope;
+    callbackScopeToken.current = scopeToken.current;
     mutationEpoch.current = renderEpoch.current;
+    const dispatchScopeToken = scopeToken.current;
     const accepted = await mutation.current.submit(intent);
-    if (accepted?.kind === "regression_check" && mounted.current && pendingIntentScope.current === scope && scopeRef.current === scope) onStarted(accepted.group_id);
+    if (accepted?.kind === "regression_check" && mounted.current && scopeToken.current === dispatchScopeToken && callbackScopeToken.current === dispatchScopeToken && pendingIntentScope.current === scope && scopeRef.current === scope) onStarted(accepted.group_id);
   }
 
   async function retryStart() {
     if (pendingIntentScope.current !== scope) return;
+    const dispatchScopeToken = callbackScopeToken.current;
+    if (dispatchScopeToken === undefined || dispatchScopeToken !== scopeToken.current) return;
+    callbackScopeToken.current = dispatchScopeToken;
     mutationEpoch.current = renderEpoch.current;
     const accepted = await mutation.current?.retryOriginal();
-    if (accepted?.kind === "regression_check" && mounted.current && pendingIntentScope.current === scope && scopeRef.current === scope) onStarted(accepted.group_id);
+    if (accepted?.kind === "regression_check" && mounted.current && scopeToken.current === dispatchScopeToken && callbackScopeToken.current === dispatchScopeToken && pendingIntentScope.current === scope && scopeRef.current === scope) onStarted(accepted.group_id);
   }
 
   function close() { if (mutationBlocked) return; if (dirty) setExitPrompt(true); else onClose(); }
@@ -721,7 +745,7 @@ function RegressionCheckReview(props: ReviewProps) {
             <div className="actions"><button type="submit" className="primary" disabled={optionsLoading || options.loading || reviewBusy || mutationBlocked}>{reviewBusy ? "Reviewing…" : "Review regression check"}</button><button type="button" onClick={close}>Close</button></div>
             {preview && <PreviewSummary preview={preview} kind="check" />}
             {preview && mutationState.kind === "idle" && <button type="button" className="primary" onClick={() => void start()}>Start reviewed group</button>}
-            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope} onClick={() => void retryStart()}>Retry original start request</button>}
+            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope || callbackScopeToken.current !== scopeToken.current} onClick={() => void retryStart()}>Retry original start request</button>}
             {mutationState.kind === "committed" && <p role="status">Group accepted: <code>{mutationState.receipt.group_id}</code></p>}
           </form>
         )}

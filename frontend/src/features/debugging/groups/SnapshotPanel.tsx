@@ -8,10 +8,12 @@ export function SnapshotPanel({
   snapshots,
   selectedId,
   onSelect,
+  disabled = false,
 }: {
   snapshots: readonly Snapshot[];
   selectedId: string | null;
   onSelect: (snapshotId: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <section aria-labelledby="saved-snapshots-title">
@@ -24,6 +26,7 @@ export function SnapshotPanel({
           <select
             id="group-snapshot-select"
             value={selectedId ?? ""}
+            disabled={disabled}
             onChange={(event) => onSelect(event.currentTarget.value)}
           >
             {!selectedId && <option value="">Choose a saved snapshot</option>}
@@ -38,7 +41,7 @@ export function SnapshotPanel({
       {selectedId && (
         <button
           type="button"
-          disabled={snapshots.at(-1)?.id === selectedId}
+          disabled={disabled || snapshots.at(-1)?.id === selectedId}
           onClick={() => {
             const latest = snapshots.at(-1);
             if (latest) onSelect(latest.id);

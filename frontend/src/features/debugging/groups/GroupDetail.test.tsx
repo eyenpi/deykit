@@ -5,6 +5,7 @@ import { disconnectedWorkspace } from "../../../workspace/gateway";
 import type { ProjectOverview, WorkspaceGateway } from "../../../workspace/gateway";
 import { WorkspaceNavigation } from "../../../workspace/navigation";
 import { GroupDetail } from "./GroupDetail";
+import { presentDiagnosticSummary } from "./summary";
 
 function response<T>(data: T) {
   return Promise.resolve({ data, warnings: [] });
@@ -107,6 +108,23 @@ function diagnosticSnapshot(id: string, sequence: string): ApiOperationData<"rea
     },
   };
 }
+
+it("rejects malformed diagnostic disagreement ratios above one", () => {
+  const summary = {
+    independent_case_count: "1",
+    order_count: "2",
+    expanded_result_count: "2",
+    fully_observed_case_count: "1",
+    disagreement: { numerator: "2", denominator: "1", value: "1.000001", reason: null },
+    cases: [],
+    interpretation: "observed_request_order_sensitivity",
+  };
+  expect(presentDiagnosticSummary(summary)).toBeUndefined();
+  expect(presentDiagnosticSummary({
+    ...summary,
+    disagreement: { ...summary.disagreement, value: "1.000000" },
+  })?.disagreement.value).toBe("1.000000");
+});
 
 it("keeps a selected historical snapshot pinned while progress and the latest list advance", async () => {
   const firstList = [snapshot("snapshot-1", "1"), snapshot("snapshot-2", "2")];
@@ -226,6 +244,8 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   await screen.findByText("Current progress");
   fireEvent.click(screen.getByRole("button", { name: "Review resume" }));
   await screen.findByText(/Reviewed resume for 1 members/);
+  expect(screen.getByLabelText("Selected snapshot")).toHaveProperty("disabled", true);
+  expect(screen.getByRole("checkbox", { name: "Retry members with unknown outcomes" })).toHaveProperty("disabled", true);
   expect(previewResume).toHaveBeenCalledTimes(1);
   expect(resume).not.toHaveBeenCalled();
 
@@ -239,5 +259,33 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   await screen.findByText(/progress read unavailable after receipt/);
   expect(resume).toHaveBeenCalledTimes(2);
   expect(resumeCalls[1]).toEqual(resumeCalls[0]);
+  navigation.dispose();
+});
+
+it("does not publish an old cancellation receipt into a later A-to-B-to-A group scope", async () => {
+  type CancelResponse = Awaited<ReturnType<WorkspaceGateway["debugging"]["diagnostics"]["cancel"]>>;
+  let resolveCancel: ((value: CancelResponse) => void) | undefined;
+  const cancel = vi.fn(() => new Promise<CancelResponse>((resolve) => { resolveCancel = resolve; }));
+  const read = vi.fn(async ({ groupId }: { groupId: string }) => response({ group: { ...progress, group_id: groupId }, exit_code: 0, summary: null } as ApiOperationData<"readChoiceOrder">));
+  const listSnapshots = vi.fn(async () => response([] as ApiOperationData<"listChoiceOrderSnapshots">));
+  const gateway = {
+    ...disconnectedWorkspace,
+    debugging: { ...disconnectedWorkspace.debugging, diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, read, listSnapshots, cancel } },
+  } as unknown as WorkspaceGateway;
+  const navigation = new WorkspaceNavigation(window);
+  const props = { project, gateway, navigation, kind: "diagnostic" as const };
+  const view = render(<GroupDetail {...props} groupId="group-1" />);
+  await screen.findByText("Current progress");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel group" }));
+  expect(cancel).toHaveBeenCalledTimes(1);
+
+  view.rerender(<GroupDetail {...props} groupId="group-2" />);
+  view.rerender(<GroupDetail {...props} groupId="group-1" />);
+  await waitFor(() => expect(listSnapshots).toHaveBeenCalledTimes(3));
+  await act(async () => {
+    resolveCancel?.({ data: { ...progress, group_id: "group-1" }, warnings: [] } as CancelResponse);
+  });
+  expect(screen.queryByText("Cancellation receipt received.")).toBeNull();
+  expect(listSnapshots).toHaveBeenCalledTimes(3);
   navigation.dispose();
 });
