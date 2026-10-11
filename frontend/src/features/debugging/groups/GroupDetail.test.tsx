@@ -529,22 +529,28 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   );
   const resumeCalls: unknown[] = [];
   let attempt = 0;
-  const resume = vi.fn(async (request: unknown) => {
-    resumeCalls.push(request);
-    attempt += 1;
-    if (attempt === 1) throw new Error("connection closed after dispatch");
-    return response({
-      schema_version: 1,
-      kind: "choice_order",
-      group_id: "group-1",
-      operation_id: "operation-1",
-      member_run_ids: ["run-1"],
-      mode: "fixture",
-      replayed: true,
-      progress_path: "/api/v1/projects/registration-1/diagnostics/group-1",
-      segment_id: "segment-1",
-    } as ApiOperationData<"resumeChoiceOrder">);
-  });
+  const resume = vi.fn(
+    async (request: {
+      registrationId: string;
+      groupId: string;
+      body: ApiOperationBody<"resumeChoiceOrder">;
+    }) => {
+      resumeCalls.push(request);
+      attempt += 1;
+      if (attempt === 1) throw new Error("connection closed after dispatch");
+      return response({
+        schema_version: 1,
+        kind: "choice_order",
+        group_id: "group-1",
+        operation_id: request.body.operation_id,
+        member_run_ids: ["run-1"],
+        mode: "fixture",
+        replayed: true,
+        progress_path: "/api/v1/projects/registration-1/diagnostics/group-1",
+        segment_id: "segment-1",
+      } as ApiOperationData<"resumeChoiceOrder">);
+    },
+  );
   const gateway = {
     ...disconnectedWorkspace,
     debugging: {
