@@ -132,11 +132,16 @@ async function readdSameCaseWithInstalledCli(
   const envelope = object(parsed);
   const data = object(envelope.data);
   const result = object(data.result);
-  const record = object(result.record);
-  const etag = result.etag;
+  const caseRead = object(result.case);
+  const record = object(caseRead.record);
+  const etag = caseRead.etag;
   if (
     envelope.schema_version !== 1 ||
+    data.operation_id !== "m12_same_id_readd" ||
     record.id !== "ex-003" ||
+    record.dataset_id !== qualification.seedMetadata.dataset_id ||
+    record.input_kind !== "json" ||
+    record.input_source !== RE_ADDED_CASE_SOURCE ||
     typeof etag !== "string" ||
     !/^[a-f0-9]{64}$/.test(etag)
   )
@@ -2392,6 +2397,11 @@ export async function runGroupsWorkflow(
       name: "Selected snapshot",
       exact: true,
     });
+    await expect(checkSnapshotSelect).toBeVisible();
+    const publishedCheckSnapshotOptions = checkSnapshotSelect.locator(
+      'option[value]:not([value=""])',
+    );
+    await expect(publishedCheckSnapshotOptions).not.toHaveCount(0);
     const checkSnapshotValues = await checkSnapshotSelect
       .locator("option")
       .evaluateAll((items) =>
@@ -2439,7 +2449,9 @@ export async function runGroupsWorkflow(
     expect(checkPreview.members[0]?.identity.requests[0]?.input_hash).toBe(
       originalEx003InputHash,
     );
-    expect(readdedCase.readdedRecordHash).not.toBe(originalEx003InputHash);
+    expect(readdedCase.readdedRecordHash).not.toBe(
+      readdedCase.originalRecordHash,
+    );
     expect(checkSnapshot.cases[0]?.expected_option_ids).toEqual(["question"]);
     expect(checkSnapshot.cases[0]?.passed).toBe(false);
     expect(checkSnapshot.cases[0]?.actual_option_id).not.toBe("question");
@@ -2705,23 +2717,67 @@ export async function runGroupsWorkflow(
     await defaultCheckDialog
       .getByLabel("Rate/overload retries per case (0–1)", { exact: true })
       .fill("0");
-    const emptyScope = await captureOperation(
-      page,
-      "previewRegressionCheck",
-      { registration_id: registrationId },
-      () =>
-        defaultCheckDialog
-          .getByRole("button", { name: "Review regression check", exact: true })
-          .click(),
+    let emptyPreviewRequests = 0;
+    let emptyStartRequests = 0;
+    const observeEmptyScopeRequest = (request: Request) => {
+      if (request.method() !== "POST") return;
+      const requestUrl = new URL(request.url());
+      if (requestUrl.origin !== new URL(page.url()).origin) return;
+      const pathname = requestUrl.pathname;
+      if (pathname === `/api/v1/projects/${registrationId}/checks/preview`)
+        emptyPreviewRequests += 1;
+      if (pathname === `/api/v1/projects/${registrationId}/checks`)
+        emptyStartRequests += 1;
+    };
+    const beforeEmptyScopeCounts = await readFixtureCountsNow(
+      qualification.controlDirectory,
     );
-    expect(emptyScope.response.status()).toBe(422);
-    const emptyEnvelope = object(JSON.parse(emptyScope.body.toString("utf8")));
-    const emptyError = object(emptyEnvelope.error);
-    expect(emptyError.code).toBe("validation_error");
-    expect(emptyError.reason).toBe("empty_regression_scope");
+    page.on("request", observeEmptyScopeRequest);
+    try {
+      await defaultCheckDialog
+        .getByRole("button", { name: "Review regression check", exact: true })
+        .click();
+      await expect(
+        defaultCheckDialog.getByText(
+          "Select one or more currently visible executable regression oracles.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await expect(
+        defaultCheckDialog.getByRole("button", {
+          name: "Start reviewed group",
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await reads.waitForIdle();
+    } finally {
+      page.off("request", observeEmptyScopeRequest);
+    }
+    expect(emptyPreviewRequests).toBe(0);
+    expect(emptyStartRequests).toBe(0);
+    const afterEmptyScopeCounts = await readFixtureCountsNow(
+      qualification.controlDirectory,
+    );
+    expect(afterEmptyScopeCounts).toMatchObject({
+      fixture_dispatch_calls: 5,
+      for_case_calls: 5,
+      live_dispatch_calls: 0,
+    });
+    expect(afterEmptyScopeCounts).toEqual(beforeEmptyScopeCounts);
     await defaultCheckDialog
       .getByRole("button", { name: "Close", exact: true })
       .click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Save or discard this group proposal?",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Discard proposal", exact: true })
+      .click();
+    await expect(defaultCheckDialog).toBeHidden();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     const checkSnapshotAfterRemoval = await captureOperation(
       page,
       "readCheckSnapshot",

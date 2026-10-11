@@ -21,8 +21,10 @@ from deykit.api.supervisor import ExecutionSupervisor
 from deykit.application.execution_groups import GroupExecutionService
 from deykit.application.regressions import RegressionAdd, RegressionService
 from deykit.contracts.execution_groups import ExecutionGroup, ExecutionGroupSegment
+from deykit.providers.fixtures import FixtureCaseTransport, FixtureTransportFactory
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.group_models import GroupProgress
+from deykit.runner.planner import Planner
 
 
 class _CountedProbe:
@@ -33,6 +35,113 @@ class _CountedProbe:
     def __call__(self) -> bool:
         self.calls += 1
         return self.probe()
+
+
+def test_http_empty_check_scope_is_preflight_failure_without_dispatch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    context = _app(tmp_path)
+    calls = {
+        "profile": 0,
+        "resolve": 0,
+        "legacy_resolve": 0,
+        "for_case": 0,
+        "dispatch": 0,
+        "planner_prepare": 0,
+        "planner_prepare_many": 0,
+    }
+    original_profile = ProviderBackends.profile_captured
+    original_resolve = ProviderBackends.resolve_captured
+    original_legacy_resolve = ProviderBackends.resolve
+    original_for_case = FixtureTransportFactory.for_case
+    original_dispatch = FixtureCaseTransport.dispatch
+    original_prepare = Planner.prepare
+    original_prepare_many = Planner.prepare_many
+
+    def profile(*args: Any, **kwargs: Any) -> Any:
+        calls["profile"] += 1
+        return original_profile(*args, **kwargs)
+
+    def resolve(*args: Any, **kwargs: Any) -> Any:
+        calls["resolve"] += 1
+        return original_resolve(*args, **kwargs)
+
+    def legacy_resolve(*args: Any, **kwargs: Any) -> Any:
+        calls["legacy_resolve"] += 1
+        return original_legacy_resolve(*args, **kwargs)
+
+    def for_case(*args: Any, **kwargs: Any) -> Any:
+        calls["for_case"] += 1
+        return original_for_case(*args, **kwargs)
+
+    async def dispatch(*args: Any, **kwargs: Any) -> Any:
+        calls["dispatch"] += 1
+        return await original_dispatch(*args, **kwargs)
+
+    def prepare(*args: Any, **kwargs: Any) -> Any:
+        calls["planner_prepare"] += 1
+        return original_prepare(*args, **kwargs)
+
+    def prepare_many(*args: Any, **kwargs: Any) -> Any:
+        calls["planner_prepare_many"] += 1
+        return original_prepare_many(*args, **kwargs)
+
+    monkeypatch.setattr(ProviderBackends, "profile_captured", profile)
+    monkeypatch.setattr(ProviderBackends, "resolve_captured", resolve)
+    monkeypatch.setattr(ProviderBackends, "resolve", legacy_resolve)
+    monkeypatch.setattr(FixtureTransportFactory, "for_case", for_case)
+    monkeypatch.setattr(FixtureCaseTransport, "dispatch", dispatch)
+    monkeypatch.setattr(Planner, "prepare", prepare)
+    monkeypatch.setattr(Planner, "prepare_many", prepare_many)
+
+    async def exercise() -> None:
+        async with context.api.router.lifespan_context(context.api):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=context.boundary),
+                base_url=context.origin,
+            ) as client:
+                headers = await _session(client, context.origin)
+                registration_id = await _register_project(
+                    client, headers, tmp_path / "empty-check-scope", "Empty Check Scope"
+                )
+                source: ApiProjectSource = context.api.state.project_registry.require(
+                    registration_id
+                ).source
+                _seed_one_case(source, context.dependencies)
+                before = source.capture_snapshot()
+                base = f"/api/v1/projects/{registration_id}"
+                response = await client.post(
+                    f"{base}/checks/preview",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "request": {
+                            "decision_id": "decision",
+                            "mode": "fixture",
+                            "fixture_set_id": "fixture-set",
+                            "regression_ids": [],
+                            "settings": {"max_attempts": 1, "concurrency": 1},
+                        },
+                    },
+                )
+                assert response.status_code == 422
+                error = response.json()["error"]
+                assert error["code"] == "preflight_failed"
+                assert error["reason"] == "empty_regression_scope"
+                assert source.capture_snapshot() == before
+                assert source.list_ids("execution_groups") == ()
+                assert source.list_ids("runs") == ()
+                assert calls == {
+                    "profile": 0,
+                    "resolve": 0,
+                    "legacy_resolve": 0,
+                    "for_case": 0,
+                    "dispatch": 0,
+                    "planner_prepare": 0,
+                    "planner_prepare_many": 0,
+                }
+
+    asyncio.run(exercise())
 
 
 def test_http_standalone_incomplete_start_and_original_replay_never_return_202(
