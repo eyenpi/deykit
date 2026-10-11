@@ -65,6 +65,12 @@ function nullableText(value: unknown): value is string | null {
   return value === null || text(value);
 }
 
+function nullableTextWhenPresent(
+  value: unknown,
+): value is string | null | undefined {
+  return value === undefined || nullableText(value);
+}
+
 function textList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(text);
 }
@@ -182,8 +188,8 @@ export function decodeCaseDetail(source: CaseDetailSource): CaseDetailView {
       !text(attempt.request_body_hash) ||
       !nullableText(attempt.error_code) ||
       !nullableText(attempt.error_reason) ||
-      !nullableText(attempt.request_body_source) ||
-      !nullableText(attempt.response_source)
+      !nullableTextWhenPresent(attempt.request_body_source) ||
+      !nullableTextWhenPresent(attempt.response_source)
     )
       return invalid();
     return {
@@ -194,8 +200,8 @@ export function decodeCaseDetail(source: CaseDetailSource): CaseDetailView {
       requestBodyHash: attempt.request_body_hash,
       errorCode: attempt.error_code,
       errorReason: attempt.error_reason,
-      requestBodySource: attempt.request_body_source,
-      responseSource: attempt.response_source,
+      requestBodySource: attempt.request_body_source ?? null,
+      responseSource: attempt.response_source ?? null,
     };
   });
   return {

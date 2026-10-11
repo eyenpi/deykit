@@ -12,7 +12,7 @@ const answerSource = {
   native_confidence_semantics: null,
   reported_model: "fixture-model",
 } as const;
-const attemptSource = {
+const attemptMetadata = {
   attempt_id: "attempt-1",
   number: "1",
   kind: "fixture",
@@ -20,6 +20,9 @@ const attemptSource = {
   request_body_hash: "a".repeat(64),
   error_code: null,
   error_reason: null,
+} as const;
+const attemptSource = {
+  ...attemptMetadata,
   request_body_source: exactRequest,
   response_source: '{"answer":"option-1"}',
 } as const;
@@ -80,6 +83,63 @@ describe("execution evidence source projection", () => {
     expect(() => decodeCaseDetail(malformed)).toThrowError(
       expect.objectContaining({ code: "response_invalid" }),
     );
+  });
+
+  it("accepts omitted request and response sources for opt-in projections", () => {
+    const metadataOnly = decodeCaseDetail({
+      ...caseDetailSource,
+      attempts: [attemptMetadata],
+    });
+    expect(metadataOnly.attempts[0]?.requestBodySource).toBeNull();
+    expect(metadataOnly.attempts[0]?.responseSource).toBeNull();
+
+    const undefinedSources = decodeCaseDetail({
+      ...caseDetailSource,
+      attempts: [
+        {
+          ...attemptMetadata,
+          request_body_source: undefined,
+          response_source: undefined,
+        },
+      ],
+    });
+    expect(undefinedSources.attempts[0]?.requestBodySource).toBeNull();
+    expect(undefinedSources.attempts[0]?.responseSource).toBeNull();
+
+    const requestOnly = decodeCaseDetail({
+      ...caseDetailSource,
+      attempts: [{ ...attemptMetadata, request_body_source: exactRequest }],
+    });
+    expect(requestOnly.attempts[0]?.requestBodySource).toBe(exactRequest);
+    expect(requestOnly.attempts[0]?.responseSource).toBeNull();
+
+    const responseOnly = decodeCaseDetail({
+      ...caseDetailSource,
+      attempts: [
+        { ...attemptMetadata, response_source: '{"answer":"option-1"}' },
+      ],
+    });
+    expect(responseOnly.attempts[0]?.requestBodySource).toBeNull();
+    expect(responseOnly.attempts[0]?.responseSource).toBe(
+      '{"answer":"option-1"}',
+    );
+  });
+
+  it("rejects malformed request or response source values when present", () => {
+    for (const value of [0, false, {}, []]) {
+      expect(() =>
+        decodeCaseDetail({
+          ...caseDetailSource,
+          attempts: [{ ...attemptMetadata, request_body_source: value }],
+        }),
+      ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
+      expect(() =>
+        decodeCaseDetail({
+          ...caseDetailSource,
+          attempts: [{ ...attemptMetadata, response_source: value }],
+        }),
+      ).toThrowError(expect.objectContaining({ code: "response_invalid" }));
+    }
   });
 
   it("preserves exact large API count text without numeric conversion", () => {

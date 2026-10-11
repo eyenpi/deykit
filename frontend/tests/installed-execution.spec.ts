@@ -1134,11 +1134,54 @@ test("installed browser reviews and inspects fixture execution", async ({
     ])
       await expect(inspector.getByLabel(name)).not.toBeChecked();
     await screenshot("execution-run-inspection-default.png");
+    const requestResultPath =
+      `/api/v1/projects/${registrationId}/runs/${acceptedRunId}/results/${dispatchCaseId}`;
+    const requestRevealResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === requestResultPath &&
+        new URL(response.url()).searchParams.get("include_request") === "true",
+    );
     await inspector.getByLabel("Include request").check();
+    const requestRevealResponse = await requestRevealResponsePromise;
+    const requestRevealData = await expectEnvelope(requestRevealResponse);
+    if (
+      !isRecord(requestRevealData) ||
+      !isRecord(requestRevealData.source) ||
+      !Array.isArray(requestRevealData.source.attempts)
+    )
+      throw new Error("The request-reveal evidence envelope was invalid.");
+    const requestRevealAttempt: unknown = requestRevealData.source.attempts[0];
+    if (!isRecord(requestRevealAttempt))
+      throw new Error("The request-reveal attempt was unavailable.");
+    expect(requestRevealData.source.run_id).toBe(acceptedRunId);
+    expect(requestRevealData.source.case_id).toBe(dispatchCaseId);
+    expect(requestRevealData.source.result_snapshot_id).toBe(resultSnapshotId);
+    expect(requestRevealData.source.label_snapshot_id).toBe(labelSnapshotId);
+    expect(requestRevealAttempt.request_body_source).toEqual(expect.any(String));
+    expect(requestRevealAttempt.response_source).toBeUndefined();
     await expect(
       inspector.getByText("Sanitized request", { exact: true }),
     ).toBeVisible();
+    const hideRequestResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === requestResultPath &&
+        new URL(response.url()).searchParams.get("include_request") === "false",
+    );
     await inspector.getByLabel("Include request").uncheck();
+    const hideRequestResponse = await hideRequestResponsePromise;
+    const hideRequestData = await expectEnvelope(hideRequestResponse);
+    if (
+      !isRecord(hideRequestData) ||
+      !isRecord(hideRequestData.source) ||
+      !Array.isArray(hideRequestData.source.attempts)
+    )
+      throw new Error("The cleared request evidence envelope was invalid.");
+    const hiddenRequestAttempt: unknown = hideRequestData.source.attempts[0];
+    if (!isRecord(hiddenRequestAttempt))
+      throw new Error("The cleared request attempt was unavailable.");
+    expect(hiddenRequestAttempt.request_body_source).toBeUndefined();
     await expect(
       inspector.getByText("Sanitized request", { exact: true }),
     ).toHaveCount(0);
