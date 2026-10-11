@@ -11,7 +11,7 @@ import {
   decodeRecentProjects,
   decodeRegistration,
 } from "../api/codecs";
-import type { WorkspaceGateway } from "./gateway";
+import type { ExecutionGateway, WorkspaceGateway } from "./gateway";
 import type { AuthoringGateway } from "./gateway";
 import { RegistrationReadSequencer } from "./read-sequencer";
 
@@ -30,6 +30,7 @@ export function createWorkspaceGateway(
   ) => reads.enqueueRead(registrationId, signal, perform);
   return {
     authoring: createAuthoringGateway(client, reads, read),
+    execution: createExecutionGateway(client, reads, read),
     async recentProjects(signal) {
       const result = await client.operation(
         "listRecentProjects",
@@ -114,6 +115,107 @@ export function createWorkspaceGateway(
       };
     },
     reconnect: () => client.reconnect(),
+  };
+}
+
+function createExecutionGateway(
+  client: ApiClient,
+  sequencer: RegistrationReadSequencer,
+  read: <T>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    perform: () => Promise<T>,
+  ) => Promise<T>,
+): ExecutionGateway {
+  const sourceRead = <K extends ApiJsonOperationId>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    operation: K,
+    args: ApiOperationArguments<K>,
+  ) => {
+    const captured = captureOperationArguments(args);
+    return read(registrationId, signal, () =>
+      client.operation(operation, captured),
+    );
+  };
+  const sourceMutation = <K extends ApiJsonOperationId>(
+    registrationId: string,
+    signal: AbortSignal | undefined,
+    operation: K,
+    args: ApiOperationArguments<K>,
+  ) => {
+    const captured = captureOperationArguments(args);
+    return sequencer.enqueueMutation(registrationId, signal, () =>
+      client.operation(operation, captured),
+    );
+  };
+  return {
+    runs: {
+      preview: ({ registrationId, body, query, signal }) =>
+        sourceRead(registrationId, signal, "previewRun", {
+          path: { registration_id: registrationId },
+          body,
+          query,
+        }),
+      start: ({ registrationId, body, signal }) =>
+        sourceMutation(registrationId, signal, "startRun", {
+          path: { registration_id: registrationId },
+          body,
+        }),
+      list: ({ registrationId, query, signal }) =>
+        sourceRead(registrationId, signal, "listRuns", {
+          path: { registration_id: registrationId },
+          query,
+        }),
+      read: ({ registrationId, runId, signal }) =>
+        sourceRead(registrationId, signal, "readRun", {
+          path: { registration_id: registrationId, run_id: runId },
+        }),
+      cancel: ({ registrationId, runId, body, signal }) =>
+        sourceMutation(registrationId, signal, "cancelRun", {
+          path: { registration_id: registrationId, run_id: runId },
+          body,
+        }),
+      previewResume: ({ registrationId, runId, body, query, signal }) =>
+        sourceRead(registrationId, signal, "previewRunResume", {
+          path: { registration_id: registrationId, run_id: runId },
+          body,
+          query,
+        }),
+      resume: ({ registrationId, runId, body, signal }) =>
+        sourceMutation(registrationId, signal, "resumeRun", {
+          path: { registration_id: registrationId, run_id: runId },
+          body,
+        }),
+    },
+    inspection: {
+      listResults: ({ registrationId, runId, query, signal }) =>
+        sourceRead(registrationId, signal, "listResults", {
+          path: { registration_id: registrationId, run_id: runId },
+          query,
+        }),
+      readResult: ({ registrationId, runId, caseId, query, signal }) =>
+        sourceRead(registrationId, signal, "readResult", {
+          path: {
+            registration_id: registrationId,
+            run_id: runId,
+            case_id: caseId,
+          },
+          query,
+        }),
+      listEvaluations: ({ registrationId, runId, query, signal }) =>
+        sourceRead(registrationId, signal, "listEvaluations", {
+          path: { registration_id: registrationId, run_id: runId },
+          query,
+        }),
+      readEvaluation: ({ registrationId, evaluationId, signal }) =>
+        sourceRead(registrationId, signal, "readEvaluation", {
+          path: {
+            registration_id: registrationId,
+            evaluation_id: evaluationId,
+          },
+        }),
+    },
   };
 }
 

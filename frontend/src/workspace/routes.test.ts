@@ -48,6 +48,33 @@ describe("workspace routes", () => {
     expect(routeFromHash(routeToHash(route))).toEqual(route);
   });
 
+  it("round-trips run routes with only stable inspection IDs", () => {
+    const list: WorkspaceRoute = {
+      kind: "runs",
+      registrationId: "registration-1",
+    };
+    const detail: WorkspaceRoute = {
+      kind: "run",
+      registrationId: "registration-1",
+      runId: "run-2",
+      evaluationId: "evaluation-3",
+      caseId: "case-4",
+    };
+    expect(routeFromHash(routeToHash(list))).toEqual(list);
+    expect(routeFromHash(routeToHash(detail))).toEqual(detail);
+    expect(
+      routeFromHash("#/p/registration-1/runs/run-2?source=%7B%7D"),
+    ).toBeNull();
+    expect(
+      routeFromHash(
+        "#/p/registration-1/runs/run-2?evaluation=evaluation-1&evaluation=evaluation-2",
+      ),
+    ).toBeNull();
+    expect(
+      routeFromHash("#/p/registration-1/runs/run-2?case=bad%2Fid"),
+    ).toBeNull();
+  });
+
   it("rejects unsafe IDs, duplicate query keys, and source or credential parameters", () => {
     expect(routeFromHash("#/p/../d/decision-1")).toBeNull();
     expect(

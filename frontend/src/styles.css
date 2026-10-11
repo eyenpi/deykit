@@ -497,6 +497,54 @@ code {
   overflow: auto;
   margin: 20px 0;
 }
+.run-case-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 8px 16px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px;
+}
+.run-review-summary,
+.run-inspector,
+.case-inspector,
+.resume-review {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.run-review-summary dl,
+.run-detail dl {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(0, 1fr);
+  gap: 8px 18px;
+}
+.run-review-summary dt,
+.run-detail dt {
+  color: var(--muted);
+}
+.run-review-summary dd,
+.run-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.run-case-review {
+  padding-left: 22px;
+}
+.run-case-review li {
+  margin: 14px 0;
+}
+@media (max-width: 620px) {
+  .run-review-summary dl,
+  .run-detail dl {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .run-review-summary dd,
+  .run-detail dd {
+    margin-bottom: 10px;
+  }
+}
 table {
   border-collapse: collapse;
   text-align: left;
