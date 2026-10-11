@@ -295,8 +295,7 @@ it("retries an unknown cancellation with its original operation id", async () =>
   const cancel = vi.fn(async (request: unknown) => {
     calls.push(request);
     attempt += 1;
-    if (attempt === 1)
-      throw new ApiError("network_error", "connection closed after dispatch");
+    if (attempt === 1) throw new Error("connection closed after dispatch");
     return response(progress);
   });
   const gateway = {
@@ -327,7 +326,9 @@ it("retries an unknown cancellation with its original operation id", async () =>
   const cancelButton = screen.getByRole("button", { name: "Cancel group" });
   fireEvent.click(cancelButton);
   fireEvent.click(cancelButton);
-  await screen.findByText(/connection closed after dispatch/);
+  await screen.findByText(
+    "The service may have saved this change. Review its current state before retrying.",
+  );
   fireEvent.click(
     screen.getByRole("button", { name: "Retry original cancellation" }),
   );
@@ -343,8 +344,7 @@ it("replays an unknown diagnostic cancellation through its original port after a
   const diagnosticCancel = vi.fn(async (request: unknown) => {
     diagnosticCalls.push(request);
     attempts += 1;
-    if (attempts === 1)
-      throw new ApiError("network_error", "connection closed after dispatch");
+    if (attempts === 1) throw new Error("connection closed after dispatch");
     return response(progress);
   });
   const checkCancel = vi.fn(async () =>
@@ -425,7 +425,9 @@ it("replays an unknown diagnostic cancellation through its original port after a
     name: "Create report from this snapshot",
   });
   fireEvent.click(screen.getByRole("button", { name: "Cancel group" }));
-  await screen.findByText(/connection closed after dispatch/);
+  await screen.findByText(
+    "The service may have saved this change. Review its current state before retrying.",
+  );
   expect(diagnosticCancel).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", { name: "run-1" })).toHaveProperty(
     "disabled",
@@ -531,8 +533,7 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   const resume = vi.fn(async (request: unknown) => {
     resumeCalls.push(request);
     attempt += 1;
-    if (attempt === 1)
-      throw new ApiError("network_error", "connection closed after dispatch");
+    if (attempt === 1) throw new Error("connection closed after dispatch");
     return response({
       schema_version: 1,
       kind: "choice_order",
@@ -600,7 +601,9 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   });
   fireEvent.click(resumeButton);
   fireEvent.click(resumeButton);
-  await screen.findByText(/connection closed after dispatch/);
+  await screen.findByText(
+    "The service may have saved this change. Review its current state before retrying.",
+  );
   expect(resume).toHaveBeenCalledTimes(1);
   fireEvent.click(
     screen.getByRole("button", { name: "Retry original resume request" }),

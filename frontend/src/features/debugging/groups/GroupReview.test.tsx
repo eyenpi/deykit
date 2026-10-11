@@ -6,7 +6,6 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { ApiError } from "../../../api/client";
 import type { ApiOperationBody, ApiOperationData } from "../../../api/client";
 import { disconnectedWorkspace } from "../../../workspace/gateway";
 import type {
@@ -146,8 +145,7 @@ it("keeps the reviewed seed and operation identity across an unknown group start
     async ({ body }: { body: ApiOperationBody<"startChoiceOrder"> }) => {
       startBodies.push(body);
       attempt += 1;
-      if (attempt === 1)
-        throw new ApiError("network_error", "connection closed after dispatch");
+      if (attempt === 1) throw new Error("connection closed after dispatch");
       return response({ ...accepted, operation_id: body.operation_id });
     },
   );
@@ -237,7 +235,9 @@ it("keeps the reviewed seed and operation identity across an unknown group start
   });
   fireEvent.click(startButton);
   fireEvent.click(startButton);
-  await screen.findByText(/connection closed after dispatch/);
+  await screen.findByText(
+    "The service may have saved this change. Review its current state before retrying.",
+  );
   expect(start).toHaveBeenCalledTimes(1);
   fireEvent.click(
     screen.getByRole("button", { name: "Retry original start request" }),
@@ -270,8 +270,7 @@ it("retries an unknown start through the original adapter after a gateway replac
     async (request: { body: ApiOperationBody<"startChoiceOrder"> }) => {
       startCalls.push(request);
       attempt += 1;
-      if (attempt === 1)
-        throw new ApiError("network_error", "connection closed after dispatch");
+      if (attempt === 1) throw new Error("connection closed after dispatch");
       return response({
         schema_version: 1,
         kind: "choice_order",
@@ -381,7 +380,9 @@ it("retries an unknown start through the original adapter after a gateway replac
   fireEvent.click(screen.getByRole("button", { name: "Review choice order" }));
   await screen.findByText("Reviewed group context");
   fireEvent.click(screen.getByRole("button", { name: "Start reviewed group" }));
-  await screen.findByText(/connection closed after dispatch/);
+  await screen.findByText(
+    "The service may have saved this change. Review its current state before retrying.",
+  );
 
   view.rerender(
     <GroupReview
