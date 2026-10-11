@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { ApiOperationData } from "../src/api/client";
 import {
+  captureReloadProgressAndSnapshots,
   captureOperation,
   assertCreateReportRequestBody,
   bodySha256,
@@ -1542,19 +1543,76 @@ export async function runGroupsWorkflow(
       for_case_calls: 4,
       live_dispatch_calls: 0,
     });
-    const finalProgressRead = await captureOperation(
+    const reloadReads = await captureReloadProgressAndSnapshots(
       page,
-      "readChoiceOrder",
-      { registration_id: registrationId, group_id: startReceipt.group_id },
-      async () => {
-        await page.reload();
-      },
-      () => true,
-      Math.min(remainingGroupCompletionMs(), 12_000),
+      registrationId,
+      startReceipt.group_id,
+      remainingGroupCompletionMs(),
+    );
+    qualification.setWitness(
+      "diagnostic_reload_progress_body_state",
+      "complete",
+    );
+    qualification.setWitness(
+      "diagnostic_reload_snapshot_list_body_state",
+      "complete",
     );
     const finalProgress = decodeSuccessEnvelope<
       ApiOperationData<"readChoiceOrder">
-    >(finalProgressRead.body, 200, finalProgressRead.response.status());
+    >(reloadReads.progress.body, 200, reloadReads.progress.response.status());
+    qualification.setWitness(
+      "diagnostic_reload_progress_decode_state",
+      "complete",
+    );
+    const reloadedSnapshots = decodeSuccessEnvelope<
+      ApiOperationData<"listChoiceOrderSnapshots">
+    >(reloadReads.snapshots.body, 200, reloadReads.snapshots.response.status());
+    qualification.setWitness(
+      "diagnostic_reload_snapshot_list_decode_state",
+      "complete",
+    );
+    const reloadedSnapshotIds = reloadedSnapshots.map(
+      (snapshot) => snapshot.id,
+    );
+    expect(
+      reloadedSnapshots.every(
+        (snapshot) => snapshot.group_id === startReceipt.group_id,
+      ),
+    ).toBe(true);
+    const originalSnapshotStillListed =
+      reloadedSnapshotIds.includes(diagnosticSnapshotId);
+    const resumedSnapshotStillListed = reloadedSnapshotIds.some(
+      (snapshotId) => snapshotId !== diagnosticSnapshotId,
+    );
+    expect(originalSnapshotStillListed).toBe(true);
+    expect(resumedSnapshotStillListed).toBe(true);
+    qualification.setEquality(
+      "diagnostic_reload_original_snapshot_listed",
+      originalSnapshotStillListed,
+    );
+    qualification.setEquality(
+      "diagnostic_reload_resumed_snapshot_listed",
+      resumedSnapshotStillListed,
+    );
+    const routeStillPinned = page.url() === diagnosticSnapshotRoute;
+    expect(routeStillPinned).toBe(true);
+    qualification.setEquality(
+      "diagnostic_reload_route_pin_preserved",
+      routeStillPinned,
+    );
+    await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId, {
+      timeout: remainingGroupCompletionMs(),
+    });
+    qualification.setEquality(
+      "diagnostic_reload_selection_preserved",
+      (await snapshotSelect.inputValue()) === diagnosticSnapshotId,
+    );
+    const resumedSnapshotValues = await snapshotSelect
+      .locator("option")
+      .evaluateAll((items) =>
+        items.map((item) => (item as HTMLOptionElement).value).filter(Boolean),
+      );
+    expect(resumedSnapshotValues).toEqual(reloadedSnapshotIds);
     expect(finalProgress.group.group_id).toBe(startReceipt.group_id);
     expect(finalProgress.group.kind).toBe("choice_order");
     expect(finalProgress.group.attempt_limit).toBe("4");
@@ -1609,11 +1667,6 @@ export async function runGroupsWorkflow(
         timeout: remainingGroupCompletionMs(),
       })
       .not.toBe(diagnosticSnapshotId);
-    const resumedSnapshotValues = await snapshotSelect
-      .locator("option")
-      .evaluateAll((items) =>
-        items.map((item) => (item as HTMLOptionElement).value).filter(Boolean),
-      );
     const latestResumedSnapshot = resumedSnapshotValues.at(-1);
     if (!latestResumedSnapshot)
       throw new Error("The resumed diagnostic snapshot was unavailable.");
