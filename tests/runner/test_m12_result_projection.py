@@ -1,6 +1,7 @@
 """Independent checks for frozen result filters, pins and probability display."""
 
 import asyncio
+from itertools import count
 from types import SimpleNamespace
 from typing import cast
 
@@ -277,7 +278,8 @@ def test_assessment_membership_keeps_disputed_stale_legacy_and_acceptable_sets_d
     setup,
 ):
     source, runner, factory, clock = setup(7)
-    labels = LabelService(source, clock, lambda: "label-m12")
+    label_ids = count()
+    labels = LabelService(source, clock, lambda: f"label-m12-{next(label_ids)}")
     for case_id, expected in (
         ("case-00", ("yes",)),
         ("case-01", ("no",)),
