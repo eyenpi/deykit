@@ -1428,34 +1428,89 @@ export async function assertExactArtifactBytes(
 }
 
 export class BrowserReadTracker {
-  private readonly pending = new Map<Request, string>();
+  private readonly pending = new Map<Request, BrowserReadTrace>();
+  private readonly history: BrowserReadTrace[] = [];
   private readonly baseOrigin: string;
+  private readonly startedAt = performance.now();
+  private nextOrdinal = 0;
   private readonly onRequest = (request: Request) => {
     if (request.method() !== "GET") return;
     const url = new URL(request.url());
     if (url.origin !== this.baseOrigin || !url.pathname.startsWith("/api/"))
       return;
-    this.pending.set(request, routeTemplate(url.pathname));
+    const issuedAt = performance.now();
+    this.update(request, {
+      ordinal: ++this.nextOrdinal,
+      route: routeTemplate(url.pathname),
+      stage: "issued",
+      issuedElapsedMs: this.elapsedMs(),
+      issuedAt,
+      headersElapsedMs: null,
+      bodyElapsedMs: null,
+      statusClass: "none",
+    });
     this.publish();
   };
   private readonly onResponse = (response: Response) => {
     const request = response.request();
     if (!this.pending.has(request)) return;
+    const current = this.pending.get(request)!;
+    this.update(request, {
+      ...current,
+      stage: "headers_seen",
+      headersElapsedMs: Math.max(
+        0,
+        Math.round(performance.now() - current.issuedAt),
+      ),
+      statusClass: this.statusClass(response.status()),
+    });
     void response
       .body()
       .then(
         async () => {
+          const body = this.pending.get(request);
+          if (body)
+            this.update(request, {
+              ...body,
+              stage: "body_complete",
+              bodyElapsedMs: Math.max(
+                0,
+                Math.round(performance.now() - body.issuedAt),
+              ),
+            });
+          const completed = this.pending.get(request);
+          if (completed)
+            this.update(request, {
+              ...completed,
+              stage: "failure_observation",
+            });
           try {
             await this.qualification.observeFailure(response);
+            const observed = this.pending.get(request);
+            if (observed)
+              this.update(request, { ...observed, stage: "settled" });
+          } catch {
+            const observed = this.pending.get(request);
+            if (observed)
+              this.update(request, { ...observed, stage: "observer_failed" });
           } finally {
             this.settle(request);
           }
         },
-        () => this.settle(request),
+        () => {
+          this.markFailed(request);
+          this.settle(request);
+        },
       )
-      .catch(() => this.settle(request));
+      .catch(() => {
+        this.markFailed(request);
+        this.settle(request);
+      });
   };
-  private readonly onFailure = (request: Request) => this.settle(request);
+  private readonly onFailure = (request: Request) => {
+    this.markFailed(request);
+    this.settle(request);
+  };
 
   constructor(
     private readonly page: Page,
@@ -1468,6 +1523,69 @@ export class BrowserReadTracker {
     page.on("requestfailed", this.onFailure);
   }
 
+  private elapsedMs(): number {
+    return Math.max(0, Math.round(performance.now() - this.startedAt));
+  }
+
+  private statusClass(status: number): string {
+    if (status >= 200 && status < 300) return "2xx";
+    if (status >= 300 && status < 400) return "3xx";
+    if (status >= 400 && status < 500) return "4xx";
+    if (status >= 500 && status < 600) return "5xx";
+    return "other";
+  }
+
+  private update(request: Request, trace: BrowserReadTrace): void {
+    this.pending.set(request, trace);
+    this.history.push({ ...trace });
+    if (this.history.length > 24)
+      this.history.splice(0, this.history.length - 24);
+  }
+
+  private markFailed(request: Request): void {
+    const current = this.pending.get(request);
+    if (current) this.update(request, { ...current, stage: "request_failed" });
+  }
+
+  writePendingStageWitness(prefix: string, boundary: string): void {
+    this.qualification.setWitness(`${prefix}_failed_boundary`, boundary);
+    this.qualification.setWitness(`${prefix}_pending_count`, this.pending.size);
+    const pending = [...this.pending.values()].slice(-24);
+    this.qualification.setWitness(
+      `${prefix}_pending_record_count`,
+      pending.length,
+    );
+    pending.forEach((trace, index) =>
+      this.writeTraceWitness(`${prefix}_pending_${index + 1}`, trace),
+    );
+    const recent = this.history.slice(-24);
+    this.qualification.setWitness(`${prefix}_history_count`, recent.length);
+    recent.forEach((trace, index) =>
+      this.writeTraceWitness(`${prefix}_history_${index + 1}`, trace),
+    );
+  }
+
+  private writeTraceWitness(prefix: string, trace: BrowserReadTrace): void {
+    this.qualification.setWitness(`${prefix}_ordinal`, trace.ordinal);
+    this.qualification.setWitness(
+      `${prefix}_route`,
+      trace.route === "<unknown-route>"
+        ? "unknown_route"
+        : trace.route.replaceAll("/", "."),
+    );
+    this.qualification.setWitness(`${prefix}_stage`, trace.stage);
+    this.qualification.setWitness(`${prefix}_issued_ms`, trace.issuedElapsedMs);
+    this.qualification.setWitness(
+      `${prefix}_headers_ms`,
+      trace.headersElapsedMs ?? -1,
+    );
+    this.qualification.setWitness(
+      `${prefix}_body_ms`,
+      trace.bodyElapsedMs ?? -1,
+    );
+    this.qualification.setWitness(`${prefix}_status_class`, trace.statusClass);
+  }
+
   private settle(request: Request): void {
     this.pending.delete(request);
     this.publish();
@@ -1475,8 +1593,8 @@ export class BrowserReadTracker {
 
   private publish(): void {
     const counts: Record<string, number> = {};
-    for (const route of this.pending.values())
-      counts[route] = (counts[route] ?? 0) + 1;
+    for (const trace of this.pending.values())
+      counts[trace.route] = (counts[trace.route] ?? 0) + 1;
     this.qualification.setPendingReads(counts);
     void this.qualification.save();
   }
@@ -1504,6 +1622,24 @@ export class BrowserReadTracker {
     }
   }
 }
+
+type BrowserReadTrace = {
+  ordinal: number;
+  route: string;
+  stage:
+    | "issued"
+    | "headers_seen"
+    | "body_complete"
+    | "failure_observation"
+    | "observer_failed"
+    | "settled"
+    | "request_failed";
+  issuedElapsedMs: number;
+  issuedAt: number;
+  headersElapsedMs: number | null;
+  bodyElapsedMs: number | null;
+  statusClass: string;
+};
 
 export async function settleOnSandbox(
   page: Page,

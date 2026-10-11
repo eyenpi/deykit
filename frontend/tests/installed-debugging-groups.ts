@@ -11,6 +11,7 @@ import { writeFile } from "node:fs/promises";
 import type { ApiOperationData } from "../src/api/client";
 import { routeFromHash, routeToHash } from "../src/workspace/routes";
 import {
+  type BrowserReadTracker,
   captureNextProgressAndSnapshots,
   captureOperation,
   assertCreateReportRequestBody,
@@ -33,6 +34,69 @@ import {
 
 const RE_ADDED_CASE_SOURCE =
   '{"text":"A deliberately different newly re-added input."}';
+
+type ReaddWaitBoundary = "case_list_idle" | "alternate_idle" | "target_idle";
+
+type ReaddIdleWait = (boundary?: ReaddWaitBoundary) => Promise<void>;
+
+function recordReaddRouteWitness(
+  qualification: Awaited<
+    ReturnType<typeof startDebuggingQualification>
+  >["qualification"],
+  page: Page,
+  stage: string,
+  registrationId: string,
+  decisionId: string,
+  datasetId: string,
+  caseId?: string,
+): void {
+  const route = routeFromHash(new URL(page.url()).hash);
+  const prefix = `same_id_readd_${stage}`;
+  qualification.setWitness(`${prefix}_route_kind`, route?.kind ?? "unknown");
+  qualification.setWitness(
+    `${prefix}_registration_matches`,
+    !!route &&
+      "registrationId" in route &&
+      route.registrationId === registrationId,
+  );
+  qualification.setWitness(
+    `${prefix}_decision_matches`,
+    !!route && "decisionId" in route && route.decisionId === decisionId,
+  );
+  qualification.setWitness(
+    `${prefix}_dataset_matches`,
+    route?.kind === "examples" && route.datasetId === datasetId,
+  );
+  qualification.setWitness(
+    `${prefix}_case_matches`,
+    route?.kind === "examples" && route.caseId === caseId,
+  );
+}
+
+async function waitForReaddIdle(
+  qualification: Awaited<
+    ReturnType<typeof startDebuggingQualification>
+  >["qualification"],
+  reads: BrowserReadTracker,
+  boundary?: ReaddWaitBoundary,
+): Promise<void> {
+  if (!boundary) return reads.waitForIdle();
+  const prefix = `same_id_readd_${boundary}`;
+  qualification.setWitness(`${prefix}_started`, true);
+  try {
+    await reads.waitForIdle();
+    qualification.setWitness(`${prefix}_returned`, true);
+  } catch (cause) {
+    qualification.setWitness(`${prefix}_failed`, true);
+    reads.writePendingStageWitness("same_id_readd_read", boundary);
+    try {
+      await qualification.save();
+    } catch {
+      // Preserve the original pending-read failure if witness persistence fails.
+    }
+    throw cause;
+  }
+}
 
 function safeStatusClass(status: number): string {
   return status >= 200 && status < 300
@@ -185,7 +249,8 @@ async function downloadReportBytes(
 
 async function selectAuthoredAlternateCase(
   page: Page,
-  waitForIdle: () => Promise<void>,
+  waitForIdle: ReaddIdleWait,
+  observation?: { onReady?: () => void; idleBoundary?: ReaddWaitBoundary },
 ): Promise<void> {
   const casesTable = page.getByRole("table", { name: /^Cases in / });
   const alternateCase = casesTable.getByRole("button", {
@@ -197,7 +262,8 @@ async function selectAuthoredAlternateCase(
   await expect(
     page.getByRole("heading", { name: "ex-001", exact: true }),
   ).toBeVisible();
-  await waitForIdle();
+  observation?.onReady?.();
+  await waitForIdle(observation?.idleBoundary);
 }
 
 async function editDeleteAndReaddCaseThroughPublicInterfaces(
@@ -206,7 +272,7 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
     ReturnType<typeof startDebuggingQualification>
   >["qualification"],
   registrationId: string,
-  waitForIdle: () => Promise<void>,
+  waitForIdle: ReaddIdleWait,
 ): Promise<{
   originalRecordHash: string;
   editedRecordHash: string;
@@ -364,6 +430,7 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await qualification.setWitness("same_id_readd_edited_hash", editedRecordHash);
   await waitForIdle();
   const added = await readdSameCaseWithInstalledCli(qualification);
+  qualification.setWitness("same_id_readd_cli_complete", true);
   expect(added.contentHash).not.toBe(originalRecordHash);
   expect(added.contentHash).not.toBe(editedRecordHash);
   const addedEquality =
@@ -379,6 +446,15 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
     "Content category",
   );
+  qualification.setWitness("same_id_readd_decision_ready", true);
+  recordReaddRouteWitness(
+    qualification,
+    page,
+    "decision",
+    registrationId,
+    qualification.seedMetadata.decision_id,
+    datasetId,
+  );
   await page
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("button", { name: "Examples", exact: true })
@@ -386,6 +462,15 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
   ).toBeVisible();
+  qualification.setWitness("same_id_readd_examples_ready", true);
+  recordReaddRouteWitness(
+    qualification,
+    page,
+    "examples",
+    registrationId,
+    qualification.seedMetadata.decision_id,
+    datasetId,
+  );
   const reloadedDataset = page.getByRole("combobox", {
     name: "Dataset",
     exact: true,
@@ -419,9 +504,32 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
       ApiOperationData<"list_cases_api_v1_projects__registration_id__datasets__dataset_id__cases_get">
     >(await caseList.body(), 200, caseList.status());
   }
+  qualification.setWitness("same_id_readd_case_list_complete", true);
+  recordReaddRouteWitness(
+    qualification,
+    page,
+    "case_list",
+    registrationId,
+    qualification.seedMetadata.decision_id,
+    datasetId,
+  );
   const refreshedTable = page.getByRole("table", { name: /^Cases in / });
-  await waitForIdle();
-  await selectAuthoredAlternateCase(page, waitForIdle);
+  await waitForIdle("case_list_idle");
+  await selectAuthoredAlternateCase(page, waitForIdle, {
+    onReady: () => {
+      qualification.setWitness("same_id_readd_alternate_ready", true);
+      recordReaddRouteWitness(
+        qualification,
+        page,
+        "alternate",
+        registrationId,
+        qualification.seedMetadata.decision_id,
+        datasetId,
+        "ex-001",
+      );
+    },
+    idleBoundary: "alternate_idle",
+  });
   const casePath = `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/ex-003`;
   const labelPath = `/api/v1/projects/${registrationId}/decisions/${qualification.seedMetadata.decision_id}/datasets/${datasetId}/labels/ex-003`;
   const caseReadPromise = page.waitForResponse(
@@ -452,6 +560,16 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   const current = decodeSuccessEnvelope<
     ApiOperationData<"read_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__get">
   >(caseBody, 200, caseResponse.status());
+  qualification.setWitness("same_id_readd_target_case_complete", true);
+  recordReaddRouteWitness(
+    qualification,
+    page,
+    "target_case",
+    registrationId,
+    qualification.seedMetadata.decision_id,
+    datasetId,
+    "ex-003",
+  );
   expect(current.case.record.id).toBe("ex-003");
   expect(current.case.etag).toBe(added.contentHash);
   expect(current.case.record.input_source).toBe(RE_ADDED_CASE_SOURCE);
@@ -459,8 +577,18 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   const currentLabel = decodeSuccessEnvelope<
     ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">
   >(labelBody, 200, labelResponse.status());
+  qualification.setWitness("same_id_readd_target_label_complete", true);
+  recordReaddRouteWitness(
+    qualification,
+    page,
+    "target_label",
+    registrationId,
+    qualification.seedMetadata.decision_id,
+    datasetId,
+    "ex-003",
+  );
   expect(currentLabel.label).toBeNull();
-  await waitForIdle();
+  await waitForIdle("target_idle");
   await expect(
     page.getByRole("heading", { name: "ex-003", exact: true }),
   ).toBeVisible();
@@ -2220,7 +2348,7 @@ export async function runGroupsWorkflow(
       page,
       qualification,
       registrationId,
-      () => reads.waitForIdle(),
+      (boundary) => waitForReaddIdle(qualification, reads, boundary),
     );
     await page
       .getByRole("navigation", { name: "Workspace" })
