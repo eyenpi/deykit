@@ -297,7 +297,9 @@ test("installed browser reviews and inspects fixture execution", async ({
     await expect(reviewDialog.getByLabel("Fixture set")).toHaveValue(
       fixture.id,
     );
-    await reviewDialog.getByLabel(/^Lifetime attempts per case/).fill("3");
+    await reviewDialog
+      .getByLabel(/^Lifetime (?:request cap|attempts per case)/)
+      .fill("12");
     await reviewDialog.getByLabel("Concurrency").fill("1");
     await reviewDialog.getByLabel(/^Timeout seconds/).fill("5");
     await reviewDialog.getByLabel(/^Deadline seconds/).fill("30");
@@ -374,6 +376,9 @@ test("installed browser reviews and inspects fixture execution", async ({
         item.input_error.reason === "input_schema_mismatch",
     );
     expect(invalidInputCases).toHaveLength(1);
+    const invalidInputCaseId = invalidInputCases[0]?.case_id;
+    if (!invalidInputCaseId)
+      throw new Error("The authored invalid-input case ID was unavailable.");
     expect(invalidInputCases[0]?.request_hash).toBeNull();
     expect(invalidInputCases[0]?.request_source).toBeNull();
     const eligibleCaseIds = initialReview.case_reviews
@@ -454,6 +459,15 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(retryData.replayed).toBe(true);
     expect(startBodies).toHaveLength(2);
     expect(startBodies[1]).toEqual(startBodies[0]);
+    expect(startBodies[0]).toMatchObject({
+      request: {
+        settings: {
+          max_attempts: 12,
+          concurrency: 1,
+          max_retries_per_case: 0,
+        },
+      },
+    });
     await expect(
       page.getByRole("heading", { name: `Run ${acceptedRunId}` }),
     ).toBeVisible();
@@ -480,6 +494,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     const inactiveRun = await waitForRunInactive(acceptedRunId);
     expect(inactiveRun.run_id).toBe(acceptedRunId);
     expect(inactiveRun.execution_active).toBe(false);
+    expect(inactiveRun.attempt_limit).toBe("12");
     const settledCounts = await dispatchCounts();
     expect(settledCounts.live_dispatch_calls).toBe(0);
     expect(settledCounts.fixture_dispatch_calls).toBeGreaterThan(
@@ -501,7 +516,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     await expect(
       page.getByRole("heading", { name: "Review resume" }),
     ).toBeVisible();
-    await page.getByLabel(/^Proposed lifetime attempt cap/).fill("4");
+    await page.getByLabel(/^Proposed lifetime attempt cap/).fill("13");
     const resumePreviewPromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -516,7 +531,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     const resumePreviewData =
       resumePreview as ApiOperationData<"previewRunResume">;
     expect(resumePreviewData.retry_unknown).toBe(false);
-    expect(resumePreviewData.proposed_attempt_limit).toBe("4");
+    expect(resumePreviewData.proposed_attempt_limit).toBe("13");
     const resumeHoldCaseId = laterEligibleCaseIds[0];
     if (!resumeHoldCaseId)
       throw new Error(
@@ -600,7 +615,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(resumeBodies[1]).toEqual(resumeBodies[0]);
     expect(resumeBodies[0]).toMatchObject({
       retry_unknown: false,
-      max_attempts: 4,
+      max_attempts: 13,
     });
     const progressAfterResumeReplay = await readRunWithBusyRetry(
       acceptedRunId,
@@ -616,9 +631,6 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(countsAfterResumeReplay.fixture_dispatch_calls).toBe(
       countsBeforeResumeReplay.fixture_dispatch_calls,
     );
-    expect(countsAfterResumeReplay.for_case_calls[resumeHoldCaseId] ?? 0).toBe(
-      countsBeforeResumeReplay.for_case_calls[resumeHoldCaseId] ?? 0,
-    );
     await page.unroute(
       `**/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
     );
@@ -626,7 +638,15 @@ test("installed browser reviews and inspects fixture execution", async ({
     holdPath = undefined;
     const resumedRun = await waitForRunInactive(acceptedRunId);
     expect(resumedRun.run_id).toBe(acceptedRunId);
-    expect((await dispatchCounts()).for_case_calls[resumeHoldCaseId]).toBe(1);
+    expect(resumedRun.attempt_limit).toBe("13");
+    expect(resumedRun.attempts_used).toBe("11");
+    expect(resumedRun.attempts).toHaveLength(11);
+    const completedCounts = await dispatchCounts();
+    expect(completedCounts.fixture_dispatch_calls).toBe(11);
+    expect(completedCounts.live_dispatch_calls).toBe(0);
+    for (const caseId of eligibleCaseIds)
+      expect(completedCounts.for_case_calls[caseId] ?? 0).toBe(1);
+    expect(completedCounts.for_case_calls[invalidInputCaseId] ?? 0).toBe(0);
     await expect(
       page.getByRole("heading", { name: "Attempts and segments" }),
     ).toBeVisible();
