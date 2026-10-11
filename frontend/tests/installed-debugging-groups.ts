@@ -1157,12 +1157,20 @@ export async function runGroupsWorkflow(
     await expect(summaryRegion).toContainText(
       `${countText(diagnosticSummary.independent_case_count)} cases · ${countText(diagnosticSummary.order_count)} orders · ${countText(diagnosticSummary.expanded_result_count)} expanded results · ${countText(diagnosticSummary.fully_observed_case_count)} fully observed`,
     );
-    await expect(summaryRegion.getByRole("listitem")).toHaveCount(
+    const summaryHeading = summaryRegion.getByRole("heading", {
+      name: "Observed request-order sensitivity",
+      exact: true,
+    });
+    await expect(summaryHeading).toBeVisible();
+    const summaryList = summaryHeading.locator(
+      "xpath=following-sibling::ol[1]",
+    );
+    await expect(summaryList.getByRole("listitem")).toHaveCount(
       summaryCaseIds.length,
     );
     for (const caseId of summaryCaseIds)
       await expect(
-        summaryRegion.getByText(caseId, { exact: true }),
+        summaryList.getByText(caseId, { exact: true }),
       ).toBeVisible();
     await page
       .getByRole("button", {
@@ -1549,10 +1557,18 @@ export async function runGroupsWorkflow(
     await expect(
       finalSummaryRegion.getByText("Disagreement: 1/2", { exact: false }),
     ).toBeVisible();
-    await expect(finalSummaryRegion.getByRole("listitem")).toHaveCount(2);
+    const finalSummaryHeading = finalSummaryRegion.getByRole("heading", {
+      name: "Observed request-order sensitivity",
+      exact: true,
+    });
+    await expect(finalSummaryHeading).toBeVisible();
+    const finalSummaryList = finalSummaryHeading.locator(
+      "xpath=following-sibling::ol[1]",
+    );
+    await expect(finalSummaryList.getByRole("listitem")).toHaveCount(2);
     for (const caseId of finalSummaryCaseIds)
       await expect(
-        finalSummaryRegion.getByText(caseId, { exact: true }),
+        finalSummaryList.getByText(caseId, { exact: true }),
       ).toBeVisible();
 
     const resumedSelection = await snapshotSelect.inputValue();
