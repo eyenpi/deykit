@@ -342,7 +342,7 @@ it("keeps an older result snapshot pinned until explicit refresh", async () => {
   );
   const user = userEvent.setup();
   try {
-    const publishedPair = screen.getByRole("status", {
+    const publishedPair = await screen.findByRole("status", {
       name: "Published result snapshot",
     });
     await waitFor(() =>
@@ -357,7 +357,10 @@ it("keeps an older result snapshot pinned until explicit refresh", async () => {
       screen.getByRole("button", { name: "Refresh frozen results" }),
     );
     await waitFor(() =>
-      expect(publishedPair.textContent).toContain("result-snapshot-2"),
+      expect(
+        screen.getByRole("status", { name: "Published result snapshot" })
+          .textContent,
+      ).toContain("result-snapshot-2"),
     );
     expect(pageReads).toBe(2);
     expect(
