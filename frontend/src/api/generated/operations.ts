@@ -470,6 +470,34 @@ export const operationMetadata = {
       },
     },
   },
+  listCheckSnapshots: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/checks/{group_id}/snapshots",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_tuple_SnapshotMetadataDTO__________",
+      },
+    },
+  },
+  listChoiceOrderSnapshots: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/diagnostics/{group_id}/snapshots",
+    pathParams: ["registration_id", "group_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_tuple_SnapshotMetadataDTO__________",
+      },
+    },
+  },
   listComparisons: {
     method: "GET",
     path: "/api/v1/projects/{registration_id}/comparisons",
@@ -614,7 +642,17 @@ export const operationMetadata = {
     method: "GET",
     path: "/api/v1/projects/{registration_id}/runs/{run_id}/results",
     pathParams: ["registration_id", "run_id"],
-    queryParams: ["cursor", "evaluation_id", "limit", "split", "status", "tag"],
+    queryParams: [
+      "assessment_filter",
+      "cursor",
+      "evaluation_id",
+      "expected_label_snapshot_id",
+      "expected_result_snapshot_id",
+      "limit",
+      "split",
+      "status",
+      "tag",
+    ],
     bodyValidator: null,
     bodyRequired: false,
     success: {
@@ -936,6 +974,20 @@ export const operationMetadata = {
       },
     },
   },
+  readCheckSnapshot: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/checks/{group_id}/snapshots/{snapshot_id}",
+    pathParams: ["registration_id", "group_id", "snapshot_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_CheckSnapshotDetailDTO_",
+      },
+    },
+  },
   readChoiceOrder: {
     method: "GET",
     path: "/api/v1/projects/{registration_id}/diagnostics/{group_id}",
@@ -947,6 +999,20 @@ export const operationMetadata = {
       kind: "json",
       validators: {
         "200": "validateSuccess_DiagnosticViewDTO_",
+      },
+    },
+  },
+  readChoiceOrderSnapshot: {
+    method: "GET",
+    path: "/api/v1/projects/{registration_id}/diagnostics/{group_id}/snapshots/{snapshot_id}",
+    pathParams: ["registration_id", "group_id", "snapshot_id"],
+    queryParams: [],
+    bodyValidator: null,
+    bodyRequired: false,
+    success: {
+      kind: "json",
+      validators: {
+        "200": "validateSuccess_DiagnosticSnapshotDetailDTO_",
       },
     },
   },
@@ -1054,6 +1120,8 @@ export const operationMetadata = {
     pathParams: ["registration_id", "run_id", "case_id"],
     queryParams: [
       "evaluation_id",
+      "expected_label_snapshot_id",
+      "expected_result_snapshot_id",
       "include_attempts",
       "include_input",
       "include_request",

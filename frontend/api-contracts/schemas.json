@@ -232,6 +232,41 @@
     "title": "AnnotationPageDTO",
     "type": "object"
   },
+  "AssessmentCountsDTO": {
+    "$id": "urn:deykit:transport:AssessmentCountsDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "all": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "All",
+        "type": "string"
+      },
+      "incorrect": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Incorrect",
+        "type": "string"
+      },
+      "inspect": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Inspect",
+        "type": "string"
+      },
+      "unlabelled": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Unlabelled",
+        "type": "string"
+      }
+    },
+    "required": [
+      "all",
+      "inspect",
+      "incorrect",
+      "unlabelled"
+    ],
+    "title": "AssessmentCountsDTO",
+    "type": "object"
+  },
   "BootstrapReply": {
     "$id": "urn:deykit:transport:BootstrapReply",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -344,6 +379,38 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": false,
     "properties": {
+      "case_input_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Case Input Hash",
+        "type": "string"
+      },
+      "context": {
+        "$ref": "urn:deykit:transport:ResultContextDTO#"
+      },
+      "probabilities": {
+        "items": {
+          "$ref": "urn:deykit:transport:ProbabilityRowDTO#"
+        },
+        "title": "Probabilities",
+        "type": "array"
+      },
+      "probabilities_unavailable_reason": {
+        "anyOf": [
+          {
+            "enum": [
+              "probabilities_not_provided",
+              "probability_question_unavailable",
+              "invalid_probability_source",
+              "probability_options_unavailable"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Probabilities Unavailable Reason"
+      },
       "schema_version": {
         "const": 1,
         "default": 1,
@@ -357,6 +424,10 @@
       }
     },
     "required": [
+      "case_input_hash",
+      "context",
+      "probabilities",
+      "probabilities_unavailable_reason",
       "schema_version",
       "source"
     ],
@@ -954,6 +1025,179 @@
       "mode"
     ],
     "title": "CheckRequestDTO",
+    "type": "object"
+  },
+  "CheckSnapshotCaseDTO": {
+    "$id": "urn:deykit:transport:CheckSnapshotCaseDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "actual_option_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Actual Option Id"
+      },
+      "case_id": {
+        "title": "Case Id",
+        "type": "string"
+      },
+      "dataset_id": {
+        "title": "Dataset Id",
+        "type": "string"
+      },
+      "expected_option_ids": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Expected Option Ids",
+        "type": "array"
+      },
+      "input_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Input Hash",
+        "type": "string"
+      },
+      "original_split": {
+        "title": "Original Split",
+        "type": "string"
+      },
+      "passed": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Passed"
+      },
+      "provenance": {
+        "title": "Provenance",
+        "type": "string"
+      },
+      "reason": {
+        "title": "Reason",
+        "type": "string"
+      },
+      "regression_id": {
+        "title": "Regression Id",
+        "type": "string"
+      },
+      "result_snapshot_id": {
+        "title": "Result Snapshot Id",
+        "type": "string"
+      },
+      "run_id": {
+        "title": "Run Id",
+        "type": "string"
+      },
+      "source_attempt_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Source Attempt Id"
+      },
+      "source_result_snapshot_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Source Result Snapshot Id"
+      },
+      "source_run_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Source Run Id"
+      },
+      "status": {
+        "title": "Status",
+        "type": "string"
+      }
+    },
+    "required": [
+      "regression_id",
+      "dataset_id",
+      "case_id",
+      "run_id",
+      "result_snapshot_id",
+      "status",
+      "expected_option_ids",
+      "actual_option_id",
+      "passed",
+      "provenance",
+      "original_split",
+      "input_hash",
+      "source_run_id",
+      "source_result_snapshot_id",
+      "source_attempt_id",
+      "reason"
+    ],
+    "title": "CheckSnapshotCaseDTO",
+    "type": "object"
+  },
+  "CheckSnapshotDetailDTO": {
+    "$id": "urn:deykit:transport:CheckSnapshotDetailDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "baseline_unavailable": {
+        "const": "frozen_regression_selection",
+        "title": "Baseline Unavailable",
+        "type": "string"
+      },
+      "cases": {
+        "items": {
+          "$ref": "urn:deykit:transport:CheckSnapshotCaseDTO#"
+        },
+        "title": "Cases",
+        "type": "array"
+      },
+      "expectation_failures": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Expectation Failures",
+        "type": "string"
+      },
+      "members": {
+        "items": {
+          "$ref": "urn:deykit:transport:FrozenMemberContextDTO#"
+        },
+        "title": "Members",
+        "type": "array"
+      },
+      "snapshot": {
+        "$ref": "urn:deykit:transport:SnapshotMetadataDTO#"
+      }
+    },
+    "required": [
+      "snapshot",
+      "members",
+      "cases",
+      "expectation_failures",
+      "baseline_unavailable"
+    ],
+    "title": "CheckSnapshotDetailDTO",
     "type": "object"
   },
   "CheckViewDTO": {
@@ -2285,6 +2529,35 @@
     "title": "DescribeOption",
     "type": "object"
   },
+  "DiagnosticSnapshotDetailDTO": {
+    "$id": "urn:deykit:transport:DiagnosticSnapshotDetailDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "members": {
+        "items": {
+          "$ref": "urn:deykit:transport:FrozenMemberContextDTO#"
+        },
+        "title": "Members",
+        "type": "array"
+      },
+      "snapshot": {
+        "$ref": "urn:deykit:transport:SnapshotMetadataDTO#"
+      },
+      "summary": {
+        "additionalProperties": true,
+        "title": "Summary",
+        "type": "object"
+      }
+    },
+    "required": [
+      "snapshot",
+      "members",
+      "summary"
+    ],
+    "title": "DiagnosticSnapshotDetailDTO",
+    "type": "object"
+  },
   "DiagnosticViewDTO": {
     "$id": "urn:deykit:transport:DiagnosticViewDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3447,6 +3720,82 @@
       "schema_version"
     ],
     "title": "FixtureSummaryDTO",
+    "type": "object"
+  },
+  "FrozenMemberContextDTO": {
+    "$id": "urn:deykit:transport:FrozenMemberContextDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "dataset_content_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Dataset Content Hash",
+        "type": "string"
+      },
+      "dataset_id": {
+        "title": "Dataset Id",
+        "type": "string"
+      },
+      "dataset_snapshot_id": {
+        "title": "Dataset Snapshot Id",
+        "type": "string"
+      },
+      "decision_definition_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Decision Definition Hash",
+        "type": "string"
+      },
+      "decision_id": {
+        "title": "Decision Id",
+        "type": "string"
+      },
+      "decision_revision_id": {
+        "title": "Decision Revision Id",
+        "type": "string"
+      },
+      "label_content_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Label Content Hash",
+        "type": "string"
+      },
+      "label_snapshot_id": {
+        "title": "Label Snapshot Id",
+        "type": "string"
+      },
+      "result_content_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Result Content Hash",
+        "type": "string"
+      },
+      "result_snapshot_id": {
+        "title": "Result Snapshot Id",
+        "type": "string"
+      },
+      "run_id": {
+        "title": "Run Id",
+        "type": "string"
+      },
+      "through_event_sequence": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Through Event Sequence",
+        "type": "string"
+      }
+    },
+    "required": [
+      "run_id",
+      "result_snapshot_id",
+      "result_content_hash",
+      "through_event_sequence",
+      "label_snapshot_id",
+      "label_content_hash",
+      "decision_id",
+      "dataset_id",
+      "decision_revision_id",
+      "decision_definition_hash",
+      "dataset_snapshot_id",
+      "dataset_content_hash"
+    ],
+    "title": "FrozenMemberContextDTO",
     "type": "object"
   },
   "GroupAcceptedDTO": {
@@ -5480,6 +5829,33 @@
     "title": "OptionAlias",
     "type": "object"
   },
+  "ProbabilityRowDTO": {
+    "$id": "urn:deykit:transport:ProbabilityRowDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "option_id": {
+        "title": "Option Id",
+        "type": "string"
+      },
+      "option_name": {
+        "title": "Option Name",
+        "type": "string"
+      },
+      "probability": {
+        "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$",
+        "title": "Probability",
+        "type": "string"
+      }
+    },
+    "required": [
+      "option_id",
+      "option_name",
+      "probability"
+    ],
+    "title": "ProbabilityRowDTO",
+    "type": "object"
+  },
   "ProjectOverviewDTO": {
     "$id": "urn:deykit:transport:ProjectOverviewDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6878,11 +7254,114 @@
     "title": "RestoreRevisionRequest",
     "type": "object"
   },
+  "ResultContextDTO": {
+    "$id": "urn:deykit:transport:ResultContextDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "dataset_content_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Dataset Content Hash",
+        "type": "string"
+      },
+      "dataset_id": {
+        "title": "Dataset Id",
+        "type": "string"
+      },
+      "dataset_snapshot_id": {
+        "title": "Dataset Snapshot Id",
+        "type": "string"
+      },
+      "decision_definition_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Decision Definition Hash",
+        "type": "string"
+      },
+      "decision_id": {
+        "title": "Decision Id",
+        "type": "string"
+      },
+      "decision_revision_id": {
+        "title": "Decision Revision Id",
+        "type": "string"
+      },
+      "evaluation_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Evaluation Id"
+      },
+      "evaluation_mode": {
+        "enum": [
+          "original",
+          "saved_answer_reevaluation"
+        ],
+        "title": "Evaluation Mode",
+        "type": "string"
+      },
+      "label_content_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Label Content Hash",
+        "type": "string"
+      },
+      "label_snapshot_id": {
+        "title": "Label Snapshot Id",
+        "type": "string"
+      },
+      "result_content_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Result Content Hash",
+        "type": "string"
+      },
+      "result_snapshot_id": {
+        "title": "Result Snapshot Id",
+        "type": "string"
+      },
+      "run_id": {
+        "title": "Run Id",
+        "type": "string"
+      },
+      "through_event_sequence": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Through Event Sequence",
+        "type": "string"
+      }
+    },
+    "required": [
+      "run_id",
+      "result_snapshot_id",
+      "label_snapshot_id",
+      "evaluation_id",
+      "decision_id",
+      "dataset_id",
+      "decision_revision_id",
+      "decision_definition_hash",
+      "dataset_snapshot_id",
+      "dataset_content_hash",
+      "label_content_hash",
+      "result_content_hash",
+      "evaluation_mode",
+      "through_event_sequence"
+    ],
+    "title": "ResultContextDTO",
+    "type": "object"
+  },
   "ResultPageDTO": {
     "$id": "urn:deykit:transport:ResultPageDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": false,
     "properties": {
+      "assessment_counts": {
+        "$ref": "urn:deykit:transport:AssessmentCountsDTO#"
+      },
+      "context": {
+        "$ref": "urn:deykit:transport:ResultContextDTO#"
+      },
       "evaluation_id": {
         "anyOf": [
           {
@@ -6955,6 +7434,8 @@
       }
     },
     "required": [
+      "assessment_counts",
+      "context",
       "evaluation_id",
       "filtered_count",
       "items",
@@ -8907,6 +9388,85 @@
     "title": "SetSelectedFields",
     "type": "object"
   },
+  "SnapshotMetadataDTO": {
+    "$id": "urn:deykit:transport:SnapshotMetadataDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "content_hash": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Content Hash",
+        "type": "string"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "group_id": {
+        "title": "Group Id",
+        "type": "string"
+      },
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "results": {
+        "items": {
+          "$ref": "urn:deykit:transport:SnapshotResultDTO#"
+        },
+        "title": "Results",
+        "type": "array"
+      },
+      "segment_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Segment Id"
+      },
+      "sequence": {
+        "pattern": "^(?:0|[1-9][0-9]*)$",
+        "title": "Sequence",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "sequence",
+      "group_id",
+      "segment_id",
+      "content_hash",
+      "created_at",
+      "results"
+    ],
+    "title": "SnapshotMetadataDTO",
+    "type": "object"
+  },
+  "SnapshotResultDTO": {
+    "$id": "urn:deykit:transport:SnapshotResultDTO",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "result_snapshot_id": {
+        "title": "Result Snapshot Id",
+        "type": "string"
+      },
+      "run_id": {
+        "title": "Run Id",
+        "type": "string"
+      }
+    },
+    "required": [
+      "run_id",
+      "result_snapshot_id"
+    ],
+    "title": "SnapshotResultDTO",
+    "type": "object"
+  },
   "SplitCommitDTO": {
     "$id": "urn:deykit:transport:SplitCommitDTO",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9508,6 +10068,36 @@
     "title": "Success[CaseReadDTO]",
     "type": "object"
   },
+  "Success_CheckSnapshotDetailDTO_": {
+    "$id": "urn:deykit:transport:Success_CheckSnapshotDetailDTO_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:CheckSnapshotDetailDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[CheckSnapshotDetailDTO]",
+    "type": "object"
+  },
   "Success_CheckViewDTO_": {
     "$id": "urn:deykit:transport:Success_CheckViewDTO_",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9806,6 +10396,36 @@
       "schema_version"
     ],
     "title": "Success[DemoCreateDTO]",
+    "type": "object"
+  },
+  "Success_DiagnosticSnapshotDetailDTO_": {
+    "$id": "urn:deykit:transport:Success_DiagnosticSnapshotDetailDTO_",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "$ref": "urn:deykit:transport:DiagnosticSnapshotDetailDTO#"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[DiagnosticSnapshotDetailDTO]",
     "type": "object"
   },
   "Success_DiagnosticViewDTO_": {
@@ -11246,6 +11866,40 @@
       "schema_version"
     ],
     "title": "Success[Versioned[DecisionRecord]]",
+    "type": "object"
+  },
+  "Success_tuple_SnapshotMetadataDTO__________": {
+    "$id": "urn:deykit:transport:Success_tuple_SnapshotMetadataDTO__________",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+      "data": {
+        "items": {
+          "$ref": "urn:deykit:transport:SnapshotMetadataDTO#"
+        },
+        "title": "Data",
+        "type": "array"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "warnings": {
+        "default": [],
+        "items": {
+          "$ref": "urn:deykit:transport:ErrorDTO#"
+        },
+        "title": "Warnings",
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "schema_version"
+    ],
+    "title": "Success[tuple[SnapshotMetadataDTO, ...]]",
     "type": "object"
   },
   "TextInputRequest": {

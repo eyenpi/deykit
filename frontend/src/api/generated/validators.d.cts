@@ -4,6 +4,7 @@ declare const validators: {
   readonly validateAddRegressionRequest: (value: unknown) => boolean;
   readonly validateAnnotationDTO: (value: unknown) => boolean;
   readonly validateAnnotationPageDTO: (value: unknown) => boolean;
+  readonly validateAssessmentCountsDTO: (value: unknown) => boolean;
   readonly validateBootstrapReply: (value: unknown) => boolean;
   readonly validateBootstrapRequest: (value: unknown) => boolean;
   readonly validateCaseChangeRequest: (value: unknown) => boolean;
@@ -19,6 +20,8 @@ declare const validators: {
   readonly validateCaseRecord: (value: unknown) => boolean;
   readonly validateCheckPreviewRequest: (value: unknown) => boolean;
   readonly validateCheckRequestDTO: (value: unknown) => boolean;
+  readonly validateCheckSnapshotCaseDTO: (value: unknown) => boolean;
+  readonly validateCheckSnapshotDetailDTO: (value: unknown) => boolean;
   readonly validateCheckViewDTO: (value: unknown) => boolean;
   readonly validateChoiceDefinition: (value: unknown) => boolean;
   readonly validateChoiceOption: (value: unknown) => boolean;
@@ -49,6 +52,7 @@ declare const validators: {
   readonly validateDemoCreateRequest: (value: unknown) => boolean;
   readonly validateDemoSummaryDTO: (value: unknown) => boolean;
   readonly validateDescribeOption: (value: unknown) => boolean;
+  readonly validateDiagnosticSnapshotDetailDTO: (value: unknown) => boolean;
   readonly validateDiagnosticViewDTO: (value: unknown) => boolean;
   readonly validateDraftRequest: (value: unknown) => boolean;
   readonly validateDraftTransformReviewDTO: (value: unknown) => boolean;
@@ -72,6 +76,7 @@ declare const validators: {
   readonly validateFixtureCreatedDTO: (value: unknown) => boolean;
   readonly validateFixturePageDTO: (value: unknown) => boolean;
   readonly validateFixtureSummaryDTO: (value: unknown) => boolean;
+  readonly validateFrozenMemberContextDTO: (value: unknown) => boolean;
   readonly validateGroupAcceptedDTO: (value: unknown) => boolean;
   readonly validateGroupCancelRequest: (value: unknown) => boolean;
   readonly validateGroupMemberPreviewDTO: (value: unknown) => boolean;
@@ -110,6 +115,7 @@ declare const validators: {
   readonly validateModelListDTO: (value: unknown) => boolean;
   readonly validateOSCredentialRequest: (value: unknown) => boolean;
   readonly validateOptionAlias: (value: unknown) => boolean;
+  readonly validateProbabilityRowDTO: (value: unknown) => boolean;
   readonly validateProjectOverviewDTO: (value: unknown) => boolean;
   readonly validateProjectRecordDTO: (value: unknown) => boolean;
   readonly validateProviderETagRequest: (value: unknown) => boolean;
@@ -143,6 +149,7 @@ declare const validators: {
   readonly validateResourceChoice: (value: unknown) => boolean;
   readonly validateResourceSummaryDTO: (value: unknown) => boolean;
   readonly validateRestoreRevisionRequest: (value: unknown) => boolean;
+  readonly validateResultContextDTO: (value: unknown) => boolean;
   readonly validateResultPageDTO: (value: unknown) => boolean;
   readonly validateResultRowDTO: (value: unknown) => boolean;
   readonly validateReviewSourceRecordDTO: (value: unknown) => boolean;
@@ -178,6 +185,8 @@ declare const validators: {
   readonly validateSetInstructions: (value: unknown) => boolean;
   readonly validateSetMappingField: (value: unknown) => boolean;
   readonly validateSetSelectedFields: (value: unknown) => boolean;
+  readonly validateSnapshotMetadataDTO: (value: unknown) => boolean;
+  readonly validateSnapshotResultDTO: (value: unknown) => boolean;
   readonly validateSplitCommitDTO: (value: unknown) => boolean;
   readonly validateSplitCommitRequest: (value: unknown) => boolean;
   readonly validateSplitPreviewDTO: (value: unknown) => boolean;
@@ -194,6 +203,7 @@ declare const validators: {
   readonly validateSuccess_CaseMutationDTO_: (value: unknown) => boolean;
   readonly validateSuccess_CasePageDTO_: (value: unknown) => boolean;
   readonly validateSuccess_CaseReadDTO_: (value: unknown) => boolean;
+  readonly validateSuccess_CheckSnapshotDetailDTO_: (value: unknown) => boolean;
   readonly validateSuccess_CheckViewDTO_: (value: unknown) => boolean;
   readonly validateSuccess_ComparisonDTO_: (value: unknown) => boolean;
   readonly validateSuccess_ComparisonPageDTO_: (value: unknown) => boolean;
@@ -204,6 +214,9 @@ declare const validators: {
   readonly validateSuccess_DecisionPageDTO_: (value: unknown) => boolean;
   readonly validateSuccess_DefinitionDiffDTO_: (value: unknown) => boolean;
   readonly validateSuccess_DemoCreateDTO_: (value: unknown) => boolean;
+  readonly validateSuccess_DiagnosticSnapshotDetailDTO_: (
+    value: unknown,
+  ) => boolean;
   readonly validateSuccess_DiagnosticViewDTO_: (value: unknown) => boolean;
   readonly validateSuccess_DraftTransformReviewDTO_: (
     value: unknown,
@@ -256,6 +269,9 @@ declare const validators: {
     value: unknown,
   ) => boolean;
   readonly validateSuccess_Versioned_DecisionRecord__: (
+    value: unknown,
+  ) => boolean;
+  readonly validateSuccess_tuple_SnapshotMetadataDTO__________: (
     value: unknown,
   ) => boolean;
   readonly validateTextInputRequest: (value: unknown) => boolean;
