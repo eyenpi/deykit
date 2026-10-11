@@ -506,7 +506,7 @@ export async function captureOperation(
   return captured;
 }
 
-export async function captureReloadProgressAndSnapshots(
+export async function captureNextProgressAndSnapshots(
   page: Page,
   registrationId: string,
   groupId: string,
@@ -533,12 +533,7 @@ export async function captureReloadProgressAndSnapshots(
     "listChoiceOrderSnapshots",
   ];
   const deadline = performance.now() + timeoutMs;
-  const remaining = () => {
-    const value = Math.floor(deadline - performance.now());
-    if (value <= 0)
-      throw new Error("The reload response pair exceeded its bounded window.");
-    return value;
-  };
+  const remaining = () => Math.max(1, Math.floor(deadline - performance.now()));
   const deferred = <T>(): Deferred<T> => {
     let resolve!: (value: T) => void;
     let reject!: (reason: Error) => void;
@@ -548,7 +543,6 @@ export async function captureReloadProgressAndSnapshots(
     });
     return { promise, resolve, reject };
   };
-  const navigation = deferred<Request>();
   const captures = new Map<Operation, OperationCapture>();
   for (const operation of operations) {
     captures.set(operation, {
@@ -587,11 +581,12 @@ export async function captureReloadProgressAndSnapshots(
   const overallTimer = addTimer(
     () =>
       overallReject(
-        new Error("The reload response pair exceeded its bounded window."),
+        new Error(
+          "The next progress and snapshot reads exceeded their bounded window.",
+        ),
       ),
     remaining(),
   );
-  let navigationRequest: Request | undefined;
   const matches = (request: Request, operation: Operation): boolean => {
     const metadata = operationMetadata[operation];
     const expectedPath = metadata.path.replace(
@@ -604,7 +599,7 @@ export async function captureReloadProgressAndSnapshots(
               ? groupId
               : undefined;
         if (!value)
-          throw new Error("A reload observer path parameter is missing.");
+          throw new Error("A next-read observer path parameter is missing.");
         return encodeURIComponent(value);
       },
     );
@@ -618,33 +613,38 @@ export async function captureReloadProgressAndSnapshots(
     }
   };
   const onRequest = (request: Request) => {
-    if (!navigationRequest && request.isNavigationRequest()) {
-      try {
-        if (request.frame() === page.mainFrame()) {
-          navigationRequest = request;
-          navigation.resolve(request);
-        }
-      } catch {
-        // Requests without an accessible frame cannot establish the reload boundary.
-      }
+    const progress = captures.get("readChoiceOrder")!;
+    const snapshots = captures.get("listChoiceOrderSnapshots")!;
+    if (!progress.request && matches(request, "readChoiceOrder")) {
+      progress.request = request;
+      requestOperations.set(request, "readChoiceOrder");
+      progress.headerTimer = addTimer(
+        () => {
+          progress.seenResponse = true;
+          progress.reject(
+            new Error("The first progress response headers timed out."),
+          );
+        },
+        Math.min(remaining(), BODY_TIMEOUT_MS),
+      );
       return;
     }
-    if (!navigationRequest || !mainFrameCommitted) return;
-    for (const operation of operations) {
-      const capture = captures.get(operation)!;
-      if (!capture.request && matches(request, operation)) {
-        capture.request = request;
-        requestOperations.set(request, operation);
-        capture.headerTimer = addTimer(
-          () => {
-            capture.seenResponse = true;
-            capture.reject(
-              new Error("The first reload response headers timed out."),
-            );
-          },
-          Math.min(remaining(), BODY_TIMEOUT_MS),
-        );
-      }
+    if (
+      progress.request &&
+      !snapshots.request &&
+      matches(request, "listChoiceOrderSnapshots")
+    ) {
+      snapshots.request = request;
+      requestOperations.set(request, "listChoiceOrderSnapshots");
+      snapshots.headerTimer = addTimer(
+        () => {
+          snapshots.seenResponse = true;
+          snapshots.reject(
+            new Error("The first snapshot-list response headers timed out."),
+          );
+        },
+        Math.min(remaining(), BODY_TIMEOUT_MS),
+      );
     }
   };
   const onResponse = (response: Response) => {
@@ -658,7 +658,9 @@ export async function captureReloadProgressAndSnapshots(
     capture.headerTimer = undefined;
     capture.bodyTimer = addTimer(
       () =>
-        capture.reject(new Error("The first reload response body timed out.")),
+        capture.reject(
+          new Error("The first progress or snapshot response body timed out."),
+        ),
       Math.min(remaining(), BODY_TIMEOUT_MS),
     );
     void response.body().then(
@@ -672,7 +674,9 @@ export async function captureReloadProgressAndSnapshots(
         if (capture.bodyTimer === undefined) return;
         clearTimer(capture.bodyTimer);
         capture.bodyTimer = undefined;
-        capture.reject(new Error("The first reload response body failed."));
+        capture.reject(
+          new Error("The first progress or snapshot response body failed."),
+        );
       },
     );
   };
@@ -684,43 +688,15 @@ export async function captureReloadProgressAndSnapshots(
     capture.seenResponse = true;
     clearTimer(capture.headerTimer);
     capture.headerTimer = undefined;
-    capture.reject(new Error("The first reload request failed."));
-  };
-  let mainFrameCommitted = false;
-  const onFrameNavigated = (frame: import("@playwright/test").Frame) => {
-    if (navigationRequest && frame === page.mainFrame())
-      mainFrameCommitted = true;
+    capture.reject(new Error("The first progress or snapshot request failed."));
   };
 
   try {
     page.on("request", onRequest);
     page.on("response", onResponse);
     page.on("requestfailed", onRequestFailed);
-    page.on("framenavigated", onFrameNavigated);
-    let navigationTimer: ReturnType<typeof setTimeout> | undefined;
-    const navigationPromise = Promise.race([
-      navigation.promise,
-      new Promise<never>((_resolve, reject) => {
-        navigationTimer = addTimer(
-          () => reject(new Error("The reload navigation request timed out.")),
-          Math.min(remaining(), 12_000),
-        );
-      }),
-    ]).finally(() => {
-      clearTimer(navigationTimer);
-      navigationTimer = undefined;
-    });
-    const reloadPromise = page.reload({
-      timeout: Math.min(remaining(), 12_000),
-    });
-    const completePromise = Promise.all([
-      navigationPromise,
+    const [progress, snapshots] = await Promise.race([
       capturesPromise,
-      reloadPromise,
-    ]);
-    void completePromise.catch(() => undefined);
-    const [, [progress, snapshots]] = await Promise.race([
-      completePromise,
       overallFailure,
     ]);
     clearTimer(overallTimer);
@@ -739,7 +715,6 @@ export async function captureReloadProgressAndSnapshots(
     page.off("request", onRequest);
     page.off("response", onResponse);
     page.off("requestfailed", onRequestFailed);
-    page.off("framenavigated", onFrameNavigated);
   }
 }
 

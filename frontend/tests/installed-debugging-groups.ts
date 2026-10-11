@@ -3,8 +3,9 @@ import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { ApiOperationData } from "../src/api/client";
+import { routeFromHash } from "../src/workspace/routes";
 import {
-  captureReloadProgressAndSnapshots,
+  captureNextProgressAndSnapshots,
   captureOperation,
   assertCreateReportRequestBody,
   bodySha256,
@@ -1544,76 +1545,118 @@ export async function runGroupsWorkflow(
       for_case_calls: 4,
       live_dispatch_calls: 0,
     });
-    const reloadReads = await captureReloadProgressAndSnapshots(
+    const selectedBeforeNextPair =
+      (await snapshotSelect.inputValue()) === diagnosticSnapshotId;
+    expect(selectedBeforeNextPair).toBe(true);
+    qualification.setEquality(
+      "diagnostic_next_pair_original_selected_before_reads",
+      selectedBeforeNextPair,
+    );
+    const nextPairReads = await captureNextProgressAndSnapshots(
       page,
       registrationId,
       startReceipt.group_id,
       remainingGroupCompletionMs(),
     );
     qualification.setWitness(
-      "diagnostic_reload_progress_body_state",
+      "diagnostic_next_pair_progress_body_state",
       "complete",
     );
     qualification.setWitness(
-      "diagnostic_reload_snapshot_list_body_state",
+      "diagnostic_next_pair_snapshot_list_body_state",
       "complete",
     );
     const finalProgress = decodeSuccessEnvelope<
       ApiOperationData<"readChoiceOrder">
-    >(reloadReads.progress.body, 200, reloadReads.progress.response.status());
+    >(
+      nextPairReads.progress.body,
+      200,
+      nextPairReads.progress.response.status(),
+    );
     qualification.setWitness(
-      "diagnostic_reload_progress_decode_state",
+      "diagnostic_next_pair_progress_decode_state",
       "complete",
     );
-    const reloadedSnapshots = decodeSuccessListEnvelope<
+    const nextPairSnapshots = decodeSuccessListEnvelope<
       ApiOperationData<"listChoiceOrderSnapshots">
-    >(reloadReads.snapshots.body, 200, reloadReads.snapshots.response.status());
+    >(
+      nextPairReads.snapshots.body,
+      200,
+      nextPairReads.snapshots.response.status(),
+    );
     qualification.setWitness(
-      "diagnostic_reload_snapshot_list_decode_state",
+      "diagnostic_next_pair_snapshot_list_decode_state",
       "complete",
     );
-    const reloadedSnapshotIds = reloadedSnapshots.map(
+    const nextPairSnapshotIds = nextPairSnapshots.map(
       (snapshot) => snapshot.id,
     );
     expect(
-      reloadedSnapshots.every(
+      nextPairSnapshots.every(
         (snapshot) => snapshot.group_id === startReceipt.group_id,
       ),
     ).toBe(true);
     const originalSnapshotStillListed =
-      reloadedSnapshotIds.includes(diagnosticSnapshotId);
-    const resumedSnapshotStillListed = reloadedSnapshotIds.some(
+      nextPairSnapshotIds.includes(diagnosticSnapshotId);
+    const resumedSnapshotStillListed = nextPairSnapshotIds.some(
       (snapshotId) => snapshotId !== diagnosticSnapshotId,
     );
     expect(originalSnapshotStillListed).toBe(true);
     expect(resumedSnapshotStillListed).toBe(true);
     qualification.setEquality(
-      "diagnostic_reload_original_snapshot_listed",
+      "diagnostic_next_pair_original_snapshot_listed",
       originalSnapshotStillListed,
     );
     qualification.setEquality(
-      "diagnostic_reload_resumed_snapshot_listed",
+      "diagnostic_next_pair_resumed_snapshot_listed",
       resumedSnapshotStillListed,
-    );
-    const routeStillPinned = page.url() === diagnosticSnapshotRoute;
-    expect(routeStillPinned).toBe(true);
-    qualification.setEquality(
-      "diagnostic_reload_route_pin_preserved",
-      routeStillPinned,
     );
     await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId, {
       timeout: remainingGroupCompletionMs(),
     });
+    const selectedAfterNextPair =
+      (await snapshotSelect.inputValue()) === diagnosticSnapshotId;
+    expect(selectedAfterNextPair).toBe(true);
     qualification.setEquality(
-      "diagnostic_reload_selection_preserved",
-      (await snapshotSelect.inputValue()) === diagnosticSnapshotId,
+      "diagnostic_next_pair_original_selected_after_reads",
+      selectedAfterNextPair,
     );
-    const resumedSnapshotValues = await snapshotSelect
-      .locator("option")
-      .evaluateAll((items) =>
-        items.map((item) => (item as HTMLOptionElement).value).filter(Boolean),
-      );
-    expect(resumedSnapshotValues).toEqual(reloadedSnapshotIds);
+    const resumedSnapshotValuesPromise = () =>
+      snapshotSelect
+        .locator("option")
+        .evaluateAll((items) =>
+          items
+            .map((item) => (item as HTMLOptionElement).value)
+            .filter(Boolean),
+        );
+    await expect
+      .poll(resumedSnapshotValuesPromise, {
+        timeout: remainingGroupCompletionMs(),
+      })
+      .toEqual(nextPairSnapshotIds);
+    const resumedSnapshotValues = await resumedSnapshotValuesPromise();
+    expect(resumedSnapshotValues).toEqual(nextPairSnapshotIds);
+    const routeContext = routeFromHash(new URL(page.url()).hash);
+    const routeKindMatches = routeContext?.kind === "diagnostic";
+    const routeSnapshotComponentPresent =
+      routeContext?.kind === "diagnostic" &&
+      typeof routeContext.snapshotId === "string";
+    const routeSnapshotMatchesOriginal =
+      routeContext?.kind === "diagnostic" &&
+      routeContext.snapshotId === diagnosticSnapshotId;
+    expect(routeKindMatches).toBe(true);
+    if (routeSnapshotComponentPresent) {
+      expect(routeSnapshotMatchesOriginal).toBe(true);
+    }
+    qualification.setWitness("diagnostic_next_pair_route_kind", "diagnostic");
+    qualification.setWitness(
+      "diagnostic_next_pair_route_snapshot_component_present",
+      routeSnapshotComponentPresent,
+    );
+    qualification.setWitness(
+      "diagnostic_next_pair_route_snapshot_matches_original",
+      routeSnapshotMatchesOriginal,
+    );
     expect(finalProgress.group.group_id).toBe(startReceipt.group_id);
     expect(finalProgress.group.kind).toBe("choice_order");
     expect(finalProgress.group.attempt_limit).toBe("4");
