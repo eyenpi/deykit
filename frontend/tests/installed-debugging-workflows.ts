@@ -1118,7 +1118,7 @@ export async function runSavedAnswersWorkflow(
       200,
       annotationDetailRead.response.status(),
     );
-    expect(annotationDetail.evaluation_id).toBe(reevaluated.evaluation_id);
+    expect(annotationDetail.context.evaluation_id).toBe(reevaluated.evaluation_id);
     expect(annotationDetail.context.result_snapshot_id).toBe(
       qualification.seedMetadata.result_snapshot_id,
     );
