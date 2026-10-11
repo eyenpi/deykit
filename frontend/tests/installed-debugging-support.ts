@@ -708,7 +708,7 @@ export async function openPreparedProject(
       new URL(response.url()).pathname === "/api/v1/projects/register",
     { timeout: BODY_TIMEOUT_MS },
   );
-  await page.getByRole("button", { name: "Open project", exact: true }).click();
+  await page.getByRole("button", { name: /^Open project/ }).click();
   const dialog = page.getByRole("dialog", {
     name: "Open project",
     exact: true,
