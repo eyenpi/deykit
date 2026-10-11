@@ -70,6 +70,12 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function currentReviewHash(hash: string) {
+  return (_content: string, element: Element | null) =>
+    element?.tagName === "P" &&
+    element.textContent?.includes(`Current review input hash ${hash}`) === true;
+}
+
 function labelView(caseId: string, inputHash: string): LabelView {
   return {
     schema_version: 1,
@@ -154,11 +160,6 @@ it("keeps delayed current-label reads inside their A-to-B-to-A rendered scope", 
     pending[0]?.resolve({ data: labelView("case-A", "hash-a1"), warnings: [] });
     pending[1]?.resolve({ data: labelView("case-B", "hash-b"), warnings: [] });
     await Promise.resolve();
-    const currentReviewHash = (hash: string) =>
-      (_content: string, element: Element | null) =>
-        element?.tagName === "P" &&
-        element.textContent?.includes(`Current review input hash ${hash}`) ===
-          true;
     expect(screen.queryByText(currentReviewHash("hash-a1"))).toBeNull();
     expect(screen.queryByText(currentReviewHash("hash-b"))).toBeNull();
 
@@ -257,9 +258,9 @@ it("keeps a known label receipt and permits only a read-only refresh after the d
     ]);
     expect(readsOnReplacement).toBe(2);
 
-    await user.click(screen.getByRole("button", { name: /Retry/ }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(
-      await screen.findByText(/Current review input hash frozen-input-hash/),
+      await screen.findByText(currentReviewHash("frozen-input-hash")),
     ).toBeTruthy();
     expect(readsOnReplacement).toBe(3);
     expect(submitted).toHaveLength(1);
@@ -343,7 +344,7 @@ it("retries the captured label hash and operation port after the frozen scope is
       />,
     );
     expect(
-      await screen.findByText(/Current review input hash frozen-hash-B/),
+      await screen.findByText(currentReviewHash("frozen-hash-B")),
     ).toBeTruthy();
     await user.click(
       screen.getByRole("button", {
@@ -351,7 +352,7 @@ it("retries the captured label hash and operation port after the frozen scope is
       }),
     );
     expect(
-      await screen.findByText(/Current review input hash frozen-hash-B/),
+      await screen.findByText(currentReviewHash("frozen-hash-B")),
     ).toBeTruthy();
     expect(requests).toHaveLength(2);
     expect(requests[1]).toBe(original);
