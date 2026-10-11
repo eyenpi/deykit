@@ -4,6 +4,7 @@ import type { ApiOperationBody, ApiOperationData } from "../../../api/client";
 import { ErrorSummary, LoadingState } from "../../../components/States";
 import type { ProjectOverview, WorkspaceGateway } from "../../../workspace/gateway";
 import type { WorkspaceNavigation } from "../../../workspace/navigation";
+import { useDirtyNavigationGuard } from "../../../workspace/NavigationGuardPrompt";
 import { RetainedMutation } from "../../../workspace/mutation-controller";
 import type { MutationState } from "../../../workspace/mutation-controller";
 import { presentDiagnosticSummary } from "./summary";
@@ -107,6 +108,36 @@ export function GroupDetail({
       return result.data as ResumeReceipt;
     }, (state) => { if (mounted.current && resumeEpoch.current === renderEpoch.current && resumeCallbackScopeToken.current === scopeToken.current) setResumeState(state); });
   }
+
+  const resumePreviewRef = useRef(resumePreview);
+  resumePreviewRef.current = resumePreview;
+  function hasUnresolvedMutation() {
+    return [cancelMutation.current?.state.kind, resumeMutation.current?.state.kind]
+      .some((state) => state === "submitting" || state === "outcome-unknown");
+  }
+  const pendingMutation = hasUnresolvedMutation();
+  const { guard, prompt } = useDirtyNavigationGuard({
+    dirty: pendingMutation || Boolean(resumePreview),
+    isDirtyNow: () => hasUnresolvedMutation() || Boolean(resumePreviewRef.current),
+    save: async () => {},
+    discard: () => {
+      if (hasUnresolvedMutation()) return;
+      resumePreviewRef.current = undefined;
+      setResumePreview(undefined);
+    },
+    blockedMessage: pendingMutation
+      ? "A group request is still settling. Retry its original request before leaving."
+      : resumePreview
+        ? "A reviewed resume is staged. Discard it or keep editing before leaving."
+        : undefined,
+    isBlockedNow: hasUnresolvedMutation,
+    allowDiscardWhenBlocked: true,
+  });
+
+  useEffect(
+    () => navigation.registerDirtyGuard(`group-detail:${scope}`, guard),
+    [navigation, scope, guard],
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -297,7 +328,13 @@ export function GroupDetail({
   }
 
   function openMember(runId: string) {
+    if (localControlsLocked || hasUnresolvedMutation()) return;
     void navigation.navigate({ kind: "run", registrationId: project.id, runId, returnGroup: { kind, groupId } });
+  }
+
+  function reportSnapshot(groupSnapshotId: string) {
+    if (!onReport || localControlsLocked || hasUnresolvedMutation()) return;
+    onReport({ targetKind: kind, targetId: groupId, groupSnapshotId });
   }
 
   const blocked = cancelState.kind === "submitting" || cancelState.kind === "outcome-unknown" || resumeState.kind === "submitting" || resumeState.kind === "outcome-unknown";
@@ -306,10 +343,11 @@ export function GroupDetail({
 
   return (
     <main className="group-detail">
+      {prompt}
       <header><p className="eyebrow">{kind === "diagnostic" ? "Choice order diagnostic" : "Regression check"}</p><h1>{kind === "diagnostic" ? "Group progress" : "Check progress"}</h1><p>Group <code>{groupId}</code></p></header>
       {loading && !progress && <LoadingState>Loading group progress…</LoadingState>}
       {progressError && <ErrorSummary message={progressError} />}
-      {progress && <section aria-labelledby="group-current-progress"><h2 id="group-current-progress">Current progress</h2><dl><dt>State</dt><dd>{progress.members.every((member) => ["completed", "failed", "cancelled", "interrupted"].includes(member.state)) ? "Settled" : "Running"}</dd><dt>Independent cases</dt><dd>{progress.independent_case_count}</dd><dt>Initial requests</dt><dd>{progress.initial_requests}</dd><dt>Lifetime attempt limit</dt><dd>{progress.attempt_limit}</dd><dt>Attempts used</dt><dd>{progress.attempts_used}</dd><dt>Attempts remaining</dt><dd>{progress.attempts_remaining}</dd>{progress.seed !== null && <><dt>Frozen seed</dt><dd><code>{progress.seed}</code></dd></>}{progress.algorithm && <><dt>Algorithm</dt><dd>{progress.algorithm}</dd></>}</dl><ol>{progress.members.map((member) => <li key={member.run_id}><p>Member run <button type="button" className="text-button" onClick={() => openMember(member.run_id)}><code>{member.run_id}</code></button></p><p>{member.state} · {member.attempts_used} attempts · {member.attempts_remaining} remaining</p></li>)}</ol></section>}
+      {progress && <section aria-labelledby="group-current-progress"><h2 id="group-current-progress">Current progress</h2><dl><dt>State</dt><dd>{progress.members.every((member) => ["completed", "failed", "cancelled", "interrupted"].includes(member.state)) ? "Settled" : "Running"}</dd><dt>Independent cases</dt><dd>{progress.independent_case_count}</dd><dt>Initial requests</dt><dd>{progress.initial_requests}</dd><dt>Lifetime attempt limit</dt><dd>{progress.attempt_limit}</dd><dt>Attempts used</dt><dd>{progress.attempts_used}</dd><dt>Attempts remaining</dt><dd>{progress.attempts_remaining}</dd>{progress.seed !== null && <><dt>Frozen seed</dt><dd><code>{progress.seed}</code></dd></>}{progress.algorithm && <><dt>Algorithm</dt><dd>{progress.algorithm}</dd>}</dl><ol>{progress.members.map((member) => <li key={member.run_id}><p>Member run <button type="button" className="text-button" disabled={localControlsLocked || hasUnresolvedMutation()} onClick={() => openMember(member.run_id)}><code>{member.run_id}</code></button></p><p>{member.state} · {member.attempts_used} attempts · {member.attempts_remaining} remaining</p></li>)}</ol></section>}
       <div className="actions"><button type="button" onClick={() => void cancelGroup()} disabled={!progress || blocked || cancelState.kind !== "idle"}>Cancel group</button>{cancelState.kind === "outcome-unknown" && <button type="button" onClick={() => void retryCancel()}>Retry original cancellation</button>}{cancelState.kind === "committed" && <p role="status">Cancellation receipt received.</p>}{(cancelState.kind === "failed" || cancelState.kind === "conflict") && <ErrorSummary message={cancelState.message} />}</div>
       <section aria-labelledby="resume-group-title"><h2 id="resume-group-title">Resume group</h2><label><input type="checkbox" checked={retryUnknown} disabled={localControlsLocked} onChange={(event) => { setRetryUnknown(event.currentTarget.checked); setResumePreview(undefined); }} /> Retry members with unknown outcomes</label><button type="button" onClick={() => void reviewResume()} disabled={!progress || blocked || actionBusy}>Review resume</button>{resumeError && <ErrorSummary message={resumeError} />}{resumePreview && <><p>Reviewed resume for {resumePreview.members.length} members; {resumePreview.segment_ids.length} frozen segments will continue under attempt cap {resumePreview.proposed_attempt_limit}. This preview is read-only.</p><button type="button" onClick={() => void resumeGroup()} disabled={blocked || resumeState.kind !== "idle"}>Resume reviewed group</button></>}{resumeState.kind === "outcome-unknown" && <><ErrorSummary message={resumeState.message} /><button type="button" onClick={() => void retryResume()}>Retry original resume request</button></>}{resumeState.kind === "committed" && <p role="status">Resume accepted: <code>{resumeState.receipt.group_id}</code></p>}{(resumeState.kind === "failed" || resumeState.kind === "conflict") && <ErrorSummary message={resumeState.message} />}</section>
       {snapshotsError && <ErrorSummary message={snapshotsError} />}
@@ -318,8 +356,8 @@ export function GroupDetail({
       {!snapshot && selectedSnapshotId && !snapshotError && <LoadingState>Reading selected immutable snapshot…</LoadingState>}
       {snapshot && <section aria-labelledby="snapshot-detail-title"><h2 id="snapshot-detail-title">Selected immutable snapshot</h2><dl><dt>Snapshot</dt><dd><code>{snapshot.snapshot.id}</code></dd><dt>Sequence</dt><dd>{snapshot.snapshot.sequence}</dd><dt>Group</dt><dd><code>{snapshot.snapshot.group_id}</code></dd><dt>Segment</dt><dd><code>{snapshot.snapshot.segment_id ?? "none"}</code></dd><dt>Content hash</dt><dd><code>{snapshot.snapshot.content_hash}</code></dd><dt>Created</dt><dd>{snapshot.snapshot.created_at}</dd></dl>
         {kind === "diagnostic" ? presentedSummary ? <><h3>Observed request-order sensitivity</h3><p>{presentedSummary.independentCases} cases · {presentedSummary.orders} orders · {presentedSummary.expandedResults} expanded results · {presentedSummary.fullyObservedCases} fully observed</p><p>Disagreement: {presentedSummary.disagreement.numerator}/{presentedSummary.disagreement.denominator} · {presentedSummary.disagreement.value ?? presentedSummary.disagreement.reason}</p><ol>{presentedSummary.cases.map((item) => <li key={item.caseId}><code>{item.caseId}</code> · {item.statuses.join(", ")} · {item.disagreed ? "disagreed" : "agreed"} · options {item.options.map((value) => value ?? "no answer").join(" → ")}</li>)}</ol></> : <p>Diagnostic summary is unavailable or has an unexpected shape.</p> : <><h3>Frozen regression cases</h3><p>{"expectation_failures" in snapshot ? snapshot.expectation_failures : "0"} expectation failures · baseline unavailable: {"baseline_unavailable" in snapshot ? snapshot.baseline_unavailable.replaceAll("_", " ") : "reason unavailable"}</p><ol>{"cases" in snapshot && snapshot.cases.map((item) => <li key={`${item.regression_id}:${item.run_id}:${item.result_snapshot_id}`}><p><strong>{item.case_id}</strong> · {item.status} · {item.passed === null ? "not evaluated" : item.passed ? "passed" : "failed"}</p><p>{item.reason}</p><p>Frozen input <code>{item.input_hash}</code> · source result <code>{item.source_result_snapshot_id ?? "unavailable"}</code></p></li>)}</ol></>}
-        <h3>Frozen member context</h3><ol>{snapshot.members.map((member) => <li key={`${member.run_id}:${member.result_snapshot_id}`}><p>Run <button type="button" className="text-button" onClick={() => openMember(member.run_id)}><code>{member.run_id}</code></button> · result <code>{member.result_snapshot_id}</code></p><p>Decision <code>{member.decision_id}</code> revision <code>{member.decision_revision_id}</code> definition <code>{member.decision_definition_hash}</code></p><p>Dataset <code>{member.dataset_id}</code> snapshot <code>{member.dataset_snapshot_id}</code> content <code>{member.dataset_content_hash}</code></p><p>Label snapshot <code>{member.label_snapshot_id}</code> content <code>{member.label_content_hash}</code></p><p>Result content <code>{member.result_content_hash}</code> through event <code>{member.through_event_sequence}</code></p></li>)}</ol>
-        {onReport && <button type="button" onClick={() => onReport({ targetKind: kind, targetId: groupId, groupSnapshotId: snapshot.snapshot.id })}>Create report from this snapshot</button>}
+        <h3>Frozen member context</h3><ol>{snapshot.members.map((member) => <li key={`${member.run_id}:${member.result_snapshot_id}`}><p>Run <button type="button" className="text-button" disabled={localControlsLocked || hasUnresolvedMutation()} onClick={() => openMember(member.run_id)}><code>{member.run_id}</code></button> · result <code>{member.result_snapshot_id}</code></p><p>Decision <code>{member.decision_id}</code> revision <code>{member.decision_revision_id}</code> definition <code>{member.decision_definition_hash}</code></p><p>Dataset <code>{member.dataset_id}</code> snapshot <code>{member.dataset_snapshot_id}</code> content <code>{member.dataset_content_hash}</code></p><p>Label snapshot <code>{member.label_snapshot_id}</code> content <code>{member.label_content_hash}</code></p><p>Result content <code>{member.result_content_hash}</code> through event <code>{member.through_event_sequence}</code></p></li>)}</ol>
+        {onReport && <button type="button" disabled={localControlsLocked || hasUnresolvedMutation()} onClick={() => reportSnapshot(snapshot.snapshot.id)}>Create report from this snapshot</button>}
       </section>}
     </main>
   );

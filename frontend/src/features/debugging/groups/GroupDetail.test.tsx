@@ -147,10 +147,14 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   const navigate = vi.spyOn(navigation, "navigate").mockResolvedValue(true);
   const pollingCallbacks: Array<() => void> = [];
   const pollingDelays: number[] = [];
+  const nativeSetInterval = window.setInterval;
   const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler, delay?: number) => {
-    pollingDelays.push(delay ?? 0);
-    if (typeof handler === "function") pollingCallbacks.push(handler as () => void);
-    return 1;
+    if (delay === 2500) {
+      pollingDelays.push(delay);
+      if (typeof handler === "function") pollingCallbacks.push(handler as () => void);
+      return -1;
+    }
+    return nativeSetInterval.call(window, handler, delay);
   }) as typeof window.setInterval);
   const view = render(<GroupDetail project={project} gateway={gateway} navigation={navigation} kind="diagnostic" groupId="group-1" />);
 
@@ -240,26 +244,42 @@ it("replays an unknown diagnostic cancellation through its original port after a
   const readDiagnostic = vi.fn(async ({ groupId }: { groupId: string }) => response({
     group: { ...progress, group_id: groupId }, exit_code: 0, summary: null,
   } as ApiOperationData<"readChoiceOrder">));
+  const readDiagnosticSnapshot = vi.fn(async ({ snapshotId }: { snapshotId: string }) => response(diagnosticSnapshot(snapshotId, "1")));
   const readCheck = vi.fn(async () => response({
     group: { ...progress, group_id: "group-2", kind: "regression_check" }, exit_code: 0, summary: null,
   } as unknown as ApiOperationData<"readCheck">));
-  const listDiagnosticSnapshots = vi.fn(async () => response([] as ApiOperationData<"listChoiceOrderSnapshots">));
+  const listDiagnosticSnapshots = vi.fn(async () => response([snapshot("snapshot-1", "1")]));
   const listCheckSnapshots = vi.fn(async () => response([] as ApiOperationData<"listCheckSnapshots">));
   const diagnosticGateway = {
     ...disconnectedWorkspace,
-    debugging: { ...disconnectedWorkspace.debugging, diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, read: readDiagnostic, listSnapshots: listDiagnosticSnapshots, cancel: diagnosticCancel } },
+    debugging: { ...disconnectedWorkspace.debugging, diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, read: readDiagnostic, listSnapshots: listDiagnosticSnapshots, readSnapshot: readDiagnosticSnapshot, cancel: diagnosticCancel } },
   } as unknown as WorkspaceGateway;
   const checkGateway = {
     ...disconnectedWorkspace,
     debugging: { ...disconnectedWorkspace.debugging, checks: { ...disconnectedWorkspace.debugging.checks, read: readCheck, listSnapshots: listCheckSnapshots, cancel: checkCancel } },
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
-  const view = render(<GroupDetail project={project} gateway={diagnosticGateway} navigation={navigation} kind="diagnostic" groupId="group-1" />);
+  const onReport = vi.fn();
+  const view = render(<GroupDetail project={project} gateway={diagnosticGateway} navigation={navigation} kind="diagnostic" groupId="group-1" onReport={onReport} />);
 
   await screen.findByText("Current progress");
+  await screen.findByRole("button", { name: "Create report from this snapshot" });
   fireEvent.click(screen.getByRole("button", { name: "Cancel group" }));
   await screen.findByText(/connection closed after dispatch/);
   expect(diagnosticCancel).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "run-1" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Create report from this snapshot" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "Create report from this snapshot" }));
+  expect(onReport).not.toHaveBeenCalled();
+  const blockedNavigation = navigation.navigate({ kind: "run", registrationId: "registration-1", runId: "guard-unknown" });
+  await screen.findByText("A group request is still settling. Retry its original request before leaving.");
+  expect(screen.getByRole("button", { name: "Save and leave" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Discard changes" })).toHaveProperty("disabled", true);
+  const unload = new Event("beforeunload", { cancelable: true }) as BeforeUnloadEvent;
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  await expect(blockedNavigation).resolves.toBe(false);
 
   view.rerender(<GroupDetail project={project} gateway={checkGateway} navigation={navigation} kind="check" groupId="group-2" />);
   await screen.findByText("Check progress");
@@ -268,6 +288,7 @@ it("replays an unknown diagnostic cancellation through its original port after a
   expect(checkCancel).not.toHaveBeenCalled();
   expect(diagnosticCalls[1]).toEqual(diagnosticCalls[0]);
   expect(screen.queryByText("Cancellation receipt received.")).toBeNull();
+  await expect(navigation.navigate({ kind: "run", registrationId: "registration-1", runId: "guard-after-receipt" })).resolves.toBe(true);
 
   view.rerender(<GroupDetail project={project} gateway={diagnosticGateway} navigation={navigation} kind="diagnostic" groupId="group-1" />);
   await waitFor(() => expect(listDiagnosticSnapshots).toHaveBeenCalledTimes(2));
@@ -312,6 +333,11 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   await screen.findByText(/Reviewed resume for 1 members/);
   expect(screen.getByLabelText("Selected snapshot")).toHaveProperty("disabled", true);
   expect(screen.getByRole("checkbox", { name: "Retry members with unknown outcomes" })).toHaveProperty("disabled", true);
+  const stagedNavigation = navigation.navigate({ kind: "run", registrationId: "registration-1", runId: "staged-outside" });
+  await screen.findByText("A reviewed resume is staged. Discard it or keep editing before leaving.");
+  expect(screen.getByRole("button", { name: "Discard changes" })).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  await expect(stagedNavigation).resolves.toBe(false);
   expect(previewResume).toHaveBeenCalledTimes(1);
   expect(resume).not.toHaveBeenCalled();
 
