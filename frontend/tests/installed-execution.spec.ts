@@ -253,6 +253,37 @@ test("installed browser reviews and inspects fixture execution", async ({
     );
   }
 
+  async function waitForInactiveUiRead(
+    registrationId: string,
+    runId: string,
+  ) {
+    const deadline = Date.now() + 25_000;
+    const path = `/api/v1/projects/${registrationId}/runs/${runId}`;
+    while (Date.now() < deadline) {
+      let response: Response;
+      try {
+        response = await page.waitForResponse(
+          (candidate) =>
+            candidate.request().method() === "GET" &&
+            candidate.status() === 200 &&
+            new URL(candidate.url()).pathname === path,
+          { timeout: Math.max(1, deadline - Date.now()) },
+        );
+      } catch {
+        throw new Error(
+          "The browser did not read settled run progress within the bound.",
+        );
+      }
+      const run = (await expectEnvelope(
+        response,
+      )) as ApiOperationData<"readRun">;
+      if (run.run_id !== runId)
+        throw new Error("The browser progress read returned another run.");
+      if (!run.execution_active) return run;
+    }
+    throw new Error("The browser did not read an inactive run within the bound.");
+  }
+
   const projectPath = testInfo.outputPath("fixture-execution-project");
   let registrationId = "";
   let dispatchCaseId = "";
@@ -613,17 +644,6 @@ test("installed browser reviews and inspects fixture execution", async ({
     if (!firstResumeReceipt.segment_id)
       throw new Error("The first resume acknowledgement had no segment ID.");
     await waitForEntered(resumeHoldCaseId);
-    const progressAfterLostResumeAck = await readRunWithBusyRetry(
-      acceptedRunId,
-      Date.now() + 10_000,
-    );
-    expect(progressAfterLostResumeAck.execution_active).toBe(true);
-    expect(progressAfterLostResumeAck.segment_ids).toHaveLength(
-      inactiveRun.segment_ids.length + 1,
-    );
-    expect(progressAfterLostResumeAck.segment_ids).toContain(
-      firstResumeReceipt.segment_id,
-    );
     const countsBeforeResumeReplay = await dispatchCounts();
     const retryResumeResponsePromise = page.waitForResponse(
       (response) =>
@@ -651,16 +671,6 @@ test("installed browser reviews and inspects fixture execution", async ({
       retry_unknown: false,
       max_attempts: 13,
     });
-    const progressAfterResumeReplay = await readRunWithBusyRetry(
-      acceptedRunId,
-      Date.now() + 10_000,
-    );
-    expect(progressAfterResumeReplay.segment_ids).toEqual(
-      progressAfterLostResumeAck.segment_ids,
-    );
-    expect(progressAfterResumeReplay.attempts).toHaveLength(
-      progressAfterLostResumeAck.attempts.length,
-    );
     const countsAfterResumeReplay = await dispatchCounts();
     expect(countsAfterResumeReplay.fixture_dispatch_calls).toBe(
       countsBeforeResumeReplay.fixture_dispatch_calls,
@@ -676,11 +686,23 @@ test("installed browser reviews and inspects fixture execution", async ({
     );
     if (holdPath) await rm(holdPath, { force: true });
     holdPath = undefined;
-    const resumedRun = await waitForRunInactive(acceptedRunId);
+    const resumedRun = await waitForInactiveUiRead(
+      registrationId,
+      acceptedRunId,
+    );
     expect(resumedRun.run_id).toBe(acceptedRunId);
     expect(resumedRun.attempt_limit).toBe("13");
     expect(resumedRun.attempts_used).toBe("11");
     expect(resumedRun.attempts).toHaveLength(11);
+    expect(
+      new Set(resumedRun.attempts.map((attempt) => attempt.attempt_id)).size,
+    ).toBe(11);
+    expect(resumedRun.segment_ids).toHaveLength(
+      inactiveRun.segment_ids.length + 1,
+    );
+    for (const segmentId of inactiveRun.segment_ids)
+      expect(resumedRun.segment_ids).toContain(segmentId);
+    expect(resumedRun.segment_ids).toContain(firstResumeReceipt.segment_id);
     const completedCounts = await dispatchCounts();
     expect(completedCounts.fixture_dispatch_calls).toBe(11);
     expect(completedCounts.for_case_calls).toBe(11);
