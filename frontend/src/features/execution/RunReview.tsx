@@ -19,7 +19,6 @@ type ProviderPage = ApiOperationData<"listProviderProfiles">;
 type FixturePage = ApiOperationData<"listFixtureSets">;
 type RevisionPage = ApiOperationData<"listDecisionRevisions">;
 
-type Choice = { id: string; name: string };
 type StartIntent = { registrationId: string; body: StartBody };
 
 const REQUEST_DEFAULTS = {
@@ -472,7 +471,7 @@ export function RunReview({
                   {review.case_reviews.map((item) => (
                     <li key={item.case_id}>
                       <strong>{item.case_id}</strong> · input {item.input_hash} · request {item.request_hash ?? "not compiled"}
-                      {item.input_error && <p className="warning-summary">{item.input_error.code}: {item.input_error.message}</p>}
+                      {item.input_error && <p className="warning-summary">{item.input_error.code}: {item.input_error.reason}</p>}
                       {item.request_source !== null && <pre className="source-editor">{item.request_source}</pre>}
                       {item.request_source_redacted === true && <p className="muted">Request source was redacted for display; its request hash remains the original compiled wire hash.</p>}
                     </li>

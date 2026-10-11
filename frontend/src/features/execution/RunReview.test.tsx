@@ -85,6 +85,7 @@ it("retries an unknown run start with the exact reviewed request and operation i
     binding_count: "1",
     bindings: [
       {
+        schema_version: 1,
         id: "binding-1",
         case_id: "case-1",
         model_identity: "fixture-model",
@@ -116,7 +117,7 @@ it("retries an unknown run start with the exact reviewed request and operation i
     startCalls.push(body);
     startCount += 1;
     if (startCount === 1) throw new Error("connection closed after dispatch");
-    return { data: accepted, warnings: [] };
+    return { data: { ...accepted, operation_id: body.operation_id }, warnings: [] };
   });
   const gateway: WorkspaceGateway = {
     ...disconnectedWorkspace,
@@ -170,6 +171,9 @@ it("retries an unknown run start with the exact reviewed request and operation i
     />,
   );
   try {
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Review run" }).disabled).toBe(false);
+    });
     await user.click(await screen.findByRole("button", { name: "Review run" }));
     expect(await screen.findByRole("region", { name: "Reviewed run context" })).toBeTruthy();
     expect(previewCall).toHaveBeenCalledTimes(1);

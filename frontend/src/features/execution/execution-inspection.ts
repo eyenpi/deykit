@@ -126,10 +126,23 @@ function nullableTextRecord(
   if (
     Reflect.ownKeys(answer).some(
       (key) => typeof key !== "string" || !required.includes(key as (typeof required)[number]),
-    ) || required.some((key) => !nullableText(answer[key]))
+    ) ||
+    !nullableText(answer.option_id) ||
+    !nullableText(answer.question_id) ||
+    !nullableText(answer.probabilities_source) ||
+    !nullableText(answer.native_confidence_source) ||
+    !nullableText(answer.native_confidence_semantics) ||
+    !nullableText(answer.reported_model)
   )
     return invalid();
-  return Object.fromEntries(required.map((key) => [key, answer[key]]));
+  return {
+    option_id: answer.option_id,
+    question_id: answer.question_id,
+    probabilities_source: answer.probabilities_source,
+    native_confidence_source: answer.native_confidence_source,
+    native_confidence_semantics: answer.native_confidence_semantics,
+    reported_model: answer.reported_model,
+  };
 }
 
 export function decodeCaseDetail(source: CaseDetailSource): CaseDetailView {

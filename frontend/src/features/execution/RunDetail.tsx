@@ -79,6 +79,14 @@ export function RunDetail({
     }, setResumeState);
   }
 
+  function currentCancelState() {
+    return cancelMutation.current?.state;
+  }
+
+  function currentResumeState() {
+    return resumeMutation.current?.state;
+  }
+
   const mutationBlocked =
     cancelState.kind === "submitting" ||
     cancelState.kind === "outcome-unknown" ||
@@ -190,8 +198,8 @@ export function RunDetail({
       runId,
       body: { schema_version: 1, operation_id: crypto.randomUUID() },
     });
-    const receipt = cancelMutation.current.state;
-    if (receipt.kind === "committed") {
+    const receipt = currentCancelState();
+    if (receipt?.kind === "committed") {
       setRun(receipt.receipt);
       setRefreshGeneration((value) => value + 1);
     }
@@ -199,7 +207,7 @@ export function RunDetail({
 
   async function retryCancel() {
     await cancelMutation.current?.retryOriginal();
-    const receipt = cancelMutation.current?.state;
+    const receipt = currentCancelState();
     if (receipt?.kind === "committed") {
       setRun(receipt.receipt);
       setRefreshGeneration((value) => value + 1);
@@ -255,8 +263,8 @@ export function RunDetail({
       max_attempts: attemptLimit ? integerText(attemptLimit) : null,
     };
     await resumeMutation.current.submit({ registrationId, runId, body });
-    const state = resumeMutation.current.state;
-    if (state.kind === "committed") {
+    const state = currentResumeState();
+    if (state?.kind === "committed") {
       if (state.receipt.mode !== run?.mode)
         setResumeError("The resumed run returned a different execution mode.");
       setRefreshGeneration((value) => value + 1);
@@ -265,7 +273,7 @@ export function RunDetail({
 
   async function retryResume() {
     await resumeMutation.current?.retryOriginal();
-    const state = resumeMutation.current?.state;
+    const state = currentResumeState();
     if (state?.kind === "committed") {
       if (state.receipt.mode !== run?.mode)
         setResumeError("The resumed run returned a different execution mode.");
