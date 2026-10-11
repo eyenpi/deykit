@@ -294,6 +294,16 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   const editedRecordHash = editedCase.etag;
   expect(editedRecordHash).not.toBe(originalRecordHash);
   await expect(editDialog).toBeHidden();
+  await waitForIdle();
+  await expect(
+    page.getByRole("heading", { name: "ex-003", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Remove case", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("dialog", { name: "Unsaved changes", exact: true }),
+  ).toHaveCount(0);
   await expect(
     casesTable.getByRole("button", { name: "ex-003", exact: true }),
   ).toBeVisible();
@@ -323,6 +333,15 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await expect(
     casesTable.getByRole("button", { name: "ex-003", exact: true }),
   ).toHaveCount(0);
+  await waitForIdle();
+  await expect(
+    casesTable.getByRole("button", { name: "ex-003", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Unsaved changes", exact: true }),
+  ).toHaveCount(0);
+  qualification.setWitness("case_remove_receipt_followup_settled", true);
+  await qualification.save();
 
   // Avoid holding the group detail's periodic source reads while the explicit
   // installed CLI mutation reuses the deleted ID.
@@ -699,6 +718,20 @@ async function setReaddedCaseCurrentLabel(
   expect(receipt.changes[0]?.label?.acceptable_option_ids).not.toEqual(
     previousAnswers,
   );
+  await waitForIdle();
+  await expect(
+    page.getByRole("heading", { name: "ex-003", exact: true }),
+  ).toBeVisible();
+  if (nextAnswers.includes("question")) await expect(question).toBeChecked();
+  else await expect(question).not.toBeChecked();
+  if (nextAnswers.includes("report")) await expect(report).toBeChecked();
+  else await expect(report).not.toBeChecked();
+  await expect(save).toBeEnabled();
+  await expect(
+    page.getByRole("dialog", { name: "Unsaved changes", exact: true }),
+  ).toHaveCount(0);
+  qualification.setWitness("known_receipt_followup_settled", true);
+  await qualification.save();
   await expect(
     page.getByRole("status").filter({ hasText: "Applicable" }),
   ).toBeVisible();
