@@ -39,6 +39,7 @@ type ReportIntent = {
   id: string;
   expectedEvaluationId?: string;
   expectedResultSnapshotId?: string;
+  expectedLabelSnapshotId?: string;
   groupSnapshotId?: string;
   body: CreateBody;
   scopeEpoch: number;
@@ -232,6 +233,10 @@ export function ReportSheet({
             !result.data.result_snapshot_ids.includes(
               intent.expectedResultSnapshotId,
             )) ||
+          (intent.expectedLabelSnapshotId !== undefined &&
+            !result.data.label_snapshot_ids.includes(
+              intent.expectedLabelSnapshotId,
+            )) ||
           (intent.kind === "diagnostic" &&
             result.data.diagnostic_snapshot_id !== intent.groupSnapshotId) ||
           (intent.kind === "check" &&
@@ -309,12 +314,11 @@ export function ReportSheet({
         const result = await execution.runs.read({ registrationId, runId: id });
         const run = result.data;
         if (epoch !== scopeEpochRef.current) return;
-        if (run.run_id !== id || !run.latest_result_snapshot_id)
-          throw new Error(
-            "This run has no verified result snapshot to report.",
-          );
+        if (run.run_id !== id)
+          throw new Error("The service returned a different saved run.");
         let evaluationId: string | undefined;
-        let resultSnapshotId = run.latest_result_snapshot_id;
+        let labelSnapshotId: string | undefined;
+        let resultSnapshotId = run.latest_result_snapshot_id ?? undefined;
         let evaluationContext = "";
         if (selectedEvaluationId) {
           const saved = await execution.inspection.readEvaluation({
@@ -331,14 +335,20 @@ export function ReportSheet({
               "The saved evaluation does not belong to this run.",
             );
           evaluationId = evaluation.evaluation_id;
+          labelSnapshotId = evaluation.label_snapshot_id;
           resultSnapshotId = evaluation.result_snapshot_id;
-          evaluationContext = `\nEvaluation ${evaluation.evaluation_id}`;
+          evaluationContext = `\nEvaluation ${evaluation.evaluation_id}\nLabels ${evaluation.label_snapshot_id}`;
         }
+        if (!resultSnapshotId)
+          throw new Error(
+            "This run has no verified result snapshot to report.",
+          );
         setVerified({
           kind,
           id,
           runId: run.run_id,
           ...(evaluationId ? { evaluationId } : {}),
+          ...(labelSnapshotId ? { labelSnapshotId } : {}),
           resultSnapshotId,
           content: `Run ${run.run_id}${evaluationContext}\nResult ${resultSnapshotId}\nEvidence mode ${run.sources.evidence_mode ?? "Unavailable"}`,
         });
@@ -454,6 +464,9 @@ export function ReportSheet({
         : {}),
       ...(verified.resultSnapshotId
         ? { expectedResultSnapshotId: verified.resultSnapshotId }
+        : {}),
+      ...(verified.labelSnapshotId
+        ? { expectedLabelSnapshotId: verified.labelSnapshotId }
         : {}),
       ...(verified.groupSnapshotId
         ? { groupSnapshotId: verified.groupSnapshotId }

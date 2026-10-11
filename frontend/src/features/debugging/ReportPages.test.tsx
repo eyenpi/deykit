@@ -107,7 +107,7 @@ const report: ApiOperationData<"readReport"> = {
 };
 
 function runRecord(
-  latestResultSnapshotId: string,
+  latestResultSnapshotId: string | null,
 ): ApiOperationData<"readRun"> {
   return {
     schema_version: 1,
@@ -127,7 +127,7 @@ function runRecord(
     reason: null,
     replayed: false,
     requested_model: "fixture-model",
-    result_snapshot_ids: [latestResultSnapshotId],
+    result_snapshot_ids: latestResultSnapshotId ? [latestResultSnapshotId] : [],
     segment_ids: [],
     segments: [],
     settings: {
@@ -188,7 +188,7 @@ function reportReceipt(
     target_kind: targetKind,
     evaluation_ids: evaluationIds,
     result_snapshot_ids: resultSnapshotIds,
-    label_snapshot_ids: [],
+    label_snapshot_ids: ["labels-A"],
     comparison_id: null,
     diagnostic_snapshot_id: null,
     check_snapshot_id: null,
@@ -808,7 +808,7 @@ it("pins an explicit historical run evaluation and its result in the report body
     ...disconnectedWorkspace.execution,
     runs: {
       ...disconnectedWorkspace.execution.runs,
-      read: async () => result(runRecord("latest-result")),
+      read: async () => result(runRecord(null)),
     },
     inspection: {
       ...disconnectedWorkspace.execution.inspection,
@@ -855,13 +855,14 @@ it("pins an explicit historical run evaluation and its result in the report body
     );
     const verified = await screen.findByLabelText("Verified report target");
     expect(verified.textContent).toContain("Evaluation evaluation-A");
+    expect(verified.textContent).toContain("Labels labels-A");
     expect(verified.textContent).toContain("Result historical-result");
-    expect(verified.textContent).not.toContain("Result latest-result");
 
     await user.click(screen.getByRole("button", { name: "Create report" }));
-    expect(
-      await screen.findByText(/Report report-created is saved\./),
-    ).toBeTruthy();
+    const receiptStatus = await screen.findByRole("status");
+    expect(receiptStatus.textContent).toContain(
+      "Report report-created is saved.",
+    );
     expect(submitted).toHaveLength(1);
     const body = submitted[0];
     expect(body).toBeDefined();
@@ -1068,9 +1069,10 @@ it("omits evaluation selectors for saved-evaluation reports but checks their rec
     );
     expect(await screen.findByLabelText("Verified report target")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Create report" }));
-    expect(
-      await screen.findByText(/Report report-created is saved\./),
-    ).toBeTruthy();
+    const receiptStatus = await screen.findByRole("status");
+    expect(receiptStatus.textContent).toContain(
+      "Report report-created is saved.",
+    );
     expect(submitted).toHaveLength(1);
     const body = submitted[0];
     expect(body).toBeDefined();
