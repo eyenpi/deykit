@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { expect, it, vi } from "vitest";
+import { ApiError } from "../../api/client";
 import type { ApiOperationData, ApiResult } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
@@ -117,7 +118,9 @@ it("replays the exact annotation once and keeps a receipt when the follow-up lis
     ...disconnectedWorkspace.debugging.annotations,
     list: async () => {
       listReads += 1;
-      if (listReads === 2) throw new Error("read unavailable");
+      if (listReads === 2) {
+        throw new ApiError("read_unavailable", "read unavailable", 503);
+      }
       return {
         data: {
           items: listReads >= 3 ? [annotation("case-A", "saved note")] : [],
