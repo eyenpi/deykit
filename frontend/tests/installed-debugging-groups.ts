@@ -168,9 +168,8 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
 }> {
   const datasetId = qualification.seedMetadata.dataset_id;
   await page
-    .getByRole("button", { name: "Content category", exact: true })
+    .getByRole("button", { name: "Project examples", exact: true })
     .click();
-  await page.getByRole("button", { name: "Examples", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
   ).toBeVisible();
@@ -298,9 +297,8 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await qualification.setWitness("same_id_readd_hash", added.contentHash);
 
   await page
-    .getByRole("button", { name: "Content category", exact: true })
+    .getByRole("button", { name: "Project examples", exact: true })
     .click();
-  await page.getByRole("button", { name: "Examples", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
   ).toBeVisible();
@@ -395,6 +393,9 @@ async function setReaddedCaseCurrentLabel(
   await page
     .getByRole("button", { name: "Content category", exact: true })
     .click();
+  await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
+    "Content category",
+  );
   await page.getByRole("button", { name: "Examples", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),

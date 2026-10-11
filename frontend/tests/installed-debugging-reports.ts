@@ -296,6 +296,9 @@ export async function runReportsWorkflow(
           ) &&
             verifiedText.includes(
               `Result ${qualification.seedMetadata.result_snapshot_id}`,
+            ) &&
+            verifiedText.includes(
+              `Labels ${qualification.seedMetadata.label_snapshot_id}`,
             ),
         ).toBe(true);
       if (target.kind === "evaluation")
@@ -305,6 +308,9 @@ export async function runReportsWorkflow(
           ) &&
             verifiedText.includes(
               `Result ${qualification.seedMetadata.result_snapshot_id}`,
+            ) &&
+            verifiedText.includes(
+              `Labels ${qualification.seedMetadata.label_snapshot_id}`,
             ),
         ).toBe(true);
       for (const raw of [
@@ -410,12 +416,19 @@ export async function runReportsWorkflow(
             expect(receipt.result_snapshot_ids).toContain(
               qualification.seedMetadata.result_snapshot_id,
             );
+          if (target.kind === "run")
+            expect(receipt.label_snapshot_ids).toContain(
+              qualification.seedMetadata.label_snapshot_id,
+            );
           if (target.kind === "evaluation") {
             expect(receipt.evaluation_ids).toContain(
               qualification.seedMetadata.evaluation_id,
             );
             expect(receipt.result_snapshot_ids).toContain(
               qualification.seedMetadata.result_snapshot_id,
+            );
+            expect(receipt.label_snapshot_ids).toContain(
+              qualification.seedMetadata.label_snapshot_id,
             );
           }
           reportId = receipt.report_id;
@@ -450,12 +463,19 @@ export async function runReportsWorkflow(
             expect(receipt.result_snapshot_ids).toContain(
               qualification.seedMetadata.result_snapshot_id,
             );
+          if (target.kind === "run")
+            expect(receipt.label_snapshot_ids).toContain(
+              qualification.seedMetadata.label_snapshot_id,
+            );
           if (target.kind === "evaluation") {
             expect(receipt.evaluation_ids).toContain(
               qualification.seedMetadata.evaluation_id,
             );
             expect(receipt.result_snapshot_ids).toContain(
               qualification.seedMetadata.result_snapshot_id,
+            );
+            expect(receipt.label_snapshot_ids).toContain(
+              qualification.seedMetadata.label_snapshot_id,
             );
           }
           reportId = receipt.report_id;
@@ -478,6 +498,10 @@ export async function runReportsWorkflow(
         expect(report.target_kind).toBe(target.kind);
         expect(report.target_id).toBe(target.id);
         expect(report.raw).toEqual(expectedRaw);
+        if (target.kind === "run" || target.kind === "evaluation")
+          expect(report.label_snapshot_ids).toContain(
+            qualification.seedMetadata.label_snapshot_id,
+          );
         expectedReportCount += 1;
         const listing = await openReportPage(page, registrationId);
         if (!listing)

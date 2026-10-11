@@ -480,9 +480,11 @@ export async function runSavedAnswersWorkflow(
     await reads.waitForIdle();
 
     await page
-      .getByRole("button", { name: "Content category", exact: true })
+      .getByRole("button", { name: "Project examples", exact: true })
       .click();
-    await page.getByRole("button", { name: "Examples", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Examples", exact: true }),
+    ).toBeVisible();
     const exampleDataset = page.getByRole("combobox", {
       name: "Dataset",
       exact: true,
@@ -1193,6 +1195,12 @@ export async function runSavedAnswersWorkflow(
     qualification.setWitness("regression_id", regression.regression_id);
     await reads.waitForIdle();
     await page
+      .getByRole("button", { name: "Content category", exact: true })
+      .click();
+    await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
+      "Content category",
+    );
+    await page
       .getByRole("button", { name: "Regression examples", exact: true })
       .click();
     await expect(
@@ -1238,6 +1246,10 @@ export async function runComparisonWorkflow(
     await page
       .getByRole("button", { name: "Content category", exact: true })
       .click();
+    await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
+      "Content category",
+    );
+    await page.getByRole("button", { name: "Run", exact: true }).click();
     const runReview = page.getByRole("dialog", {
       name: "Review a run",
       exact: true,
