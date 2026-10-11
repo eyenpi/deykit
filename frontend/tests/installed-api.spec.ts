@@ -200,6 +200,7 @@ test("installed archive restore retains exact actions and projects receipts", as
   let restoredTargetListed = false;
   let restoredActiveRowVisible = false;
   let archivedRowAbsent = false;
+  let restoreRetryPresent = false;
   let archiveRequestsIdentical = false;
   let restoreRequestsIdentical = false;
   let archiveReceiptsIdentical = false;
@@ -279,6 +280,7 @@ test("installed archive restore retains exact actions and projects receipts", as
           restored_target_listed: restoredTargetListed,
           restored_active_row_visible: restoredActiveRowVisible,
           archived_row_absent: archivedRowAbsent,
+          restore_retry_present: restoreRetryPresent,
           archive_requests_identical: archiveRequestsIdentical,
           restore_requests_identical: restoreRequestsIdentical,
           archive_receipts_identical: archiveReceiptsIdentical,
@@ -701,6 +703,7 @@ test("installed archive restore retains exact actions and projects receipts", as
       ]);
       restoredActiveRowVisible = active > 0;
       archivedRowAbsent = archived === 0;
+      restoreRetryPresent = retry > 0;
       await recordSafeProgress();
     } catch {
       // Preserve the restore projection error if finite diagnostics fail.
