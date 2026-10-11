@@ -855,8 +855,25 @@ export async function runReportsWorkflow(
       "report",
     ]);
     await reads.waitForIdle();
+    await expect(
+      labelDialog.getByRole("region", {
+        name: "Current mutable label",
+        exact: true,
+      }),
+    ).toContainText("label report");
+    await expect(labelDialog.getByRole("status")).toContainText(
+      "Label receipt recorded",
+    );
+    await expect(report).toBeChecked();
+    await expect(question).not.toBeChecked();
     await page.keyboard.press("Escape");
     await expect(labelDialog).toBeHidden();
+    await expect(
+      page.getByRole("dialog", {
+        name: "Discard current label changes",
+        exact: true,
+      }),
+    ).toHaveCount(0);
     await expect(caseRow).toContainText("question");
     const refreshedListing = await openReportPage(page, registrationId);
     if (!refreshedListing)

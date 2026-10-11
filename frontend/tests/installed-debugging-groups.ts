@@ -31,7 +31,8 @@ import {
   settleOnSandbox,
 } from "./installed-debugging-support";
 
-const RE_ADDED_CASE_SOURCE = '"A deliberately different newly re-added input."';
+const RE_ADDED_CASE_SOURCE =
+  '{"text":"A deliberately different newly re-added input."}';
 
 function safeStatusClass(status: number): string {
   return status >= 200 && status < 300
@@ -100,7 +101,7 @@ async function readdSameCaseWithInstalledCli(
   child.stderr.resume();
   child.stdin.end(
     JSON.stringify({
-      input_kind: "text",
+      input_kind: "json",
       input_source: RE_ADDED_CASE_SOURCE,
       tags: [],
       split: "development",
@@ -254,6 +255,7 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   >(selected.body, 200, selected.response.status());
   const originalRecordHash = original.case.etag;
   expect(original.case.record.id).toBe("ex-003");
+  expect(original.case.record.input_kind).toBe("json");
   await waitForIdle();
   await expect(
     page.getByRole("heading", { name: "ex-003", exact: true }),
@@ -270,7 +272,7 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   await expect(editDialog).toBeVisible();
   await editDialog
     .getByLabel("Input source", { exact: true })
-    .fill('"A deliberately edited intermediate input."');
+    .fill('{"text":"A deliberately edited intermediate input."}');
   const editResponse = await captureOperation(
     page,
     "edit_case_api_v1_projects__registration_id__datasets__dataset_id__cases__case_id__put",
@@ -291,6 +293,7 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
   if (!editedCase)
     throw new Error("The installed case edit receipt omitted its case.");
   expect(editedCase.record.id).toBe("ex-003");
+  expect(editedCase.record.input_kind).toBe("json");
   const editedRecordHash = editedCase.etag;
   expect(editedRecordHash).not.toBe(originalRecordHash);
   await expect(editDialog).toBeHidden();
