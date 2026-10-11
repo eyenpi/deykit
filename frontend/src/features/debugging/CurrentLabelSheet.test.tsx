@@ -154,14 +154,17 @@ it("keeps delayed current-label reads inside their A-to-B-to-A rendered scope", 
     pending[0]?.resolve({ data: labelView("case-A", "hash-a1"), warnings: [] });
     pending[1]?.resolve({ data: labelView("case-B", "hash-b"), warnings: [] });
     await Promise.resolve();
-    expect(screen.queryByText(/Current review input hash hash-a1/)).toBeNull();
-    expect(screen.queryByText(/Current review input hash hash-b/)).toBeNull();
+    const currentReviewHash = (hash: string) =>
+      (_content: string, element: Element | null) =>
+        element?.tagName === "P" &&
+        element.textContent?.includes(`Current review input hash ${hash}`) ===
+          true;
+    expect(screen.queryByText(currentReviewHash("hash-a1"))).toBeNull();
+    expect(screen.queryByText(currentReviewHash("hash-b"))).toBeNull();
 
     pending[2]?.resolve({ data: labelView("case-A", "hash-a2"), warnings: [] });
-    expect(
-      await screen.findByText(/Current review input hash hash-a2/),
-    ).toBeTruthy();
-    expect(screen.queryByText(/Current review input hash hash-a1/)).toBeNull();
+    expect(await screen.findByText(currentReviewHash("hash-a2"))).toBeTruthy();
+    expect(screen.queryByText(currentReviewHash("hash-a1"))).toBeNull();
   } finally {
     tree.unmount();
     navigation.dispose();

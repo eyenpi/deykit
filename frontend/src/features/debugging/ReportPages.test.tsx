@@ -71,7 +71,11 @@ it("clears bytes and preview when changing the requested report format", async (
     />,
   );
   const user = userEvent.setup();
-  await screen.findByText(/Report report-1/);
+  await screen.findByText(
+    (_content, element) =>
+      element?.tagName === "P" &&
+      element.textContent?.includes("Report report-1;") === true,
+  );
   await user.click(
     screen.getByRole("button", { name: "Preview report bytes" }),
   );

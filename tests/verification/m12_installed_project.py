@@ -27,6 +27,7 @@ from deykit.contracts.records import (
     RunManifest,
 )
 from deykit.runner.backends import ProviderBackends
+from deykit.runner.history import read_history
 from deykit.runner.planner import Planner, RunRequest
 from deykit.storage import FileProjectSource
 
@@ -97,6 +98,19 @@ def prepare(project: Path, workflow: str, output: Path) -> None:
         if len(admitted) != 1:
             raise RuntimeError("qualification_baseline_not_unique_or_incomplete")
         baseline = admitted[0]
+        baseline_history = read_history(source, baseline.run_id)
+        imported_dispatched_attempt_count = len(
+            {
+                event.attempt_id
+                for event in baseline_history.attempt_events
+                if event.state == "dispatched" and event.attempt_id is not None
+            }
+        )
+        if (
+            baseline_history.manifest.fixture_set_id != corpus.fixture_set_id
+            or imported_dispatched_attempt_count != 11
+        ):
+            raise RuntimeError("qualification_baseline_history_mismatch")
         stored_fixture = source.read(ResourceKey("fixtures", corpus.fixture_set_id))
         if stored_fixture is None:
             raise RuntimeError("qualification_authored_fixture_missing")
@@ -209,10 +223,11 @@ def prepare(project: Path, workflow: str, output: Path) -> None:
                 "dataset_id": corpus.dataset_id,
                 "fixture_set_id": selected_fixture,
                 "original_fixture_set_id": original.id,
+                "imported_baseline_fixture_set_id": baseline_history.manifest.fixture_set_id,
                 "imported_selected_count": ResultInspection(source)
                 .list(baseline.run_id, evaluation_id=baseline.id)
                 .selected_count,
-                "imported_fixture_calls": 11,
+                "imported_fixture_calls": imported_dispatched_attempt_count,
                 "preparation_dispatch_calls": 0,
                 "prepared_binding_count": prepared_count,
                 "original_records_unchanged": True,

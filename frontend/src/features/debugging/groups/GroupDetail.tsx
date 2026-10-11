@@ -133,9 +133,15 @@ export function GroupDetail({
           request.kind === "diagnostic"
             ? await request.gateway.debugging.diagnostics.cancel(payload)
             : await request.gateway.debugging.checks.cancel(payload);
-        if (result.data.group_id !== request.groupId)
+        if (
+          result.data.group_id !== request.groupId ||
+          result.data.kind !==
+            (request.kind === "diagnostic"
+              ? "choice_order"
+              : "regression_check")
+        )
           throw new Error(
-            "The cancellation receipt belongs to a different group.",
+            "The cancellation receipt does not match this group request.",
           );
         return result.data as CancelReceipt;
       },

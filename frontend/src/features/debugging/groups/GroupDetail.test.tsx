@@ -498,6 +498,59 @@ it("replays an unknown diagnostic cancellation through its original port after a
   navigation.dispose();
 });
 
+it("keeps a same-group wrong-kind cancellation receipt unresolved", async () => {
+  const wrongKindReceipt = {
+    ...progress,
+    kind: "regression_check",
+    members: [],
+  } satisfies ApiOperationData<"cancelChoiceOrder">;
+  const cancel = vi.fn(async () => response(wrongKindReceipt));
+  const read = vi.fn(async () =>
+    response({
+      group: progress,
+      exit_code: 0,
+      summary: null,
+    } as ApiOperationData<"readChoiceOrder">),
+  );
+  const listSnapshots = vi.fn(async () =>
+    response([] as ApiOperationData<"listChoiceOrderSnapshots">),
+  );
+  const gateway = {
+    ...disconnectedWorkspace,
+    debugging: {
+      ...disconnectedWorkspace.debugging,
+      diagnostics: {
+        ...disconnectedWorkspace.debugging.diagnostics,
+        read,
+        listSnapshots,
+        cancel,
+      },
+    },
+  } as unknown as WorkspaceGateway;
+  const navigation = new WorkspaceNavigation(window);
+  render(
+    <GroupDetail
+      project={project}
+      gateway={gateway}
+      navigation={navigation}
+      kind="diagnostic"
+      groupId="group-1"
+    />,
+  );
+
+  await screen.findByText("Current progress");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel group" }));
+  await screen.findByText(
+    "The service may have saved this change. Review its current state before retrying.",
+  );
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText("Cancellation receipt received.")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Retry original cancellation" }),
+  ).toBeTruthy();
+  navigation.dispose();
+});
+
 it("previews resume without dispatch, then retries an unknown resume with the same body", async () => {
   let readAttempt = 0;
   const read = vi.fn(async () => {
