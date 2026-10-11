@@ -416,10 +416,7 @@ def test_run_and_choice_order_previews_are_protected_and_do_not_create_runs(
                     set(record) == {"collection", "scope", "resource_id", "etag", "body_hash"}
                     for record in reviewed["review_context"]["source_records"]
                 )
-                assert all(
-                    item["request_source"] is None
-                    for item in reviewed["case_reviews"]
-                )
+                assert all(item["request_source"] is None for item in reviewed["case_reviews"])
                 revealed = await client.post(
                     f"/api/v1/projects/{registration_id}/runs/preview?include_request=true",
                     headers=headers,
@@ -427,12 +424,9 @@ def test_run_and_choice_order_previews_are_protected_and_do_not_create_runs(
                 )
                 assert revealed.status_code == 200, revealed.text
                 revealed_data = revealed.json()["data"]
-                assert revealed_data["review_context_hash"] == reviewed[
-                    "review_context_hash"
-                ]
+                assert revealed_data["review_context_hash"] == reviewed["review_context_hash"]
                 assert any(
-                    item["request_source"] is not None
-                    and item["request_source_redacted"] is False
+                    item["request_source"] is not None and item["request_source_redacted"] is False
                     for item in revealed_data["case_reviews"]
                 )
                 assert all(
@@ -442,6 +436,21 @@ def test_run_and_choice_order_previews_are_protected_and_do_not_create_runs(
                     if item["request_source"] is not None
                     and item["request_source_redacted"] is False
                 )
+                duplicate_flag = await client.post(
+                    f"/api/v1/projects/{registration_id}/runs/preview"
+                    "?include_request=true&include_request=false",
+                    headers=headers,
+                    json={"schema_version": 1, "request": request},
+                )
+                assert duplicate_flag.status_code == 422
+                assert duplicate_flag.json()["error"]["reason"] == "invalid_query"
+                invalid_flag = await client.post(
+                    f"/api/v1/projects/{registration_id}/runs/preview?include_request=yes",
+                    headers=headers,
+                    json={"schema_version": 1, "request": request},
+                )
+                assert invalid_flag.status_code == 422
+                assert invalid_flag.json()["error"]["reason"] == "invalid_request"
 
                 group = await client.post(
                     f"/api/v1/projects/{registration_id}/diagnostics/choice-order/preview",

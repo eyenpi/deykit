@@ -102,6 +102,7 @@ class LocalBoundary:
         registrations = r"/api/v1/projects/[^/]+"
         method_rules = (
             (rf"{registrations}/runs", {"GET": {"decision_id", "status", "cursor", "limit"}}),
+            (rf"{registrations}/runs/preview", {"POST": {"include_request"}}),
             (
                 rf"{registrations}/runs/[^/]+/resume-preview",
                 {"POST": {"retry_unknown", "max_attempts"}},
