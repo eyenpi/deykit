@@ -714,8 +714,7 @@ export function RunReview({
                   <dt>Settings</dt>
                   <dd>
                     {review.settings.max_attempts} total requests across the
-                    run, concurrency{" "}
-                    {review.settings.concurrency},{" "}
+                    run, concurrency {review.settings.concurrency},{" "}
                     {review.settings.timeout_seconds}s timeout,{" "}
                     {review.settings.deadline_seconds}s deadline,{" "}
                     {review.settings.max_retries_per_case} retry.
