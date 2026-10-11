@@ -585,6 +585,7 @@ async function runInstalledProviderFixtureTail({
   )
     .trimEnd()
     .split("\n");
+  await enterPhase("Create normal authored fixture");
   await page.getByLabel("Decision").selectOption(fixtureSummary.decision_id);
   await page.getByLabel("Dataset").selectOption(fixtureSummary.dataset_id);
   await page.getByRole("button", { name: "Author fixture set" }).click();
@@ -657,6 +658,7 @@ async function runInstalledProviderFixtureTail({
   await page
     .getByLabel("Strict binding source lines")
     .fill(bindingSources.join("\n"));
+  await enterPhase("Recover retained fixture create");
   const fixtureCreateBodies: Array<Record<string, unknown>> = [];
   const fixtureCreateResults: ApiOperationData<"createFixtureSet">[] = [];
   let firstFixtureCreateStatus: number | undefined;
@@ -691,7 +693,7 @@ async function runInstalledProviderFixtureTail({
   ).toBeDisabled();
   await page
     .getByRole("navigation", { name: "Workspace" })
-    .getByRole("button", { name: "Examples", exact: true })
+    .getByRole("button", { name: "Projects", exact: true })
     .click();
   const fixtureUnknownGuard = page.getByRole("dialog", {
     name: "Unsaved changes",
