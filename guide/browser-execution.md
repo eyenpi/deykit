@@ -44,3 +44,8 @@ reported during fixture dispatch as a `missing_fixture` or
 `binding_not_found` response error. Live-provider runs may contact the selected
 provider and may incur cost. The browser does not switch between these modes
 automatically.
+
+Use **Refresh frozen results** to deliberately select a newer current result
+boundary after execution or resume. The inspector keeps the displayed snapshot
+pair until that explicit refresh; selecting a saved evaluation keeps its historic
+result and label snapshots. Progress refresh does not change that evidence pin.

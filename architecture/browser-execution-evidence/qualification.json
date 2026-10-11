@@ -1,0 +1,27 @@
+{
+  "kind": "automated_local_authored_fixture_evidence",
+  "accepted_runtime_head": "fb9ab072ea19e62786df0dcb8a81815417fdada0",
+  "status": "passed",
+  "browser_duration_ms": 56221,
+  "completed_phases": [
+    "demo_and_fixture_choices",
+    "dry_review_and_request_opt_in",
+    "unknown_start_and_exact_replay",
+    "real_cancellation_and_resume",
+    "frozen_result_inspection",
+    "mobile_run_inspection"
+  ],
+  "fixture_dispatch_calls": 11,
+  "live_dispatch_calls": 0,
+  "server_shutdown_witness_passed": true,
+  "installed_wheel_byte_parity": true,
+  "sdist_frontend_byte_parity": true,
+  "source_and_artifacts_unchanged": true,
+  "deferred": [
+    "final_M13_integration",
+    "CI",
+    "native_Windows",
+    "physical_accessibility_IME_keyring",
+    "live_provider_qualification"
+  ]
+}
