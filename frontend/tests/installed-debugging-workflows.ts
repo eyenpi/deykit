@@ -14,16 +14,17 @@ function assertBaselineResultPage(
   page: ApiOperationData<"listResults">,
   resultSnapshotId: string,
   labelSnapshotId: string,
-): void {
-  expect(page.result_snapshot_id).toBe(resultSnapshotId);
-  expect(page.label_snapshot_id).toBe(labelSnapshotId);
-  expect(page.selected_count).toBe("12");
-  expect(page.assessment_counts).toEqual({
+  assessmentCounts: ApiOperationData<"listResults">["assessment_counts"] = {
     all: "12",
     inspect: "4",
     incorrect: "2",
     unlabelled: "2",
-  });
+  },
+): void {
+  expect(page.result_snapshot_id).toBe(resultSnapshotId);
+  expect(page.label_snapshot_id).toBe(labelSnapshotId);
+  expect(page.selected_count).toBe("12");
+  expect(page.assessment_counts).toEqual(assessmentCounts);
   expect(page.status_counts).toEqual({
     pending: "0",
     valid: "10",
@@ -37,6 +38,48 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function assessmentCountsForBaseRows(
+  page: ApiOperationData<"listResults">,
+  filters: { status?: string; split?: string; tag?: string },
+): ApiOperationData<"listResults">["assessment_counts"] {
+  const rows = page.items.map((item) => record(item.source));
+  if (rows.some((row) => row === undefined))
+    throw new Error("The frozen result page contained a malformed source row.");
+  const base = rows.filter(
+    (row): row is Record<string, unknown> =>
+      row !== undefined &&
+      (filters.status === undefined || row.status === filters.status) &&
+      (filters.split === undefined || row.split === filters.split) &&
+      (filters.tag === undefined ||
+        (Array.isArray(row.tags) && row.tags.includes(filters.tag))),
+  );
+  const inspectStatuses = new Set([
+    "pending",
+    "input_invalid",
+    "response_error",
+    "unknown",
+  ]);
+  return {
+    all: String(base.length),
+    inspect: String(
+      base.filter(
+        (row) =>
+          row.set_correct === false || inspectStatuses.has(String(row.status)),
+      ).length,
+    ),
+    incorrect: String(base.filter((row) => row.set_correct === false).length),
+    unlabelled: String(
+      base.filter(
+        (row) =>
+          row.status === "valid" &&
+          typeof row.answer_option_id === "string" &&
+          Array.isArray(row.exclusion_reasons) &&
+          row.exclusion_reasons.includes("unlabelled"),
+      ).length,
+    ),
+  };
 }
 
 function sourceCaseIds(page: ApiOperationData<"listResults">): string[] {
@@ -245,6 +288,7 @@ export async function runSavedAnswersWorkflow(
       validStatusPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
+      { all: "10", inspect: "2", incorrect: "2", unlabelled: "2" },
     );
     expect(validStatusPage.filtered_count).toBe("10");
     const incorrectFilterRead = await captureOperation(
@@ -271,6 +315,7 @@ export async function runSavedAnswersWorkflow(
       validIncorrectPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
+      { all: "10", inspect: "2", incorrect: "2", unlabelled: "2" },
     );
     expect(validIncorrectPage.filtered_count).toBe("2");
     expect(
@@ -325,6 +370,10 @@ export async function runSavedAnswersWorkflow(
       splitPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
+      assessmentCountsForBaseRows(originalPage, {
+        status: "valid",
+        split: selectedSplit,
+      }),
     );
     const splitTagRead = await captureOperation(
       page,
@@ -351,6 +400,11 @@ export async function runSavedAnswersWorkflow(
       splitTagPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
+      assessmentCountsForBaseRows(originalPage, {
+        status: "valid",
+        split: selectedSplit,
+        tag: firstTag,
+      }),
     );
     expect(splitTagPage.filtered_count).not.toBe("0");
     expect(
@@ -388,6 +442,10 @@ export async function runSavedAnswersWorkflow(
       allStatusPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
+      assessmentCountsForBaseRows(originalPage, {
+        split: selectedSplit,
+        tag: firstTag,
+      }),
     );
     const allSplitRead = await captureOperation(
       page,
@@ -415,6 +473,7 @@ export async function runSavedAnswersWorkflow(
       allSplitPage,
       qualification.seedMetadata.result_snapshot_id,
       qualification.seedMetadata.label_snapshot_id,
+      assessmentCountsForBaseRows(originalPage, { tag: firstTag }),
     );
     const allTagRead = await captureOperation(
       page,
