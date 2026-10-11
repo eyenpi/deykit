@@ -986,12 +986,14 @@ export async function runSavedAnswersWorkflow(
     );
     expect(reevaluated.replayed).toBe(false);
     const reevaluationSummary = record(reevaluated.metrics.summary);
-    const reevaluationQuality = record(reevaluationSummary?.quality);
+    const reevaluationAccuracy = record(reevaluationSummary?.set_accuracy);
     const reevaluationCoverage = record(reevaluationSummary?.coverage);
-    expect(reevaluationQuality?.numerator).toBe(7);
-    expect(reevaluationQuality?.denominator).toBe(8);
-    expect(reevaluationCoverage?.numerator).toBe(10);
-    expect(reevaluationCoverage?.denominator).toBe(12);
+    expect(reevaluationAccuracy?.numerator).toBe("7");
+    expect(reevaluationAccuracy?.denominator).toBe("8");
+    expect(reevaluationAccuracy?.value).toBe("0.875000");
+    expect(reevaluationCoverage?.numerator).toBe("10");
+    expect(reevaluationCoverage?.denominator).toBe("12");
+    expect(reevaluationCoverage?.value).toBe("0.833333");
     qualification.setWitness(
       "reevaluation_content_hash",
       reevaluated.content_hash,
@@ -1385,9 +1387,10 @@ export async function runComparisonWorkflow(
       qualification.seedMetadata.evaluation_id,
     );
     const revisedSummary = record(revisedEvaluation.metrics.summary);
-    const revisedQuality = record(revisedSummary?.quality);
-    expect(revisedQuality?.numerator).toBe(7);
-    expect(revisedQuality?.denominator).toBe(8);
+    const revisedAccuracy = record(revisedSummary?.set_accuracy);
+    expect(revisedAccuracy?.numerator).toBe("7");
+    expect(revisedAccuracy?.denominator).toBe("8");
+    expect(revisedAccuracy?.value).toBe("0.875000");
     qualification.setWitness(
       "revised_evaluation_id",
       revisedEvaluation.evaluation_id,
