@@ -526,6 +526,14 @@ code {
 .run-detail .source-editor {
   max-width: 100%;
 }
+.run-detail .field,
+.run-detail select {
+  min-width: 0;
+  max-width: 100%;
+}
+.run-detail select {
+  width: 100%;
+}
 .run-review-summary dl,
 .run-detail dl {
   display: grid;
