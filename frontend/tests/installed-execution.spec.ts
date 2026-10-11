@@ -253,10 +253,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     );
   }
 
-  async function waitForInactiveUiRead(
-    registrationId: string,
-    runId: string,
-  ) {
+  async function waitForInactiveUiRead(registrationId: string, runId: string) {
     const deadline = Date.now() + 25_000;
     const path = `/api/v1/projects/${registrationId}/runs/${runId}`;
     while (Date.now() < deadline) {
@@ -281,7 +278,9 @@ test("installed browser reviews and inspects fixture execution", async ({
         throw new Error("The browser progress read returned another run.");
       if (!run.execution_active) return run;
     }
-    throw new Error("The browser did not read an inactive run within the bound.");
+    throw new Error(
+      "The browser did not read an inactive run within the bound.",
+    );
   }
 
   const projectPath = testInfo.outputPath("fixture-execution-project");
@@ -684,12 +683,13 @@ test("installed browser reviews and inspects fixture execution", async ({
     await page.unroute(
       `**/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
     );
-    if (holdPath) await rm(holdPath, { force: true });
-    holdPath = undefined;
-    const resumedRun = await waitForInactiveUiRead(
+    const resumedRunPromise = waitForInactiveUiRead(
       registrationId,
       acceptedRunId,
     );
+    if (holdPath) await rm(holdPath, { force: true });
+    holdPath = undefined;
+    const resumedRun = await resumedRunPromise;
     expect(resumedRun.run_id).toBe(acceptedRunId);
     expect(resumedRun.attempt_limit).toBe("13");
     expect(resumedRun.attempts_used).toBe("11");
