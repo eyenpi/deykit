@@ -330,10 +330,10 @@ export function ReportSheet({
           if (
             evaluation.evaluation_id !== selectedEvaluationId ||
             evaluation.run_id !== run.run_id
-          )
-            throw new Error(
-              "The saved evaluation does not belong to this run.",
-            );
+          ) {
+            setError("The saved evaluation does not belong to this run.");
+            return;
+          }
           evaluationId = evaluation.evaluation_id;
           labelSnapshotId = evaluation.label_snapshot_id;
           resultSnapshotId = evaluation.result_snapshot_id;

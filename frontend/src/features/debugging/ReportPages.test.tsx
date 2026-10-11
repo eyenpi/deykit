@@ -940,6 +940,13 @@ it("rejects a saved evaluation from another run before creating a report", async
       ),
     ).toBeTruthy();
     expect(screen.queryByLabelText("Verified report target")).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Create report",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     expect(createCalls).toBe(0);
   } finally {
     tree.unmount();
