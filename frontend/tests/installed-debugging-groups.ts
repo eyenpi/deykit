@@ -35,7 +35,8 @@ import {
 const RE_ADDED_CASE_SOURCE =
   '{"text":"A deliberately different newly re-added input."}';
 
-type ReaddWaitBoundary = "case_list_idle" | "alternate_idle" | "target_idle";
+type ReaddWaitBoundary =
+  "examples_entry_idle" | "case_list_idle" | "alternate_idle" | "target_idle";
 
 type ReaddIdleWait = (boundary?: ReaddWaitBoundary) => Promise<void>;
 
@@ -471,6 +472,9 @@ async function editDeleteAndReaddCaseThroughPublicInterfaces(
     qualification.seedMetadata.decision_id,
     datasetId,
   );
+  const examplesTable = page.getByRole("table", { name: /^Cases in / });
+  await expect(examplesTable).toBeVisible();
+  await waitForIdle("examples_entry_idle");
   const reloadedDataset = page.getByRole("combobox", {
     name: "Dataset",
     exact: true,
