@@ -240,7 +240,7 @@ export function RunCaseInspector({
         runId: run.run_id,
         caseId,
         query: {
-          evaluation_id: evaluationId ?? null,
+          ...(evaluationId ? { evaluation_id: evaluationId } : {}),
           include_input: flags.input ? "true" : "false",
           include_request: flags.request ? "true" : "false",
           include_response: flags.response ? "true" : "false",
@@ -383,7 +383,16 @@ export function RunCaseInspector({
 
   return (
     <section className="run-inspector" aria-label="Frozen result inspection">
-      <h2>Frozen results</h2>
+      <div className="document-title-row">
+        <h2>Frozen results</h2>
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => setReload((value) => value + 1)}
+        >
+          Refresh frozen results
+        </button>
+      </div>
       {revisionError && <ErrorSummary message={revisionError} />}
       {historicalDefinition && (
         <section aria-label="Frozen decision definition">
@@ -440,11 +449,24 @@ export function RunCaseInspector({
       )}
       {loading && <LoadingState>Refreshing frozen results…</LoadingState>}
       {resultsCurrent && resultPage && (
-        <p role="status">
+        <p role="status" aria-label="Published result snapshot">
           {resultPage.filtered_count} rows in the server result set;{" "}
-          {resultPage.selected_count} selected by this frozen run.
+          {resultPage.selected_count} selected by this frozen run. Result
+          snapshot {resultPage.result_snapshot_id}; label snapshot{" "}
+          {resultPage.label_snapshot_id}.
         </p>
       )}
+      {resultsCurrent &&
+        resultPage &&
+        run.latest_result_snapshot_id !== null &&
+        run.latest_result_snapshot_id !== resultPage.result_snapshot_id && (
+          <p role="status" aria-label="Newer current result available">
+            A newer current result snapshot is available: {run.latest_result_snapshot_id}.{" "}
+            {evaluationId
+              ? "The selected evaluation remains pinned."
+              : "Refresh frozen results to inspect it."}
+          </p>
+        )}
       <div className="actions">
         <label className="field">
           Status

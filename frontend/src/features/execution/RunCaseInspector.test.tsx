@@ -183,11 +183,13 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
       include_response: "false",
       include_attempts: "false",
     });
+    expect(reads[0]?.query).not.toHaveProperty("evaluation_id");
     expect(screen.queryByText(exactInput)).toBeNull();
 
     await user.click(screen.getByLabelText("Include input"));
     await waitFor(() => expect(reads).toHaveLength(2));
     expect(reads[1]?.query?.include_input).toBe("true");
+    expect(reads[1]?.query).not.toHaveProperty("evaluation_id");
     expect(await screen.findByText(exactInput)).toBeTruthy();
 
     await user.click(screen.getByLabelText("Include input"));
@@ -220,7 +222,12 @@ function resultPage(
   };
 }
 
-function mountInspector(execution: ExecutionGateway, caseId?: string) {
+function mountInspector(
+  execution: ExecutionGateway,
+  caseId?: string,
+  evaluationId?: string,
+  selectedRun: ApiOperationData<"readRun"> = run,
+) {
   window.history.replaceState(
     null,
     "",
@@ -230,15 +237,133 @@ function mountInspector(execution: ExecutionGateway, caseId?: string) {
   const tree = render(
     <RunCaseInspector
       registrationId="registration-1"
-      run={run}
+      run={selectedRun}
       execution={execution}
       readRevision={async () => result(revision)}
       navigation={navigation}
+      evaluationId={evaluationId}
       caseId={caseId}
     />,
   );
   return { tree, navigation };
 }
+
+it("omits absent evaluation filters and preserves a selected evaluation", async () => {
+  const evaluation: ApiOperationData<"readEvaluation"> = {
+    schema_version: 1,
+    evaluation_id: "evaluation-1",
+    run_id: run.run_id,
+    result_snapshot_id: "result-snapshot-1",
+    label_snapshot_id: "label-result-snapshot-1",
+    mode: "original",
+    replayed: false,
+    created_at: "2026-10-11T00:00:00Z",
+    execution_operation_id: null,
+    content_hash: "evaluation-hash-1",
+    metrics: {},
+    metrics_source: "{}",
+  };
+  const listQueries: unknown[] = [];
+  const detailQueries: unknown[] = [];
+  const execution: ExecutionGateway = {
+    ...disconnectedWorkspace.execution,
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      listEvaluations: async () =>
+        result({ items: [evaluation], next_cursor: null, total: "1" }),
+      readEvaluation: async () => result(evaluation),
+      listResults: async ({ query }) => {
+        listQueries.push(query);
+        return result({
+          ...resultPage("result-snapshot-1", rowSource, null),
+          evaluation_id: evaluation.evaluation_id,
+          label_snapshot_id: evaluation.label_snapshot_id,
+        });
+      },
+      readResult: async ({ query }) => {
+        detailQueries.push(query);
+        return result<ApiOperationData<"readResult">>({
+          schema_version: 1,
+          source: {
+            ...rowSource,
+            evaluation_id: evaluation.evaluation_id,
+            label_snapshot_id: evaluation.label_snapshot_id,
+          },
+        });
+      },
+    },
+  };
+  const { tree, navigation } = mountInspector(
+    execution,
+    "case-1",
+    evaluation.evaluation_id,
+  );
+  try {
+    await waitFor(() => expect(listQueries).toHaveLength(1));
+    await waitFor(() => expect(detailQueries).toHaveLength(1));
+    expect(listQueries[0]).toMatchObject({
+      evaluation_id: evaluation.evaluation_id,
+    });
+    expect(detailQueries[0]).toMatchObject({
+      evaluation_id: evaluation.evaluation_id,
+    });
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("keeps an older result snapshot pinned until explicit refresh", async () => {
+  const latestRun = { ...run, latest_result_snapshot_id: "result-snapshot-2" };
+  let pageReads = 0;
+  const execution: ExecutionGateway = {
+    ...disconnectedWorkspace.execution,
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      listEvaluations: async () =>
+        result({ items: [], next_cursor: null, total: "0" }),
+      listResults: async () => {
+        pageReads += 1;
+        return result(
+          resultPage(
+            pageReads === 1 ? "result-snapshot-1" : "result-snapshot-2",
+            rowSource,
+            null,
+          ),
+        );
+      },
+    },
+  };
+  const { tree, navigation } = mountInspector(
+    execution,
+    undefined,
+    undefined,
+    latestRun,
+  );
+  const user = userEvent.setup();
+  try {
+    const publishedPair = screen.getByRole("status", {
+      name: "Published result snapshot",
+    });
+    await waitFor(() =>
+      expect(publishedPair).toHaveTextContent("result-snapshot-1"),
+    );
+    expect(
+      screen.getByRole("status", { name: "Newer current result available" }),
+    ).toHaveTextContent("result-snapshot-2");
+    await user.click(
+      screen.getByRole("button", { name: "Refresh frozen results" }),
+    );
+    await waitFor(() => expect(publishedPair).toHaveTextContent("result-snapshot-2"));
+    expect(pageReads).toBe(2);
+    expect(
+      screen.queryByRole("status", { name: "Newer current result available" }),
+    ).toBeNull();
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
 
 it("rejects a later result page from a different frozen snapshot", async () => {
   const otherRow: ApiOperationData<"readResult">["source"] = {

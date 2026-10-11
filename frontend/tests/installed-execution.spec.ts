@@ -1068,14 +1068,64 @@ test("installed browser reviews and inspects fixture execution", async ({
     await expect(
       page.getByRole("region", { name: "Run case outcomes" }),
     ).toBeVisible();
+    const refreshResultsButton = page.getByRole("button", {
+      name: "Refresh frozen results",
+    });
+    await expect(refreshResultsButton).toBeEnabled();
+    const listResultsResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/runs/${acceptedRunId}/results`,
+    );
+    await refreshResultsButton.click();
+    const listResultsResponse = await listResultsResponsePromise;
+    const refreshedData = await expectEnvelope(listResultsResponse);
+    if (!isRecord(refreshedData))
+      throw new Error("The refreshed frozen results envelope was invalid.");
+    const resultSnapshotId = refreshedData.result_snapshot_id;
+    const labelSnapshotId = refreshedData.label_snapshot_id;
+    if (
+      typeof resultSnapshotId !== "string" ||
+      typeof labelSnapshotId !== "string" ||
+      !resumedRun.latest_result_snapshot_id
+    )
+      throw new Error("The refreshed frozen result identity was unavailable.");
+    expect(refreshedData.run_id).toBe(acceptedRunId);
+    expect(refreshedData.evaluation_id).toBeNull();
+    expect(resultSnapshotId).toBe(resumedRun.latest_result_snapshot_id);
+    const publishedPair = page.locator(
+      '[aria-label="Published result snapshot"]',
+    );
+    await expect(publishedPair).toContainText(resultSnapshotId);
+    await expect(publishedPair).toContainText(labelSnapshotId);
     const caseButton = page
       .getByRole("region", { name: "Run case outcomes" })
       .getByRole("button", { name: dispatchCaseId, exact: true });
+    const caseDetailResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/runs/${acceptedRunId}/results/${dispatchCaseId}`,
+    );
     await caseButton.click();
+    const caseDetailResponse = await caseDetailResponsePromise;
+    expect(
+      new URL(caseDetailResponse.url()).searchParams.has("evaluation_id"),
+    ).toBe(false);
+    const caseDetailData = await expectEnvelope(caseDetailResponse);
+    if (!isRecord(caseDetailData) || !isRecord(caseDetailData.source))
+      throw new Error("The frozen case detail envelope was invalid.");
+    expect(caseDetailData.source.run_id).toBe(acceptedRunId);
+    expect(caseDetailData.source.case_id).toBe(dispatchCaseId);
+    expect(caseDetailData.source.evaluation_id).toBeNull();
+    expect(caseDetailData.source.result_snapshot_id).toBe(resultSnapshotId);
+    expect(caseDetailData.source.label_snapshot_id).toBe(labelSnapshotId);
     const inspector = page.getByRole("region", {
       name: `Case ${dispatchCaseId} inspection`,
     });
     await expect(inspector).toBeVisible();
+    await expect(inspector.getByText("Answer", { exact: true })).toBeVisible();
     for (const name of [
       "Include input",
       "Include request",
