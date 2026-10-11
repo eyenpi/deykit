@@ -631,9 +631,12 @@ export function GroupDetail({
           Cancel group
         </button>
         {cancelState.kind === "outcome-unknown" && (
-          <button type="button" onClick={() => void retryCancel()}>
-            Retry original cancellation
-          </button>
+          <>
+            <ErrorSummary message={cancelState.message} />
+            <button type="button" onClick={() => void retryCancel()}>
+              Retry original cancellation
+            </button>
+          </>
         )}
         {cancelState.kind === "committed" && (
           <p role="status">Cancellation receipt received.</p>

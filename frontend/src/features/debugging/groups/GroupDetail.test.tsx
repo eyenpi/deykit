@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
+import { ApiError } from "../../../api/client";
 import type { ApiOperationData } from "../../../api/client";
 import { disconnectedWorkspace } from "../../../workspace/gateway";
 import type {
@@ -286,12 +287,16 @@ it("retries an unknown cancellation with its original operation id", async () =>
   const listSnapshots = vi.fn(async () =>
     response([snapshot("snapshot-1", "1")]),
   );
+  const readSnapshot = vi.fn(async ({ snapshotId }: { snapshotId: string }) =>
+    response(diagnosticSnapshot(snapshotId, "1")),
+  );
   const calls: unknown[] = [];
   let attempt = 0;
   const cancel = vi.fn(async (request: unknown) => {
     calls.push(request);
     attempt += 1;
-    if (attempt === 1) throw new Error("connection closed after dispatch");
+    if (attempt === 1)
+      throw new ApiError("network_error", "connection closed after dispatch");
     return response(progress);
   });
   const gateway = {
@@ -302,6 +307,7 @@ it("retries an unknown cancellation with its original operation id", async () =>
         ...disconnectedWorkspace.debugging.diagnostics,
         read,
         listSnapshots,
+        readSnapshot,
         cancel,
       },
     },
@@ -337,7 +343,8 @@ it("replays an unknown diagnostic cancellation through its original port after a
   const diagnosticCancel = vi.fn(async (request: unknown) => {
     diagnosticCalls.push(request);
     attempts += 1;
-    if (attempts === 1) throw new Error("connection closed after dispatch");
+    if (attempts === 1)
+      throw new ApiError("network_error", "connection closed after dispatch");
     return response(progress);
   });
   const checkCancel = vi.fn(async () =>
@@ -498,7 +505,7 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   const read = vi.fn(async () => {
     readAttempt += 1;
     if (readAttempt > 1)
-      throw new Error("progress read unavailable after receipt");
+      throw new ApiError("network_error", "progress read unavailable after receipt");
     return response({
       group: progress,
       exit_code: 0,
@@ -524,7 +531,8 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
   const resume = vi.fn(async (request: unknown) => {
     resumeCalls.push(request);
     attempt += 1;
-    if (attempt === 1) throw new Error("connection closed after dispatch");
+    if (attempt === 1)
+      throw new ApiError("network_error", "connection closed after dispatch");
     return response({
       schema_version: 1,
       kind: "choice_order",
