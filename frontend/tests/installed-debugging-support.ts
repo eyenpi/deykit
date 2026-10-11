@@ -1110,6 +1110,23 @@ export function decodeSuccessEnvelope<T>(
   return envelope.data as T;
 }
 
+export function decodeSuccessListEnvelope<T>(
+  body: Uint8Array,
+  expectedStatus: number,
+  actualStatus: number,
+): T {
+  expect(actualStatus).toBe(expectedStatus);
+  const envelope: unknown = decodeJSONBody(body);
+  if (
+    !isRecord(envelope) ||
+    envelope.schema_version !== 1 ||
+    !Array.isArray(envelope.data) ||
+    !envelope.data.every(isRecord)
+  )
+    throw new Error("The installed API returned an invalid list envelope.");
+  return envelope.data as T;
+}
+
 export function requireSafeId(value: unknown, context: string): string {
   if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value))
     throw new Error(`The installed ${context} identity is invalid.`);

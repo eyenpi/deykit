@@ -10,6 +10,7 @@ import {
   bodySha256,
   assertExactArtifactBytes,
   decodeSuccessEnvelope,
+  decodeSuccessListEnvelope,
   finishDebuggingQualification,
   installLostAcknowledgement,
   readFixtureCountsNow,
@@ -1564,7 +1565,7 @@ export async function runGroupsWorkflow(
       "diagnostic_reload_progress_decode_state",
       "complete",
     );
-    const reloadedSnapshots = decodeSuccessEnvelope<
+    const reloadedSnapshots = decodeSuccessListEnvelope<
       ApiOperationData<"listChoiceOrderSnapshots">
     >(reloadReads.snapshots.body, 200, reloadReads.snapshots.response.status());
     qualification.setWitness(
