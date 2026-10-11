@@ -1370,7 +1370,19 @@ export async function runGroupsWorkflow(
     const resumePath = `/api/v1/projects/${registrationId}/diagnostics/${startReceipt.group_id}/resume`;
     const resumeLoss = await installLostAcknowledgement(page, resumePath, 202);
     resumeLoss.mark("observer_armed");
+    let groupCompletionDeadline: number | undefined;
+    const remainingGroupCompletionMs = () => {
+      if (groupCompletionDeadline === undefined)
+        throw new Error("The group completion observer was not armed.");
+      const remaining = Math.floor(groupCompletionDeadline - performance.now());
+      if (remaining <= 0)
+        throw new Error(
+          "The resumed diagnostic group did not complete within its shared observation budget.",
+        );
+      return remaining;
+    };
     try {
+      groupCompletionDeadline = performance.now() + 197_000;
       resumeLoss.mark("resume_click_begin");
       await page
         .getByRole("button", { name: "Resume reviewed group", exact: true })
@@ -1381,7 +1393,9 @@ export async function runGroupsWorkflow(
           name: "Retry original resume request",
           exact: true,
         }),
-      ).toBeVisible();
+      ).toBeVisible({
+        timeout: Math.min(remainingGroupCompletionMs(), 12_000),
+      });
       const firstResume = resumeLoss.firstObservation();
       expect(firstResume?.firstStatus).toBe(202);
       if (!firstResume)
@@ -1410,6 +1424,8 @@ export async function runGroupsWorkflow(
               exact: true,
             })
             .click(),
+        () => true,
+        Math.min(remainingGroupCompletionMs(), 12_000),
       );
       resumeLoss.mark("replay_capture_complete");
       expect(replayResponse.response.status()).toBe(202);
@@ -1508,14 +1524,16 @@ export async function runGroupsWorkflow(
     }
     await expect(
       page.getByRole("region", { name: "Current progress" }),
-    ).toContainText("Settled", { timeout: 20_000 });
+    ).toContainText("Settled", {
+      timeout: remainingGroupCompletionMs(),
+    });
     const resumedCounts = await waitForCountFile(
       qualification.controlDirectory,
       (counts) =>
         counts.fixture_dispatch_calls === 4 &&
         counts.for_case_calls === 4 &&
         counts.live_dispatch_calls === 0,
-      30_000,
+      remainingGroupCompletionMs(),
     );
     expect(resumedCounts.fixture_dispatch_calls).toBe(4);
     expect(resumedCounts.for_case_calls).toBe(4);
@@ -1531,6 +1549,8 @@ export async function runGroupsWorkflow(
       async () => {
         await page.reload();
       },
+      () => true,
+      Math.min(remainingGroupCompletionMs(), 12_000),
     );
     const finalProgress = decodeSuccessEnvelope<
       ApiOperationData<"readChoiceOrder">
@@ -1563,24 +1583,31 @@ export async function runGroupsWorkflow(
         .locator("dt")
         .filter({ hasText: new RegExp(`^${label}$`) })
         .locator("xpath=following-sibling::dd[1]");
-      await expect(valueCell).toHaveText(value);
+      await expect(valueCell).toHaveText(value, {
+        timeout: remainingGroupCompletionMs(),
+      });
     }
     for (const member of finalProgress.group.members) {
       const memberRow = progressRegion
         .getByRole("listitem")
         .filter({ hasText: member.run_id });
-      await expect(memberRow).toHaveCount(1);
+      await expect(memberRow).toHaveCount(1, {
+        timeout: remainingGroupCompletionMs(),
+      });
       await expect(
         memberRow.getByRole("button", { name: member.run_id, exact: true }),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: remainingGroupCompletionMs() });
       await expect(memberRow).toContainText(
         `${member.state} · ${member.attempts_used} attempts · ${member.attempts_remaining} remaining`,
+        { timeout: remainingGroupCompletionMs() },
       );
     }
     expect(await snapshotSelect.inputValue()).toBe(diagnosticSnapshotId);
     const resumedOptions = snapshotSelect.locator("option");
     await expect
-      .poll(() => resumedOptions.last().getAttribute("value"))
+      .poll(() => resumedOptions.last().getAttribute("value"), {
+        timeout: remainingGroupCompletionMs(),
+      })
       .not.toBe(diagnosticSnapshotId);
     const resumedSnapshotValues = await snapshotSelect
       .locator("option")
@@ -1606,6 +1633,8 @@ export async function runGroupsWorkflow(
             exact: true,
           })
           .click(),
+      () => true,
+      Math.min(remainingGroupCompletionMs(), 12_000),
     );
     const finalDiagnosticDetail = decodeSuccessEnvelope<
       ApiOperationData<"readChoiceOrderSnapshot">
@@ -1632,23 +1661,28 @@ export async function runGroupsWorkflow(
     });
     await expect(finalSummaryRegion).toContainText(
       "2 cases · 2 orders · 4 expanded results · 2 fully observed",
+      { timeout: remainingGroupCompletionMs() },
     );
     await expect(
       finalSummaryRegion.getByText("Disagreement: 1/2", { exact: false }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: remainingGroupCompletionMs() });
     const finalSummaryHeading = finalSummaryRegion.getByRole("heading", {
       name: "Observed request-order sensitivity",
       exact: true,
     });
-    await expect(finalSummaryHeading).toBeVisible();
+    await expect(finalSummaryHeading).toBeVisible({
+      timeout: remainingGroupCompletionMs(),
+    });
     const finalSummaryList = finalSummaryHeading.locator(
       "xpath=following-sibling::ol[1]",
     );
-    await expect(finalSummaryList.getByRole("listitem")).toHaveCount(2);
+    await expect(finalSummaryList.getByRole("listitem")).toHaveCount(2, {
+      timeout: remainingGroupCompletionMs(),
+    });
     for (const caseId of finalSummaryCaseIds)
       await expect(
         finalSummaryList.getByText(caseId, { exact: true }),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: remainingGroupCompletionMs() });
 
     const resumedSelection = await snapshotSelect.inputValue();
     const otherResumedSnapshot = resumedSnapshotValues.find(
