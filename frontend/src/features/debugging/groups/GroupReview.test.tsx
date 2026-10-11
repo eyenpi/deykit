@@ -140,6 +140,8 @@ it("keeps the reviewed seed and operation identity across an unknown group start
     operation_id: "operation-1",
     mode: "fixture",
     replayed: true,
+    progress_path: "/api/v1/projects/registration-1/diagnostics/group-1",
+    segment_id: "segment-1",
   } as ApiOperationData<"startChoiceOrder">;
   const start = vi.fn(
     async ({ body }: { body: ApiOperationBody<"startChoiceOrder"> }) => {
@@ -206,7 +208,7 @@ it("keeps the reviewed seed and operation identity across an unknown group start
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
   const onStarted = vi.fn();
-  const view = render(
+  render(
     <GroupReview
       project={project}
       decision={project.decisions[0]}
@@ -287,6 +289,8 @@ it("retries an unknown start through the original adapter after a gateway replac
         operation_id: request.body.operation_id,
         mode: "fixture",
         replayed: true,
+        progress_path: "/api/v1/projects/registration-1/diagnostics/group-1",
+        segment_id: "segment-1",
       } as ApiOperationData<"startChoiceOrder">);
     },
   );
@@ -299,6 +303,8 @@ it("retries an unknown start through the original adapter after a gateway replac
       operation_id: "wrong-operation",
       mode: "fixture",
       replayed: false,
+      progress_path: "/api/v1/projects/registration-1/diagnostics/wrong-group",
+      segment_id: "segment-1",
     } as ApiOperationData<"startChoiceOrder">),
   );
   const authoring = {
@@ -534,6 +540,8 @@ it("does not publish an accepted receipt after an A-to-B-to-A scope transition",
         operation_id: start.mock.calls[0][0].body.operation_id,
         mode: "fixture",
         replayed: true,
+        progress_path: "/api/v1/projects/registration-1/diagnostics/group-stale",
+        segment_id: "segment-1",
       },
       warnings: [],
     });

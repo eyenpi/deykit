@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
-import { safeMessage } from "../../api/client";
 import { Modal } from "../../components/Modal";
 import { ErrorSummary } from "../../components/States";
 import { RetainedMutation } from "../../workspace/mutation-controller";

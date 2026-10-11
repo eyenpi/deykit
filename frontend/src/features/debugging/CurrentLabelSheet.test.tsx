@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import type { ApiOperationData, ApiResult } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
+import type { ExampleAuthoringOperations } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
 import { CurrentLabelSheet } from "./CurrentLabelSheet";
 
@@ -20,6 +21,46 @@ type LabelView =
   ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">;
 type LabelReceipt =
   ApiOperationData<"batch_labels_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels_batch_post">;
+
+function labelReceipt(
+  request: Parameters<typeof disconnectedWorkspace.authoring.examples.saveLabels>[0],
+  labelId: string,
+  replayed = false,
+): ApiResult<LabelReceipt> {
+  const edit = request.body.edits[0]!;
+  return {
+    data: {
+      schema_version: 1,
+      replayed,
+      changes: [
+        {
+          schema_version: 1,
+          id: `change-${labelId}`,
+          operation_id: request.body.operation_id,
+          action: edit.action,
+          decision_id: request.decisionId,
+          dataset_id: request.datasetId,
+          case_id: edit.review.case_id,
+          question_id: edit.review.question_id,
+          created_at: "2026-10-11T00:00:00Z",
+          label: {
+            schema_version: 1,
+            id: labelId,
+            decision_id: request.decisionId,
+            dataset_id: request.datasetId,
+            case_id: edit.review.case_id,
+            question_id: edit.review.question_id,
+            input_hash: edit.review.input_hash,
+            acceptable_option_ids: edit.acceptable_option_ids ?? [],
+            provenance: "human",
+            updated_at: "2026-10-11T00:00:00Z",
+          },
+        },
+      ],
+    },
+    warnings: [],
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -135,7 +176,7 @@ it("keeps a known label receipt and permits only a read-only refresh after the d
   >[0][] = [];
   const writeReceipt = deferred<ApiResult<LabelReceipt>>();
   let readsOnReplacement = 0;
-  const originalOperations = {
+  const originalOperations: ExampleAuthoringOperations = {
     ...disconnectedWorkspace.authoring.examples,
     readLabel: async () => {
       return { data: labelView("case-A", "frozen-input-hash"), warnings: [] };
@@ -145,7 +186,7 @@ it("keeps a known label receipt and permits only a read-only refresh after the d
       return writeReceipt.promise;
     },
   };
-  const replacementOperations = {
+  const replacementOperations: ExampleAuthoringOperations = {
     ...disconnectedWorkspace.authoring.examples,
     readLabel: async () => {
       readsOnReplacement += 1;
@@ -197,39 +238,7 @@ it("keeps a known label receipt and permits only a read-only refresh after the d
       />,
     );
     await waitFor(() => expect(readsOnReplacement).toBe(1));
-    writeReceipt.resolve({
-      data: {
-        schema_version: 1,
-        replayed: false,
-        changes: [
-          {
-            schema_version: 1,
-            id: "label-change-1",
-            operation_id: submitted[0]!.body.operation_id,
-            action: "set",
-            decision_id: "decision-1",
-            dataset_id: "dataset-1",
-            case_id: "case-A",
-            question_id: "question-1",
-            created_at: "2026-10-11T00:00:00Z",
-            review: submitted[0]!.body.edits[0]!.review,
-            label: {
-              schema_version: 1,
-              id: "label-1",
-              decision_id: "decision-1",
-              dataset_id: "dataset-1",
-              case_id: "case-A",
-              question_id: "question-1",
-              input_hash: "frozen-input-hash",
-              acceptable_option_ids: ["option-1"],
-              provenance: "human",
-              updated_at: "2026-10-11T00:00:00Z",
-            },
-          },
-        ],
-      },
-      warnings: [],
-    });
+    writeReceipt.resolve(labelReceipt(submitted[0]!, "label-1"));
     expect(await screen.findByText(/Label receipt recorded/)).toBeTruthy();
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
@@ -264,7 +273,7 @@ it("retries the captured label hash and operation port after the frozen scope is
     typeof disconnectedWorkspace.authoring.examples.saveLabels
   >[0][] = [];
   let saves = 0;
-  const originalOperations = {
+  const originalOperations: ExampleAuthoringOperations = {
     ...disconnectedWorkspace.authoring.examples,
     readLabel: async () => ({
       data: labelView("case-A", "frozen-hash-A"),
@@ -274,42 +283,10 @@ it("retries the captured label hash and operation port after the frozen scope is
       requests.push(request);
       saves += 1;
       if (saves === 1) throw new Error("reply lost");
-      return {
-        data: {
-          schema_version: 1,
-          replayed: true,
-          changes: [
-            {
-              schema_version: 1,
-              id: "change-A",
-              operation_id: request.body.operation_id,
-              action: "set",
-              decision_id: "decision-1",
-              dataset_id: "dataset-1",
-              case_id: "case-A",
-              question_id: "question-1",
-              created_at: "2026-10-11T00:00:00Z",
-              review: request.body.edits[0]!.review,
-              label: {
-                schema_version: 1,
-                id: "label-A",
-                decision_id: "decision-1",
-                dataset_id: "dataset-1",
-                case_id: "case-A",
-                question_id: "question-1",
-                input_hash: "frozen-hash-A",
-                acceptable_option_ids: ["option-1"],
-                provenance: "human",
-                updated_at: "2026-10-11T00:00:00Z",
-              },
-            },
-          ],
-        },
-        warnings: [],
-      };
+      return labelReceipt(request, "label-A", true);
     },
   };
-  const replacementOperations = {
+  const replacementOperations: ExampleAuthoringOperations = {
     ...disconnectedWorkspace.authoring.examples,
     readLabel: async () => ({
       data: labelView("case-A", "frozen-hash-B"),

@@ -504,7 +504,7 @@ function ChoiceOrderReview(props: ReviewProps) {
         controller.signal.aborted ||
         scopeRef.current !== currentScope
       )
-        return;
+        return false;
       setPreview(result.data);
       setPreviewRequest(request);
       setDirty(false);
@@ -1040,6 +1040,11 @@ function RegressionCheckReview(props: ReviewProps) {
   const visibleRegressions =
     regressions?.items.filter((item) => !item.removed) ?? [];
   const selected = useMemo(() => new Set(regressionIds), [regressionIds]);
+  const selectedDatasetIds = new Set(
+    visibleRegressions
+      .filter((item) => selected.has(item.regression_id))
+      .map((item) => item.dataset_id),
+  );
 
   function clearReview() {
     generation.current += 1;
@@ -1177,7 +1182,7 @@ function RegressionCheckReview(props: ReviewProps) {
         controller.signal.aborted ||
         scopeRef.current !== currentScope
       )
-        return;
+        return false;
       setPreview(result.data);
       setPreviewRequest(request);
       setDirty(false);
@@ -1407,8 +1412,9 @@ function RegressionCheckReview(props: ReviewProps) {
                       .filter(
                         (item) =>
                           item.decision_id === decision.id &&
-                          (datasetIds.size === 0 ||
-                            item.dataset_id === [...datasetIds][0]),
+                          (selectedDatasetIds.size === 0 ||
+                            (selectedDatasetIds.size === 1 &&
+                              item.dataset_id === [...selectedDatasetIds][0])),
                       )
                       .map((item) => (
                         <option key={item.id} value={item.id}>

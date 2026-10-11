@@ -43,6 +43,12 @@ type ResumeIntent = {
   gateway: WorkspaceGateway;
 };
 
+function readMutationState<Request, Receipt>(
+  mutation: RetainedMutation<Request, Receipt> | undefined,
+): MutationState<Receipt> | undefined {
+  return mutation?.state;
+}
+
 export type GroupReportTarget = {
   targetKind: "diagnostic" | "check";
   targetId: string;
@@ -389,9 +395,9 @@ export function GroupDetail({
       kind,
       gateway,
     });
-    const receipt = cancelMutation.current.state;
+    const receipt = readMutationState(cancelMutation.current);
     if (
-      receipt.kind === "committed" &&
+      receipt?.kind === "committed" &&
       mounted.current &&
       scopeToken.current === dispatchScopeToken &&
       cancelCallbackScopeToken.current === dispatchScopeToken &&
@@ -432,11 +438,14 @@ export function GroupDetail({
     setResumeError(undefined);
     const generation = ++resumeReviewGeneration.current;
     try {
+      const retryUnknownQuery: "true" | "false" = retryUnknown
+        ? "true"
+        : "false";
       const request = {
         registrationId: project.id,
         groupId,
-        body: { schema_version: 1 },
-        query: { retry_unknown: retryUnknown ? "true" : "false" },
+        body: { schema_version: 1 as const },
+        query: { retry_unknown: retryUnknownQuery },
       };
       const result =
         kind === "diagnostic"
@@ -486,8 +495,9 @@ export function GroupDetail({
       kind,
       gateway,
     });
+    const receipt = readMutationState(resumeMutation.current);
     if (
-      resumeMutation.current.state.kind === "committed" &&
+      receipt?.kind === "committed" &&
       mounted.current &&
       scopeToken.current === dispatchScopeToken &&
       resumeCallbackScopeToken.current === dispatchScopeToken &&
@@ -503,8 +513,9 @@ export function GroupDetail({
     const dispatchScopeToken = resumeCallbackScopeToken.current;
     if (dispatchScopeToken === undefined) return;
     await resumeMutation.current?.retryOriginal();
+    const receipt = readMutationState(resumeMutation.current);
     if (
-      resumeMutation.current?.state.kind === "committed" &&
+      receipt?.kind === "committed" &&
       mounted.current &&
       scopeToken.current === dispatchScopeToken &&
       resumeCallbackScopeToken.current === dispatchScopeToken &&

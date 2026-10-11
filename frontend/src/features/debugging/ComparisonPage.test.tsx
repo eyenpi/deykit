@@ -167,12 +167,7 @@ it("does not publish stale saved-evaluation reads across A-to-B-to-A registratio
     ...disconnectedWorkspace.execution,
     inspection: {
       ...disconnectedWorkspace.execution.inspection,
-      readEvaluation: ({
-        evaluationId,
-      }: {
-        registrationId: string;
-        evaluationId: string;
-      }) => {
+      readEvaluation: () => {
         const request = deferred<ApiResult<Evaluation>>();
         pending.push(request);
         return request.promise.then((result) => {

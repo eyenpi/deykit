@@ -280,13 +280,9 @@ function createDebuggingGateway(
         }),
     },
     annotations: {
-      add: ({ registrationId, runId, caseId, body, signal }) =>
+      add: ({ registrationId, runId, body, signal }) =>
         sourceMutation(registrationId, signal, "addAnnotation", {
-          path: {
-            registration_id: registrationId,
-            run_id: runId,
-            case_id: caseId,
-          },
+          path: { registration_id: registrationId, run_id: runId },
           body,
         }),
       list: ({ registrationId, runId, query, signal }) =>

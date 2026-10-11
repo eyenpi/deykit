@@ -206,7 +206,7 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   } as unknown as WorkspaceGateway;
   const navigation = new WorkspaceNavigation(window);
   const navigate = vi.spyOn(navigation, "navigate").mockResolvedValue(true);
-  const pollingCallbacks: Array<() => void> = [];
+  const pollingCallbacks: Array<Exclude<TimerHandler, string>> = [];
   const pollingDelays: number[] = [];
   const nativeSetInterval = window.setInterval;
   const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((
@@ -216,7 +216,7 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
     if (delay === 2500) {
       pollingDelays.push(delay);
       if (typeof handler === "function")
-        pollingCallbacks.push(handler as () => void);
+        pollingCallbacks.push(handler);
       return -1;
     }
     return nativeSetInterval.call(window, handler, delay);
@@ -250,7 +250,7 @@ it("keeps a selected historical snapshot pinned while progress and the latest li
   expect(pollingDelays).toContain(2500);
   expect(pollingCallbacks).toHaveLength(1);
   await act(async () => {
-    pollingCallbacks[0]?.();
+    pollingCallbacks[0]?.call(window);
     await Promise.resolve();
   });
   expect(listSnapshots).toHaveBeenCalledTimes(2);
@@ -348,15 +348,7 @@ it("replays an unknown diagnostic cancellation through its original port after a
     return response(progress);
   });
   const checkCancel = vi.fn(async () =>
-    response({
-      schema_version: 1,
-      kind: "regression_check",
-      group_id: "group-2",
-      operation_id: "unexpected",
-      member_run_ids: [],
-      mode: "fixture",
-      replayed: true,
-    } as ApiOperationData<"cancelCheck">),
+    response({ ...progress, group_id: "group-2", kind: "regression_check" }),
   );
   const readDiagnostic = vi.fn(async ({ groupId }: { groupId: string }) =>
     response({
@@ -549,6 +541,8 @@ it("previews resume without dispatch, then retries an unknown resume with the sa
       member_run_ids: ["run-1"],
       mode: "fixture",
       replayed: true,
+      progress_path: "/api/v1/projects/registration-1/diagnostics/group-1",
+      segment_id: "segment-1",
     } as ApiOperationData<"resumeChoiceOrder">);
   });
   const gateway = {
