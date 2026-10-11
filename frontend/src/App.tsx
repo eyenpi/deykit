@@ -556,7 +556,12 @@ export function App({
       ) : route.kind === "examples" ? (
         examplesPage()
       ) : route.kind === "runs" ? (
-        <RunList key={project.id} project={project} gateway={gateway.execution} navigation={navigation} />
+        <RunList
+          key={project.id}
+          project={project}
+          gateway={gateway.execution}
+          navigation={navigation}
+        />
       ) : route.kind === "run" ? (
         <RunDetail
           key={`${project.id}:${route.runId}`}

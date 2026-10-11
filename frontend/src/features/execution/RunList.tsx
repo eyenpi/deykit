@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { safeMessage } from "../../api/client";
 import type { ApiOperationData } from "../../api/client";
-import { EmptyState, ErrorSummary, LoadingState } from "../../components/States";
-import type { ExecutionGateway, ProjectOverview } from "../../workspace/gateway";
+import {
+  EmptyState,
+  ErrorSummary,
+  LoadingState,
+} from "../../components/States";
+import type {
+  ExecutionGateway,
+  ProjectOverview,
+} from "../../workspace/gateway";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 
 type RunPage = ApiOperationData<"listRuns">;
@@ -120,18 +127,32 @@ export function RunList({
   return (
     <article className="document">
       <h1>Runs</h1>
-      <p className="lead">Service-owned executions and their current lifecycle state.</p>
+      <p className="lead">
+        Service-owned executions and their current lifecycle state.
+      </p>
       <div className="actions">
         <label className="field">
           Decision
-          <select value={decisionId} onChange={(event) => setDecisionId(event.currentTarget.value)}>
+          <select
+            value={decisionId}
+            onChange={(event) => setDecisionId(event.currentTarget.value)}
+          >
             <option value="">All decisions</option>
-            {project.decisions.map((decision) => <option key={decision.id} value={decision.id}>{decision.name}</option>)}
+            {project.decisions.map((decision) => (
+              <option key={decision.id} value={decision.id}>
+                {decision.name}
+              </option>
+            ))}
           </select>
         </label>
         <label className="field">
           Status
-          <select value={status} onChange={(event) => setStatus(event.currentTarget.value as "all" | RunStatus)}>
+          <select
+            value={status}
+            onChange={(event) =>
+              setStatus(event.currentTarget.value as "all" | RunStatus)
+            }
+          >
             <option value="all">All statuses</option>
             <option value="preparing">Preparing</option>
             <option value="running">Running</option>
@@ -144,33 +165,98 @@ export function RunList({
             <option value="preflight_failed">Preflight failed</option>
           </select>
         </label>
-        <button type="button" disabled={loading} onClick={() => setGeneration((value) => value + 1)}>Refresh runs</button>
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => setGeneration((value) => value + 1)}
+        >
+          Refresh runs
+        </button>
       </div>
-      {error && <ErrorSummary message={error} retry={() => setGeneration((value) => value + 1)} />}
+      {error && (
+        <ErrorSummary
+          message={error}
+          retry={() => setGeneration((value) => value + 1)}
+        />
+      )}
       {loading && <LoadingState>Loading runs…</LoadingState>}
-      {page && page.items.length === 0 && <EmptyState title="No runs in this page">This result reflects the service filter and total, not a local calculation.</EmptyState>}
+      {page && page.items.length === 0 && (
+        <EmptyState title="No runs in this page">
+          This result reflects the service filter and total, not a local
+          calculation.
+        </EmptyState>
+      )}
       {page && page.items.length > 0 && (
         <>
           <p role="status">{page.total} total runs from the service.</p>
           <div className="table-region">
             <table>
               <caption>Runs for {project.name}</caption>
-              <thead><tr><th>Run</th><th>Decision / dataset</th><th>Mode</th><th>State</th><th>Attempts</th><th>Activity</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Decision / dataset</th>
+                  <th>Mode</th>
+                  <th>State</th>
+                  <th>Attempts</th>
+                  <th>Activity</th>
+                </tr>
+              </thead>
               <tbody>
                 {page.items.map((run) => (
                   <tr key={run.run_id}>
-                    <td><button type="button" className="text-button" onClick={() => void navigation.navigate({ kind: "run", registrationId: project.id, runId: run.run_id })}>{run.run_id}</button></td>
-                    <td>{project.decisions.find((item) => item.id === run.decision_id)?.name ?? run.decision_id} / {project.datasets.find((item) => item.id === run.dataset_id)?.name ?? run.dataset_id}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() =>
+                          void navigation.navigate({
+                            kind: "run",
+                            registrationId: project.id,
+                            runId: run.run_id,
+                          })
+                        }
+                      >
+                        {run.run_id}
+                      </button>
+                    </td>
+                    <td>
+                      {project.decisions.find(
+                        (item) => item.id === run.decision_id,
+                      )?.name ?? run.decision_id}{" "}
+                      /{" "}
+                      {project.datasets.find(
+                        (item) => item.id === run.dataset_id,
+                      )?.name ?? run.dataset_id}
+                    </td>
                     <td>{run.mode}</td>
-                    <td>{run.state}{run.execution_active ? " · active" : ""}</td>
-                    <td>{run.attempts_used} / {run.attempt_limit} ({run.attempts_remaining} remaining)</td>
-                    <td>{run.segments.at(-1)?.ended_at ?? run.segments.at(-1)?.started_at ?? "Not started"}</td>
+                    <td>
+                      {run.state}
+                      {run.execution_active ? " · active" : ""}
+                    </td>
+                    <td>
+                      {run.attempts_used} / {run.attempt_limit} (
+                      {run.attempts_remaining} remaining)
+                    </td>
+                    <td>
+                      {run.segments.at(-1)?.ended_at ??
+                        run.segments.at(-1)?.started_at ??
+                        "Not started"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {cursor && <button type="button" disabled={moreLoading} onClick={() => void loadMore()}>{moreLoading ? "Loading…" : "Load more"}</button>}
+          {cursor && (
+            <button
+              type="button"
+              disabled={moreLoading}
+              onClick={() => void loadMore()}
+            >
+              {moreLoading ? "Loading…" : "Load more"}
+            </button>
+          )}
         </>
       )}
     </article>

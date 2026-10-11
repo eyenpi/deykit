@@ -1472,7 +1472,9 @@ export function DecisionPage({
     const lifetime = pageLoadLifetime.current;
     if (!controller || actionLock.current || working) return;
     if (composingSource.current || compositionCommitPending.current) {
-      setEditError("Finish composing the editor source before reviewing a run.");
+      setEditError(
+        "Finish composing the editor source before reviewing a run.",
+      );
       return;
     }
     actionLock.current = true;
@@ -1482,16 +1484,26 @@ export function DecisionPage({
     try {
       const drained = await drainTransforms();
       if (drained === "paused")
-        throw new Error("Finish composing or committing the editor before reviewing a run.");
+        throw new Error(
+          "Finish composing or committing the editor before reviewing a run.",
+        );
       if (drained === "failed")
-        throw new Error("A pending editor transform failed. Retry it before reviewing a run.");
-      if (pageLoadLifetime.current !== lifetime || autosave.current !== controller)
+        throw new Error(
+          "A pending editor transform failed. Retry it before reviewing a run.",
+        );
+      if (
+        pageLoadLifetime.current !== lifetime ||
+        autosave.current !== controller
+      )
         return;
       const generation = editGeneration.current;
       const sequence = sourceSequence.current;
       const editorSource = sourceRef.current;
       await controller.flush();
-      if (pageLoadLifetime.current !== lifetime || autosave.current !== controller)
+      if (
+        pageLoadLifetime.current !== lifetime ||
+        autosave.current !== controller
+      )
         return;
       if (!snapshotIsCurrent(generation, sequence, editorSource))
         throw new Error("The editor changed while preparing the run review.");
@@ -1500,13 +1512,21 @@ export function DecisionPage({
         lastAcknowledgedSource.current !== editorSource ||
         hasPendingEditorWork()
       )
-        throw new Error("The current editor draft is not acknowledged. Review its save status first.");
+        throw new Error(
+          "The current editor draft is not acknowledged. Review its save status first.",
+        );
       onRun?.();
     } catch (cause) {
-      if (pageLoadLifetime.current === lifetime && autosave.current === controller)
+      if (
+        pageLoadLifetime.current === lifetime &&
+        autosave.current === controller
+      )
         setEditError(safeMessage(cause));
     } finally {
-      if (pageLoadLifetime.current === lifetime && autosave.current === controller) {
+      if (
+        pageLoadLifetime.current === lifetime &&
+        autosave.current === controller
+      ) {
         setSourceControlsLockedNow(false);
         actionLock.current = false;
         setWorking(false);
@@ -1552,7 +1572,11 @@ export function DecisionPage({
           <button type="button" onClick={onExamples}>
             Examples
           </button>
-          <button type="button" disabled={working || sourceControlsLocked} onClick={() => void openRunReview()}>
+          <button
+            type="button"
+            disabled={working || sourceControlsLocked}
+            onClick={() => void openRunReview()}
+          >
             Run
           </button>
           {renameOutcomeUnknown && (

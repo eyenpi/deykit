@@ -204,7 +204,11 @@ export function Shell({
         {project && registrationId && (
           <nav className="sidebar-bottom" aria-label="Utilities">
             <button
-              aria-current={route.kind === "runs" || route.kind === "run" ? "page" : undefined}
+              aria-current={
+                route.kind === "runs" || route.kind === "run"
+                  ? "page"
+                  : undefined
+              }
               onClick={() => go({ kind: "runs", registrationId })}
             >
               Runs

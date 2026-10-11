@@ -46,7 +46,14 @@ const run: ApiOperationData<"readRun"> = {
     },
   ],
   attempts: [],
-  cases: [{ case_id: "case-1", status: "running", attempt_id: "attempt-1", error: null }],
+  cases: [
+    {
+      case_id: "case-1",
+      status: "running",
+      attempt_id: "attempt-1",
+      error: null,
+    },
+  ],
   settings: {
     max_attempts: "10",
     concurrency: "1",
@@ -105,7 +112,9 @@ function RunRoute({
 it("publishes the first progress read and suppresses a held refresh after route exit", async () => {
   window.history.replaceState(null, "", "#/p/registration-1/runs/run-1");
   const navigation = new WorkspaceNavigation(window);
-  const reads: Array<ReturnType<typeof deferred<ApiResult<ApiOperationData<"readRun">>>>> = [];
+  const reads: Array<
+    ReturnType<typeof deferred<ApiResult<ApiOperationData<"readRun">>>>
+  > = [];
   const read = vi.fn(() => {
     const pending = deferred<ApiResult<ApiOperationData<"readRun">>>();
     reads.push(pending);
@@ -115,22 +124,36 @@ it("publishes the first progress read and suppresses a held refresh after route 
     ...disconnectedWorkspace.execution,
     runs: { ...disconnectedWorkspace.execution.runs, read },
   };
-  const tree = render(<RunRoute navigation={navigation} execution={execution} />);
+  const tree = render(
+    <RunRoute navigation={navigation} execution={execution} />,
+  );
   const user = userEvent.setup();
   try {
     await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
     reads[0]?.resolve({ data: run, warnings: [] });
-    expect(await screen.findByRole("heading", { name: "Run run-1" })).toBeTruthy();
-    expect(screen.getByText("running · execution active; fixture")).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Run run-1" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("running · execution active; fixture"),
+    ).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Refresh progress" }));
     await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
     const obsoleteRead = reads[1];
     if (!obsoleteRead) throw new Error("The refresh request was not captured.");
-    await navigation.navigate({ kind: "runs", registrationId: "registration-1" });
+    await navigation.navigate({
+      kind: "runs",
+      registrationId: "registration-1",
+    });
     expect(await screen.findByRole("heading", { name: "Runs" })).toBeTruthy();
-    obsoleteRead.resolve({ data: { ...run, state: "completed", execution_active: false }, warnings: [] });
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Runs" })).toBeTruthy());
+    obsoleteRead.resolve({
+      data: { ...run, state: "completed", execution_active: false },
+      warnings: [],
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Runs" })).toBeTruthy(),
+    );
     expect(screen.queryByRole("heading", { name: "Run run-1" })).toBeNull();
   } finally {
     tree.unmount();

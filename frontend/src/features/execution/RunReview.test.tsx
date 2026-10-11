@@ -5,7 +5,10 @@ import type { ApiOperationBody, ApiOperationData } from "../../api/client";
 import { RunReview } from "./RunReview";
 import { WorkspaceNavigation } from "../../workspace/navigation";
 import { disconnectedWorkspace } from "../../workspace/gateway";
-import type { ProjectOverview, WorkspaceGateway } from "../../workspace/gateway";
+import type {
+  ProjectOverview,
+  WorkspaceGateway,
+} from "../../workspace/gateway";
 
 const requestSource = '{"large":9007199254740993,"fraction":1.2300}';
 
@@ -103,10 +106,12 @@ it("retries an unknown run start with the exact reviewed request and operation i
     created_at: "2026-10-11T00:00:00Z",
   };
   const previewBodies: ApiOperationBody<"previewRun">[] = [];
-  const previewCall = vi.fn(async ({ body }: { body: ApiOperationBody<"previewRun"> }) => {
-    previewBodies.push(body);
-    return result(preview);
-  });
+  const previewCall = vi.fn(
+    async ({ body }: { body: ApiOperationBody<"previewRun"> }) => {
+      previewBodies.push(body);
+      return result(preview);
+    },
+  );
   const startCalls: ApiOperationBody<"startRun">[] = [];
   const accepted: ApiOperationData<"startRun"> = {
     schema_version: 1,
@@ -118,12 +123,17 @@ it("retries an unknown run start with the exact reviewed request and operation i
     progress_path: "/api/v1/projects/registration-1/runs/run-1",
   };
   let startCount = 0;
-  const start = vi.fn(async ({ body }: { body: ApiOperationBody<"startRun"> }) => {
-    startCalls.push(body);
-    startCount += 1;
-    if (startCount === 1) throw new Error("connection closed after dispatch");
-    return { data: { ...accepted, operation_id: body.operation_id }, warnings: [] };
-  });
+  const start = vi.fn(
+    async ({ body }: { body: ApiOperationBody<"startRun"> }) => {
+      startCalls.push(body);
+      startCount += 1;
+      if (startCount === 1) throw new Error("connection closed after dispatch");
+      return {
+        data: { ...accepted, operation_id: body.operation_id },
+        warnings: [],
+      };
+    },
+  );
   const gateway: WorkspaceGateway = {
     ...disconnectedWorkspace,
     execution: {
@@ -138,25 +148,44 @@ it("retries an unknown run start with the exact reviewed request and operation i
       ...disconnectedWorkspace.authoring,
       examples: {
         ...disconnectedWorkspace.authoring.examples,
-        listCases: async () => result({
-          schema_version: 1,
-          dataset_etag: "a".repeat(64),
-          items: [],
-          next_cursor: null,
-          total: "0",
-        }),
+        listCases: async () =>
+          result({
+            schema_version: 1,
+            dataset_etag: "a".repeat(64),
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
       },
       providers: {
         ...disconnectedWorkspace.authoring.providers,
-        list: async () => result({ schema_version: 1, items: [], next_cursor: null, total: "0" }),
+        list: async () =>
+          result({
+            schema_version: 1,
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
       },
       fixtures: {
         ...disconnectedWorkspace.authoring.fixtures,
-        list: async () => result({ schema_version: 1, items: [fixture], next_cursor: null, total: "1" }),
+        list: async () =>
+          result({
+            schema_version: 1,
+            items: [fixture],
+            next_cursor: null,
+            total: "1",
+          }),
       },
       decisions: {
         ...disconnectedWorkspace.authoring.decisions,
-        revisions: async () => result({ schema_version: 1, items: [], next_cursor: null, total: "0" }),
+        revisions: async () =>
+          result({
+            schema_version: 1,
+            items: [],
+            next_cursor: null,
+            total: "0",
+          }),
       },
     },
   };
@@ -178,24 +207,38 @@ it("retries an unknown run start with the exact reviewed request and operation i
   try {
     await waitFor(() => {
       expect(
-        screen.getByRole("button", { name: "Review run" }).hasAttribute("disabled"),
+        screen
+          .getByRole("button", { name: "Review run" })
+          .hasAttribute("disabled"),
       ).toBe(false);
     });
     const concurrency = screen.getByLabelText("Concurrency (1–64)");
     await user.clear(concurrency);
     await user.type(concurrency, "1");
     await user.click(await screen.findByRole("button", { name: "Review run" }));
-    expect(await screen.findByRole("region", { name: "Reviewed run context" })).toBeTruthy();
+    expect(
+      await screen.findByRole("region", { name: "Reviewed run context" }),
+    ).toBeTruthy();
     expect(previewCall).toHaveBeenCalledTimes(1);
     expect(previewBodies[0]?.request.settings?.concurrency).toBe(1);
-    await user.click(screen.getByRole("button", { name: "Start reviewed run" }));
-    expect(await screen.findByRole("button", { name: "Retry original start request" })).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "Start reviewed run" }),
+    );
     expect(
-      screen.getByRole("button", { name: "Start reviewed run" }).hasAttribute("disabled"),
+      await screen.findByRole("button", {
+        name: "Retry original start request",
+      }),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Start reviewed run" })
+        .hasAttribute("disabled"),
     ).toBe(true);
     expect(startCalls).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "Retry original start request" }));
+    await user.click(
+      screen.getByRole("button", { name: "Retry original start request" }),
+    );
     await waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
     expect(startCalls).toHaveLength(2);
     expect(startCalls[1]).toEqual(startCalls[0]);

@@ -44,7 +44,7 @@ const caseDetailSource: ApiOperationData<"readResult">["source"] = {
       error_code: null,
       error_reason: null,
       request_body_source: exactRequest,
-      response_source: "{\"answer\":\"option-1\"}",
+      response_source: '{"answer":"option-1"}',
     },
   ],
   input_source: exactInput,
@@ -70,7 +70,9 @@ describe("execution evidence source projection", () => {
     };
     const detail = decodeCaseDetail(withSupplement);
     expect(detail.answer).toEqual(answerSource);
-    expect(Object.keys(detail.answer ?? {})).not.toContain("supplemental_source");
+    expect(Object.keys(detail.answer ?? {})).not.toContain(
+      "supplemental_source",
+    );
 
     const malformed = {
       ...caseDetailSource,

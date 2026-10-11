@@ -1,7 +1,8 @@
 import { ApiError, object } from "../../api/client";
 import type { ApiOperationData } from "../../api/client";
 
-type ResultRowSource = ApiOperationData<"listResults">["items"][number]["source"];
+type ResultRowSource =
+  ApiOperationData<"listResults">["items"][number]["source"];
 type CaseDetailSource = ApiOperationData<"readResult">["source"];
 
 export interface ResultRowView {

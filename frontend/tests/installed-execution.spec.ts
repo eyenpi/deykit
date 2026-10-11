@@ -45,11 +45,15 @@ type SafeFailure = {
   reason: string | null;
 };
 
-test("installed browser reviews and inspects fixture execution", async ({ page }, testInfo) => {
+test("installed browser reviews and inspects fixture execution", async ({
+  page,
+}, testInfo) => {
   page.setDefaultTimeout(12_000);
   const controlDirectory = process.env.DEYKIT_FIXTURE_CONTROL_DIRECTORY;
   if (!controlDirectory)
-    throw new Error("The installed driver must set the fixture control directory.");
+    throw new Error(
+      "The installed driver must set the fixture control directory.",
+    );
   const fixtureControlDirectory: string = controlDirectory;
 
   const phaseIds = [
@@ -60,9 +64,10 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
     "frozen_result_inspection",
     "mobile_run_inspection",
   ];
-  const phaseStatus = new Map<string, "pending" | "running" | "passed" | "failed">(
-    phaseIds.map((id) => [id, "pending"]),
-  );
+  const phaseStatus = new Map<
+    string,
+    "pending" | "running" | "passed" | "failed"
+  >(phaseIds.map((id) => [id, "pending"]));
   const apiFailures: SafeFailure[] = [];
   const screenshots: string[] = [];
   let activePhase: string | null = null;
@@ -84,7 +89,8 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
   }
 
   async function enterPhase(id: string) {
-    if (!phaseStatus.has(id)) throw new Error("Unknown installed execution phase.");
+    if (!phaseStatus.has(id))
+      throw new Error("Unknown installed execution phase.");
     if (activePhase) phaseStatus.set(activePhase, "passed");
     activePhase = id;
     phaseStatus.set(id, "running");
@@ -94,7 +100,8 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
   async function recordFailure(response: APIResponse | Response) {
     if (response.status() < 400) return;
     const body: unknown = await response.json().catch(() => undefined);
-    const error = isRecord(body) && isRecord(body.error) ? body.error : undefined;
+    const error =
+      isRecord(body) && isRecord(body.error) ? body.error : undefined;
     apiFailures.push({
       route_pattern: safeRoutePattern(new URL(response.url()).pathname),
       status: response.status(),
@@ -164,7 +171,9 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
     }
-    throw new Error("The fixture dispatch did not enter the configured barrier.");
+    throw new Error(
+      "The fixture dispatch did not enter the configured barrier.",
+    );
   }
 
   async function waitForRunInactive(runId: string) {
@@ -184,7 +193,9 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    throw new Error("The installed run did not become inactive within the bound.");
+    throw new Error(
+      "The installed run did not become inactive within the bound.",
+    );
   }
 
   const projectPath = testInfo.outputPath("fixture-execution-project");
@@ -228,9 +239,13 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
       !isRecord(demoData.registration) ||
       typeof demoData.registration.registration_id !== "string"
     )
-      throw new Error("The fixture demo did not return a project registration.");
+      throw new Error(
+        "The fixture demo did not return a project registration.",
+      );
     registrationId = demoData.registration.registration_id;
-    await expect(page.getByRole("heading", { name: "Sandbox", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Sandbox", exact: true }),
+    ).toBeVisible();
 
     const fixturesResponse = await page.request.get(
       `/api/v1/projects/${registrationId}/fixtures?limit=50`,
@@ -240,7 +255,8 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
       items: Array<{ id: string; decision_id: string; dataset_id: string }>;
     };
     const fixture = fixturePage.items[0];
-    if (!fixture) throw new Error("The support demo has no authored fixture set.");
+    if (!fixture)
+      throw new Error("The support demo has no authored fixture set.");
     const countsBeforeReview = await dispatchCounts();
     initialDispatchCount = countsBeforeReview.fixture_dispatch_calls;
     expect(initialDispatchCount).toBe(0);
@@ -254,16 +270,29 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
     await page.getByRole("button", { name: "Run", exact: true }).click();
     const reviewDialog = page.getByRole("dialog", { name: "Review a run" });
     await expect(reviewDialog).toBeVisible();
-    await expect(reviewDialog.getByLabel("Fixture set")).toHaveValue(fixture.id);
+    await expect(reviewDialog.getByLabel("Fixture set")).toHaveValue(
+      fixture.id,
+    );
     await reviewDialog.getByLabel(/^Lifetime attempts per case/).fill("3");
     await reviewDialog.getByLabel("Concurrency").fill("1");
     await reviewDialog.getByLabel(/^Timeout seconds/).fill("5");
     await reviewDialog.getByLabel(/^Deadline seconds/).fill("30");
-    await reviewDialog.getByLabel("Rate/overload retries per case (0–1)").fill("0");
+    await reviewDialog
+      .getByLabel("Rate/overload retries per case (0–1)")
+      .fill("0");
     await reviewDialog.getByRole("button", { name: "Review run" }).click();
-    await expect(reviewDialog.getByRole("heading", { name: "Server-reviewed context" })).toBeVisible();
-    await expect(reviewDialog.getByText("Dry run only. No model calls or run records are created by review.")).toBeVisible();
-    const reviewHash = await reviewDialog.locator(".run-review-summary code").first().innerText();
+    await expect(
+      reviewDialog.getByRole("heading", { name: "Server-reviewed context" }),
+    ).toBeVisible();
+    await expect(
+      reviewDialog.getByText(
+        "Dry run only. No model calls or run records are created by review.",
+      ),
+    ).toBeVisible();
+    const reviewHash = await reviewDialog
+      .locator(".run-review-summary code")
+      .first()
+      .innerText();
     expect(reviewHash).toMatch(/^[a-f0-9]{64}$/);
     await expect(reviewDialog.locator(".run-case-review pre")).toHaveCount(0);
     const previewData = await page.request.get(
@@ -271,27 +300,51 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
       { headers: await bootstrapHeaders() },
     );
     expect(previewData.status()).toBe(200);
-    expect((await expectEnvelope(previewData) as { items: unknown[] }).items).toHaveLength(0);
-    expect((await dispatchCounts()).fixture_dispatch_calls).toBe(initialDispatchCount);
+    expect(
+      ((await expectEnvelope(previewData)) as { items: unknown[] }).items,
+    ).toHaveLength(0);
+    expect((await dispatchCounts()).fixture_dispatch_calls).toBe(
+      initialDispatchCount,
+    );
 
     await screenshot("execution-review.png");
     await enterPhase("dry_review_and_request_opt_in");
-    await reviewDialog.getByLabel("Reveal sanitized compiled request sources in this review").check();
+    await reviewDialog
+      .getByLabel("Reveal sanitized compiled request sources in this review")
+      .check();
     await reviewDialog.getByRole("button", { name: "Review run" }).click();
-    await expect(reviewDialog.getByRole("heading", { name: "Server-reviewed context" })).toBeVisible();
-    expect(await reviewDialog.locator(".run-review-summary code").first().innerText()).toBe(reviewHash);
-    await expect(reviewDialog.locator(".run-case-review pre").first()).toBeVisible();
-    await expect(reviewDialog.getByText(/request source was redacted/i)).toHaveCount(0);
-    expect((await dispatchCounts()).fixture_dispatch_calls).toBe(initialDispatchCount);
+    await expect(
+      reviewDialog.getByRole("heading", { name: "Server-reviewed context" }),
+    ).toBeVisible();
+    expect(
+      await reviewDialog
+        .locator(".run-review-summary code")
+        .first()
+        .innerText(),
+    ).toBe(reviewHash);
+    await expect(
+      reviewDialog.locator(".run-case-review pre").first(),
+    ).toBeVisible();
+    await expect(
+      reviewDialog.getByText(/request source was redacted/i),
+    ).toHaveCount(0);
+    expect((await dispatchCounts()).fixture_dispatch_calls).toBe(
+      initialDispatchCount,
+    );
 
-    const reviewCases = await reviewDialog.locator(".run-case-review li").allInnerTexts();
+    const reviewCases = await reviewDialog
+      .locator(".run-case-review li")
+      .allInnerTexts();
     const eligibleCaseIds = reviewCases
       .map((text) => text.split(" · ")[0])
       .filter((id) => /^ex-\d{3}$/.test(id));
     if (eligibleCaseIds.length === 0)
-      throw new Error("The authored demo preview contained no case review rows.");
+      throw new Error(
+        "The authored demo preview contained no case review rows.",
+      );
     dispatchCaseId = eligibleCaseIds[0] ?? "";
-    if (!dispatchCaseId) throw new Error("The authored demo case ID was unavailable.");
+    if (!dispatchCaseId)
+      throw new Error("The authored demo case ID was unavailable.");
     holdPath = join(fixtureControlDirectory, `${dispatchCaseId}.hold`);
     await writeFile(holdPath, "hold\n", { flag: "wx" });
 
@@ -310,7 +363,10 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
         expect(response.status()).toBe(202);
         const receipt: unknown = await response.json();
         expect(isRecord(receipt) && receipt.schema_version === 1).toBe(true);
-        const accepted = isRecord(receipt) && isRecord(receipt.data) ? receipt.data : undefined;
+        const accepted =
+          isRecord(receipt) && isRecord(receipt.data)
+            ? receipt.data
+            : undefined;
         if (typeof accepted?.run_id === "string") firstRunId = accepted.run_id;
         await route.abort("failed");
         return;
@@ -321,11 +377,18 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
 
     await page.getByRole("button", { name: "Start reviewed run" }).click();
     await expect.poll(() => firstStartStatus).toBe(202);
-    await expect(reviewDialog.getByRole("button", { name: "Retry original start request" })).toBeVisible();
-    await expect(reviewDialog.getByRole("button", { name: "Start reviewed run" })).toBeDisabled();
+    await expect(
+      reviewDialog.getByRole("button", {
+        name: "Retry original start request",
+      }),
+    ).toBeVisible();
+    await expect(
+      reviewDialog.getByRole("button", { name: "Start reviewed run" }),
+    ).toBeDisabled();
     expect(firstRunId).toMatch(/^[A-Za-z0-9_-]+$/);
     const acceptedRunId = firstRunId;
-    if (!acceptedRunId) throw new Error("The accepted run ID was not captured.");
+    if (!acceptedRunId)
+      throw new Error("The accepted run ID was not captured.");
     await waitForEntered(dispatchCaseId);
     await screenshot("execution-review-unknown-start.png");
 
@@ -333,20 +396,30 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
     const retryReceipt = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        new URL(response.url()).pathname === `/api/v1/projects/${registrationId}/runs`,
+        new URL(response.url()).pathname ===
+          `/api/v1/projects/${registrationId}/runs`,
     );
-    await reviewDialog.getByRole("button", { name: "Retry original start request" }).click();
+    await reviewDialog
+      .getByRole("button", { name: "Retry original start request" })
+      .click();
     const retryResponse = await retryReceipt;
     await recordFailure(retryResponse);
     expect(retryResponse.status()).toBe(202);
-    const retryData = (await expectEnvelopeStatus(retryResponse, 202)) as ApiOperationData<"startRun">;
+    const retryData = (await expectEnvelopeStatus(
+      retryResponse,
+      202,
+    )) as ApiOperationData<"startRun">;
     expect(retryData.run_id).toBe(acceptedRunId);
     expect(retryData.replayed).toBe(true);
     expect(startBodies).toHaveLength(2);
     expect(startBodies[1]).toEqual(startBodies[0]);
-    await expect(page.getByRole("heading", { name: `Run ${acceptedRunId}` })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: `Run ${acceptedRunId}` }),
+    ).toBeVisible();
     await page.unroute("**/api/v1/projects/*/runs");
-    await expect(page.getByRole("button", { name: "Cancel run" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Cancel run" }),
+    ).toBeVisible();
     const cancelResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -355,7 +428,9 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
     );
     await page.getByRole("button", { name: "Cancel run" }).click();
     const cancelReceipt = await expectEnvelope(await cancelResponsePromise);
-    expect((cancelReceipt as ApiOperationData<"cancelRun">).run_id).toBe(acceptedRunId);
+    expect((cancelReceipt as ApiOperationData<"cancelRun">).run_id).toBe(
+      acceptedRunId,
+    );
     await expect(page.getByText(/Cancellation acknowledged/)).toBeVisible();
 
     await enterPhase("real_cancellation_and_resume");
@@ -366,9 +441,13 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
     expect(inactiveRun.execution_active).toBe(false);
     const settledCounts = await dispatchCounts();
     expect(settledCounts.live_dispatch_calls).toBe(0);
-    expect(settledCounts.fixture_dispatch_calls).toBeGreaterThan(initialDispatchCount);
+    expect(settledCounts.fixture_dispatch_calls).toBeGreaterThan(
+      initialDispatchCount,
+    );
     expect(settledCounts.for_case_calls[dispatchCaseId]).toBe(1);
-    await expect(page.getByRole("heading", { name: "Review resume" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Review resume" }),
+    ).toBeVisible();
     const resumePreviewPromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -377,8 +456,12 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
     );
     await page.getByRole("button", { name: "Preview resume" }).click();
     const resumePreview = await expectEnvelope(await resumePreviewPromise);
-    expect((resumePreview as ApiOperationData<"previewRunResume">).run.run_id).toBe(acceptedRunId);
-    await expect(page.getByRole("button", { name: "Resume run" })).toBeVisible();
+    expect(
+      (resumePreview as ApiOperationData<"previewRunResume">).run.run_id,
+    ).toBe(acceptedRunId);
+    await expect(
+      page.getByRole("button", { name: "Resume run" }),
+    ).toBeVisible();
     await expect(page.getByText(/Unknown retries: excluded/)).toBeVisible();
     const resumeResponsePromise = page.waitForResponse(
       (response) =>
@@ -387,28 +470,48 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
           `/api/v1/projects/${registrationId}/runs/${acceptedRunId}/resume`,
     );
     await page.getByRole("button", { name: "Resume run" }).click();
-    const resumeReceipt = await expectEnvelopeStatus(await resumeResponsePromise, 202);
-    expect((resumeReceipt as ApiOperationData<"resumeRun">).run_id).toBe(acceptedRunId);
+    const resumeReceipt = await expectEnvelopeStatus(
+      await resumeResponsePromise,
+      202,
+    );
+    expect((resumeReceipt as ApiOperationData<"resumeRun">).run_id).toBe(
+      acceptedRunId,
+    );
     await expect(page.getByText(/Resume acknowledged for run/)).toBeVisible();
     const resumedRun = await waitForRunInactive(acceptedRunId);
     expect(resumedRun.run_id).toBe(acceptedRunId);
-    await expect(page.getByRole("heading", { name: "Attempts and segments" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Attempts and segments" }),
+    ).toBeVisible();
 
     await enterPhase("frozen_result_inspection");
-    await expect(page.getByRole("region", { name: "Run case outcomes" })).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Run case outcomes" }),
+    ).toBeVisible();
     const caseButton = page
       .getByRole("region", { name: "Run case outcomes" })
       .getByRole("button", { name: dispatchCaseId, exact: true });
     await caseButton.click();
-    const inspector = page.getByRole("region", { name: `Case ${dispatchCaseId} inspection` });
+    const inspector = page.getByRole("region", {
+      name: `Case ${dispatchCaseId} inspection`,
+    });
     await expect(inspector).toBeVisible();
-    for (const name of ["Include input", "Include request", "Include response", "Include attempts"])
+    for (const name of [
+      "Include input",
+      "Include request",
+      "Include response",
+      "Include attempts",
+    ])
       await expect(inspector.getByLabel(name)).not.toBeChecked();
     await screenshot("execution-run-inspection-default.png");
     await inspector.getByLabel("Include request").check();
-    await expect(inspector.getByText("Sanitized request", { exact: true })).toBeVisible();
+    await expect(
+      inspector.getByText("Sanitized request", { exact: true }),
+    ).toBeVisible();
     await inspector.getByLabel("Include request").uncheck();
-    await expect(inspector.getByText("Sanitized request", { exact: true })).toHaveCount(0);
+    await expect(
+      inspector.getByText("Sanitized request", { exact: true }),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "Close inspection" }).click();
     await expect(page.getByText(/Sanitized request/)).toHaveCount(0);
 
@@ -418,14 +521,17 @@ test("installed browser reviews and inspects fixture execution", async ({ page }
     const detailBounds = await detailDocument.boundingBox();
     expect(detailBounds).not.toBeNull();
     const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
     );
     expect(overflow).toBe(false);
     await screenshot("execution-run-inspection-mobile-320.png");
     completed = true;
   } finally {
     if (holdPath) await rm(holdPath, { force: true }).catch(() => undefined);
-    if (activePhase) phaseStatus.set(activePhase, completed ? "passed" : "failed");
+    if (activePhase)
+      phaseStatus.set(activePhase, completed ? "passed" : "failed");
     await recordProgress().catch(() => undefined);
   }
 });

@@ -322,9 +322,7 @@ export interface ExecutionGateway {
     listEvaluations(
       request: RunPath & { query?: OperationQuery<"listEvaluations"> },
     ): OperationResult<"listEvaluations">;
-    readEvaluation(
-      request: EvaluationPath,
-    ): OperationResult<"readEvaluation">;
+    readEvaluation(request: EvaluationPath): OperationResult<"readEvaluation">;
   };
 }
 

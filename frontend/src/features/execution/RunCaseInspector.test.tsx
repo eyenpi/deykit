@@ -8,7 +8,9 @@ import { WorkspaceNavigation } from "../../workspace/navigation";
 import { RunCaseInspector } from "./RunCaseInspector";
 
 const exactInput = '{"large":9007199254740993,"fraction":1.2300}';
-type ResultReadRequest = Parameters<ExecutionGateway["inspection"]["readResult"]>[0];
+type ResultReadRequest = Parameters<
+  ExecutionGateway["inspection"]["readResult"]
+>[0];
 
 const run: ApiOperationData<"readRun"> = {
   schema_version: 1,
@@ -126,12 +128,19 @@ it("reveals exact saved input only after opt-in and clears it when hidden", asyn
         const includeInput = args.query?.include_input === "true";
         return result<ApiOperationData<"readResult">>({
           schema_version: 1,
-          source: { ...rowSource, input_source: includeInput ? exactInput : null },
+          source: {
+            ...rowSource,
+            input_source: includeInput ? exactInput : null,
+          },
         });
       },
     },
   };
-  window.history.replaceState(null, "", "#/p/registration-1/runs/run-inspector-1");
+  window.history.replaceState(
+    null,
+    "",
+    "#/p/registration-1/runs/run-inspector-1",
+  );
   const navigation = new WorkspaceNavigation(window);
   const tree = render(
     <RunCaseInspector
