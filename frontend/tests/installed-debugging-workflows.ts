@@ -1459,7 +1459,7 @@ export async function runComparisonWorkflow(
     );
     expect(revisedRun.run_id).toBe(revisedRunId);
     expect(revisedRun.execution_active).toBe(false);
-    expect(revisedRun.state).toBe("completed");
+    expect(revisedRun.state).toBe("completed_with_errors");
     const evaluationControls = page.getByRole("region", {
       name: "Saved result evaluation",
     });

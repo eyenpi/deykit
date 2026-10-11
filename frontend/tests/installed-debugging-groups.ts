@@ -397,7 +397,10 @@ async function setReaddedCaseCurrentLabel(
   await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
     "Content category",
   );
-  await page.getByRole("button", { name: "Examples", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Examples", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Examples", exact: true }),
   ).toBeVisible();
@@ -510,15 +513,15 @@ async function openSavedReport(
     savedPage.items.filter((item) => item.report_id === reportId),
   ).toHaveLength(1);
   const reportList = page.getByRole("list", { name: "Saved reports" });
-  await expect(
-    reportList
-      .getByRole("listitem")
-      .filter({ hasText: reportId })
-      .getByRole("button", { name: `${kind}: ${targetId}`, exact: true }),
-  ).toHaveCount(1);
-  const reportButton = page.getByRole("button", {
-    name: new RegExp(`^${kind}: ${targetId}`),
+  const reportRow = reportList
+    .getByRole("listitem")
+    .filter({ has: page.getByText(reportId, { exact: true }) });
+  await expect(reportRow).toHaveCount(1);
+  const reportButton = reportRow.getByRole("button", {
+    name: `${kind}: ${targetId}`,
+    exact: true,
   });
+  await expect(reportButton).toHaveCount(1);
   await captureOperation(
     page,
     "readReport",
