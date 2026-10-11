@@ -34,6 +34,9 @@ are excluded unless you explicitly include them, because the earlier remote
 request may already have run. The local service remains authoritative when
 reviewing, starting, cancelling, or resuming.
 
+The lifetime attempt cap is a total request limit for the run, shared across
+all selected cases and retries.
+
 Fixture runs use authored request bindings and do not contact a live provider.
 Preview validates the input and frozen execution context, but does not check
 whether every selected case has a fixture binding. A missing binding is

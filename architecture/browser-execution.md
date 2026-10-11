@@ -16,6 +16,8 @@ mutation containing the exact operation ID, expected review hash, and request.
 An uncertain response leaves that request available for explicit replay. A
 valid start receipt is known before the page reads progress, so a later read
 failure offers read-only recovery and cannot turn into another start.
+The configured lifetime attempt cap is one total request budget across all
+selected cases and retries.
 
 Preview validates input and frozen execution context. It does not establish
 that each selected case has a fixture binding; a missing binding is reported by

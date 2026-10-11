@@ -581,7 +581,7 @@ export function RunReview({
                   [
                     [
                       "max_attempts",
-                      "Lifetime attempts per case",
+                      "Lifetime request cap",
                       1,
                       Number.MAX_SAFE_INTEGER,
                     ],
@@ -613,8 +613,7 @@ export function RunReview({
                   </label>
                 ))}
                 <p className="muted">
-                  The configured retry can consume the same lifetime attempt
-                  cap.
+                  This cap is shared across all selected cases and retries.
                 </p>
               </fieldset>
               <label>
@@ -714,7 +713,8 @@ export function RunReview({
                   </dd>
                   <dt>Settings</dt>
                   <dd>
-                    {review.settings.max_attempts} attempts, concurrency{" "}
+                    {review.settings.max_attempts} total requests across the
+                    run, concurrency{" "}
                     {review.settings.concurrency},{" "}
                     {review.settings.timeout_seconds}s timeout,{" "}
                     {review.settings.deadline_seconds}s deadline,{" "}

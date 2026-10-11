@@ -604,7 +604,8 @@ export function RunDetail({
               Retry cases with unknown prior outcome
             </label>
             <label className="field">
-              Proposed lifetime attempt cap (optional)
+              Proposed lifetime attempt cap across all cases and retries
+              (optional)
               <input
                 inputMode="numeric"
                 value={attemptLimit}
