@@ -294,6 +294,9 @@ test("installed browser reviews and inspects fixture execution", async ({
     let ceilingAt: number | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let terminalRun: ApiOperationData<"readRun"> | undefined;
+    let terminalCandidate:
+      | { completedAt: number; run: ApiOperationData<"readRun"> }
+      | undefined;
     let resolveTerminal: (run: ApiOperationData<"readRun">) => void = () => {};
     let rejectTerminal: (error: Error) => void = () => {};
     const terminal = new Promise<ApiOperationData<"readRun">>(
@@ -321,6 +324,23 @@ test("installed browser reviews and inspects fixture execution", async ({
       observedReadCount += 1;
       observedReads.push(read);
       if (observedReads.length > 64) observedReads.shift();
+    }
+
+    function resolveTerminalCandidate() {
+      if (
+        terminalRun ||
+        !terminalCandidate ||
+        acceptedSegmentId === undefined ||
+        replayAt === undefined ||
+        releasedAt === undefined ||
+        terminalCandidate.completedAt < replayAt ||
+        terminalCandidate.completedAt < releasedAt ||
+        !terminalCandidate.run.segment_ids.includes(acceptedSegmentId)
+      )
+        return;
+      terminalRun = terminalCandidate.run;
+      stage("terminal_read");
+      resolveTerminal(terminalRun);
     }
 
     async function consume(response: Response, requestAt: number | undefined) {
@@ -370,6 +390,7 @@ test("installed browser reviews and inspects fixture execution", async ({
       }
 
       const bodyElapsed = Math.round(performance.now() - bodyStartedAt);
+      const bodyCompletedAt = performance.now();
       if (response.status() !== 200) {
         const error =
           isRecord(body) && isRecord(body.error) ? body.error : undefined;
@@ -439,24 +460,14 @@ test("installed browser reviews and inspects fixture execution", async ({
         attempt_count: run.attempts.length,
         pending_reads: pendingObserverReads,
       });
-      const terminalRead =
-        acceptedSegmentId !== undefined &&
-        replayAt !== undefined &&
-        releasedAt !== undefined &&
-        requestAt !== undefined &&
-        requestAt >= replayAt &&
-        requestAt >= releasedAt &&
-        responseAt >= releasedAt &&
+      if (
         !run.execution_active &&
-        run.segment_ids.includes(acceptedSegmentId);
-      if (terminalRead) {
-        terminalRun = run;
-        stage("terminal_read");
-        await recordProgress();
-        resolveTerminal(run);
-        return;
-      }
+        (acceptedSegmentId === undefined ||
+          run.segment_ids.includes(acceptedSegmentId))
+      )
+        terminalCandidate = { completedAt: bodyCompletedAt, run };
       await recordProgress();
+      resolveTerminalCandidate();
     }
 
     const onRequest = (request: Request) => {
@@ -484,13 +495,12 @@ test("installed browser reviews and inspects fixture execution", async ({
       tasks.add(task);
       void recordProgress().catch(() => undefined);
     };
-    page.on("request", onRequest);
-    page.on("response", onResponse);
-
     return {
       start() {
         observerStartedAt = performance.now();
         ceilingAt = observerStartedAt + RESUME_OBSERVER_CEILING_MS;
+        page.on("request", onRequest);
+        page.on("response", onResponse);
         stage("original_submit");
         timer = setTimeout(
           () => fail("completion_ceiling"),
@@ -500,14 +510,17 @@ test("installed browser reviews and inspects fixture execution", async ({
       acceptSegment(segmentId) {
         acceptedSegmentId = segmentId;
         stage("unknown_ack");
+        resolveTerminalCandidate();
       },
       replayAcknowledged() {
         replayAt = performance.now();
         stage("resume_replay");
+        resolveTerminalCandidate();
       },
       barrierReleased() {
         releasedAt = performance.now();
         stage("hold_released");
+        resolveTerminalCandidate();
       },
       waitForTerminal() {
         return terminal;
@@ -747,6 +760,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     const invalidInputCaseId = invalidInputCases[0]?.case_id;
     if (!invalidInputCaseId)
       throw new Error("The authored invalid-input case ID was unavailable.");
+    expect(invalidInputCaseId).toBe("ex-011");
     expect(invalidInputCases[0]?.request_hash).toBeNull();
     expect(invalidInputCases[0]?.request_source).toBeNull();
     const eligibleCaseIds = initialReview.case_reviews
@@ -1028,6 +1042,25 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(
       completedCounts.fixture_dispatch_by_case[invalidInputCaseId] ?? 0,
     ).toBe(0);
+    const responseErrorCaseId = "ex-012";
+    const responseErrorOutcome = resumedRun.cases.find(
+      (item) => item.case_id === responseErrorCaseId,
+    );
+    expect(responseErrorOutcome?.status).toBe("response_error");
+    expect(completedCounts.for_case_by_case[responseErrorCaseId] ?? 0).toBe(1);
+    expect(
+      completedCounts.fixture_dispatch_by_case[responseErrorCaseId] ?? 0,
+    ).toBe(1);
+    expect(
+      resumedRun.cases.filter((item) => item.status === "valid"),
+    ).toHaveLength(10);
+    expect(
+      resumedRun.cases.filter((item) => item.status === "response_error"),
+    ).toHaveLength(1);
+    expect(
+      resumedRun.cases.filter((item) => item.status === "input_invalid"),
+    ).toHaveLength(1);
+    expect(resumedRun.cases).toHaveLength(12);
     await expect(
       page.getByRole("heading", { name: "Attempts and segments" }),
     ).toBeVisible();
