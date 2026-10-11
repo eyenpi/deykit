@@ -461,7 +461,8 @@ export function RunCaseInspector({
         run.latest_result_snapshot_id !== null &&
         run.latest_result_snapshot_id !== resultPage.result_snapshot_id && (
           <p role="status" aria-label="Newer current result available">
-            A newer current result snapshot is available: {run.latest_result_snapshot_id}.{" "}
+            A newer current result snapshot is available:{" "}
+            {run.latest_result_snapshot_id}.{" "}
             {evaluationId
               ? "The selected evaluation remains pinned."
               : "Refresh frozen results to inspect it."}

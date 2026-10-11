@@ -346,15 +346,19 @@ it("keeps an older result snapshot pinned until explicit refresh", async () => {
       name: "Published result snapshot",
     });
     await waitFor(() =>
-      expect(publishedPair).toHaveTextContent("result-snapshot-1"),
+      expect(publishedPair.textContent()).toContain("result-snapshot-1"),
     );
     expect(
-      screen.getByRole("status", { name: "Newer current result available" }),
-    ).toHaveTextContent("result-snapshot-2");
+      screen
+        .getByRole("status", { name: "Newer current result available" })
+        .textContent?.includes("result-snapshot-2"),
+    ).toBe(true);
     await user.click(
       screen.getByRole("button", { name: "Refresh frozen results" }),
     );
-    await waitFor(() => expect(publishedPair).toHaveTextContent("result-snapshot-2"));
+    await waitFor(() =>
+      expect(publishedPair.textContent()).toContain("result-snapshot-2"),
+    );
     expect(pageReads).toBe(2);
     expect(
       screen.queryByRole("status", { name: "Newer current result available" }),
