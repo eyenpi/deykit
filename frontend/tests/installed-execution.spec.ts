@@ -295,8 +295,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let terminalRun: ApiOperationData<"readRun"> | undefined;
     let terminalCandidate:
-      | { completedAt: number; run: ApiOperationData<"readRun"> }
-      | undefined;
+      { completedAt: number; run: ApiOperationData<"readRun"> } | undefined;
     let resolveTerminal: (run: ApiOperationData<"readRun">) => void = () => {};
     let rejectTerminal: (error: Error) => void = () => {};
     const terminal = new Promise<ApiOperationData<"readRun">>(
