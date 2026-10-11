@@ -299,6 +299,13 @@ class ResumeObservation:
         self.events: list[dict[str, Any]] = []
         self.ordinal = 0
         self.dump_arms = 0
+        self.terminal_events: list[dict[str, Any]] = []
+        self.worker_snapshots: list[dict[str, Any]] = []
+        self._boundary_app: Any | None = None
+        self._future_refs: dict[int, dict[str, Any]] = {}
+        self._worker_future_ids: set[int] = set()
+        self._owner_future_ids: set[int] = set()
+        self._closed = False
         self._trace_path: Path | None = None
         self._temporary_trace_path: Path | None = None
         self._stack_file: Any | None = None
@@ -353,6 +360,184 @@ class ResumeObservation:
     def body_complete(self, ordinal: int, digest: str) -> None:
         self._record(ordinal, "body_complete", sha256=digest)
 
+    def bind_boundary(self, app: Any) -> None:
+        self._boundary_app = app
+
+    def capture_workers(
+        self,
+        app: Any,
+        *,
+        ordinal: int | None,
+        checkpoint: str,
+        scope_path: Any = None,
+    ) -> None:
+        if not self.enabled or self._closed:
+            return
+        if checkpoint == "shutdown":
+            self._snapshot_retained(ordinal=None, checkpoint=checkpoint)
+            return
+        inner = getattr(app, "app", None)
+        state = getattr(inner, "state", None)
+        supervisor = getattr(state, "execution_supervisor", None)
+        workers = getattr(state, "workers", None)
+        registration_id: str | None = None
+        group_id: str | None = None
+        if ordinal is not None:
+            # The request path is used only to look up the supervisor's private owner.
+            # It is never copied into the evidence file.
+            if isinstance(scope_path, str):
+                segments = scope_path.split("/")
+                if len(segments) == 8 and _is_diagnostic_resume_path(scope_path):
+                    registration_id, group_id = segments[4], segments[6]
+
+        owner = None
+        if supervisor is not None and registration_id and group_id:
+            owner = getattr(supervisor, "_group_tasks", {}).get((registration_id, group_id))
+        if owner is not None and id(owner) not in self._owner_future_ids:
+            if len(self._owner_future_ids) < 2:
+                self._owner_future_ids.add(id(owner))
+                self._observe_future(owner, ordinal=ordinal, owner=True, worker_index=None)
+
+        worker_list: tuple[Any, ...] | None = None
+        if workers is not None:
+            try:
+                worker_list = tuple(workers._tasks)
+            except (AttributeError, TypeError):
+                worker_list = None
+        available_slots = max(0, 16 - len(self._worker_future_ids))
+        worker_overflow = 0
+        if worker_list is not None:
+            for future in worker_list:
+                identity = id(future)
+                if identity in self._worker_future_ids:
+                    continue
+                if available_slots == 0:
+                    worker_overflow += 1
+                    continue
+                self._worker_future_ids.add(identity)
+                worker_index = len(self._worker_future_ids)
+                self._observe_future(
+                    future,
+                    ordinal=ordinal,
+                    owner=False,
+                    worker_index=worker_index,
+                )
+                available_slots -= 1
+
+        owner_identity = id(owner) if owner is not None else None
+        known_refs = [
+            {
+                "owner": bool(item["owner"]),
+                "worker_index": item["worker_index"],
+                "state": self._future_state(item["future"]),
+            }
+            for item in self._future_refs.values()
+        ]
+        snapshot: dict[str, Any] = {
+            "checkpoint": checkpoint,
+            "ordinal": ordinal,
+            "owner_lookup": "available" if supervisor is not None else "unavailable",
+            "owner_present": None if supervisor is None else owner is not None,
+            "owner_observed": (
+                None
+                if supervisor is None
+                else owner_identity in self._owner_future_ids
+                if owner_identity is not None
+                else False
+            ),
+            "worker_list": "available" if worker_list is not None else "unavailable",
+            "worker_count": len(worker_list) if worker_list is not None else None,
+            "worker_overflow_count": worker_overflow if worker_list is not None else None,
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+            "futures": known_refs,
+        }
+        if len(self.worker_snapshots) < 3:
+            self.worker_snapshots.append(snapshot)
+            self._persist()
+
+    def _snapshot_retained(self, *, ordinal: int | None, checkpoint: str) -> None:
+        snapshot: dict[str, Any] = {
+            "checkpoint": checkpoint,
+            "ordinal": ordinal,
+            "owner_lookup": "unrequested",
+            "owner_present": None,
+            "owner_observed": None,
+            "worker_list": "unrequested",
+            "worker_count": None,
+            "worker_overflow_count": None,
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+            "futures": [
+                {
+                    "owner": bool(item["owner"]),
+                    "worker_index": item["worker_index"],
+                    "state": self._future_state(item["future"]),
+                }
+                for item in self._future_refs.values()
+            ],
+        }
+        if len(self.worker_snapshots) < 3:
+            self.worker_snapshots.append(snapshot)
+            self._persist()
+
+    def _observe_future(
+        self,
+        future: Any,
+        *,
+        ordinal: int | None,
+        owner: bool,
+        worker_index: int | None,
+    ) -> None:
+        identity = id(future)
+        existing = self._future_refs.get(identity)
+        if existing is not None:
+            if worker_index is not None and existing["worker_index"] is None:
+                existing["worker_index"] = worker_index
+            existing["owner"] = existing["owner"] or owner
+            return
+        self._future_refs[identity] = {
+            "future": future,
+            "ordinal": ordinal,
+            "owner": owner,
+            "worker_index": worker_index,
+        }
+        future.add_done_callback(lambda completed: self._future_done(identity, completed))
+
+    @staticmethod
+    def _future_state(future: Any) -> str:
+        try:
+            if not future.done():
+                return "pending"
+            if future.cancelled():
+                return "cancelled"
+            error = future.exception()
+        except asyncio.CancelledError:
+            return "cancelled"
+        except BaseException:
+            return "unclassified_failure"
+        if error is None:
+            return "returned"
+        if isinstance(error, asyncio.CancelledError):
+            return "cancelled"
+        if isinstance(error, ServiceFailure):
+            return "service_failure"
+        return "unclassified_failure"
+
+    def _future_done(self, identity: int, future: Any) -> None:
+        if self._closed or len(self.terminal_events) >= 18:
+            return
+        observed = self._future_refs.get(identity)
+        if observed is None:
+            return
+        event: dict[str, Any] = {
+            "ordinal": observed["ordinal"],
+            "owner": bool(observed["owner"]),
+            "worker_index": observed["worker_index"],
+            "state": self._future_state(future),
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+        }
+        self.terminal_events.append(event)
+        self._persist()
+
     def _record(
         self,
         ordinal: int,
@@ -379,7 +564,12 @@ class ResumeObservation:
         if self._trace_path is None or self._temporary_trace_path is None:
             return
         payload = json.dumps(
-            {"schema_version": 1, "events": self.events},
+            {
+                "schema_version": 1,
+                "events": self.events,
+                "worker_snapshots": self.worker_snapshots,
+                "terminal_events": self.terminal_events,
+            },
             separators=(",", ":"),
         ).encode("ascii")
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
@@ -395,6 +585,11 @@ class ResumeObservation:
         os.replace(self._temporary_trace_path, self._trace_path)
 
     def close(self) -> None:
+        if self._closed:
+            return
+        if self._boundary_app is not None:
+            self.capture_workers(self._boundary_app, ordinal=None, checkpoint="shutdown")
+        self._closed = True
         if self._stack_file is not None:
             faulthandler.cancel_dump_traceback_later()
             self._stack_file.close()
@@ -407,6 +602,7 @@ class ResumeObservationApp:
     def __init__(self, app: Any, observation: ResumeObservation) -> None:
         self._app = app
         self._observation = observation
+        self._observation.bind_boundary(app)
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         if (
@@ -432,6 +628,12 @@ class ResumeObservationApp:
                 await send(message)
                 if isinstance(status, int) and 100 <= status <= 599:
                     self._observation.response_started(ordinal, status)
+                    self._observation.capture_workers(
+                        self._app,
+                        ordinal=ordinal,
+                        checkpoint="response_boundary",
+                        scope_path=scope.get("path"),
+                    )
                 return
             if message_type == "http.response.body":
                 body = message.get("body", b"")
