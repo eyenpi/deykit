@@ -256,15 +256,17 @@ function ChoiceOrderReview(props: ReviewProps) {
   const [dirty, setDirty] = useState(false);
   const [exitPrompt, setExitPrompt] = useState(false);
   const generation = useRef(0);
-  const reviewController = useRef<AbortController>();
-  const mutation = useRef<RetainedMutation<Intent, GroupAccepted>>();
+  const reviewController = useRef<AbortController | undefined>(undefined);
+  const mutation = useRef<RetainedMutation<Intent, GroupAccepted> | undefined>(
+    undefined,
+  );
   const scope = `${project.id}:${decision.id}:diagnostic`;
   const scopeRef = useRef(scope);
   const mounted = useRef(true);
   const mutationEpoch = useRef(0);
   const renderEpoch = useRef(0);
-  const pendingIntentScope = useRef<string>();
-  const callbackScopeToken = useRef<number>();
+  const pendingIntentScope = useRef<string | undefined>(undefined);
+  const callbackScopeToken = useRef<number | undefined>(undefined);
   const scopeToken = useRef(0);
   const tokenScope = useRef({ scope, gateway });
   if (
@@ -888,15 +890,17 @@ function RegressionCheckReview(props: ReviewProps) {
   const [dirty, setDirty] = useState(false);
   const [exitPrompt, setExitPrompt] = useState(false);
   const generation = useRef(0);
-  const reviewController = useRef<AbortController>();
-  const mutation = useRef<RetainedMutation<Intent, GroupAccepted>>();
+  const reviewController = useRef<AbortController | undefined>(undefined);
+  const mutation = useRef<RetainedMutation<Intent, GroupAccepted> | undefined>(
+    undefined,
+  );
   const scope = `${project.id}:${decision.id}:check`;
   const scopeRef = useRef(scope);
   const mounted = useRef(true);
   const mutationEpoch = useRef(0);
   const renderEpoch = useRef(0);
-  const pendingIntentScope = useRef<string>();
-  const callbackScopeToken = useRef<number>();
+  const pendingIntentScope = useRef<string | undefined>(undefined);
+  const callbackScopeToken = useRef<number | undefined>(undefined);
   const scopeToken = useRef(0);
   const tokenScope = useRef({ scope, gateway });
   if (

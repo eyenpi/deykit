@@ -94,8 +94,8 @@ export function GroupDetail({
   const renderEpoch = useRef(0);
   const cancelEpoch = useRef(0);
   const resumeEpoch = useRef(0);
-  const cancelCallbackScopeToken = useRef<number>();
-  const resumeCallbackScopeToken = useRef<number>();
+  const cancelCallbackScopeToken = useRef<number | undefined>(undefined);
+  const resumeCallbackScopeToken = useRef<number | undefined>(undefined);
   const scopeToken = useRef(0);
   const tokenScope = useRef({ scope, gateway });
   if (
@@ -108,10 +108,12 @@ export function GroupDetail({
   const resumeReviewGeneration = useRef(0);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
-  const cancelMutation =
-    useRef<RetainedMutation<CancelIntent, CancelReceipt>>();
-  const resumeMutation =
-    useRef<RetainedMutation<ResumeIntent, ResumeReceipt>>();
+  const cancelMutation = useRef<
+    RetainedMutation<CancelIntent, CancelReceipt> | undefined
+  >(undefined);
+  const resumeMutation = useRef<
+    RetainedMutation<ResumeIntent, ResumeReceipt> | undefined
+  >(undefined);
 
   if (!cancelMutation.current) {
     cancelMutation.current = new RetainedMutation(
