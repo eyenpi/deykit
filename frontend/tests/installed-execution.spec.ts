@@ -1134,8 +1134,7 @@ test("installed browser reviews and inspects fixture execution", async ({
     ])
       await expect(inspector.getByLabel(name)).not.toBeChecked();
     await screenshot("execution-run-inspection-default.png");
-    const requestResultPath =
-      `/api/v1/projects/${registrationId}/runs/${acceptedRunId}/results/${dispatchCaseId}`;
+    const requestResultPath = `/api/v1/projects/${registrationId}/runs/${acceptedRunId}/results/${dispatchCaseId}`;
     const requestRevealResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "GET" &&
@@ -1158,7 +1157,9 @@ test("installed browser reviews and inspects fixture execution", async ({
     expect(requestRevealData.source.case_id).toBe(dispatchCaseId);
     expect(requestRevealData.source.result_snapshot_id).toBe(resultSnapshotId);
     expect(requestRevealData.source.label_snapshot_id).toBe(labelSnapshotId);
-    expect(requestRevealAttempt.request_body_source).toEqual(expect.any(String));
+    expect(requestRevealAttempt.request_body_source).toEqual(
+      expect.any(String),
+    );
     expect(requestRevealAttempt.response_source).toBeUndefined();
     await expect(
       inspector.getByText("Sanitized request", { exact: true }),
