@@ -1,4 +1,10 @@
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import {
+  expect,
+  type Page,
+  type Request,
+  type Response,
+  type TestInfo,
+} from "@playwright/test";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { writeFile } from "node:fs/promises";
@@ -447,18 +453,155 @@ async function setReaddedCaseCurrentLabel(
   const casesTable = page.getByRole("table", { name: /^Cases in / });
   await waitForIdle();
   await selectAuthoredAlternateCase(page, waitForIdle);
-  const currentLabelRead = await captureOperation(
-    page,
-    "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get",
-    {
-      registration_id: registrationId,
-      decision_id: qualification.seedMetadata.decision_id,
-      dataset_id: datasetId,
-      case_id: "ex-003",
-    },
-    () =>
-      casesTable.getByRole("button", { name: "ex-003", exact: true }).click(),
+  const entryRoute = routeFromHash(new URL(page.url()).hash);
+  qualification.setWitness(
+    "current_label_entry_route_kind",
+    entryRoute?.kind === "examples" ? "examples" : "other",
   );
+  qualification.setWitness(
+    "current_label_entry_registration_matches",
+    entryRoute?.kind === "examples" &&
+      entryRoute.registrationId === registrationId,
+  );
+  qualification.setWitness(
+    "current_label_entry_decision_matches",
+    entryRoute?.kind === "examples" &&
+      entryRoute.decisionId === qualification.seedMetadata.decision_id,
+  );
+  qualification.setWitness(
+    "current_label_entry_dataset_matches",
+    entryRoute?.kind === "examples" && entryRoute.datasetId === datasetId,
+  );
+  qualification.setWitness(
+    "current_label_entry_alternate_case_matches",
+    entryRoute?.kind === "examples" && entryRoute.caseId === "ex-001",
+  );
+
+  const expectedCasePath = `/api/v1/projects/${registrationId}/datasets/${datasetId}/cases/ex-003`;
+  const expectedLabelPath = `/api/v1/projects/${registrationId}/decisions/${qualification.seedMetadata.decision_id}/datasets/${datasetId}/labels/ex-003`;
+  const appOrigin = new URL(page.url()).origin;
+  let caseReads = 0;
+  let matchingCaseReads = 0;
+  let labelReads = 0;
+  let matchingLabelReads = 0;
+  let targetClickCompleted = false;
+  let captureCompleted = false;
+  let labelResponseCount = 0;
+  let firstLabelStatusClass = "none";
+  const safeStatusClass = (status: number) =>
+    status >= 200 && status < 300
+      ? "2xx"
+      : status >= 300 && status < 400
+        ? "3xx"
+        : status >= 400 && status < 500
+          ? "4xx"
+          : status >= 500 && status < 600
+            ? "5xx"
+            : "other";
+  const onRequest = (request: Request) => {
+    const url = new URL(request.url());
+    if (
+      url.origin !== appOrigin ||
+      request.method() !== "GET" ||
+      !url.pathname.startsWith("/api/v1/projects/")
+    )
+      return;
+    if (url.pathname.includes("/cases/")) {
+      caseReads += 1;
+      if (url.pathname === expectedCasePath) matchingCaseReads += 1;
+    }
+    if (url.pathname.includes("/labels/")) {
+      labelReads += 1;
+      if (url.pathname === expectedLabelPath) matchingLabelReads += 1;
+    }
+  };
+  const onResponse = (response: Response) => {
+    const url = new URL(response.url());
+    if (
+      url.origin === appOrigin &&
+      response.request().method() === "GET" &&
+      url.pathname === expectedLabelPath
+    ) {
+      labelResponseCount += 1;
+      if (labelResponseCount === 1)
+        firstLabelStatusClass = safeStatusClass(response.status());
+    }
+  };
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  let currentLabelRead: Awaited<ReturnType<typeof captureOperation>>;
+  try {
+    currentLabelRead = await captureOperation(
+      page,
+      "read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get",
+      {
+        registration_id: registrationId,
+        decision_id: qualification.seedMetadata.decision_id,
+        dataset_id: datasetId,
+        case_id: "ex-003",
+      },
+      async () => {
+        await casesTable
+          .getByRole("button", { name: "ex-003", exact: true })
+          .click();
+        targetClickCompleted = true;
+      },
+    );
+    captureCompleted = true;
+  } finally {
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+    const targetRoute = routeFromHash(new URL(page.url()).hash);
+    qualification.setWitness(
+      "current_label_target_route_kind",
+      targetRoute?.kind === "examples" ? "examples" : "other",
+    );
+    qualification.setWitness(
+      "current_label_target_registration_matches",
+      targetRoute?.kind === "examples" &&
+        targetRoute.registrationId === registrationId,
+    );
+    qualification.setWitness(
+      "current_label_target_decision_matches",
+      targetRoute?.kind === "examples" &&
+        targetRoute.decisionId === qualification.seedMetadata.decision_id,
+    );
+    qualification.setWitness(
+      "current_label_target_dataset_matches",
+      targetRoute?.kind === "examples" && targetRoute.datasetId === datasetId,
+    );
+    qualification.setWitness(
+      "current_label_target_case_matches",
+      targetRoute?.kind === "examples" && targetRoute.caseId === "ex-003",
+    );
+    qualification.setWitness(
+      "current_label_target_click_completed",
+      targetClickCompleted,
+    );
+    qualification.setWitness(
+      "current_label_capture_completed",
+      captureCompleted,
+    );
+    qualification.setWitness("current_label_case_read_count", caseReads);
+    qualification.setWitness(
+      "current_label_case_path_match_count",
+      matchingCaseReads,
+    );
+    qualification.setWitness("current_label_read_count", labelReads);
+    qualification.setWitness(
+      "current_label_path_match_count",
+      matchingLabelReads,
+    );
+    qualification.setWitness(
+      "current_label_response_count",
+      labelResponseCount,
+    );
+    qualification.setWitness(
+      "current_label_response_status_class",
+      labelResponseCount === 0 ? "none" : firstLabelStatusClass,
+    );
+    await qualification.save();
+  }
   const currentLabel = decodeSuccessEnvelope<
     ApiOperationData<"read_label_api_v1_projects__registration_id__decisions__decision_id__datasets__dataset_id__labels__case_id__get">
   >(currentLabelRead.body, 200, currentLabelRead.response.status());
