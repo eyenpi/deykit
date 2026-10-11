@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { ApiOperationBody, ApiOperationData } from "../../../api/client";
 import { disconnectedWorkspace } from "../../../workspace/gateway";
@@ -136,6 +136,68 @@ it("keeps the reviewed seed and operation identity across an unknown group start
   expect(startBodies[1]).toEqual(startBodies[0]);
   expect(startBodies[0].request.seed).toBe("9007199254740993");
   expect(onStarted).toHaveBeenCalledWith("group-1");
+  navigation.dispose();
+});
+
+it("retries an unknown start through the original adapter after a gateway replacement", async () => {
+  const fixture = {
+    schema_version: 1,
+    id: "fixture-1",
+    name: "Authored fixture",
+    dataset_id: "dataset-1",
+    decision_id: "decision-1",
+    model_identity: "fixture-model",
+    content_hash: "d".repeat(64),
+    binding_count: "1",
+    bindings: [],
+    requests: [],
+    created_at: "2026-10-11T00:00:00Z",
+  } as ApiOperationData<"listFixtureSets">["items"][number];
+  const startCalls: unknown[] = [];
+  let attempt = 0;
+  const originalStart = vi.fn(async (request: { body: ApiOperationBody<"startChoiceOrder"> }) => {
+    startCalls.push(request);
+    attempt += 1;
+    if (attempt === 1) throw new Error("connection closed after dispatch");
+    return response({ schema_version: 1, kind: "choice_order", group_id: "group-1", member_run_ids: ["run-1", "run-2"], operation_id: request.body.operation_id, mode: "fixture", replayed: true } as ApiOperationData<"startChoiceOrder">);
+  });
+  const replacementStart = vi.fn(async () => response({
+    schema_version: 1, kind: "choice_order", group_id: "wrong-group", member_run_ids: [], operation_id: "wrong-operation", mode: "fixture", replayed: false,
+  } as ApiOperationData<"startChoiceOrder">));
+  const authoring = {
+    ...disconnectedWorkspace.authoring,
+    examples: { ...disconnectedWorkspace.authoring.examples, listCases: async () => response({ schema_version: 1, dataset_etag: "e".repeat(64), items: [], next_cursor: null, total: "0" }) },
+    providers: { ...disconnectedWorkspace.authoring.providers, list: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
+    fixtures: { ...disconnectedWorkspace.authoring.fixtures, list: async () => response({ schema_version: 1, items: [fixture], next_cursor: null, total: "1" }) },
+    decisions: { ...disconnectedWorkspace.authoring.decisions, revisions: async () => response({ schema_version: 1, items: [], next_cursor: null, total: "0" }) },
+  };
+  const gateway = {
+    ...disconnectedWorkspace,
+    debugging: { ...disconnectedWorkspace.debugging, diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, preview: async () => response(preview), start: originalStart } },
+    authoring,
+  } as unknown as WorkspaceGateway;
+  const replacementGateway = {
+    ...gateway,
+    debugging: { ...gateway.debugging, diagnostics: { ...gateway.debugging.diagnostics, start: replacementStart } },
+  } as unknown as WorkspaceGateway;
+  const navigation = new WorkspaceNavigation(window);
+  const onStarted = vi.fn();
+  const view = render(<GroupReview project={project} decision={project.decisions[0]} gateway={gateway} navigation={navigation} onClose={vi.fn()} onStarted={onStarted} kind="diagnostic" />);
+
+  await screen.findByText("Authored fixture");
+  fireEvent.change(screen.getByLabelText("Fixture set"), { target: { value: "fixture-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Review choice order" }));
+  await screen.findByText("Reviewed group context");
+  fireEvent.click(screen.getByRole("button", { name: "Start reviewed group" }));
+  await screen.findByText(/connection closed after dispatch/);
+
+  view.rerender(<GroupReview project={project} decision={project.decisions[0]} gateway={replacementGateway} navigation={navigation} onClose={vi.fn()} onStarted={onStarted} kind="diagnostic" />);
+  fireEvent.click(screen.getByRole("button", { name: "Retry original start request" }));
+  await waitFor(() => expect(originalStart).toHaveBeenCalledTimes(2));
+  expect(replacementStart).not.toHaveBeenCalled();
+  expect(startCalls[1]).toEqual(startCalls[0]);
+  expect(screen.queryByText(/Group accepted:/)).toBeNull();
+  expect(onStarted).not.toHaveBeenCalled();
   navigation.dispose();
 });
 

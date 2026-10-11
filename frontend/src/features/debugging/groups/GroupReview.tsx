@@ -183,8 +183,8 @@ export type GroupReviewProps = {
 type ReviewProps = GroupReviewProps;
 
 type Intent =
-  | { kind: "diagnostic"; registrationId: string; body: StartChoiceBody }
-  | { kind: "check"; registrationId: string; body: StartCheckBody };
+  | { kind: "diagnostic"; registrationId: string; body: StartChoiceBody; gateway: WorkspaceGateway }
+  | { kind: "check"; registrationId: string; body: StartCheckBody; gateway: WorkspaceGateway };
 
 export function GroupReview({
   project,
@@ -237,7 +237,6 @@ function ChoiceOrderReview(props: ReviewProps) {
   const generation = useRef(0);
   const reviewController = useRef<AbortController>();
   const mutation = useRef<RetainedMutation<Intent, GroupAccepted>>();
-  const gatewayRef = useRef(gateway);
   const scope = `${project.id}:${decision.id}:diagnostic`;
   const scopeRef = useRef(scope);
   const mounted = useRef(true);
@@ -246,12 +245,11 @@ function ChoiceOrderReview(props: ReviewProps) {
   const pendingIntentScope = useRef<string>();
   const callbackScopeToken = useRef<number>();
   const scopeToken = useRef(0);
-  const tokenScope = useRef(scope);
-  if (tokenScope.current !== scope) {
-    tokenScope.current = scope;
+  const tokenScope = useRef({ scope, gateway });
+  if (tokenScope.current.scope !== scope || tokenScope.current.gateway !== gateway) {
+    tokenScope.current = { scope, gateway };
     scopeToken.current += 1;
   }
-  gatewayRef.current = gateway;
   scopeRef.current = scope;
   const options = useReferenceOptions(gateway, project, decision.id, datasetId);
   const [mutationState, setMutationState] = useState<MutationState<GroupAccepted>>({ kind: "idle" });
@@ -259,7 +257,7 @@ function ChoiceOrderReview(props: ReviewProps) {
   if (!mutation.current) {
     mutation.current = new RetainedMutation(async (intent) => {
       if (intent.kind !== "diagnostic") throw new Error("The group request kind changed.");
-      const result = await gatewayRef.current.debugging.diagnostics.start({
+      const result = await intent.gateway.debugging.diagnostics.start({
         registrationId: intent.registrationId,
         body: intent.body,
       });
@@ -423,7 +421,7 @@ function ChoiceOrderReview(props: ReviewProps) {
       expected_review_context_hash: preview.review_context_hash,
       request: previewRequest,
     };
-    const intent: Intent = { kind: "diagnostic", registrationId: project.id, body };
+    const intent: Intent = { kind: "diagnostic", registrationId: project.id, body, gateway };
     pendingIntentScope.current = scope;
     callbackScopeToken.current = scopeToken.current;
     mutationEpoch.current = renderEpoch.current;
@@ -436,7 +434,7 @@ function ChoiceOrderReview(props: ReviewProps) {
   async function retryStart() {
     if (pendingIntentScope.current !== scope) return;
     const dispatchScopeToken = callbackScopeToken.current;
-    if (dispatchScopeToken === undefined || dispatchScopeToken !== scopeToken.current) return;
+    if (dispatchScopeToken === undefined) return;
     callbackScopeToken.current = dispatchScopeToken;
     mutationEpoch.current = renderEpoch.current;
     const accepted = await mutation.current?.retryOriginal();
@@ -504,7 +502,7 @@ function ChoiceOrderReview(props: ReviewProps) {
             <div className="actions"><button type="submit" className="primary" disabled={options.loading || reviewBusy || mutationBlocked}>{reviewBusy ? "Reviewing…" : "Review choice order"}</button><button type="button" onClick={close}>Close</button></div>
             {preview && <PreviewSummary preview={preview} kind="diagnostic" />}
             {preview && mutationState.kind === "idle" && <button type="button" className="primary" onClick={() => void start()}>Start reviewed group</button>}
-            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope || callbackScopeToken.current !== scopeToken.current} onClick={() => void retryStart()}>Retry original start request</button>}
+            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope} onClick={() => void retryStart()}>Retry original start request</button>}
             {mutationState.kind === "committed" && <p role="status">Group accepted: <code>{mutationState.receipt.group_id}</code></p>}
           </form>
         )}
@@ -534,7 +532,6 @@ function RegressionCheckReview(props: ReviewProps) {
   const generation = useRef(0);
   const reviewController = useRef<AbortController>();
   const mutation = useRef<RetainedMutation<Intent, GroupAccepted>>();
-  const gatewayRef = useRef(gateway);
   const scope = `${project.id}:${decision.id}:check`;
   const scopeRef = useRef(scope);
   const mounted = useRef(true);
@@ -543,14 +540,13 @@ function RegressionCheckReview(props: ReviewProps) {
   const pendingIntentScope = useRef<string>();
   const callbackScopeToken = useRef<number>();
   const scopeToken = useRef(0);
-  const tokenScope = useRef(scope);
-  if (tokenScope.current !== scope) {
-    tokenScope.current = scope;
+  const tokenScope = useRef({ scope, gateway });
+  if (tokenScope.current.scope !== scope || tokenScope.current.gateway !== gateway) {
+    tokenScope.current = { scope, gateway };
     scopeToken.current += 1;
   }
   const dirtyRef = useRef(dirty);
   const [mutationState, setMutationState] = useState<MutationState<GroupAccepted>>({ kind: "idle" });
-  gatewayRef.current = gateway;
   scopeRef.current = scope;
   dirtyRef.current = dirty;
   const options = useReferenceOptions(gateway, project, decision.id);
@@ -575,7 +571,7 @@ function RegressionCheckReview(props: ReviewProps) {
   if (!mutation.current) {
     mutation.current = new RetainedMutation(async (intent) => {
       if (intent.kind !== "check") throw new Error("The group request kind changed.");
-      const result = await gatewayRef.current.debugging.checks.start({ registrationId: intent.registrationId, body: intent.body });
+      const result = await intent.gateway.debugging.checks.start({ registrationId: intent.registrationId, body: intent.body });
       if (
         result.data.kind !== "regression_check" ||
         result.data.operation_id !== intent.body.operation_id ||
@@ -706,7 +702,7 @@ function RegressionCheckReview(props: ReviewProps) {
   async function start() {
     if (!preview || !previewRequest || mutation.current?.state.kind !== "idle") return;
     const body: StartCheckBody = { schema_version: 1, operation_id: crypto.randomUUID(), expected_review_context_hash: preview.review_context_hash, request: previewRequest };
-    const intent: Intent = { kind: "check", registrationId: project.id, body };
+    const intent: Intent = { kind: "check", registrationId: project.id, body, gateway };
     pendingIntentScope.current = scope;
     callbackScopeToken.current = scopeToken.current;
     mutationEpoch.current = renderEpoch.current;
@@ -718,7 +714,7 @@ function RegressionCheckReview(props: ReviewProps) {
   async function retryStart() {
     if (pendingIntentScope.current !== scope) return;
     const dispatchScopeToken = callbackScopeToken.current;
-    if (dispatchScopeToken === undefined || dispatchScopeToken !== scopeToken.current) return;
+    if (dispatchScopeToken === undefined) return;
     callbackScopeToken.current = dispatchScopeToken;
     mutationEpoch.current = renderEpoch.current;
     const accepted = await mutation.current?.retryOriginal();
@@ -745,7 +741,7 @@ function RegressionCheckReview(props: ReviewProps) {
             <div className="actions"><button type="submit" className="primary" disabled={optionsLoading || options.loading || reviewBusy || mutationBlocked}>{reviewBusy ? "Reviewing…" : "Review regression check"}</button><button type="button" onClick={close}>Close</button></div>
             {preview && <PreviewSummary preview={preview} kind="check" />}
             {preview && mutationState.kind === "idle" && <button type="button" className="primary" onClick={() => void start()}>Start reviewed group</button>}
-            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope || callbackScopeToken.current !== scopeToken.current} onClick={() => void retryStart()}>Retry original start request</button>}
+            {mutationState.kind === "outcome-unknown" && <button type="button" disabled={pendingIntentScope.current !== scope} onClick={() => void retryStart()}>Retry original start request</button>}
             {mutationState.kind === "committed" && <p role="status">Group accepted: <code>{mutationState.receipt.group_id}</code></p>}
           </form>
         )}

@@ -219,6 +219,62 @@ it("retries an unknown cancellation with its original operation id", async () =>
   navigation.dispose();
 });
 
+it("replays an unknown diagnostic cancellation through its original port after a check-scope change", async () => {
+  const diagnosticCalls: unknown[] = [];
+  let attempts = 0;
+  const diagnosticCancel = vi.fn(async (request: unknown) => {
+    diagnosticCalls.push(request);
+    attempts += 1;
+    if (attempts === 1) throw new Error("connection closed after dispatch");
+    return response(progress);
+  });
+  const checkCancel = vi.fn(async () => response({
+    schema_version: 1,
+    kind: "regression_check",
+    group_id: "group-2",
+    operation_id: "unexpected",
+    member_run_ids: [],
+    mode: "fixture",
+    replayed: true,
+  } as ApiOperationData<"cancelCheck">));
+  const readDiagnostic = vi.fn(async ({ groupId }: { groupId: string }) => response({
+    group: { ...progress, group_id: groupId }, exit_code: 0, summary: null,
+  } as ApiOperationData<"readChoiceOrder">));
+  const readCheck = vi.fn(async () => response({
+    group: { ...progress, group_id: "group-2", kind: "regression_check" }, exit_code: 0, summary: null,
+  } as unknown as ApiOperationData<"readCheck">));
+  const listDiagnosticSnapshots = vi.fn(async () => response([] as ApiOperationData<"listChoiceOrderSnapshots">));
+  const listCheckSnapshots = vi.fn(async () => response([] as ApiOperationData<"listCheckSnapshots">));
+  const diagnosticGateway = {
+    ...disconnectedWorkspace,
+    debugging: { ...disconnectedWorkspace.debugging, diagnostics: { ...disconnectedWorkspace.debugging.diagnostics, read: readDiagnostic, listSnapshots: listDiagnosticSnapshots, cancel: diagnosticCancel } },
+  } as unknown as WorkspaceGateway;
+  const checkGateway = {
+    ...disconnectedWorkspace,
+    debugging: { ...disconnectedWorkspace.debugging, checks: { ...disconnectedWorkspace.debugging.checks, read: readCheck, listSnapshots: listCheckSnapshots, cancel: checkCancel } },
+  } as unknown as WorkspaceGateway;
+  const navigation = new WorkspaceNavigation(window);
+  const view = render(<GroupDetail project={project} gateway={diagnosticGateway} navigation={navigation} kind="diagnostic" groupId="group-1" />);
+
+  await screen.findByText("Current progress");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel group" }));
+  await screen.findByText(/connection closed after dispatch/);
+  expect(diagnosticCancel).toHaveBeenCalledTimes(1);
+
+  view.rerender(<GroupDetail project={project} gateway={checkGateway} navigation={navigation} kind="check" groupId="group-2" />);
+  await screen.findByText("Check progress");
+  fireEvent.click(screen.getByRole("button", { name: "Retry original cancellation" }));
+  await waitFor(() => expect(diagnosticCancel).toHaveBeenCalledTimes(2));
+  expect(checkCancel).not.toHaveBeenCalled();
+  expect(diagnosticCalls[1]).toEqual(diagnosticCalls[0]);
+  expect(screen.queryByText("Cancellation receipt received.")).toBeNull();
+
+  view.rerender(<GroupDetail project={project} gateway={diagnosticGateway} navigation={navigation} kind="diagnostic" groupId="group-1" />);
+  await waitFor(() => expect(listDiagnosticSnapshots).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("Cancellation receipt received.")).toBeNull();
+  navigation.dispose();
+});
+
 it("previews resume without dispatch, then retries an unknown resume with the same body", async () => {
   let readAttempt = 0;
   const read = vi.fn(async () => {

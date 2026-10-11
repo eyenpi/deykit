@@ -24,6 +24,8 @@ type ResumeBody = ApiOperationBody<"resumeChoiceOrder">;
 type ResumeReceipt = ApiOperationData<"resumeChoiceOrder">;
 type ResumePreview = ApiOperationData<"previewChoiceOrderResume">;
 type GroupProgress = DiagnosticView["group"] | CheckView["group"];
+type CancelIntent = { registrationId: string; groupId: string; body: CancelBody; kind: "diagnostic" | "check"; gateway: WorkspaceGateway };
+type ResumeIntent = { registrationId: string; groupId: string; body: ResumeBody; kind: "diagnostic" | "check"; gateway: WorkspaceGateway };
 
 export type GroupReportTarget = {
   targetKind: "diagnostic" | "check";
@@ -73,38 +75,34 @@ export function GroupDetail({
   const cancelCallbackScopeToken = useRef<number>();
   const resumeCallbackScopeToken = useRef<number>();
   const scopeToken = useRef(0);
-  const tokenScope = useRef(scope);
-  if (tokenScope.current !== scope) {
-    tokenScope.current = scope;
+  const tokenScope = useRef({ scope, gateway });
+  if (tokenScope.current.scope !== scope || tokenScope.current.gateway !== gateway) {
+    tokenScope.current = { scope, gateway };
     scopeToken.current += 1;
   }
-  const cancelIntentScope = useRef<string>();
-  const resumeIntentScope = useRef<string>();
   const resumeReviewGeneration = useRef(0);
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
-  const gatewayRef = useRef(gateway);
-  const kindRef = useRef(kind);
-  gatewayRef.current = gateway;
-  kindRef.current = kind;
-  const cancelMutation = useRef<RetainedMutation<{ registrationId: string; groupId: string; body: CancelBody }, CancelReceipt>>();
-  const resumeMutation = useRef<RetainedMutation<{ registrationId: string; groupId: string; body: ResumeBody }, ResumeReceipt>>();
+  const cancelMutation = useRef<RetainedMutation<CancelIntent, CancelReceipt>>();
+  const resumeMutation = useRef<RetainedMutation<ResumeIntent, ResumeReceipt>>();
 
   if (!cancelMutation.current) {
     cancelMutation.current = new RetainedMutation(async (request) => {
-      const result = kindRef.current === "diagnostic"
-        ? await gatewayRef.current.debugging.diagnostics.cancel(request)
-        : await gatewayRef.current.debugging.checks.cancel(request);
+      const payload = { registrationId: request.registrationId, groupId: request.groupId, body: request.body };
+      const result = request.kind === "diagnostic"
+        ? await request.gateway.debugging.diagnostics.cancel(payload)
+        : await request.gateway.debugging.checks.cancel(payload);
       if (result.data.group_id !== request.groupId) throw new Error("The cancellation receipt belongs to a different group.");
       return result.data as CancelReceipt;
     }, (state) => { if (mounted.current && cancelEpoch.current === renderEpoch.current && cancelCallbackScopeToken.current === scopeToken.current) setCancelState(state); });
   }
   if (!resumeMutation.current) {
     resumeMutation.current = new RetainedMutation(async (request) => {
-      const result = kindRef.current === "diagnostic"
-        ? await gatewayRef.current.debugging.diagnostics.resume(request)
-        : await gatewayRef.current.debugging.checks.resume(request);
-      if (result.data.group_id !== request.groupId || result.data.operation_id !== request.body.operation_id || result.data.kind !== (kindRef.current === "diagnostic" ? "choice_order" : "regression_check"))
+      const payload = { registrationId: request.registrationId, groupId: request.groupId, body: request.body };
+      const result = request.kind === "diagnostic"
+        ? await request.gateway.debugging.diagnostics.resume(payload)
+        : await request.gateway.debugging.checks.resume(payload);
+      if (result.data.group_id !== request.groupId || result.data.operation_id !== request.body.operation_id || result.data.kind !== (request.kind === "diagnostic" ? "choice_order" : "regression_check"))
         throw new Error("The resume receipt does not match this group request.");
       return result.data as ResumeReceipt;
     }, (state) => { if (mounted.current && resumeEpoch.current === renderEpoch.current && resumeCallbackScopeToken.current === scopeToken.current) setResumeState(state); });
@@ -221,11 +219,10 @@ export function GroupDetail({
   async function cancelGroup() {
     if (cancelMutation.current?.state.kind !== "idle") return;
     const body: CancelBody = { schema_version: 1, operation_id: crypto.randomUUID() };
-    cancelIntentScope.current = scope;
     cancelCallbackScopeToken.current = scopeToken.current;
     cancelEpoch.current = renderEpoch.current;
     const dispatchScopeToken = scopeToken.current;
-    await cancelMutation.current.submit({ registrationId: project.id, groupId, body });
+    await cancelMutation.current.submit({ registrationId: project.id, groupId, body, kind, gateway });
     const receipt = cancelMutation.current.state;
     if (receipt.kind === "committed" && mounted.current && scopeToken.current === dispatchScopeToken && cancelCallbackScopeToken.current === dispatchScopeToken && scopeRef.current === scope) {
       setProgress(receipt.receipt);
@@ -235,10 +232,8 @@ export function GroupDetail({
   }
 
   async function retryCancel() {
-    if (cancelIntentScope.current !== scope) return;
     const dispatchScopeToken = cancelCallbackScopeToken.current;
-    if (dispatchScopeToken === undefined || dispatchScopeToken !== scopeToken.current) return;
-    cancelEpoch.current = renderEpoch.current;
+    if (dispatchScopeToken === undefined) return;
     await cancelMutation.current?.retryOriginal();
     const receipt = cancelMutation.current?.state;
     if (receipt?.kind === "committed" && mounted.current && scopeToken.current === dispatchScopeToken && cancelCallbackScopeToken.current === dispatchScopeToken && scopeRef.current === scope) {
@@ -279,11 +274,10 @@ export function GroupDetail({
   async function resumeGroup() {
     if (!resumePreview || resumeMutation.current?.state.kind !== "idle") return;
     const body: ResumeBody = { schema_version: 1, operation_id: crypto.randomUUID(), retry_unknown: retryUnknown };
-    resumeIntentScope.current = scope;
     resumeCallbackScopeToken.current = scopeToken.current;
     resumeEpoch.current = renderEpoch.current;
     const dispatchScopeToken = scopeToken.current;
-    await resumeMutation.current.submit({ registrationId: project.id, groupId, body });
+    await resumeMutation.current.submit({ registrationId: project.id, groupId, body, kind, gateway });
     if (resumeMutation.current.state.kind === "committed" && mounted.current && scopeToken.current === dispatchScopeToken && resumeCallbackScopeToken.current === dispatchScopeToken && scopeRef.current === scope) {
       setResumePreview(undefined);
       void refreshProgress();
@@ -292,10 +286,8 @@ export function GroupDetail({
   }
 
   async function retryResume() {
-    if (resumeIntentScope.current !== scope) return;
     const dispatchScopeToken = resumeCallbackScopeToken.current;
-    if (dispatchScopeToken === undefined || dispatchScopeToken !== scopeToken.current) return;
-    resumeEpoch.current = renderEpoch.current;
+    if (dispatchScopeToken === undefined) return;
     await resumeMutation.current?.retryOriginal();
     if (resumeMutation.current?.state.kind === "committed" && mounted.current && scopeToken.current === dispatchScopeToken && resumeCallbackScopeToken.current === dispatchScopeToken && scopeRef.current === scope) {
       setResumePreview(undefined);
@@ -318,8 +310,8 @@ export function GroupDetail({
       {loading && !progress && <LoadingState>Loading group progress…</LoadingState>}
       {progressError && <ErrorSummary message={progressError} />}
       {progress && <section aria-labelledby="group-current-progress"><h2 id="group-current-progress">Current progress</h2><dl><dt>State</dt><dd>{progress.members.every((member) => ["completed", "failed", "cancelled", "interrupted"].includes(member.state)) ? "Settled" : "Running"}</dd><dt>Independent cases</dt><dd>{progress.independent_case_count}</dd><dt>Initial requests</dt><dd>{progress.initial_requests}</dd><dt>Lifetime attempt limit</dt><dd>{progress.attempt_limit}</dd><dt>Attempts used</dt><dd>{progress.attempts_used}</dd><dt>Attempts remaining</dt><dd>{progress.attempts_remaining}</dd>{progress.seed !== null && <><dt>Frozen seed</dt><dd><code>{progress.seed}</code></dd></>}{progress.algorithm && <><dt>Algorithm</dt><dd>{progress.algorithm}</dd></>}</dl><ol>{progress.members.map((member) => <li key={member.run_id}><p>Member run <button type="button" className="text-button" onClick={() => openMember(member.run_id)}><code>{member.run_id}</code></button></p><p>{member.state} · {member.attempts_used} attempts · {member.attempts_remaining} remaining</p></li>)}</ol></section>}
-      <div className="actions"><button type="button" onClick={() => void cancelGroup()} disabled={!progress || blocked || cancelState.kind !== "idle"}>Cancel group</button>{cancelState.kind === "outcome-unknown" && <button type="button" disabled={cancelIntentScope.current !== scope || cancelCallbackScopeToken.current !== scopeToken.current} onClick={() => void retryCancel()}>Retry original cancellation</button>}{cancelState.kind === "committed" && <p role="status">Cancellation receipt received.</p>}{(cancelState.kind === "failed" || cancelState.kind === "conflict") && <ErrorSummary message={cancelState.message} />}</div>
-      <section aria-labelledby="resume-group-title"><h2 id="resume-group-title">Resume group</h2><label><input type="checkbox" checked={retryUnknown} disabled={localControlsLocked} onChange={(event) => { setRetryUnknown(event.currentTarget.checked); setResumePreview(undefined); }} /> Retry members with unknown outcomes</label><button type="button" onClick={() => void reviewResume()} disabled={!progress || blocked || actionBusy}>Review resume</button>{resumeError && <ErrorSummary message={resumeError} />}{resumePreview && <><p>Reviewed resume for {resumePreview.members.length} members; {resumePreview.segment_ids.length} frozen segments will continue under attempt cap {resumePreview.proposed_attempt_limit}. This preview is read-only.</p><button type="button" onClick={() => void resumeGroup()} disabled={blocked || resumeState.kind !== "idle"}>Resume reviewed group</button></>}{resumeState.kind === "outcome-unknown" && <><ErrorSummary message={resumeState.message} /><button type="button" disabled={resumeIntentScope.current !== scope || resumeCallbackScopeToken.current !== scopeToken.current} onClick={() => void retryResume()}>Retry original resume request</button></>}{resumeState.kind === "committed" && <p role="status">Resume accepted: <code>{resumeState.receipt.group_id}</code></p>}{(resumeState.kind === "failed" || resumeState.kind === "conflict") && <ErrorSummary message={resumeState.message} />}</section>
+      <div className="actions"><button type="button" onClick={() => void cancelGroup()} disabled={!progress || blocked || cancelState.kind !== "idle"}>Cancel group</button>{cancelState.kind === "outcome-unknown" && <button type="button" onClick={() => void retryCancel()}>Retry original cancellation</button>}{cancelState.kind === "committed" && <p role="status">Cancellation receipt received.</p>}{(cancelState.kind === "failed" || cancelState.kind === "conflict") && <ErrorSummary message={cancelState.message} />}</div>
+      <section aria-labelledby="resume-group-title"><h2 id="resume-group-title">Resume group</h2><label><input type="checkbox" checked={retryUnknown} disabled={localControlsLocked} onChange={(event) => { setRetryUnknown(event.currentTarget.checked); setResumePreview(undefined); }} /> Retry members with unknown outcomes</label><button type="button" onClick={() => void reviewResume()} disabled={!progress || blocked || actionBusy}>Review resume</button>{resumeError && <ErrorSummary message={resumeError} />}{resumePreview && <><p>Reviewed resume for {resumePreview.members.length} members; {resumePreview.segment_ids.length} frozen segments will continue under attempt cap {resumePreview.proposed_attempt_limit}. This preview is read-only.</p><button type="button" onClick={() => void resumeGroup()} disabled={blocked || resumeState.kind !== "idle"}>Resume reviewed group</button></>}{resumeState.kind === "outcome-unknown" && <><ErrorSummary message={resumeState.message} /><button type="button" onClick={() => void retryResume()}>Retry original resume request</button></>}{resumeState.kind === "committed" && <p role="status">Resume accepted: <code>{resumeState.receipt.group_id}</code></p>}{(resumeState.kind === "failed" || resumeState.kind === "conflict") && <ErrorSummary message={resumeState.message} />}</section>
       {snapshotsError && <ErrorSummary message={snapshotsError} />}
       <SnapshotPanel snapshots={snapshots} selectedId={selectedSnapshotId} onSelect={setSelectedSnapshotId} disabled={localControlsLocked} />
       {snapshotError && <ErrorSummary message={snapshotError} />}
