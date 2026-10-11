@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from deykit.application.results import ProbabilityUnavailableReason
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.identities import ContentHash, ResourceId
 
@@ -34,12 +35,7 @@ class CaseDetailDTO(ResponseRecord):
     context: "ResultContextDTO"
     case_input_hash: ContentHash
     probabilities: tuple["ProbabilityRowDTO", ...]
-    probabilities_unavailable_reason: Literal[
-        "probabilities_not_provided",
-        "probability_question_unavailable",
-        "invalid_probability_source",
-        "probability_options_unavailable",
-    ] | None
+    probabilities_unavailable_reason: ProbabilityUnavailableReason | None
 
 
 class AssessmentCountsDTO(FrozenModel):

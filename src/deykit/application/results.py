@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import cast
+from typing import Literal, cast
 
 from deykit.application.annotations import annotation_hash
 from deykit.application.dataset_support import fail, identifier, page
@@ -25,6 +25,13 @@ from deykit.contracts.redaction import Sanitizer, safe_choice_response
 from deykit.domain.definitions import definition_hash
 from deykit.metrics import assess_results
 from deykit.metrics.summary import CaseAssessment, EvaluationSummary, MetricsInvalid
+
+ProbabilityUnavailableReason = Literal[
+    "probabilities_not_provided",
+    "probability_question_unavailable",
+    "invalid_probability_source",
+    "probability_options_unavailable",
+]
 
 
 @dataclass(frozen=True)
@@ -94,7 +101,7 @@ class CaseDetail:
     input_source: str | None
     case_input_hash: str
     probabilities: tuple[ProbabilityRow, ...]
-    probabilities_unavailable_reason: str | None
+    probabilities_unavailable_reason: ProbabilityUnavailableReason | None
 
     def source(self) -> dict[str, object]:
         return {
@@ -344,7 +351,7 @@ class ResultInspection:
     @staticmethod
     def _probability_projection(
         capture: _ResultCapture, row: ResultRow
-    ) -> tuple[tuple[ProbabilityRow, ...], str | None]:
+    ) -> tuple[tuple[ProbabilityRow, ...], ProbabilityUnavailableReason | None]:
         answer = row.result.answer
         if answer is None or answer.probabilities_source is None:
             return (), "probabilities_not_provided"

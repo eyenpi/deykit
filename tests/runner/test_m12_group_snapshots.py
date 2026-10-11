@@ -18,13 +18,13 @@ from deykit.runner.group_evidence import content_hash
 from deykit.runner.planner import RunRequest
 
 
-def _run_request(settings: ExecutionSettings = ExecutionSettings()):
+def _run_request(settings: ExecutionSettings | None = None):
     return RunRequest(
         decision_id="decision",
         dataset_id="data",
         mode="fixture",
         fixture_set_id="set",
-        settings=settings,
+        settings=settings if settings is not None else ExecutionSettings(),
     )
 
 
