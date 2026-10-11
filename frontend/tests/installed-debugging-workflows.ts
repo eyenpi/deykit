@@ -1158,9 +1158,11 @@ export async function runSavedAnswersWorkflow(
           exact: true,
         })
         .click();
-      await expect(annotationDialog.getByRole("status")).toContainText(
-        "Annotation",
-      );
+      await expect(
+        annotationDialog
+          .getByRole("status")
+          .filter({ hasText: "is saved." }),
+      ).toContainText(/Annotation .+ is saved\./);
       const replay = annotationLoss.observation();
       expect(replay).toBeDefined();
       expect(replay?.replayStatus).toBe(200);
