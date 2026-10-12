@@ -459,12 +459,12 @@ export async function runReportsWorkflow(
     expect(rightAccuracy.denominator).toBe("8");
     expect(rightAccuracy.value).toBe("0.875000");
     await expect(
-      page.getByRole("region", { name: "Verified evaluation context" }),
+      page.locator('dl[aria-label="Verified evaluation context"]'),
     ).toContainText(
       `${qualification.seedMetadata.run_id} · original · result ${forwardComparison.left_result_snapshot_id} · labels ${qualification.seedMetadata.label_snapshot_id}`,
     );
     await expect(
-      page.getByRole("region", { name: "Verified evaluation context" }),
+      page.locator('dl[aria-label="Verified evaluation context"]'),
     ).toContainText(
       `${rightEvaluation.run_id} · ${rightEvaluation.mode} · result ${rightEvaluation.result_snapshot_id} · labels ${rightEvaluation.label_snapshot_id}`,
     );

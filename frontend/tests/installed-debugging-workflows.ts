@@ -1586,10 +1586,10 @@ export async function runComparisonWorkflow(
       revisedEvaluation.content_hash,
     );
     await expect(
-      page.getByRole("region", { name: "Verified evaluation context" }),
+      page.locator('dl[aria-label="Verified evaluation context"]'),
     ).toContainText(qualification.seedMetadata.evaluation_id);
     await expect(
-      page.getByRole("region", { name: "Verified evaluation context" }),
+      page.locator('dl[aria-label="Verified evaluation context"]'),
     ).toContainText(revisedEvaluation.evaluation_id);
     const comparisonPath = `/api/v1/projects/${registrationId}/comparisons`;
     const lostComparisonAck = await installLostAcknowledgement(
