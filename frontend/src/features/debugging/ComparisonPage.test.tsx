@@ -1,9 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useState } from "react";
 import { expect, it } from "vitest";
 import type { ApiOperationData, ApiResult } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
+import { routeToHash } from "../../workspace/routes";
 import { ComparisonPage } from "./ComparisonPage";
 
 type Evaluation = ApiOperationData<"readEvaluation">;
@@ -143,6 +145,240 @@ it("rejects mismatched comparison receipt IDs and retries the exact retained req
     );
     expect(creates).toBe(2);
   } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("keeps a committed comparison receipt when a real dirty guard denies navigation", async () => {
+  window.history.replaceState(null, "", "#/p/registration-1/comparisons");
+  const navigation = new WorkspaceNavigation(window);
+  let creates = 0;
+  let evaluationReads = 0;
+  let comparisonReads = 0;
+  const comparisonReadIdentities: Array<{
+    registrationId: string;
+    comparisonId: string;
+  }> = [];
+  let savedComparison: ApiOperationData<"readComparison"> | undefined;
+  const debugging = {
+    ...disconnectedWorkspace.debugging,
+    comparisons: {
+      ...disconnectedWorkspace.debugging.comparisons,
+      create: async (
+        request: Parameters<
+          typeof disconnectedWorkspace.debugging.comparisons.create
+        >[0],
+      ) => {
+        creates += 1;
+        const receipt: ApiOperationData<"readComparison"> = {
+          ...comparison(
+            request.body.left_evaluation_id,
+            request.body.right_evaluation_id,
+          ),
+          replayed: false,
+        };
+        savedComparison = receipt;
+        return { data: receipt, warnings: [] };
+      },
+      list: async () => ({
+        data: { items: [], next_cursor: null, total: "0" },
+        warnings: [],
+      }),
+      read: async (
+        request: Parameters<
+          typeof disconnectedWorkspace.debugging.comparisons.read
+        >[0],
+      ) => {
+        comparisonReads += 1;
+        comparisonReadIdentities.push({
+          registrationId: request.registrationId,
+          comparisonId: request.comparisonId,
+        });
+        if (!savedComparison)
+          throw new Error("The comparison receipt was not saved.");
+        return { data: savedComparison, warnings: [] };
+      },
+    },
+  };
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    inspection: {
+      ...disconnectedWorkspace.execution.inspection,
+      readEvaluation: async ({
+        evaluationId,
+      }: {
+        registrationId: string;
+        evaluationId: string;
+      }) => {
+        evaluationReads += 1;
+        return { data: evaluation(evaluationId), warnings: [] };
+      },
+    },
+  };
+
+  function RoutedComparisonPage() {
+    const [route, setRoute] = useState(navigation.current);
+    useEffect(() => navigation.subscribe(setRoute), []);
+    if (route.kind === "comparison")
+      return (
+        <ComparisonPage
+          key={`saved:${route.comparisonId}`}
+          registrationId={route.registrationId}
+          comparisonId={route.comparisonId}
+          debugging={debugging}
+          execution={execution}
+          navigation={navigation}
+        />
+      );
+    return (
+      <ComparisonPage
+        key="comparison-list"
+        registrationId="registration-1"
+        debugging={debugging}
+        execution={execution}
+        navigation={navigation}
+      />
+    );
+  }
+
+  const tree = render(<RoutedComparisonPage />);
+  const user = userEvent.setup();
+  let foreignGuardCalls = 0;
+  let unregisterForeignGuard: (() => void) | undefined;
+  try {
+    await user.type(
+      screen.getByLabelText("Left saved evaluation ID"),
+      "evaluation-left",
+    );
+    await user.type(
+      screen.getByLabelText("Right saved evaluation ID"),
+      "evaluation-right",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved evaluations" }),
+    );
+    await screen.findByLabelText("Verified evaluation context");
+    expect(evaluationReads).toBe(2);
+
+    await user.click(
+      screen.getByRole("button", { name: "Create saved comparison" }),
+    );
+    const openSaved = await screen.findByRole("button", {
+      name: "Open saved comparison",
+    });
+    expect(creates).toBe(1);
+    expect(savedComparison?.comparison_id).toBe("comparison-1");
+
+    const denyNavigation = Object.assign(
+      async () => {
+        foreignGuardCalls += 1;
+        return false;
+      },
+      { isDirty: () => true },
+    );
+    unregisterForeignGuard = navigation.registerDirtyGuard(
+      "unrelated-dirty-editor",
+      denyNavigation,
+    );
+    await user.click(openSaved);
+    await waitFor(() => expect(foreignGuardCalls).toBe(1));
+    expect(navigation.current.kind).toBe("comparisons");
+    expect(
+      screen.getByRole("button", { name: "Open saved comparison" }),
+    ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Left saved evaluation ID") as HTMLInputElement)
+        .value,
+    ).toBe("evaluation-left");
+    expect(
+      (screen.getByLabelText("Right saved evaluation ID") as HTMLInputElement)
+        .value,
+    ).toBe("evaluation-right");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Create saved comparison",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      screen.queryByRole("dialog", { name: "Unsaved changes" }),
+    ).toBeNull();
+    expect(creates).toBe(1);
+    expect(evaluationReads).toBe(2);
+    expect(comparisonReads).toBe(0);
+
+    unregisterForeignGuard();
+    unregisterForeignGuard = undefined;
+    await user.click(
+      screen.getByRole("button", { name: "Open saved comparison" }),
+    );
+    const pinned = await screen.findByRole("region", {
+      name: "Pinned comparison details",
+    });
+    const expectedRoute = {
+      kind: "comparison" as const,
+      registrationId: "registration-1",
+      comparisonId: "comparison-1",
+    };
+    await waitFor(() => expect(navigation.current).toEqual(expectedRoute));
+    expect(window.location.hash).toBe(routeToHash(expectedRoute));
+    expect(comparisonReads).toBe(1);
+    expect(comparisonReadIdentities).toEqual([
+      {
+        registrationId: "registration-1",
+        comparisonId: "comparison-1",
+      },
+    ]);
+    expect(pinned.querySelector("code")?.textContent).toBe("comparison-1");
+    const pinnedSides = pinned.querySelectorAll("dd");
+    expect(pinnedSides[0]?.textContent?.trim()).toBe(
+      "evaluation-left · result result-evaluation-left",
+    );
+    expect(pinnedSides[1]?.textContent?.trim()).toBe(
+      "evaluation-right · result result-evaluation-right",
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Unsaved changes" }),
+    ).toBeNull();
+
+    await act(async () => {
+      await expect(
+        navigation.navigate({
+          kind: "comparisons",
+          registrationId: "registration-1",
+        }),
+      ).resolves.toBe(true);
+    });
+    expect(navigation.current.kind).toBe("comparisons");
+    expect(
+      (
+        (await screen.findByLabelText(
+          "Left saved evaluation ID",
+        )) as HTMLInputElement
+      ).value,
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Right saved evaluation ID") as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(
+      screen.queryByRole("button", { name: "Open saved comparison" }),
+    ).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Create saved comparison",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(creates).toBe(1);
+    expect(evaluationReads).toBe(2);
+    expect(comparisonReads).toBe(1);
+    expect(comparisonReadIdentities).toHaveLength(1);
+  } finally {
+    unregisterForeignGuard?.();
     tree.unmount();
     navigation.dispose();
   }

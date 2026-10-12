@@ -425,8 +425,6 @@ export function ComparisonPage({
                   type="button"
                   onClick={() => {
                     const id = state.receipt.comparison_id;
-                    mutation.current?.reset();
-                    setView({ scopeEpoch, state: { kind: "idle" } });
                     routeToComparison(id);
                   }}
                 >
