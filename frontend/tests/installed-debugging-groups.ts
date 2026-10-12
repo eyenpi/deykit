@@ -2850,11 +2850,19 @@ export async function runGroupsWorkflow(
     await qualification.enterPhase(
       "remove-current-regression-and-preserve-check",
     );
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    await reads.waitForIdle();
     await page
-      .getByRole("button", {
-        name: `Regression examples: Content category`,
-        exact: true,
-      })
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("button", { name: "Content category", exact: true })
+      .click();
+    await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
+      "Content category",
+    );
+    await reads.waitForIdle();
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("button", { name: "Regression examples", exact: true })
       .click();
     await expect(
       page.getByRole("heading", {
@@ -2862,6 +2870,7 @@ export async function runGroupsWorkflow(
         exact: true,
       }),
     ).toBeVisible();
+    await reads.waitForIdle();
     const regressionRow = page
       .getByRole("row")
       .filter({ hasText: regressionId });
@@ -2897,10 +2906,21 @@ export async function runGroupsWorkflow(
         exact: true,
       }),
     ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", {
+        name: "Regression examples for Content category",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await reads.waitForIdle();
     await page
       .getByRole("navigation", { name: "Workspace" })
       .getByRole("button", { name: "Content category", exact: true })
       .click();
+    await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
+      "Content category",
+    );
+    await reads.waitForIdle();
     await page
       .getByRole("button", { name: "Preview regression check", exact: true })
       .click();
