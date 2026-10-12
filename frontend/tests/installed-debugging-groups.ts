@@ -2898,14 +2898,24 @@ export async function runGroupsWorkflow(
     );
     expect(removal.regression_id).toBe(regressionId);
     expect(removal.removed).toBe(true);
+    const removalStatus = page
+      .getByRole("status")
+      .filter({ hasText: "Removal for" });
+    await expect(removalStatus).toHaveCount(1);
+    await expect(removalStatus).toContainText(regressionId);
+    await expect(removalStatus).toContainText("is acknowledged;");
+    await reads.waitForIdle();
     const removedRow = page.getByRole("row").filter({ hasText: regressionId });
-    await expect(removedRow).toContainText("Removed");
+    await expect(removedRow).toHaveCount(0);
     await expect(
-      removedRow.getByRole("button", {
+      page.getByRole("button", {
         name: "Remove from future checks",
         exact: true,
       }),
     ).toHaveCount(0);
+    await expect(
+      page.getByText("No regression examples are saved.", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", {
         name: "Regression examples for Content category",
@@ -3018,9 +3028,9 @@ export async function runGroupsWorkflow(
       .click();
     await expect(defaultCheckDialog).toBeHidden();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(
-      page.getByRole("heading", { name: "Content category", exact: true }),
-    ).toBeVisible();
+    await expect(page.getByLabel("Decision name", { exact: true })).toHaveValue(
+      "Content category",
+    );
     await reads.waitForIdle();
     const checkSnapshotAfterRemoval = await captureOperation(
       page,
