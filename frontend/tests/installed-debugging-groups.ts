@@ -877,13 +877,68 @@ async function setReaddedCaseCurrentLabel(
   ).toBeVisible();
 }
 
+async function waitForSelectedSnapshotDetail(
+  page: Page,
+  reads: BrowserReadTracker,
+  expectedSnapshotId?: string,
+): Promise<string> {
+  const selector = page.getByRole("combobox", {
+    name: "Selected snapshot",
+    exact: true,
+  });
+  await expect(selector).toBeVisible();
+  if (expectedSnapshotId)
+    await expect(selector).toHaveValue(expectedSnapshotId);
+  else await expect.poll(() => selector.inputValue()).not.toBe("");
+  const selectedSnapshotId = await selector.inputValue();
+  if (!selectedSnapshotId)
+    throw new Error("The selected snapshot identity was unavailable.");
+  const detail = page.getByRole("region", {
+    name: "Selected immutable snapshot",
+  });
+  await expect(detail).toBeVisible();
+  await expect(
+    detail.getByText(selectedSnapshotId, { exact: true }),
+  ).toBeVisible();
+  await reads.waitForIdle();
+  return selectedSnapshotId;
+}
+
 async function openSavedReport(
   page: Page,
+  reads: BrowserReadTracker,
   registrationId: string,
   kind: "diagnostic" | "check",
   targetId: string,
+  snapshotId: string,
   reportId: string,
 ): Promise<void> {
+  const reportsHeading = page.getByRole("heading", {
+    name: "Saved reports",
+    exact: true,
+  });
+  const savedReportHeading = page.getByRole("heading", {
+    name: "Saved report",
+    exact: true,
+  });
+  const sandboxHeading = page.getByRole("heading", {
+    name: "Sandbox",
+    exact: true,
+  });
+  if (await reportsHeading.isVisible().catch(() => false)) {
+    await expect(
+      page.getByRole("list", { name: "Saved reports" }),
+    ).toBeVisible();
+    await reads.waitForIdle();
+  } else if (await savedReportHeading.isVisible().catch(() => false)) {
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    await reads.waitForIdle();
+  } else if (await sandboxHeading.isVisible().catch(() => false)) {
+    await expect(sandboxHeading).toBeVisible();
+    await reads.waitForIdle();
+  } else {
+    await waitForSelectedSnapshotDetail(page, reads);
+  }
   const listRead = await captureOperation(
     page,
     "listReports",
@@ -950,6 +1005,13 @@ async function openSavedReport(
       responses: false,
     });
   });
+  await expect(page.getByLabel("Pinned report identity")).toContainText(
+    reportId,
+  );
+  await expect(page.getByLabel("Pinned report identity")).toContainText(
+    snapshotId,
+  );
+  await reads.waitForIdle();
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -1501,15 +1563,18 @@ export async function runGroupsWorkflow(
     const diagnosticSnapshotId = snapshotValues[snapshotValues.length - 1];
     if (!diagnosticSnapshotId)
       throw new Error("The diagnostic snapshot identity was unavailable.");
+    await waitForSelectedSnapshotDetail(page, reads);
     const selectedValue = await snapshotSelect.inputValue();
     let reloadGroupForSnapshotRead = false;
-    if (selectedValue !== diagnosticSnapshotId) {
-      const firstOther = snapshotValues.find(
-        (value) => value !== selectedValue,
+    if (selectedValue === diagnosticSnapshotId) {
+      const other = snapshotValues.find(
+        (value) => value !== diagnosticSnapshotId,
       );
-      if (firstOther) await snapshotSelect.selectOption(firstOther);
-    } else if (!snapshotValues.some((value) => value !== diagnosticSnapshotId))
-      reloadGroupForSnapshotRead = true;
+      if (other) {
+        await snapshotSelect.selectOption(other);
+        await waitForSelectedSnapshotDetail(page, reads, other);
+      } else reloadGroupForSnapshotRead = true;
+    }
     const readSnapshot = await captureOperation(
       page,
       "readChoiceOrderSnapshot",
@@ -1527,6 +1592,7 @@ export async function runGroupsWorkflow(
       ApiOperationData<"readChoiceOrderSnapshot">
     >(await readSnapshot.response.body(), 200, readSnapshot.response.status());
     expect(diagnosticDetail.snapshot.id).toBe(diagnosticSnapshotId);
+    await waitForSelectedSnapshotDetail(page, reads, diagnosticSnapshotId);
     expect(diagnosticDetail.snapshot.group_id).toBe(startReceipt?.group_id);
     expect(diagnosticDetail.members).toHaveLength(2);
     expect(diagnosticDetail.snapshot.id).toBe(
@@ -1692,9 +1758,11 @@ export async function runGroupsWorkflow(
       throw new Error("The diagnostic report receipt was unavailable.");
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "diagnostic",
       startReceipt.group_id,
+      diagnosticSnapshotId,
       diagnosticReportId,
     );
     await reads.waitForIdle();
@@ -1714,9 +1782,11 @@ export async function runGroupsWorkflow(
     );
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "diagnostic",
       startReceipt.group_id,
+      diagnosticSnapshotId,
       diagnosticReportId,
     );
     qualification.setWitness(
@@ -1762,6 +1832,8 @@ export async function runGroupsWorkflow(
         bodySha256(bytes) === artifacts[format].bytes_hash,
       );
     }
+    await reads.waitForIdle();
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
     await reads.waitForIdle();
     await page.goto(diagnosticBaseRoute);
     await expect(
@@ -2195,14 +2267,16 @@ export async function runGroupsWorkflow(
         finalSummaryList.getByText(caseId, { exact: true }),
       ).toBeVisible({ timeout: remainingGroupCompletionMs() });
 
+    await waitForSelectedSnapshotDetail(page, reads, latestResumedSnapshot);
     const resumedSelection = await snapshotSelect.inputValue();
     const otherResumedSnapshot = resumedSnapshotValues.find(
       (value) => value !== diagnosticSnapshotId,
     );
     let reloadForPinnedRead = false;
-    if (resumedSelection === diagnosticSnapshotId && otherResumedSnapshot)
+    if (resumedSelection === diagnosticSnapshotId && otherResumedSnapshot) {
       await snapshotSelect.selectOption(otherResumedSnapshot);
-    else if (resumedSelection === diagnosticSnapshotId)
+      await waitForSelectedSnapshotDetail(page, reads, otherResumedSnapshot);
+    } else if (resumedSelection === diagnosticSnapshotId)
       reloadForPinnedRead = true;
     const pinnedRead = await captureOperation(
       page,
@@ -2226,6 +2300,7 @@ export async function runGroupsWorkflow(
     );
     expect(pinnedDetail.members).toEqual(diagnosticDetail.members);
     expect(pinnedDetail.summary).toEqual(diagnosticDetail.summary);
+    await waitForSelectedSnapshotDetail(page, reads, diagnosticSnapshotId);
     await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId);
     const pinnedSummaryRegion = page.getByRole("region", {
       name: "Selected immutable snapshot",
@@ -2255,9 +2330,11 @@ export async function runGroupsWorkflow(
 
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "diagnostic",
       startReceipt.group_id,
+      diagnosticSnapshotId,
       diagnosticReportId,
     );
     await reads.waitForIdle();
@@ -2274,6 +2351,8 @@ export async function runGroupsWorkflow(
         Buffer.compare(afterResume, diagnosticBytes[format]) === 0,
       );
     }
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    await reads.waitForIdle();
     await page.goto(diagnosticSnapshotRoute);
     await expect(
       page.getByRole("heading", { name: "Group progress", exact: true }),
@@ -2313,6 +2392,7 @@ export async function runGroupsWorkflow(
       expect(diagnosticAfterLabelDetail.members).toEqual(
         diagnosticDetail.members,
       );
+      await waitForSelectedSnapshotDetail(page, reads, diagnosticSnapshotId);
       await expect(snapshotSelect).toHaveValue(diagnosticSnapshotId);
     } finally {
       qualification.setWitness(
@@ -2327,9 +2407,11 @@ export async function runGroupsWorkflow(
     }
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "diagnostic",
       startReceipt.group_id,
+      diagnosticSnapshotId,
       diagnosticReportId,
     );
     await reads.waitForIdle();
@@ -2543,15 +2625,18 @@ export async function runGroupsWorkflow(
     const checkSnapshotId = checkSnapshotValues[checkSnapshotValues.length - 1];
     if (!checkSnapshotId)
       throw new Error("The check snapshot identity was unavailable.");
+    await waitForSelectedSnapshotDetail(page, reads);
     const selectedCheckSnapshot = await checkSnapshotSelect.inputValue();
     let reloadForCheckRead = false;
-    if (selectedCheckSnapshot !== checkSnapshotId) {
+    if (selectedCheckSnapshot === checkSnapshotId) {
       const other = checkSnapshotValues.find(
-        (value) => value !== selectedCheckSnapshot,
+        (value) => value !== checkSnapshotId,
       );
-      if (other) await checkSnapshotSelect.selectOption(other);
-    } else if (!checkSnapshotValues.some((value) => value !== checkSnapshotId))
-      reloadForCheckRead = true;
+      if (other) {
+        await checkSnapshotSelect.selectOption(other);
+        await waitForSelectedSnapshotDetail(page, reads, other);
+      } else reloadForCheckRead = true;
+    }
     const snapshotRead = await captureOperation(
       page,
       "readCheckSnapshot",
@@ -2569,6 +2654,7 @@ export async function runGroupsWorkflow(
       ApiOperationData<"readCheckSnapshot">
     >(snapshotRead.body, 200, snapshotRead.response.status());
     expect(checkSnapshot.snapshot.id).toBe(checkSnapshotId);
+    await waitForSelectedSnapshotDetail(page, reads, checkSnapshotId);
     expect(checkSnapshot.snapshot.group_id).toBe(checkReceipt.group_id);
     expect(checkSnapshot.cases).toHaveLength(1);
     expect(checkSnapshot.expectation_failures).toBe("1");
@@ -2694,9 +2780,11 @@ export async function runGroupsWorkflow(
     qualification.setWitness("check_report_id", checkReportReceipt.report_id);
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "check",
       checkReceipt.group_id,
+      checkSnapshotId,
       checkReportReceipt.report_id,
     );
     await reads.waitForIdle();
@@ -2714,9 +2802,11 @@ export async function runGroupsWorkflow(
     );
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "check",
       checkReceipt.group_id,
+      checkSnapshotId,
       checkReportReceipt.report_id,
     );
     qualification.setWitness(
@@ -2910,6 +3000,10 @@ export async function runGroupsWorkflow(
       .click();
     await expect(defaultCheckDialog).toBeHidden();
     await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Content category", exact: true }),
+    ).toBeVisible();
+    await reads.waitForIdle();
     const checkSnapshotAfterRemoval = await captureOperation(
       page,
       "readCheckSnapshot",
@@ -2935,6 +3029,7 @@ export async function runGroupsWorkflow(
     expect(checkSnapshotAfterRemovalDetail.baseline_unavailable).toBe(
       "frozen_regression_selection",
     );
+    await waitForSelectedSnapshotDetail(page, reads, checkSnapshotId);
     await expect(checkSnapshotSelect).toHaveValue(checkSnapshotId);
     await reads.waitForIdle();
     const removedCounts = await waitForCountFile(
@@ -2952,9 +3047,11 @@ export async function runGroupsWorkflow(
 
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "diagnostic",
       startReceipt.group_id,
+      diagnosticSnapshotId,
       diagnosticReportId,
     );
     await reads.waitForIdle();
@@ -2981,9 +3078,11 @@ export async function runGroupsWorkflow(
 
     await openSavedReport(
       page,
+      reads,
       registrationId,
       "check",
       checkReceipt.group_id,
+      checkSnapshotId,
       checkReportReceipt.report_id,
     );
     await reads.waitForIdle();

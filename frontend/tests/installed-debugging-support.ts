@@ -1603,10 +1603,18 @@ export class BrowserReadTracker {
     const deadline = performance.now() + timeoutMs;
     while (this.pending.size > 0 && performance.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 50));
-    if (this.pending.size > 0)
-      throw new Error(
+    if (this.pending.size > 0) {
+      const failure = new Error(
         "Installed browser reads did not finish their response bodies.",
       );
+      this.writePendingStageWitness("read_idle_failure", "wait_for_idle");
+      try {
+        await this.qualification.save();
+      } catch {
+        // Keep the original idle failure if diagnostic persistence also fails.
+      }
+      throw failure;
+    }
   }
 
   async dispose(): Promise<void> {
