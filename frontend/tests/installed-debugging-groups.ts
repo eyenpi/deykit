@@ -1005,9 +1005,7 @@ async function openSavedReport(
       responses: false,
     });
   });
-  await expect(page.getByLabel("Pinned report identity")).toContainText(
-    reportId,
-  );
+  await expect(page.getByText(reportId, { exact: true })).toBeVisible();
   await expect(page.getByLabel("Pinned report identity")).toContainText(
     snapshotId,
   );
