@@ -13,6 +13,7 @@ import type { ApiOperationData } from "../src/api/client";
 import {
   assertExactArtifactBytes,
   assertCreateReportRequestBody,
+  type BrowserReadTracker,
   captureResponse,
   captureOperation,
   decodeSuccessEnvelope,
@@ -50,17 +51,155 @@ type Target = {
   markdownHash?: string;
 };
 
-async function openReportPage(
+type ObservedMetadataRead = {
+  response: Response;
+  body: Buffer;
+};
+
+function observeNextReportMetadata(
   page: Page,
   registrationId: string,
+): {
+  result: Promise<ObservedMetadataRead>;
+  armRequestArrivalDeadline: () => void;
+  dispose: () => void;
+} {
+  const origin = new URL(page.url()).origin;
+  const collectionPath = `/api/v1/projects/${registrationId}/reports/`;
+  let retainedRequest: Request | undefined;
+  let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
+  let headerTimer: ReturnType<typeof setTimeout> | undefined;
+  let bodyTimer: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
+  let disposed = false;
+  let resolveResult: (value: ObservedMetadataRead) => void = () => undefined;
+  let rejectResult: (reason: Error) => void = () => undefined;
+  const result = new Promise<ObservedMetadataRead>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
+  });
+  void result.catch(() => undefined);
+
+  const clearTimers = () => {
+    if (arrivalTimer) clearTimeout(arrivalTimer);
+    if (headerTimer) clearTimeout(headerTimer);
+    if (bodyTimer) clearTimeout(bodyTimer);
+    arrivalTimer = undefined;
+    headerTimer = undefined;
+    bodyTimer = undefined;
+  };
+  const rejectOnce = (message: string) => {
+    if (settled) return;
+    settled = true;
+    clearTimers();
+    rejectResult(new Error(message));
+  };
+  const onRequest = (request: Request) => {
+    if (settled || retainedRequest || request.method() !== "GET") return;
+    const url = new URL(request.url());
+    if (url.origin !== origin || !url.pathname.startsWith(collectionPath))
+      return;
+    const reportId = url.pathname.slice(collectionPath.length);
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(reportId)) return;
+    retainedRequest = request;
+    if (arrivalTimer) clearTimeout(arrivalTimer);
+    arrivalTimer = undefined;
+    headerTimer = setTimeout(
+      () => rejectOnce("Report metadata headers were not observed in time."),
+      12_000,
+    );
+  };
+  const onResponse = (response: Response) => {
+    if (settled || !retainedRequest || response.request() !== retainedRequest)
+      return;
+    if (headerTimer) clearTimeout(headerTimer);
+    headerTimer = undefined;
+    bodyTimer = setTimeout(
+      () => rejectOnce("Report metadata body was not completed in time."),
+      12_000,
+    );
+    void response.body().then(
+      (body) => {
+        if (settled) return;
+        settled = true;
+        clearTimers();
+        resolveResult({ response, body });
+      },
+      () => rejectOnce("Report metadata body observation failed."),
+    );
+  };
+  const onRequestFailed = (request: Request) => {
+    if (request === retainedRequest)
+      rejectOnce("Report metadata request failed before its response.");
+  };
+
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  page.on("requestfailed", onRequestFailed);
+
+  return {
+    result,
+    armRequestArrivalDeadline: () => {
+      if (settled || retainedRequest || arrivalTimer) return;
+      arrivalTimer = setTimeout(
+        () => rejectOnce("Report metadata request was not observed in time."),
+        12_000,
+      );
+    },
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      page.off("request", onRequest);
+      page.off("response", onResponse);
+      page.off("requestfailed", onRequestFailed);
+      if (!settled)
+        rejectOnce("Report metadata observation ended before completion.");
+      else clearTimers();
+    },
+  };
+}
+
+async function openReportPage(
+  page: Page,
+  reads: BrowserReadTracker,
+  registrationId: string,
+  currentReportId?: string,
 ): Promise<ApiOperationData<"listReports"> | undefined> {
-  if (
-    await page
-      .getByRole("heading", { name: "Saved reports", exact: true })
-      .isVisible()
-      .catch(() => false)
-  )
+  const reportsHeading = page.getByRole("heading", {
+    name: "Saved reports",
+    exact: true,
+  });
+  const savedReportHeading = page.getByRole("heading", {
+    name: "Saved report",
+    exact: true,
+  });
+  const sandboxHeading = page.getByRole("heading", {
+    name: "Sandbox",
+    exact: true,
+  });
+  if (await reportsHeading.isVisible().catch(() => false)) {
+    await expect(
+      page
+        .getByRole("list", { name: "Saved reports" })
+        .or(page.getByText("No saved reports.", { exact: true })),
+    ).toBeVisible();
+    await reads.waitForIdle();
     return undefined;
+  }
+  if (await savedReportHeading.isVisible().catch(() => false)) {
+    if (currentReportId)
+      await expect(
+        page.getByText(currentReportId, { exact: true }),
+      ).toBeVisible();
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+  } else if (await sandboxHeading.isVisible().catch(() => false)) {
+    await expect(sandboxHeading).toBeVisible();
+  } else {
+    await expect(
+      page.getByRole("main").getByRole("heading").first(),
+    ).toBeVisible();
+  }
+  await reads.waitForIdle();
   const response = await captureOperation(
     page,
     "listReports",
@@ -75,21 +214,32 @@ async function openReportPage(
       ).toBeVisible();
     },
   );
-  return decodeSuccessEnvelope<ApiOperationData<"listReports">>(
+  const listing = decodeSuccessEnvelope<ApiOperationData<"listReports">>(
     await response.response.body(),
     200,
     response.response.status(),
   );
+  if (listing.items.length === 0)
+    await expect(
+      page.getByText("No saved reports.", { exact: true }),
+    ).toBeVisible();
+  else
+    await expect(
+      page.getByRole("list", { name: "Saved reports" }),
+    ).toBeVisible();
+  await reads.waitForIdle();
+  return listing;
 }
 
 async function reopenSavedReport(
   page: Page,
+  reads: BrowserReadTracker,
   registrationId: string,
   targetKind: ReportKind,
   targetId: string,
   reportId: string,
 ): Promise<ApiOperationData<"readReport">> {
-  const listing = await openReportPage(page, registrationId);
+  const listing = await openReportPage(page, reads, registrationId);
   if (!listing)
     throw new Error("A newly admitted saved report list was unavailable.");
   expect(
@@ -124,6 +274,9 @@ async function reopenSavedReport(
   expect(report.report_id).toBe(reportId);
   expect(report.target_kind).toBe(targetKind);
   expect(report.target_id).toBe(targetId);
+  await expect(page.getByText(reportId, { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+  await reads.waitForIdle();
   return report;
 }
 
@@ -337,7 +490,12 @@ export async function runReportsWorkflow(
     }> = [];
     for (const target of cTargets) {
       await qualification.enterPhase("create-c-" + target.kind + "-report");
-      await openReportPage(page, registrationId);
+      await openReportPage(
+        page,
+        reads,
+        registrationId,
+        createdReports.at(-1)?.reportId,
+      );
       await page
         .getByRole("button", {
           name: "Create report from verified target",
@@ -465,21 +623,11 @@ export async function runReportsWorkflow(
             "/api/v1/projects/" + registrationId + "/reports",
             200,
           );
+      const metadataObservation = observeNextReportMetadata(
+        page,
+        registrationId,
+      );
       try {
-        const reportReadPromise = page.waitForResponse(
-          (response) => {
-            const url = new URL(response.url());
-            return (
-              response.request().method() === "GET" &&
-              url.pathname.startsWith(
-                "/api/v1/projects/" + registrationId + "/reports/",
-              ) &&
-              !url.pathname.endsWith("/download")
-            );
-          },
-          { timeout: 12_000 },
-        );
-        void reportReadPromise.catch(() => undefined);
         let reportId = "";
         if (lost) {
           await dialog
@@ -606,11 +754,13 @@ export async function runReportsWorkflow(
           reportId = receipt.report_id;
         }
         qualification.setWitness(target.kind + "_report_id", reportId);
-        const metadataResponse = await reportReadPromise;
+        metadataObservation.armRequestArrivalDeadline();
+        const metadata = await metadataObservation.result;
+        const metadataResponse = metadata.response;
         expect(new URL(metadataResponse.url()).pathname).toBe(
           "/api/v1/projects/" + registrationId + "/reports/" + reportId,
         );
-        const metadataBody = await metadataResponse.body();
+        const metadataBody = metadata.body;
         await expect(
           page.getByRole("heading", { name: "Saved report", exact: true }),
         ).toBeVisible();
@@ -628,7 +778,12 @@ export async function runReportsWorkflow(
             qualification.seedMetadata.label_snapshot_id,
           );
         expectedReportCount += 1;
-        const listing = await openReportPage(page, registrationId);
+        const listing = await openReportPage(
+          page,
+          reads,
+          registrationId,
+          reportId,
+        );
         if (!listing)
           throw new Error("The saved report list was not freshly admitted.");
         expect(listing.total).toBe(String(expectedReportCount));
@@ -664,6 +819,7 @@ export async function runReportsWorkflow(
         const witness = await readReportWitness(witnessPath, reportId);
         const afterWitness = await reopenSavedReport(
           page,
+          reads,
           registrationId,
           target.kind,
           target.id,
@@ -715,6 +871,7 @@ export async function runReportsWorkflow(
         if (target.kind === "run")
           await exerciseKnownReportDownloadFailures(
             page,
+            reads,
             registrationId,
             target.id,
             reportId,
@@ -736,7 +893,11 @@ export async function runReportsWorkflow(
           bytes: downloadedBytes,
         });
       } finally {
-        await lost?.dispose();
+        try {
+          metadataObservation.dispose();
+        } finally {
+          await lost?.dispose();
+        }
       }
       await reads.waitForIdle();
     }
@@ -875,7 +1036,7 @@ export async function runReportsWorkflow(
       }),
     ).toHaveCount(0);
     await expect(caseRow).toContainText("question");
-    const refreshedListing = await openReportPage(page, registrationId);
+    const refreshedListing = await openReportPage(page, reads, registrationId);
     if (!refreshedListing)
       throw new Error("The saved report list did not refresh after labeling.");
     expect(refreshedListing.items).toHaveLength(createdReports.length);
@@ -932,7 +1093,12 @@ export async function runReportsWorkflow(
         ).toBe(0);
       }
       await reads.waitForIdle();
-      const listing = await openReportPage(page, registrationId);
+      const listing = await openReportPage(
+        page,
+        reads,
+        registrationId,
+        saved.reportId,
+      );
       if (!listing)
         throw new Error(
           "The reports view did not remount after a report read.",
@@ -941,6 +1107,11 @@ export async function runReportsWorkflow(
 
     await qualification.enterPhase("read-g-saved-report-bytes");
     const gProject = await openPreparedProject(page, secondaryPath);
+    await expect(
+      page.getByRole("main").getByRole("heading").first(),
+    ).toBeVisible();
+    await reads.waitForIdle();
+    let currentGReportId: string | undefined;
     for (const target of [
       {
         kind: "diagnostic" as const,
@@ -957,6 +1128,17 @@ export async function runReportsWorkflow(
         hashes: checkHashes,
       },
     ]) {
+      if (currentGReportId) {
+        await expect(
+          page.getByText(currentGReportId, { exact: true }),
+        ).toBeVisible();
+        await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+      } else {
+        await expect(
+          page.getByRole("main").getByRole("heading").first(),
+        ).toBeVisible();
+      }
+      await reads.waitForIdle();
       const reportRead = await captureOperation(
         page,
         "readReport",
@@ -982,6 +1164,8 @@ export async function runReportsWorkflow(
           const reportList = page.getByRole("list", {
             name: "Saved reports",
           });
+          await expect(reportList).toBeVisible();
+          await reads.waitForIdle();
           const reportRow = reportList
             .getByRole("listitem")
             .filter({ has: page.getByText(target.reportId, { exact: true }) });
@@ -1015,7 +1199,12 @@ export async function runReportsWorkflow(
           ? report.diagnostic_snapshot_id
           : report.check_snapshot_id,
       ).toBe(target.snapshot);
+      await expect(
+        page.getByText(target.reportId, { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Pinned report identity")).toBeVisible();
       await reads.waitForIdle();
+      currentGReportId = target.reportId;
       const witnessPath = testInfo.outputPath(
         "imported-" + target.reportId + "-witness.json",
       );
@@ -1031,6 +1220,7 @@ export async function runReportsWorkflow(
       expect(witness.markdown.bytes_hash).toBe(target.hashes.markdown);
       const afterWitness = await reopenSavedReport(
         page,
+        reads,
         gProject.registrationId,
         target.kind,
         target.id,
@@ -1087,6 +1277,13 @@ export async function runReportsWorkflow(
       live_dispatch_calls: 0,
     });
     qualification.setCounts(counts);
+    if (currentGReportId) {
+      await expect(
+        page.getByText(currentGReportId, { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    }
+    await reads.waitForIdle();
     await page.getByRole("button", { name: "Sandbox", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Sandbox", exact: true }),
@@ -1100,6 +1297,7 @@ export async function runReportsWorkflow(
 
 async function exerciseKnownReportDownloadFailures(
   page: Page,
+  reads: BrowserReadTracker,
   registrationId: string,
   runId: string,
   reportId: string,
@@ -1110,6 +1308,12 @@ async function exerciseKnownReportDownloadFailures(
 ): Promise<void> {
   const path = `/api/v1/projects/${registrationId}/reports/${reportId}/download`;
   const metadataPath = `/api/v1/projects/${registrationId}/reports/${reportId}`;
+  await expect(
+    page.getByRole("heading", { name: "Saved report", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(reportId, { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+  await reads.waitForIdle();
   let reportPosts = 0;
   const countReportPost = (request: Request) => {
     if (
@@ -1150,7 +1354,8 @@ async function exerciseKnownReportDownloadFailures(
         body: errorBody,
       });
     };
-    await page.route((url) => url.pathname === metadataPath, metadataRoute);
+    const metadataMatcher = (url: URL) => url.pathname === metadataPath;
+    await page.route(metadataMatcher, metadataRoute);
     try {
       const metadataFailure = await captureResponse(
         page,
@@ -1169,7 +1374,7 @@ async function exerciseKnownReportDownloadFailures(
         page.getByRole("button", { name: "Try again", exact: true }),
       ).toBeEnabled();
     } finally {
-      await page.unroute((url) => url.pathname === metadataPath, metadataRoute);
+      await page.unroute(metadataMatcher, metadataRoute);
     }
     const metadataRecovery = await captureOperation(
       page,
@@ -1188,6 +1393,9 @@ async function exerciseKnownReportDownloadFailures(
       requests: false,
       responses: false,
     });
+    await expect(page.getByText(reportId, { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    await reads.waitForIdle();
     expect(reportPosts).toBe(0);
 
     const cases = [
@@ -1243,7 +1451,10 @@ async function exerciseKnownReportDownloadFailures(
           await route.fulfill({
             response: actual,
             headers: {
-              "content-type": "application/octet-stream",
+              "content-type":
+                format === "json"
+                  ? "application/octet-stream"
+                  : "text/plain; charset=utf-8",
               "content-length": String(8 * 1024 * 1024 + 1),
             },
             body: Buffer.alloc(8 * 1024 * 1024 + 1, 0x61),
@@ -1319,6 +1530,9 @@ async function exerciseKnownReportDownloadFailures(
       expect(new URL(recovered.response.url()).pathname).toBe(path);
     }
     expect(reportPosts).toBe(0);
+    await expect(page.getByText(reportId, { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    await reads.waitForIdle();
     const retained = await captureOperation(
       page,
       "readReport",
@@ -1359,6 +1573,9 @@ async function exerciseKnownReportDownloadFailures(
       requests: false,
       responses: false,
     });
+    await expect(page.getByText(reportId, { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    await reads.waitForIdle();
     expect(reportPosts).toBe(0);
   } finally {
     page.off("request", countReportPost);
