@@ -1,12 +1,13 @@
 import {
   expect,
   type Page,
+  type Locator,
   type Request,
   type Response,
   type Route,
   type TestInfo,
 } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { chmod, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { bodySha256 } from "./installed-debugging-support";
 import type { ApiOperationData } from "../src/api/client";
@@ -56,17 +57,57 @@ type ObservedMetadataRead = {
   body: Buffer;
 };
 
+type ReportMetadataDiagnosticEvent =
+  | { event: "candidateissued" }
+  | {
+      event: "responseobserved" | "requestfailed";
+      sameRequestObject: boolean;
+      sameCandidateUrl: boolean;
+    }
+  | { event: "headerbodycomplete" | "headerbodyfailed" | "disposed" }
+  | { event: "timeout"; stage: "arrival" | "headers" | "body" }
+  | { event: "receiptobserved"; retainedSuffixMatchesReceipt: boolean }
+  | {
+      event: "uisnapshot";
+      savedReportsHeadingVisible: boolean;
+      savedReportHeadingVisible: boolean;
+      createSheetVisible: boolean;
+      unsavedChangesDialogVisible: boolean;
+      currentRouteMatchesReceiptReport: boolean;
+    };
+
+const REPORT_METADATA_DIAGNOSTIC_NODE_LIMIT = 24;
+let reportMetadataDiagnosticNodesUsed = 0;
+
+function appendReportMetadataDiagnostic(
+  events: ReportMetadataDiagnosticEvent[],
+  event: ReportMetadataDiagnosticEvent,
+): void {
+  if (
+    reportMetadataDiagnosticNodesUsed >= REPORT_METADATA_DIAGNOSTIC_NODE_LIMIT
+  )
+    return;
+  reportMetadataDiagnosticNodesUsed += 1;
+  events.push(event);
+}
+
 function observeNextReportMetadata(
   page: Page,
   registrationId: string,
 ): {
   result: Promise<ObservedMetadataRead>;
   armRequestArrivalDeadline: () => void;
+  recordReceipt: (reportId: string) => void;
+  captureUiSnapshot: (reportId: string) => Promise<void>;
+  diagnostics: () => { events: ReportMetadataDiagnosticEvent[] };
   dispose: () => void;
 } {
   const origin = new URL(page.url()).origin;
   const collectionPath = `/api/v1/projects/${registrationId}/reports/`;
   let retainedRequest: Request | undefined;
+  let retainedCandidateUrl: string | undefined;
+  let retainedCandidateSuffix: string | undefined;
+  const events: ReportMetadataDiagnosticEvent[] = [];
   let arrivalTimer: ReturnType<typeof setTimeout> | undefined;
   let headerTimer: ReturnType<typeof setTimeout> | undefined;
   let bodyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -94,6 +135,13 @@ function observeNextReportMetadata(
     clearTimers();
     rejectResult(new Error(message));
   };
+  const timeoutOnce = (
+    stage: "arrival" | "headers" | "body",
+    message: string,
+  ) => {
+    appendReportMetadataDiagnostic(events, { event: "timeout", stage });
+    rejectOnce(message);
+  };
   const onRequest = (request: Request) => {
     if (settled || retainedRequest || request.method() !== "GET") return;
     const url = new URL(request.url());
@@ -102,20 +150,36 @@ function observeNextReportMetadata(
     const reportId = url.pathname.slice(collectionPath.length);
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(reportId)) return;
     retainedRequest = request;
+    retainedCandidateUrl = request.url();
+    retainedCandidateSuffix = reportId;
+    appendReportMetadataDiagnostic(events, { event: "candidateissued" });
     if (arrivalTimer) clearTimeout(arrivalTimer);
     arrivalTimer = undefined;
     headerTimer = setTimeout(
-      () => rejectOnce("Report metadata headers were not observed in time."),
+      () =>
+        timeoutOnce(
+          "headers",
+          "Report metadata headers were not observed in time.",
+        ),
       12_000,
     );
   };
   const onResponse = (response: Response) => {
-    if (settled || !retainedRequest || response.request() !== retainedRequest)
-      return;
+    if (!retainedRequest) return;
+    const sameRequestObject = response.request() === retainedRequest;
+    const sameCandidateUrl = response.url() === retainedCandidateUrl;
+    if (!sameRequestObject && !sameCandidateUrl) return;
+    appendReportMetadataDiagnostic(events, {
+      event: "responseobserved",
+      sameRequestObject,
+      sameCandidateUrl,
+    });
+    if (settled || !sameRequestObject) return;
     if (headerTimer) clearTimeout(headerTimer);
     headerTimer = undefined;
     bodyTimer = setTimeout(
-      () => rejectOnce("Report metadata body was not completed in time."),
+      () =>
+        timeoutOnce("body", "Report metadata body was not completed in time."),
       12_000,
     );
     void response.body().then(
@@ -123,13 +187,26 @@ function observeNextReportMetadata(
         if (settled) return;
         settled = true;
         clearTimers();
+        appendReportMetadataDiagnostic(events, { event: "headerbodycomplete" });
         resolveResult({ response, body });
       },
-      () => rejectOnce("Report metadata body observation failed."),
+      () => {
+        appendReportMetadataDiagnostic(events, { event: "headerbodyfailed" });
+        rejectOnce("Report metadata body observation failed.");
+      },
     );
   };
   const onRequestFailed = (request: Request) => {
-    if (request === retainedRequest)
+    if (!retainedRequest) return;
+    const sameRequestObject = request === retainedRequest;
+    const sameCandidateUrl = request.url() === retainedCandidateUrl;
+    if (!sameRequestObject && !sameCandidateUrl) return;
+    appendReportMetadataDiagnostic(events, {
+      event: "requestfailed",
+      sameRequestObject,
+      sameCandidateUrl,
+    });
+    if (!settled && sameRequestObject)
       rejectOnce("Report metadata request failed before its response.");
   };
 
@@ -142,7 +219,11 @@ function observeNextReportMetadata(
     armRequestArrivalDeadline: () => {
       if (settled || retainedRequest || arrivalTimer) return;
       arrivalTimer = setTimeout(
-        () => rejectOnce("Report metadata request was not observed in time."),
+        () =>
+          timeoutOnce(
+            "arrival",
+            "Report metadata request was not observed in time.",
+          ),
         12_000,
       );
     },
@@ -152,10 +233,62 @@ function observeNextReportMetadata(
       page.off("request", onRequest);
       page.off("response", onResponse);
       page.off("requestfailed", onRequestFailed);
+      appendReportMetadataDiagnostic(events, { event: "disposed" });
       if (!settled)
         rejectOnce("Report metadata observation ended before completion.");
       else clearTimers();
     },
+    recordReceipt: (reportId: string) => {
+      appendReportMetadataDiagnostic(events, {
+        event: "receiptobserved",
+        retainedSuffixMatchesReceipt: retainedCandidateSuffix === reportId,
+      });
+    },
+    captureUiSnapshot: async (reportId: string) => {
+      const isVisible = (locator: Locator) =>
+        locator.isVisible().catch(() => false);
+      const [
+        savedReportsHeadingVisible,
+        savedReportHeadingVisible,
+        createSheetVisible,
+        unsavedChangesDialogVisible,
+      ] = await Promise.all([
+        isVisible(
+          page.getByRole("heading", { name: "Saved reports", exact: true }),
+        ),
+        isVisible(
+          page.getByRole("heading", { name: "Saved report", exact: true }),
+        ),
+        isVisible(
+          page.getByRole("dialog", {
+            name: "Create a pinned report",
+            exact: true,
+          }),
+        ),
+        isVisible(
+          page.getByRole("dialog", { name: "Unsaved changes", exact: true }),
+        ),
+      ]);
+      let currentRouteMatchesReceiptReport = false;
+      if (reportId) {
+        try {
+          currentRouteMatchesReceiptReport =
+            new URL(page.url()).hash ===
+            `#/p/${registrationId}/reports/${encodeURIComponent(reportId)}`;
+        } catch {
+          currentRouteMatchesReceiptReport = false;
+        }
+      }
+      appendReportMetadataDiagnostic(events, {
+        event: "uisnapshot",
+        savedReportsHeadingVisible,
+        savedReportHeadingVisible,
+        createSheetVisible,
+        unsavedChangesDialogVisible,
+        currentRouteMatchesReceiptReport,
+      });
+    },
+    diagnostics: () => ({ events: events.map((event) => ({ ...event })) }),
   };
 }
 
@@ -651,8 +784,8 @@ export async function runReportsWorkflow(
         page,
         registrationId,
       );
+      let reportId = "";
       try {
-        let reportId = "";
         if (lost) {
           await dialog
             .getByRole("button", { name: "Create report", exact: true })
@@ -777,6 +910,7 @@ export async function runReportsWorkflow(
           }
           reportId = receipt.report_id;
         }
+        metadataObservation.recordReceipt(reportId);
         qualification.setWitness(target.kind + "_report_id", reportId);
         metadataObservation.armRequestArrivalDeadline();
         const metadata = await metadataObservation.result;
@@ -918,8 +1052,26 @@ export async function runReportsWorkflow(
         });
       } finally {
         try {
+          await metadataObservation.captureUiSnapshot(reportId);
+        } catch {
+          // Diagnostics are passive and must not replace the qualification result.
+        }
+        try {
           metadataObservation.dispose();
         } finally {
+          try {
+            const diagnosticPath = testInfo.outputPath(
+              "report-metadata-diagnostics-" + target.kind + ".json",
+            );
+            await writeFile(
+              diagnosticPath,
+              JSON.stringify(metadataObservation.diagnostics(), null, 2) + "\n",
+              { mode: 0o600 },
+            );
+            await chmod(diagnosticPath, 0o600);
+          } catch {
+            // Diagnostics are passive and must not replace the qualification result.
+          }
           await lost?.dispose();
         }
       }
