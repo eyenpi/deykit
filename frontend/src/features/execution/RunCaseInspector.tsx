@@ -416,15 +416,18 @@ export function RunCaseInspector({
         setDetail({
           ...decoded,
           inputSource: flags.input ? decoded.inputSource : null,
-          attempts: flags.attempts
-            ? decoded.attempts.map((attempt) => ({
-                ...attempt,
-                requestBodySource: flags.request
-                  ? attempt.requestBodySource
-                  : null,
-                responseSource: flags.response ? attempt.responseSource : null,
-              }))
-            : [],
+          attempts:
+            flags.attempts || flags.request || flags.response
+              ? decoded.attempts.map((attempt) => ({
+                  ...attempt,
+                  requestBodySource: flags.request
+                    ? attempt.requestBodySource
+                    : null,
+                  responseSource: flags.response
+                    ? attempt.responseSource
+                    : null,
+                }))
+              : [],
         });
         setDetailScope(requestedDetailScope);
       })
@@ -1033,17 +1036,24 @@ export function RunCaseInspector({
               </section>
             )}
           {detailCurrent &&
-            reveal.attempts &&
+            (reveal.attempts || reveal.request || reveal.response) &&
             detail?.attempts.map((attempt) => (
               <section key={attempt.attemptId}>
-                <h4>
-                  Attempt {attempt.number} · {attempt.kind} · {attempt.state}
-                </h4>
-                <p>
-                  Request body hash <code>{attempt.requestBodyHash}</code>;{" "}
-                  {attempt.errorCode ?? "No error code"}{" "}
-                  {attempt.errorReason ?? ""}
-                </p>
+                {reveal.attempts ? (
+                  <>
+                    <h4>
+                      Attempt {attempt.number} · {attempt.kind} ·{" "}
+                      {attempt.state}
+                    </h4>
+                    <p>
+                      Request body hash <code>{attempt.requestBodyHash}</code>;{" "}
+                      {attempt.errorCode ?? "No error code"}{" "}
+                      {attempt.errorReason ?? ""}
+                    </p>
+                  </>
+                ) : (
+                  <p>Attempt {attempt.number}</p>
+                )}
                 {reveal.request && attempt.requestBodySource !== null && (
                   <>
                     <h5>Sanitized request</h5>

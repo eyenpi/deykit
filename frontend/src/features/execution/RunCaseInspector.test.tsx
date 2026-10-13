@@ -587,3 +587,112 @@ it("rejects a case detail whose result and label snapshots differ from the first
     navigation.dispose();
   }
 });
+
+it.each(["request", "response"] as const)(
+  "reveals and clears %s independently of structured attempts",
+  async (mode) => {
+    const reads: ResultReadRequest[] = [];
+    const requestSource = '{"large":9007199254740993,"fraction":1.2300}';
+    const responseSource = '{"answer":"option-1"}';
+    const execution: ExecutionGateway = {
+      ...disconnectedWorkspace.execution,
+      inspection: {
+        ...disconnectedWorkspace.execution.inspection,
+        listEvaluations: async () =>
+          result({ items: [], next_cursor: null, total: "0" }),
+        listResults: async () =>
+          result<ApiOperationData<"listResults">>({
+            schema_version: 1,
+            run_id: run.run_id,
+            evaluation_id: null,
+            result_snapshot_id: "result-snapshot-1",
+            label_snapshot_id: "label-snapshot-1",
+            context: context("result-snapshot-1", "label-snapshot-1", null),
+            assessment_counts: {
+              all: "1",
+              inspect: "0",
+              incorrect: "0",
+              unlabelled: "0",
+            },
+            selected_count: "1",
+            filtered_count: "1",
+            status_counts: { valid: "1" },
+            summary: {},
+            items: [{ source: rowSource }],
+            next_cursor: null,
+          }),
+        readResult: async (args) => {
+          reads.push(args);
+          const request = args.query?.include_request === "true";
+          const response = args.query?.include_response === "true";
+          const attempts = args.query?.include_attempts === "true";
+          return result<ApiOperationData<"readResult">>({
+            schema_version: 1,
+            case_input_hash: "f".repeat(64),
+            context: context("result-snapshot-1", "label-snapshot-1", null),
+            probabilities: [],
+            probabilities_unavailable_reason: "probabilities_not_provided",
+            source: {
+              ...rowSource,
+              attempts:
+                request || response || attempts
+                  ? [
+                      {
+                        attempt_id: "attempt-1",
+                        number: "1",
+                        kind: "fixture",
+                        state: "completed",
+                        request_body_hash: "a".repeat(64),
+                        error_code: null,
+                        error_reason: null,
+                        ...(request
+                          ? { request_body_source: requestSource }
+                          : {}),
+                        ...(response
+                          ? { response_source: responseSource }
+                          : {}),
+                      },
+                    ]
+                  : [],
+            },
+          });
+        },
+      },
+    };
+    const { tree, navigation } = mountInspector(execution, "case-1");
+    const user = userEvent.setup();
+    const selectedSource = mode === "request" ? requestSource : responseSource;
+    const otherSource = mode === "request" ? responseSource : requestSource;
+    try {
+      await waitFor(() => expect(reads).toHaveLength(1));
+      expect(screen.queryByText(selectedSource)).toBeNull();
+      await user.click(screen.getByLabelText(`Include ${mode}`));
+      expect(await screen.findByText(selectedSource)).toBeTruthy();
+      expect(screen.queryByText(otherSource)).toBeNull();
+      expect(
+        (screen.getByLabelText("Include attempts") as HTMLInputElement).checked,
+      ).toBe(false);
+      expect(reads.at(-1)?.query?.include_attempts).toBe("false");
+      expect(
+        screen.queryByRole("heading", {
+          name: "Attempt 1 · fixture · completed",
+        }),
+      ).toBeNull();
+      await user.click(screen.getByLabelText(`Include ${mode}`));
+      await waitFor(() =>
+        expect(screen.queryByText(selectedSource)).toBeNull(),
+      );
+      await user.click(screen.getByLabelText("Include attempts"));
+      expect(
+        await screen.findByRole("heading", {
+          name: "Attempt 1 · fixture · completed",
+        }),
+      ).toBeTruthy();
+      expect(screen.queryByText(requestSource)).toBeNull();
+      expect(screen.queryByText(responseSource)).toBeNull();
+    } finally {
+      tree.unmount();
+      navigation.dispose();
+    }
+  },
+);
