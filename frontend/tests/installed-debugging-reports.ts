@@ -1646,8 +1646,9 @@ async function exerciseKnownReportDownloadFailures(
           fault === "download-service-unavailable"
             ? `Download ${format === "json" ? "JSON" : "Markdown"}`
             : "Preview report bytes";
-        const observed = await captureResponse(
-          page,
+        // Rejected media/size/redirect responses intentionally cancel the body.
+        // Observe their headers; recovery below must still prove full exact bytes.
+        const rejectedHeaders = page.waitForResponse(
           (response) => {
             const url = new URL(response.url());
             return (
@@ -1656,8 +1657,11 @@ async function exerciseKnownReportDownloadFailures(
               url.searchParams.get("format") === format
             );
           },
-          () => page.getByRole("button", { name: action, exact: true }).click(),
+          { timeout: 12_000 },
         );
+        void rejectedHeaders.catch(() => undefined);
+        await page.getByRole("button", { name: action, exact: true }).click();
+        const observed = { response: await rejectedHeaders };
         expect(observed.response.status()).toBe(
           fault.includes("service-unavailable")
             ? 503
