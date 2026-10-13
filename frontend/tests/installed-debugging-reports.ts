@@ -77,17 +77,12 @@ type ReportMetadataDiagnosticEvent =
     };
 
 const REPORT_METADATA_DIAGNOSTIC_NODE_LIMIT = 24;
-let reportMetadataDiagnosticNodesUsed = 0;
 
 function appendReportMetadataDiagnostic(
   events: ReportMetadataDiagnosticEvent[],
   event: ReportMetadataDiagnosticEvent,
 ): void {
-  if (
-    reportMetadataDiagnosticNodesUsed >= REPORT_METADATA_DIAGNOSTIC_NODE_LIMIT
-  )
-    return;
-  reportMetadataDiagnosticNodesUsed += 1;
+  if (events.length >= REPORT_METADATA_DIAGNOSTIC_NODE_LIMIT) return;
   events.push(event);
 }
 
