@@ -164,6 +164,7 @@ async function openReportPage(
   reads: BrowserReadTracker,
   registrationId: string,
   currentReportId?: string,
+  discardVerifiedComparisonProposal = false,
 ): Promise<ApiOperationData<"listReports"> | undefined> {
   const reportsHeading = page.getByRole("heading", {
     name: "Saved reports",
@@ -177,6 +178,14 @@ async function openReportPage(
     name: "Sandbox",
     exact: true,
   });
+  if (discardVerifiedComparisonProposal) {
+    await expect(
+      page.getByRole("heading", { name: "Comparisons", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.locator('dl[aria-label="Verified evaluation context"]'),
+    ).toBeVisible();
+  }
   if (await reportsHeading.isVisible().catch(() => false)) {
     await expect(
       page
@@ -209,6 +218,20 @@ async function openReportPage(
         .getByRole("navigation", { name: "Utilities" })
         .getByRole("button", { name: "Reports", exact: true })
         .click();
+      if (discardVerifiedComparisonProposal) {
+        const discardPrompt = page.getByRole("dialog", {
+          name: "Unsaved changes",
+          exact: true,
+        });
+        await expect(discardPrompt).toBeVisible();
+        const discardButton = discardPrompt.getByRole("button", {
+          name: "Discard changes",
+          exact: true,
+        });
+        await expect(discardButton).toBeEnabled();
+        await discardButton.click();
+        await expect(discardPrompt).toBeHidden();
+      }
       await expect(
         page.getByRole("heading", { name: "Saved reports", exact: true }),
       ).toBeVisible();
@@ -495,6 +518,7 @@ export async function runReportsWorkflow(
         reads,
         registrationId,
         createdReports.at(-1)?.reportId,
+        target.kind === "run" && createdReports.length === 0,
       );
       await page
         .getByRole("button", {
