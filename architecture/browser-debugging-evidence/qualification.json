@@ -1,0 +1,139 @@
+{
+  "kind": "automated_local_authored_fixture_evidence",
+  "accepted_runtime_head": "38e075cbca7e6e577bbe84d7766eaf6367cfb0bb",
+  "python": "3.11.16",
+  "status": "passed",
+  "one_global_verification_slot": true,
+  "browser_workers": 1,
+  "browser_retries": 0,
+  "ports": [
+    "production_compiler_application_FixtureBackend",
+    "fake_secret_store",
+    "fake_model_lister"
+  ],
+  "workflows": {
+    "C": {
+      "attempt": "C09",
+      "status": "passed",
+      "duration_ms": 57798,
+      "completed_phases": [
+        "project-open",
+        "review-authored-revised-run",
+        "save-revised-evaluation",
+        "create-and-replay-comparison",
+        "reverse-comparison-independent-intent"
+      ],
+      "fixture_dispatch_calls": 11,
+      "fixture_resolution_calls": 11,
+      "live_dispatch_calls": 0,
+      "server_exit_code": 0,
+      "shutdown_witness_passed": true,
+      "source_and_artifacts_unchanged": true
+    },
+    "G": {
+      "attempt": "G38",
+      "status": "passed",
+      "duration_ms": 263925,
+      "completed_phases": [
+        "project-open",
+        "author-independent-regression",
+        "diagnostic-preview-and-cancel-replay",
+        "diagnostic-child-inspection",
+        "diagnostic-cancel-replay",
+        "pin-partial-diagnostic-snapshot",
+        "resume-diagnostic-group",
+        "regression-check-frozen-input",
+        "pin-check-snapshot-and-report",
+        "remove-current-regression-and-preserve-check"
+      ],
+      "fixture_dispatch_calls": 5,
+      "fixture_resolution_calls": 5,
+      "live_dispatch_calls": 0,
+      "server_exit_code": 0,
+      "shutdown_witness_passed": true,
+      "source_and_artifacts_unchanged": true
+    },
+    "S": {
+      "attempt": "S20",
+      "status": "passed",
+      "duration_ms": 31698,
+      "completed_phases": [
+        "project-open",
+        "original-run-and-evaluation",
+        "frozen-pagination-and-assessment",
+        "probability-and-label-review",
+        "evaluation-switch-clears-raw-source",
+        "annotation-lost-ack-and-replay",
+        "explicit-regression-oracle"
+      ],
+      "fixture_dispatch_calls": 0,
+      "fixture_resolution_calls": 0,
+      "live_dispatch_calls": 0,
+      "server_exit_code": 0,
+      "shutdown_witness_passed": true,
+      "source_and_artifacts_unchanged": true
+    },
+    "R": {
+      "attempt": "R11",
+      "status": "passed",
+      "duration_ms": 85376,
+      "completed_phases": [
+        "project-open",
+        "admit-c-and-g-evidence",
+        "read-c-comparison",
+        "create-c-run-report",
+        "create-c-evaluation-report",
+        "create-c-comparison-report",
+        "change-current-label-after-reports",
+        "read-g-saved-report-bytes",
+        "zero-new-report-dispatches",
+        "narrow-report-keyboard"
+      ],
+      "fixture_dispatch_calls": 0,
+      "fixture_resolution_calls": 0,
+      "live_dispatch_calls": 0,
+      "server_exit_code": 0,
+      "shutdown_witness_passed": true,
+      "source_and_artifacts_unchanged": true
+    }
+  },
+  "artifacts_sha256": {
+    "sdist": "89db1a1688fec2a6f548cf83e859430a23d7f9d7f8db96014d735b456cd363b0",
+    "wheel": "dae27f7131e23b7a09a5b32a7ed719b0e2c6ee239767807d6191a061104e7da6"
+  },
+  "installed_package_and_license_byte_parity": true,
+  "sdist_frontend_byte_parity": true,
+  "report_view_320_no_document_overflow": true,
+  "report_tab_shift_tab_controls": true,
+  "screenshots_owner_visually_inspected": true,
+  "screenshot_sha256": {
+    "comparison-original.png": "014bfd666fa7936fb6f62487242f54ff925b276d37c8e169301017c8d063251e",
+    "group-pinned-historical-snapshot.png": "6cde7b0a4cbbb0bade2b7f52ccd413edb906edfc502bcef34e7c7ba327ea4b20",
+    "regression-examples.png": "7ee875cb6ce50530844a95c635b71c53992e17cad070971fb32b3f8497dc8bd1",
+    "report-narrow-320.png": "e2f772b987332e6b12f8d2b25f03742b17468c851c37a1fd9dcadaf763cf3ca3"
+  },
+  "qualification_diagnostics": {
+    "G_native_watchdog_disabled": true,
+    "reason": "prior actualhelper blocked in native faulthandler cancellation after server.run and worker shutdown returned",
+    "application_patch_for_watchdog": false,
+    "underlying_native_cause": "unproved"
+  },
+  "review": {
+    "prior_independent_source_head": "77f4f537d2a4dbf273f559cd0dc9e39c65a82805",
+    "prior_model": "Luna6 HIGH",
+    "later_owner_review": "qualification and scoped report CSS/class changes; Ali disabled subagents"
+  },
+  "deferred": [
+    "M13_clean_installed_integrated_acceptance",
+    "CI",
+    "native_Windows",
+    "physical_accessibility_IME_keyring",
+    "live_provider_qualification"
+  ],
+  "current_focused_checks": {
+    "report_unit_cases": 13,
+    "asset_socket_serve_cases": 11,
+    "asset_socket_serve_seconds": 4.78,
+    "fresh_full_suite": false
+  }
+}
