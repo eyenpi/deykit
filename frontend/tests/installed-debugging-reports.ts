@@ -11,6 +11,7 @@ import { chmod, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { bodySha256 } from "./installed-debugging-support";
 import type { ApiOperationData } from "../src/api/client";
+import validators from "../src/api/generated/validators.cjs";
 import {
   assertExactArtifactBytes,
   assertCreateReportRequestBody,
@@ -21,12 +22,39 @@ import {
   finishDebuggingQualification,
   installLostAcknowledgement,
   invokeReportWitness,
-  openPreparedProject,
   readReportWitness,
   startDebuggingQualification,
   settleOnSandbox,
   waitForCountFile,
 } from "./installed-debugging-support";
+
+async function openReportSeedProject(page: Page, projectPath: string) {
+  const bootstrap = await captureResponse(
+    page,
+    (response) => new URL(response.url()).pathname === "/api/v1/session/bootstrap",
+    () => page.goto("/").then(() => undefined),
+  );
+  expect(bootstrap.response.status()).toBe(200);
+  const session = object(object(JSON.parse(bootstrap.body.toString("utf8"))).data);
+  expect(typeof session.capability).toBe("string");
+  // Recent-project rows also say "Open project"; use the welcome action itself.
+  await page.getByRole("main").locator(".start-actions")
+    .getByRole("button", { name: /^Open project/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Open project", exact: true });
+  await dialog.getByLabel("Project folder path").fill(projectPath);
+  const opened = await captureOperation(page, "registerProject", {}, () =>
+    dialog.getByRole("button", { name: "Open project", exact: true }).click(),
+  );
+  const registration = decodeSuccessEnvelope<ApiOperationData<"registerProject">>(
+    opened.body, 200, opened.response.status(),
+  );
+  expect(validators.validateRegistrationDTO(registration)).toBe(true);
+  const registrationId = safeId(registration.registration_id);
+  await expect(page.getByRole("heading", {
+    name: registration.project.name, exact: true,
+  })).toBeVisible();
+  return { registrationId };
+}
 
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -1277,7 +1305,7 @@ export async function runReportsWorkflow(
     }
 
     await qualification.enterPhase("read-g-saved-report-bytes");
-    const gProject = await openPreparedProject(page, secondaryPath);
+    const gProject = await openReportSeedProject(page, secondaryPath);
     await expect(
       page.getByRole("main").getByRole("heading").first(),
     ).toBeVisible();
