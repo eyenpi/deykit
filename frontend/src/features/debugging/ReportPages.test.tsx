@@ -4,9 +4,10 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { expect, it, vi } from "vitest";
 import type {
@@ -16,7 +17,7 @@ import type {
 } from "../../api/client";
 import { disconnectedWorkspace } from "../../workspace/gateway";
 import { WorkspaceNavigation } from "../../workspace/navigation";
-import { ReportPage, ReportSheet } from "./ReportPages";
+import { ReportList, ReportPage, ReportSheet } from "./ReportPages";
 
 vi.mock("../../components/Modal", () => ({
   Modal: ({ children, title }: { children: ReactNode; title: string }) => (
@@ -198,6 +199,246 @@ function reportReceipt(
     raw: { inputs: false, requests: false, responses: false },
   };
 }
+
+it("replays a committed report without letting a stale guard strand its receipt", async () => {
+  window.history.replaceState(null, "", "#/p/registration-1/reports");
+  const navigation = new WorkspaceNavigation(window);
+  const submitted: ApiOperationBody<"createReport">[] = [];
+  let createCalls = 0;
+  let reportReads = 0;
+  const reportOperations = {
+    ...disconnectedWorkspace.debugging.reports,
+    list: async () =>
+      result({
+        items: [],
+        next_cursor: null,
+        total: "0",
+      } satisfies ApiOperationData<"listReports">),
+    create: async ({ body }: { body: ApiOperationBody<"createReport"> }) => {
+      submitted.push(body);
+      createCalls += 1;
+      if (createCalls === 1)
+        throw new Error("The connection closed after the report was saved.");
+      return result(reportReceipt("run", "run-A", [], ["result-A"]));
+    },
+    read: async ({ reportId }: { reportId: string }) => {
+      reportReads += 1;
+      const data: ApiOperationData<"readReport"> = {
+        ...report,
+        report_id: reportId,
+        target_kind: "run",
+        target_id: "run-A",
+        evaluation_ids: [],
+        result_snapshot_ids: ["result-A"],
+      };
+      return result(data);
+    },
+  };
+  const debugging = {
+    ...disconnectedWorkspace.debugging,
+    reports: reportOperations,
+  };
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    runs: {
+      ...disconnectedWorkspace.execution.runs,
+      read: async () => result(runRecord("result-A")),
+    },
+  };
+  function RoutedReports() {
+    const [route, setRoute] = useState(navigation.current);
+    useEffect(() => navigation.subscribe(setRoute), [navigation]);
+    if (route.kind === "reports")
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              void navigation.navigate({
+                kind: "comparisons",
+                registrationId: "registration-1",
+              })
+            }
+          >
+            Navigate away
+          </button>
+          <ReportList
+            registrationId="registration-1"
+            debugging={debugging}
+            execution={execution}
+            navigation={navigation}
+          />
+        </>
+      );
+    if (route.kind === "report")
+      return (
+        <ReportPage
+          registrationId={route.registrationId}
+          reportId={route.reportId}
+          operations={reportOperations}
+        />
+      );
+    return <p>Route: {route.kind}</p>;
+  }
+
+  const tree = render(<RoutedReports />);
+  const user = userEvent.setup();
+  try {
+    await screen.findByText("No saved reports.");
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create report from verified target",
+      }),
+    );
+    await user.type(screen.getByLabelText("Target ID"), "run-A");
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    );
+    await screen.findByLabelText("Verified report target");
+    await user.click(screen.getByRole("button", { name: "Create report" }));
+    await screen.findByText(
+      "The service may have saved this change. Review its current state before retrying.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Navigate away" }));
+    expect(navigation.current.kind).toBe("reports");
+    expect(
+      await screen.findByText(
+        "The report request may have been saved. Retry the original request before leaving.",
+      ),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Discard changes",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    await user.click(
+      screen.getByRole("button", { name: "Retry original unchanged report" }),
+    );
+    expect(
+      await screen.findByText(reportIdentity("report-created")),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText("Pinned report identity").textContent,
+    ).toContain("Target run: run-A");
+    expect(reportReads).toBe(1);
+    expect(createCalls).toBe(2);
+    expect(submitted).toHaveLength(2);
+    expect(submitted[1]).toEqual(submitted[0]);
+    expect(submitted[1]?.operation_id).toBe(submitted[0]?.operation_id);
+    expect(
+      await navigation.navigate({
+        kind: "reports",
+        registrationId: "registration-1",
+      }),
+    ).toBe(true);
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
+
+it("keeps a known receipt when a foreign navigation guard denies report routing", async () => {
+  window.history.replaceState(null, "", "#/p/registration-1/reports");
+  const navigation = new WorkspaceNavigation(window);
+  navigation.registerDirtyGuard(
+    "foreign",
+    Object.assign(() => Promise.resolve(false), { isDirty: () => true }),
+  );
+  let createCalls = 0;
+  let listCalls = 0;
+  let reportReads = 0;
+  const debugging = {
+    ...disconnectedWorkspace.debugging,
+    reports: {
+      ...disconnectedWorkspace.debugging.reports,
+      list: async () => {
+        listCalls += 1;
+        const items: ApiOperationData<"listReports">["items"] =
+          listCalls === 1
+            ? []
+            : [
+                {
+                  ...report,
+                  report_id: "report-created",
+                  target_kind: "run",
+                  target_id: "run-A",
+                },
+              ];
+        const page: ApiOperationData<"listReports"> = {
+          items,
+          next_cursor: null,
+          total: listCalls === 1 ? "0" : "1",
+        };
+        return result(page);
+      },
+      create: async () => {
+        createCalls += 1;
+        return result(reportReceipt("run", "run-A", [], ["result-A"]));
+      },
+      read: async () => {
+        reportReads += 1;
+        return result(report);
+      },
+    },
+  };
+  const execution = {
+    ...disconnectedWorkspace.execution,
+    runs: {
+      ...disconnectedWorkspace.execution.runs,
+      read: async () => result(runRecord("result-A")),
+    },
+  };
+  const tree = render(
+    <ReportList
+      registrationId="registration-1"
+      debugging={debugging}
+      execution={execution}
+      navigation={navigation}
+    />,
+  );
+  const user = userEvent.setup();
+  try {
+    await screen.findByText("No saved reports.");
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create report from verified target",
+      }),
+    );
+    await user.type(screen.getByLabelText("Target ID"), "run-A");
+    await user.click(
+      screen.getByRole("button", { name: "Verify saved target" }),
+    );
+    await screen.findByLabelText("Verified report target");
+    await user.click(screen.getByRole("button", { name: "Create report" }));
+    const sheet = screen.getByRole("dialog", {
+      name: "Create a pinned report",
+    });
+    expect((await within(sheet).findByRole("status")).textContent).toContain(
+      "Report report-created is saved.",
+    );
+    expect(createCalls).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Create a pinned report" }),
+    ).toBeNull();
+    expect(
+      await screen.findByRole("button", { name: "run: run-A" }),
+    ).toBeTruthy();
+    expect(createCalls).toBe(1);
+    expect(listCalls).toBe(2);
+    expect(reportReads).toBe(0);
+    expect(navigation.current.kind).toBe("reports");
+  } finally {
+    tree.unmount();
+    navigation.dispose();
+  }
+});
 
 it("clears bytes and preview when changing the requested report format", async () => {
   const requests: Parameters<

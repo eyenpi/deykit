@@ -832,14 +832,18 @@ export function App({
           navigation={navigation}
           initialTarget={groupReportTarget}
           onClose={() => setGroupReportTarget(undefined)}
-          onCreated={(reportId) => {
+          onCreated={async (reportId) => {
+            const capturedTarget = groupReportTarget;
             const registrationId = project.id;
-            setGroupReportTarget(undefined);
-            void navigation.navigate({
+            const admitted = await navigation.navigate({
               kind: "report",
               registrationId,
               reportId,
             });
+            if (!admitted) return;
+            setGroupReportTarget((current) =>
+              current === capturedTarget ? undefined : current,
+            );
           }}
         />
       )}

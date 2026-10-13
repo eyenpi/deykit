@@ -155,14 +155,16 @@ export function ReportList({
           execution={execution}
           navigation={navigation}
           onClose={() => setCreateOpen(false)}
-          onCreated={(reportId) => {
-            setCreateOpen(false);
-            setRefreshToken((value) => value + 1);
-            void navigation.navigate({
+          onCreated={async (reportId) => {
+            const pendingNavigation = navigation.navigate({
               kind: "report",
               registrationId,
               reportId,
             });
+            setRefreshToken((value) => value + 1);
+            const admitted = await pendingNavigation;
+            if (!admitted) return;
+            setCreateOpen(false);
           }}
         />
       )}
@@ -265,23 +267,33 @@ export function ReportSheet({
     retainedOwner !== undefined && retainedOwner.scopeEpoch !== scopeEpoch;
   const busy =
     mutationKind === "submitting" || mutationKind === "outcome-unknown";
-  const busyRef = useRef(busy);
-  busyRef.current = busy;
   const dirty =
     state.kind !== "committed" &&
     (targetId.length > 0 || rawInputs || rawRequests || rawResponses);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  const busyNow = () => {
+    const currentKind = mutation.current?.state.kind;
+    return currentKind === "submitting" || currentKind === "outcome-unknown";
+  };
+  const committedHere = () => {
+    const currentMutation = mutation.current;
+    return (
+      currentMutation !== undefined &&
+      currentMutation.state.kind === "committed" &&
+      currentMutation.originalRequest?.scopeEpoch === scopeEpochRef.current
+    );
+  };
   const { guard, prompt } = useDirtyNavigationGuard({
     dirty: dirty || busy,
-    isDirtyNow: () => dirtyRef.current || busyRef.current,
+    isDirtyNow: () => busyNow() || (!committedHere() && dirtyRef.current),
     save: async () => {
       throw new Error(
         "Verify the report target and create the report before leaving.",
       );
     },
     discard: () => {
-      if (!busyRef.current) {
+      if (!busyNow()) {
         setTargetId("");
         setVerified(undefined);
         setRawInputs(false);
@@ -293,7 +305,7 @@ export function ReportSheet({
     blockedMessage: busy
       ? "The report request may have been saved. Retry the original request before leaving."
       : undefined,
-    isBlockedNow: () => busyRef.current,
+    isBlockedNow: busyNow,
   });
   useEffect(
     () =>
