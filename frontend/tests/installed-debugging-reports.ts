@@ -1656,6 +1656,7 @@ async function exerciseKnownReportDownloadFailures(
             url.searchParams.get("format") === format;
         };
         if (fault === "redirect") {
+          const rejectionStarted = Date.now();
           // Fetch redirect:error rejects the request before publishing a Response.
           const rejectedRedirect = page.waitForEvent("requestfailed", {
             predicate: matchesRequest,
@@ -1665,7 +1666,9 @@ async function exerciseKnownReportDownloadFailures(
           await page.getByRole("button", { name: action, exact: true }).click();
           const failedRequest = await rejectedRedirect;
           expect(failedRequest.failure()).not.toBeNull();
-          expect(redirectFulfilled).toBe(true);
+          await expect.poll(() => redirectFulfilled, {
+            timeout: Math.max(1, 12_000 - (Date.now() - rejectionStarted)),
+          }).toBe(true);
         } else {
           const rejectedHeaders = page.waitForResponse(
             (response) => matchesRequest(response.request()),
