@@ -324,8 +324,8 @@ export async function runReportsWorkflow(
       json: safeId(groupWitnesses.check_report_json_sha256),
       markdown: safeId(groupWitnesses.check_report_markdown_sha256),
     };
-    qualification.setWitness("G_diagnostic_snapshot_id", diagnosticSnapshot);
-    qualification.setWitness("G_check_snapshot_id", checkSnapshot);
+    qualification.setWitness("g_diagnostic_snapshot_id", diagnosticSnapshot);
+    qualification.setWitness("g_check_snapshot_id", checkSnapshot);
 
     await qualification.enterPhase("read-c-comparison");
     const comparisonResponse = await captureOperation(
