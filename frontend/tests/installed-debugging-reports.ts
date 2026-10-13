@@ -1483,6 +1483,20 @@ export async function runReportsWorkflow(
       await expect(page.getByLabel("Pinned report identity")).toBeVisible();
     }
     await reads.waitForIdle();
+    await qualification.enterPhase("narrow-report-keyboard");
+    await page.setViewportSize({ width: 320, height: 800 });
+    await expect(page.getByRole("heading", { name: "Saved report", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Pinned report identity")).toBeVisible();
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth,
+    )).toBe(true);
+    const previewButton = page.getByRole("button", { name: "Preview report bytes", exact: true });
+    await previewButton.focus();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Download Markdown", exact: true })).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(previewButton).toBeFocused();
+    await qualification.captureScreenshot(page, "m12-report-narrow-320.png");
     await page.getByRole("button", { name: "Sandbox", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Sandbox", exact: true }),
