@@ -15,6 +15,16 @@ import { SplitSheet } from "./features/splits/SplitSheet";
 import { RunReview } from "./features/execution/RunReview";
 import { RunList } from "./features/execution/RunList";
 import { RunDetail } from "./features/execution/RunDetail";
+import { ComparisonPage } from "./features/debugging/ComparisonPage";
+import { RegressionList } from "./features/debugging/RegressionList";
+import {
+  ReportList,
+  ReportPage,
+  ReportSheet,
+} from "./features/debugging/ReportPages";
+import { GroupReview } from "./features/debugging/groups/GroupReview";
+import { GroupDetail } from "./features/debugging/groups/GroupDetail";
+import type { GroupReportTarget } from "./features/debugging/groups/GroupDetail";
 import { disconnectedWorkspace } from "./workspace/gateway";
 import type { ProjectOverview, WorkspaceGateway } from "./workspace/gateway";
 import { Overview } from "./workspace/Overview";
@@ -71,6 +81,11 @@ export function App({
   const [splitOpen, setSplitOpen] = useState(false);
   const [examplesRefresh, setExamplesRefresh] = useState(0);
   const [runReviewDecisionId, setRunReviewDecisionId] = useState<string>();
+  const [groupReview, setGroupReview] = useState<
+    { decisionId: string; kind: "diagnostic" | "check" } | undefined
+  >();
+  const [groupReportTarget, setGroupReportTarget] =
+    useState<GroupReportTarget>();
   const [createdName, setCreatedName] = useState<string>();
   const [createdError, setCreatedError] = useState<string>();
   const openHeading = useRef<HTMLHeadingElement>(null);
@@ -141,6 +156,7 @@ export function App({
   const decision =
     route.kind === "decision" ||
     route.kind === "decision-history" ||
+    route.kind === "regressions" ||
     route.kind === "examples"
       ? project?.decisions.find((item) => item.id === route.decisionId)
       : undefined;
@@ -172,11 +188,33 @@ export function App({
           decisionId: item.id,
         },
       })),
+      ...project.decisions.map((item) => ({
+        id: `regressions:${item.id}`,
+        label: `Regression examples: ${item.name}`,
+        context: "Debugging",
+        route: {
+          kind: "regressions" as const,
+          registrationId: project.id,
+          decisionId: item.id,
+        },
+      })),
       {
         id: "runs",
         label: "Runs",
         context: "Workspace",
         route: { kind: "runs" as const, registrationId: project.id },
+      },
+      {
+        id: "comparisons",
+        label: "Comparisons",
+        context: "Debugging",
+        route: { kind: "comparisons" as const, registrationId: project.id },
+      },
+      {
+        id: "reports",
+        label: "Reports",
+        context: "Debugging",
+        route: { kind: "reports" as const, registrationId: project.id },
       },
       {
         id: "project-examples",
@@ -520,6 +558,28 @@ export function App({
               }
             }}
           />
+          <section
+            className="debugging-controls"
+            aria-label="Decision diagnostics"
+          >
+            <h2>Diagnostics and checks</h2>
+            <button
+              type="button"
+              onClick={() =>
+                setGroupReview({ decisionId: decision.id, kind: "diagnostic" })
+              }
+            >
+              Preview choice-order diagnostic
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setGroupReview({ decisionId: decision.id, kind: "check" })
+              }
+            >
+              Preview regression check
+            </button>
+          </section>
           {runReviewDecisionId === decision.id && (
             <RunReview
               key={`${project.id}:${decision.id}`}
@@ -534,6 +594,26 @@ export function App({
                   kind: "run",
                   registrationId: project.id,
                   runId,
+                });
+              }}
+            />
+          )}
+          {groupReview?.decisionId === decision.id && (
+            <GroupReview
+              key={`${project.id}:${decision.id}:${groupReview.kind}`}
+              project={project}
+              decision={decision}
+              gateway={gateway}
+              navigation={navigation}
+              kind={groupReview.kind}
+              onClose={() => setGroupReview(undefined)}
+              onStarted={(groupId) => {
+                const kind = groupReview.kind;
+                setGroupReview(undefined);
+                void navigation.navigate({
+                  kind,
+                  registrationId: project.id,
+                  groupId,
                 });
               }}
             />
@@ -570,9 +650,56 @@ export function App({
           evaluationId={route.evaluationId}
           caseId={route.caseId}
           execution={gateway.execution}
+          debugging={gateway.debugging}
+          labelOperations={gateway.authoring.examples}
           navigation={navigation}
           project={project}
           readRevision={gateway.authoring.decisions.revision}
+        />
+      ) : route.kind === "comparisons" || route.kind === "comparison" ? (
+        <ComparisonPage
+          key={`${project.id}:comparison:${route.kind === "comparison" ? route.comparisonId : "list"}`}
+          registrationId={project.id}
+          comparisonId={
+            route.kind === "comparison" ? route.comparisonId : undefined
+          }
+          debugging={gateway.debugging}
+          execution={gateway.execution}
+          navigation={navigation}
+        />
+      ) : route.kind === "regressions" && decision ? (
+        <RegressionList
+          key={`${project.id}:${route.decisionId}`}
+          registrationId={project.id}
+          decisionId={route.decisionId}
+          decisionName={decision.name}
+          operations={gateway.debugging.regressions}
+          navigation={navigation}
+        />
+      ) : route.kind === "reports" ? (
+        <ReportList
+          registrationId={project.id}
+          debugging={gateway.debugging}
+          execution={gateway.execution}
+          navigation={navigation}
+        />
+      ) : route.kind === "report" ? (
+        <ReportPage
+          key={`${project.id}:${route.reportId}`}
+          registrationId={project.id}
+          reportId={route.reportId}
+          operations={gateway.debugging.reports}
+        />
+      ) : route.kind === "diagnostic" || route.kind === "check" ? (
+        <GroupDetail
+          key={`${project.id}:${route.kind}:${route.groupId}:${route.snapshotId ?? "latest"}`}
+          project={project}
+          gateway={gateway}
+          navigation={navigation}
+          kind={route.kind}
+          groupId={route.groupId}
+          snapshotId={route.snapshotId}
+          onReport={setGroupReportTarget}
         />
       ) : route.kind === "providers" ? (
         <ProviderPage
@@ -693,6 +820,30 @@ export function App({
           onClose={() => setSplitOpen(false)}
           onApplied={() => {
             void refreshExamplesAfterSourceChange();
+          }}
+        />
+      )}
+      {groupReportTarget && project && (
+        <ReportSheet
+          key={`${project.id}:${groupReportTarget.targetKind}:${groupReportTarget.targetId}:${groupReportTarget.groupSnapshotId}`}
+          registrationId={project.id}
+          debugging={gateway.debugging}
+          execution={gateway.execution}
+          navigation={navigation}
+          initialTarget={groupReportTarget}
+          onClose={() => setGroupReportTarget(undefined)}
+          onCreated={async (reportId) => {
+            const capturedTarget = groupReportTarget;
+            const registrationId = project.id;
+            const admitted = await navigation.navigate({
+              kind: "report",
+              registrationId,
+              reportId,
+            });
+            if (!admitted) return;
+            setGroupReportTarget((current) =>
+              current === capturedTarget ? undefined : current,
+            );
           }}
         />
       )}

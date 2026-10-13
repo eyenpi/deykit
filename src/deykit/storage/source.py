@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
+import time
+from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,6 +28,7 @@ from deykit.contracts.ports import (
     StoredRecord,
 )
 from deykit.contracts.records import ProjectRecord
+from deykit.storage._body_validation import _SuccessfulBodyValidationMemo
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
 from deykit.storage.index import SourceIndex
@@ -36,10 +40,31 @@ from deykit.storage.journal import (
     JournalManifest,
 )
 from deykit.storage.locks import acquire
-from deykit.storage.records import IMMUTABLE, SCOPES, TYPES, key_path, path_key, validate_body
+from deykit.storage.records import (
+    IMMUTABLE,
+    SCOPES,
+    TYPES,
+    key_path,
+    path_key,
+    validate_body,
+)
 
 FaultHook = Callable[[str], None]
 IndexUpdater = Callable[[tuple[StoredRecord, ...]], None]
+API_SOURCE_ADMISSION_TIMEOUT_SECONDS = 5.0
+
+
+def _validate_admission_timeout(value: float | None) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("invalid_source_admission_timeout")
+    try:
+        valid = math.isfinite(value) and value >= 0
+    except OverflowError:
+        valid = False
+    if not valid:
+        raise ValueError("invalid_source_admission_timeout")
 
 
 @dataclass(frozen=True)
@@ -50,8 +75,13 @@ class HistoryEntry:
 
 
 class _SourceTreeVisitor:
-    def __init__(self, records: list[StoredRecord]) -> None:
+    def __init__(
+        self,
+        records: list[StoredRecord],
+        validator: Callable[[ResourceKey, bytes], object] = validate_body,
+    ) -> None:
         self.records = records
+        self.validator = validator
 
     def include(self, parts: Parts) -> bool:
         return not parts[-1].startswith(".tmp-")
@@ -73,7 +103,7 @@ class _SourceTreeVisitor:
 
     def accept_file(self, parts: Parts, body: bytes) -> None:
         key = path_key(parts)
-        validate_body(key, body)
+        self.validator(key, body)
         self.records.append(StoredRecord(key, body, bytes_hash(body)))
 
 
@@ -85,21 +115,34 @@ class FileProjectSource:
         create: bool = False,
         fault_hook: FaultHook | None = None,
         index_updater: IndexUpdater | None = None,
+        admission_timeout_seconds: float | None = None,
     ) -> None:
-        self._initialize(SafeFiles(root, create=create), fault_hook, index_updater)
+        _validate_admission_timeout(admission_timeout_seconds)
+        self._initialize(
+            SafeFiles(root, create=create),
+            fault_hook,
+            index_updater,
+            admission_timeout_seconds,
+        )
 
     def _initialize(
         self,
         files: SafeFiles,
         fault_hook: FaultHook | None,
         index_updater: IndexUpdater | None,
+        admission_timeout_seconds: float | None = None,
     ) -> None:
+        _validate_admission_timeout(admission_timeout_seconds)
         self.files = files
         self.root = self.files.root
         self._hook = fault_hook or (lambda _: None)
         self._index = index_updater or SourceIndex(self.files).rebuild
         self._mutex = threading.RLock()
         self._local = threading.local()
+        self._body_validation = _SuccessfulBodyValidationMemo()
+        self._admission_timeout_seconds = admission_timeout_seconds
+        self._admission_condition = threading.Condition()
+        self._admission_waiters: deque[object] = deque()
         self.last_index_error: str | None = None
 
     @classmethod
@@ -109,13 +152,25 @@ class FileProjectSource:
         *,
         fault_hook: FaultHook | None = None,
         index_updater: IndexUpdater | None = None,
+        admission_timeout_seconds: float | None = None,
     ) -> FileProjectSource:
+        _validate_admission_timeout(admission_timeout_seconds)
         source = cls.__new__(cls)
-        source._initialize(files, fault_hook, index_updater)
+        source._initialize(files, fault_hook, index_updater, admission_timeout_seconds)
         return source
 
     def close(self) -> None:
-        self.files.close()
+        with self._mutex:
+            try:
+                self.files.close()
+            finally:
+                self._body_validation.clear()
+
+    def _validate_source_body(self, key: ResourceKey, body: bytes) -> None:
+        if getattr(self._local, "source_depth", 0) <= 0:
+            validate_body(key, body)
+            return
+        self._body_validation.validate(key, body)
 
     def __enter__(self) -> FileProjectSource:
         return self
@@ -125,37 +180,79 @@ class FileProjectSource:
 
     @contextmanager
     def consistent_read(self) -> Iterator[FileProjectSource]:
-        if not self._mutex.acquire(blocking=False):
-            fail("source_busy", "conflict")
         try:
             depth = getattr(self._local, "source_depth", 0)
             if depth:
+                if not self._mutex.acquire(blocking=False):
+                    fail("source_busy", "conflict")
                 self._local.source_depth = depth + 1
                 try:
                     self._recover()
                     yield self
                 finally:
                     self._local.source_depth = depth
+                    self._mutex.release()
             else:
-                with acquire(self.files, "source.lock"):
-                    self._local.source_depth = 1
+                with self._admission_ticket():
+                    if not self._mutex.acquire(blocking=False):
+                        fail("source_busy", "conflict")
                     try:
-                        self._recover()
-                        yield self
+                        with acquire(self.files, "source.lock"):
+                            self._local.source_depth = 1
+                            try:
+                                self._recover()
+                                yield self
+                            finally:
+                                self._local.source_depth = 0
                     finally:
-                        self._local.source_depth = 0
+                        self._mutex.release()
         except OSError:
             fail("storage_io", "internal_error")
         except JsonError as error:
             fail(error.code)
+
+    @contextmanager
+    def _admission_ticket(self) -> Iterator[None]:
+        timeout = self._admission_timeout_seconds
+        if timeout is None:
+            yield
+            return
+        ticket = object()
+        deadline = time.monotonic() + timeout
+        with self._admission_condition:
+            self._admission_waiters.append(ticket)
+            self._admission_condition.notify_all()
+            waited = False
+            try:
+                while True:
+                    if self._admission_waiters[0] is ticket:
+                        if waited and time.monotonic() >= deadline:
+                            fail("source_busy", "conflict")
+                        break
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        fail("source_busy", "conflict")
+                    self._admission_condition.wait(remaining)
+                    waited = True
+            except BaseException:
+                self._admission_waiters.remove(ticket)
+                self._admission_condition.notify_all()
+                raise
+        try:
+            yield
         finally:
-            self._mutex.release()
+            with self._admission_condition:
+                if self._admission_waiters and self._admission_waiters[0] is ticket:
+                    self._admission_waiters.popleft()
+                else:
+                    self._admission_waiters.remove(ticket)
+                self._admission_condition.notify_all()
 
     def _read(self, key: ResourceKey) -> StoredRecord | None:
         body = self.files.read(key_path(key))
         if body is None:
             return None
-        validate_body(key, body)
+        self._validate_source_body(key, body)
         return StoredRecord(key, body, bytes_hash(body))
 
     def read(self, key: ResourceKey) -> StoredRecord | None:
@@ -178,7 +275,7 @@ class FileProjectSource:
                     ResourceKey("project", project_record.id), project, bytes_hash(project)
                 )
             )
-        self.files.read_tree(("source",), _SourceTreeVisitor(records))
+        self.files.read_tree(("source",), _SourceTreeVisitor(records, self._validate_source_body))
         return tuple(sorted(records, key=lambda item: key_path(item.key)))
 
     def list_ids(self, collection: Collection, scope: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -350,7 +447,7 @@ class FileProjectSource:
                     else:
                         fail("immutable_record", "conflict")
                 if change.body is not None:
-                    validate_body(change.key, change.body)
+                    self._validate_source_body(change.key, change.body)
                 entries.append(
                     JournalEntry(
                         collection=change.key.collection,
@@ -464,7 +561,7 @@ class FileProjectSource:
         body = self.files.read((*folder, f"{'old' if old else 'new'}-{index}.json"))
         if body is None or bytes_hash(body) != expected:
             fail("journal_integrity_error", "conflict")
-        validate_body(entry.key, body)
+        self._validate_source_body(entry.key, body)
         return body
 
     def _apply(self, folder: Parts, manifest: JournalManifest) -> None:

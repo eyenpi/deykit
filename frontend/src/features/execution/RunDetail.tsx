@@ -3,9 +3,11 @@ import { safeMessage } from "../../api/client";
 import type { ApiOperationBody, ApiOperationData } from "../../api/client";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import type {
+  DebuggingGateway,
   DecisionAuthoringOperations,
   ExecutionGateway,
   ProjectOverview,
+  ExampleAuthoringOperations,
 } from "../../workspace/gateway";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
 import { RetainedMutation } from "../../workspace/mutation-controller";
@@ -32,6 +34,8 @@ export function RunDetail({
   evaluationId,
   caseId,
   execution,
+  debugging,
+  labelOperations,
   navigation,
   project,
   readRevision,
@@ -41,6 +45,8 @@ export function RunDetail({
   evaluationId?: string;
   caseId?: string;
   execution: ExecutionGateway;
+  debugging: DebuggingGateway;
+  labelOperations: ExampleAuthoringOperations;
   navigation: WorkspaceNavigation;
   project: ProjectOverview;
   readRevision: DecisionAuthoringOperations["revision"];
@@ -347,17 +353,22 @@ export function RunDetail({
         )}
       </article>
     );
+  const returnGroup =
+    navigation.current.kind === "run"
+      ? navigation.current.returnGroup
+      : undefined;
   const associationValid =
     project.id === registrationId &&
     project.decisions.some((decision) => decision.id === run.decision_id) &&
-    project.datasets.some((dataset) => dataset.id === run.dataset_id);
+    project.datasets.some((dataset) => dataset.id === run.dataset_id) &&
+    (returnGroup === undefined ||
+      run.execution_group_id === returnGroup.groupId);
   if (!associationValid)
     return (
       <article className="document">
         <h1>Run association unavailable</h1>
         <p>
-          The service returned a run whose decision or dataset is not present in
-          this project overview.
+          The run did not match the project or the group context that opened it.
         </p>
         <button
           type="button"
@@ -381,11 +392,21 @@ export function RunDetail({
         <div className="actions">
           <button
             type="button"
-            onClick={() =>
-              void navigation.navigate({ kind: "runs", registrationId })
-            }
+            onClick={() => {
+              if (returnGroup)
+                void navigation.navigate({
+                  kind: returnGroup.kind,
+                  registrationId,
+                  groupId: returnGroup.groupId,
+                });
+              else void navigation.navigate({ kind: "runs", registrationId });
+            }}
           >
-            Runs
+            {returnGroup
+              ? returnGroup.kind === "diagnostic"
+                ? "Back to choice-order diagnostic"
+                : "Back to regression check"
+              : "Runs"}
           </button>
           <button
             type="button"
@@ -394,7 +415,7 @@ export function RunDetail({
           >
             Refresh progress
           </button>
-          {run.execution_active && (
+          {run.execution_active && !run.execution_group_id && (
             <button
               type="button"
               disabled={cancelState.kind !== "idle"}
@@ -422,6 +443,13 @@ export function RunDetail({
             <ErrorSummary message={cancelState.message} />
           )}
         </div>
+        {run.execution_group_id && !returnGroup && (
+          <p role="status">
+            This run belongs to group <code>{run.execution_group_id}</code>.
+            Resume, cancellation, and lifetime-cap review belong in that group’s
+            workspace.
+          </p>
+        )}
         {error && (
           <ErrorSummary
             message={error}
@@ -566,6 +594,7 @@ export function RunDetail({
                             runId,
                             ...(evaluationId ? { evaluationId } : {}),
                             caseId: item.case_id,
+                            ...(returnGroup ? { returnGroup } : {}),
                           })
                         }
                       >
@@ -585,7 +614,7 @@ export function RunDetail({
             </table>
           </div>
         </section>
-        {!run.execution_active && (
+        {!run.execution_active && !run.execution_group_id && (
           <section className="resume-review" aria-label="Resume review">
             <h2>Review resume</h2>
             <label>
@@ -681,6 +710,8 @@ export function RunDetail({
             registrationId={registrationId}
             run={run}
             execution={execution}
+            debugging={debugging}
+            labelOperations={labelOperations}
             readRevision={readRevision}
             navigation={navigation}
             evaluationId={evaluationId}

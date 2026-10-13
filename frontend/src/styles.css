@@ -483,6 +483,13 @@ textarea {
 code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
+.report-page {
+  overflow-wrap: anywhere;
+}
+.report-page .source-editor {
+  max-width: 100%;
+}
+
 .source-editor {
   white-space: pre;
   overflow: auto;

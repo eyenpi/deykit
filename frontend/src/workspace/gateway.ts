@@ -6,6 +6,7 @@ import type {
   ApiWarning,
 } from "../api/client";
 import type { ApiResult } from "../api/client";
+import type { ApiDownload, ApiDownloadArguments } from "../api/client";
 import type {
   ApiJsonOperationId,
   ApiOperationId,
@@ -44,6 +45,7 @@ export interface WorkspaceGateway {
   reconnect(): Promise<void>;
   authoring: AuthoringGateway;
   execution: ExecutionGateway;
+  debugging: DebuggingGateway;
 }
 
 type OperationResult<K extends ApiJsonOperationId> = Promise<
@@ -63,6 +65,142 @@ export type ProviderPath = ResourcePath & { profileId: string };
 export type RunPath = ResourcePath & { runId: string };
 export type RunCasePath = RunPath & { caseId: string };
 export type EvaluationPath = ResourcePath & { evaluationId: string };
+export type AnnotationPath = ResourcePath & { annotationId: string };
+export type ComparisonPath = ResourcePath & { comparisonId: string };
+export type ReportPath = ResourcePath & { reportId: string };
+export type GroupPath = ResourcePath & { groupId: string };
+export type GroupSnapshotPath = GroupPath & { snapshotId: string };
+
+type ReportDownloadQuery = ApiDownloadArguments<"downloadReport">["query"];
+
+export interface DebuggingGateway {
+  evaluations: {
+    create(
+      request: RunPath & { body: OperationBody<"createEvaluation"> },
+    ): OperationResult<"createEvaluation">;
+    reevaluate(
+      request: RunPath & { body: OperationBody<"reevaluateRun"> },
+    ): OperationResult<"reevaluateRun">;
+  };
+  annotations: {
+    add(
+      request: RunCasePath & { body: OperationBody<"addAnnotation"> },
+    ): OperationResult<"addAnnotation">;
+    list(
+      request: RunPath & { query?: OperationQuery<"listAnnotations"> },
+    ): OperationResult<"listAnnotations">;
+    read(request: AnnotationPath): OperationResult<"readAnnotation">;
+  };
+  comparisons: {
+    create(
+      request: ResourcePath & { body: OperationBody<"createComparison"> },
+    ): OperationResult<"createComparison">;
+    list(
+      request: ResourcePath & { query?: OperationQuery<"listComparisons"> },
+    ): OperationResult<"listComparisons">;
+    read(request: ComparisonPath): OperationResult<"readComparison">;
+  };
+  regressions: {
+    add(
+      request: DecisionPath & { body: OperationBody<"addRegression"> },
+    ): OperationResult<"addRegression">;
+    list(request: DecisionPath): OperationResult<"listRegressions">;
+    remove(
+      request: DecisionPath & {
+        regressionId: string;
+        body: OperationBody<"removeRegression">;
+      },
+    ): OperationResult<"removeRegression">;
+  };
+  reports: {
+    create(
+      request: ResourcePath & { body: OperationBody<"createReport"> },
+    ): OperationResult<"createReport">;
+    list(
+      request: ResourcePath & { query?: OperationQuery<"listReports"> },
+    ): OperationResult<"listReports">;
+    read(request: ReportPath): OperationResult<"readReport">;
+    download(
+      request: ReportPath & { query: ReportDownloadQuery },
+    ): Promise<ApiDownload>;
+  };
+  diagnostics: GroupOperations<"diagnostic">;
+  checks: GroupOperations<"check">;
+}
+
+type GroupOperations<Kind extends "diagnostic" | "check"> = {
+  preview(
+    request: ResourcePath & {
+      body: OperationBody<
+        Kind extends "diagnostic"
+          ? "previewChoiceOrder"
+          : "previewRegressionCheck"
+      >;
+    },
+  ): OperationResult<
+    Kind extends "diagnostic" ? "previewChoiceOrder" : "previewRegressionCheck"
+  >;
+  start(
+    request: ResourcePath & {
+      body: OperationBody<
+        Kind extends "diagnostic" ? "startChoiceOrder" : "startRegressionCheck"
+      >;
+    },
+  ): OperationResult<
+    Kind extends "diagnostic" ? "startChoiceOrder" : "startRegressionCheck"
+  >;
+  read(
+    request: GroupPath,
+  ): OperationResult<
+    Kind extends "diagnostic" ? "readChoiceOrder" : "readCheck"
+  >;
+  cancel(
+    request: GroupPath & {
+      body: OperationBody<"cancelChoiceOrder" | "cancelCheck">;
+    },
+  ): OperationResult<
+    Kind extends "diagnostic" ? "cancelChoiceOrder" : "cancelCheck"
+  >;
+  previewResume(
+    request: GroupPath & {
+      body: OperationBody<
+        Kind extends "diagnostic"
+          ? "previewChoiceOrderResume"
+          : "previewCheckResume"
+      >;
+      query?: OperationQuery<
+        Kind extends "diagnostic"
+          ? "previewChoiceOrderResume"
+          : "previewCheckResume"
+      >;
+    },
+  ): OperationResult<
+    Kind extends "diagnostic"
+      ? "previewChoiceOrderResume"
+      : "previewCheckResume"
+  >;
+  resume(
+    request: GroupPath & {
+      body: OperationBody<
+        Kind extends "diagnostic" ? "resumeChoiceOrder" : "resumeCheck"
+      >;
+    },
+  ): OperationResult<
+    Kind extends "diagnostic" ? "resumeChoiceOrder" : "resumeCheck"
+  >;
+  listSnapshots(
+    request: GroupPath,
+  ): OperationResult<
+    Kind extends "diagnostic"
+      ? "listChoiceOrderSnapshots"
+      : "listCheckSnapshots"
+  >;
+  readSnapshot(
+    request: GroupSnapshotPath,
+  ): OperationResult<
+    Kind extends "diagnostic" ? "readChoiceOrderSnapshot" : "readCheckSnapshot"
+  >;
+};
 
 export interface DecisionAuthoringOperations {
   list(
@@ -427,10 +565,59 @@ const disconnectedExecution: ExecutionGateway = {
   ]),
 };
 
+const disconnectedDebugging: DebuggingGateway = {
+  evaluations: disconnectedAuthoringGroup<DebuggingGateway["evaluations"]>([
+    "create",
+    "reevaluate",
+  ]),
+  annotations: disconnectedAuthoringGroup<DebuggingGateway["annotations"]>([
+    "add",
+    "list",
+    "read",
+  ]),
+  comparisons: disconnectedAuthoringGroup<DebuggingGateway["comparisons"]>([
+    "create",
+    "list",
+    "read",
+  ]),
+  regressions: disconnectedAuthoringGroup<DebuggingGateway["regressions"]>([
+    "add",
+    "list",
+    "remove",
+  ]),
+  reports: disconnectedAuthoringGroup<DebuggingGateway["reports"]>([
+    "create",
+    "list",
+    "read",
+    "download",
+  ]),
+  diagnostics: disconnectedAuthoringGroup<DebuggingGateway["diagnostics"]>([
+    "preview",
+    "start",
+    "read",
+    "cancel",
+    "previewResume",
+    "resume",
+    "listSnapshots",
+    "readSnapshot",
+  ]),
+  checks: disconnectedAuthoringGroup<DebuggingGateway["checks"]>([
+    "preview",
+    "start",
+    "read",
+    "cancel",
+    "previewResume",
+    "resume",
+    "listSnapshots",
+    "readSnapshot",
+  ]),
+};
+
 /** Deliberately no mock successes, filesystem guesses, or speculative API endpoints. */
 export const disconnectedWorkspace: WorkspaceGateway = {
   authoring: disconnectedAuthoring,
   execution: disconnectedExecution,
+  debugging: disconnectedDebugging,
   async recentProjects() {
     throw pending();
   },

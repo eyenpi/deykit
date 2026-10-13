@@ -224,6 +224,39 @@
         "title": "AnnotationPageDTO",
         "type": "object"
       },
+      "AssessmentCountsDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "all": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "All",
+            "type": "string"
+          },
+          "incorrect": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Incorrect",
+            "type": "string"
+          },
+          "inspect": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Inspect",
+            "type": "string"
+          },
+          "unlabelled": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Unlabelled",
+            "type": "string"
+          }
+        },
+        "required": [
+          "all",
+          "inspect",
+          "incorrect",
+          "unlabelled"
+        ],
+        "title": "AssessmentCountsDTO",
+        "type": "object"
+      },
       "BootstrapReply": {
         "additionalProperties": false,
         "properties": {
@@ -326,6 +359,38 @@
       "CaseDetailDTO": {
         "additionalProperties": false,
         "properties": {
+          "case_input_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Case Input Hash",
+            "type": "string"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ResultContextDTO"
+          },
+          "probabilities": {
+            "items": {
+              "$ref": "#/components/schemas/ProbabilityRowDTO"
+            },
+            "title": "Probabilities",
+            "type": "array"
+          },
+          "probabilities_unavailable_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "probabilities_not_provided",
+                  "probability_question_unavailable",
+                  "invalid_probability_source",
+                  "probability_options_unavailable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probabilities Unavailable Reason"
+          },
           "schema_version": {
             "const": 1,
             "default": 1,
@@ -339,6 +404,10 @@
           }
         },
         "required": [
+          "case_input_hash",
+          "context",
+          "probabilities",
+          "probabilities_unavailable_reason",
           "schema_version",
           "source"
         ],
@@ -916,6 +985,175 @@
           "mode"
         ],
         "title": "CheckRequestDTO",
+        "type": "object"
+      },
+      "CheckSnapshotCaseDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_option_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Option Id"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "expected_option_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expected Option Ids",
+            "type": "array"
+          },
+          "input_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Input Hash",
+            "type": "string"
+          },
+          "original_split": {
+            "title": "Original Split",
+            "type": "string"
+          },
+          "passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passed"
+          },
+          "provenance": {
+            "title": "Provenance",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "regression_id": {
+            "title": "Regression Id",
+            "type": "string"
+          },
+          "result_snapshot_id": {
+            "title": "Result Snapshot Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "source_attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Attempt Id"
+          },
+          "source_result_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Result Snapshot Id"
+          },
+          "source_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Run Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "regression_id",
+          "dataset_id",
+          "case_id",
+          "run_id",
+          "result_snapshot_id",
+          "status",
+          "expected_option_ids",
+          "actual_option_id",
+          "passed",
+          "provenance",
+          "original_split",
+          "input_hash",
+          "source_run_id",
+          "source_result_snapshot_id",
+          "source_attempt_id",
+          "reason"
+        ],
+        "title": "CheckSnapshotCaseDTO",
+        "type": "object"
+      },
+      "CheckSnapshotDetailDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_unavailable": {
+            "const": "frozen_regression_selection",
+            "title": "Baseline Unavailable",
+            "type": "string"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/CheckSnapshotCaseDTO"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "expectation_failures": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Expectation Failures",
+            "type": "string"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/FrozenMemberContextDTO"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotMetadataDTO"
+          }
+        },
+        "required": [
+          "snapshot",
+          "members",
+          "cases",
+          "expectation_failures",
+          "baseline_unavailable"
+        ],
+        "title": "CheckSnapshotDetailDTO",
         "type": "object"
       },
       "CheckViewDTO": {
@@ -2187,6 +2425,33 @@
         "title": "DescribeOption",
         "type": "object"
       },
+      "DiagnosticSnapshotDetailDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/FrozenMemberContextDTO"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/SnapshotMetadataDTO"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "snapshot",
+          "members",
+          "summary"
+        ],
+        "title": "DiagnosticSnapshotDetailDTO",
+        "type": "object"
+      },
       "DiagnosticViewDTO": {
         "additionalProperties": false,
         "properties": {
@@ -3303,6 +3568,80 @@
           "schema_version"
         ],
         "title": "FixtureSummaryDTO",
+        "type": "object"
+      },
+      "FrozenMemberContextDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Dataset Content Hash",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_snapshot_id": {
+            "title": "Dataset Snapshot Id",
+            "type": "string"
+          },
+          "decision_definition_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Decision Definition Hash",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "decision_revision_id": {
+            "title": "Decision Revision Id",
+            "type": "string"
+          },
+          "label_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Label Content Hash",
+            "type": "string"
+          },
+          "label_snapshot_id": {
+            "title": "Label Snapshot Id",
+            "type": "string"
+          },
+          "result_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Result Content Hash",
+            "type": "string"
+          },
+          "result_snapshot_id": {
+            "title": "Result Snapshot Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "through_event_sequence": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Through Event Sequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "result_snapshot_id",
+          "result_content_hash",
+          "through_event_sequence",
+          "label_snapshot_id",
+          "label_content_hash",
+          "decision_id",
+          "dataset_id",
+          "decision_revision_id",
+          "decision_definition_hash",
+          "dataset_snapshot_id",
+          "dataset_content_hash"
+        ],
+        "title": "FrozenMemberContextDTO",
         "type": "object"
       },
       "GroupAcceptedDTO": {
@@ -5260,6 +5599,31 @@
         "title": "OptionAlias",
         "type": "object"
       },
+      "ProbabilityRowDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "option_id": {
+            "title": "Option Id",
+            "type": "string"
+          },
+          "option_name": {
+            "title": "Option Name",
+            "type": "string"
+          },
+          "probability": {
+            "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$",
+            "title": "Probability",
+            "type": "string"
+          }
+        },
+        "required": [
+          "option_id",
+          "option_name",
+          "probability"
+        ],
+        "title": "ProbabilityRowDTO",
+        "type": "object"
+      },
       "ProjectOverviewDTO": {
         "additionalProperties": false,
         "properties": {
@@ -6592,9 +6956,110 @@
         "title": "RestoreRevisionRequest",
         "type": "object"
       },
+      "ResultContextDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Dataset Content Hash",
+            "type": "string"
+          },
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_snapshot_id": {
+            "title": "Dataset Snapshot Id",
+            "type": "string"
+          },
+          "decision_definition_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Decision Definition Hash",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "decision_revision_id": {
+            "title": "Decision Revision Id",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Id"
+          },
+          "evaluation_mode": {
+            "enum": [
+              "original",
+              "saved_answer_reevaluation"
+            ],
+            "title": "Evaluation Mode",
+            "type": "string"
+          },
+          "label_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Label Content Hash",
+            "type": "string"
+          },
+          "label_snapshot_id": {
+            "title": "Label Snapshot Id",
+            "type": "string"
+          },
+          "result_content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Result Content Hash",
+            "type": "string"
+          },
+          "result_snapshot_id": {
+            "title": "Result Snapshot Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "through_event_sequence": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Through Event Sequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "result_snapshot_id",
+          "label_snapshot_id",
+          "evaluation_id",
+          "decision_id",
+          "dataset_id",
+          "decision_revision_id",
+          "decision_definition_hash",
+          "dataset_snapshot_id",
+          "dataset_content_hash",
+          "label_content_hash",
+          "result_content_hash",
+          "evaluation_mode",
+          "through_event_sequence"
+        ],
+        "title": "ResultContextDTO",
+        "type": "object"
+      },
       "ResultPageDTO": {
         "additionalProperties": false,
         "properties": {
+          "assessment_counts": {
+            "$ref": "#/components/schemas/AssessmentCountsDTO"
+          },
+          "context": {
+            "$ref": "#/components/schemas/ResultContextDTO"
+          },
           "evaluation_id": {
             "anyOf": [
               {
@@ -6667,6 +7132,8 @@
           }
         },
         "required": [
+          "assessment_counts",
+          "context",
           "evaluation_id",
           "filtered_count",
           "items",
@@ -8551,6 +9018,81 @@
         "title": "SetSelectedFields",
         "type": "object"
       },
+      "SnapshotMetadataDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotResultDTO"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "segment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment Id"
+          },
+          "sequence": {
+            "pattern": "^(?:0|[1-9][0-9]*)$",
+            "title": "Sequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "group_id",
+          "segment_id",
+          "content_hash",
+          "created_at",
+          "results"
+        ],
+        "title": "SnapshotMetadataDTO",
+        "type": "object"
+      },
+      "SnapshotResultDTO": {
+        "additionalProperties": false,
+        "properties": {
+          "result_snapshot_id": {
+            "title": "Result Snapshot Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "result_snapshot_id"
+        ],
+        "title": "SnapshotResultDTO",
+        "type": "object"
+      },
       "SplitCommitDTO": {
         "additionalProperties": false,
         "properties": {
@@ -9120,6 +9662,34 @@
         "title": "Success[CaseReadDTO]",
         "type": "object"
       },
+      "Success_CheckSnapshotDetailDTO_": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CheckSnapshotDetailDTO"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ErrorDTO"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data",
+          "schema_version"
+        ],
+        "title": "Success[CheckSnapshotDetailDTO]",
+        "type": "object"
+      },
       "Success_CheckViewDTO_": {
         "additionalProperties": false,
         "properties": {
@@ -9398,6 +9968,34 @@
           "schema_version"
         ],
         "title": "Success[DemoCreateDTO]",
+        "type": "object"
+      },
+      "Success_DiagnosticSnapshotDetailDTO_": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DiagnosticSnapshotDetailDTO"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ErrorDTO"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data",
+          "schema_version"
+        ],
+        "title": "Success[DiagnosticSnapshotDetailDTO]",
         "type": "object"
       },
       "Success_DiagnosticViewDTO_": {
@@ -10742,6 +11340,38 @@
           "schema_version"
         ],
         "title": "Success[Versioned[DecisionRecord]]",
+        "type": "object"
+      },
+      "Success_tuple_SnapshotMetadataDTO__________": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotMetadataDTO"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ErrorDTO"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data",
+          "schema_version"
+        ],
+        "title": "Success[tuple[SnapshotMetadataDTO, ...]]",
         "type": "object"
       },
       "TextInputRequest": {
@@ -13441,6 +14071,331 @@
           }
         },
         "summary": "Preview Check Resume"
+      }
+    },
+    "/api/v1/projects/{registration_id}/checks/{group_id}/snapshots": {
+      "get": {
+        "operationId": "listCheckSnapshots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success_tuple_SnapshotMetadataDTO__________"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "414": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          }
+        },
+        "summary": "List Check Snapshots"
+      }
+    },
+    "/api/v1/projects/{registration_id}/checks/{group_id}/snapshots/{snapshot_id}": {
+      "get": {
+        "operationId": "readCheckSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success_CheckSnapshotDetailDTO_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "414": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          }
+        },
+        "summary": "Read Check Snapshot"
       }
     },
     "/api/v1/projects/{registration_id}/comparisons": {
@@ -21695,6 +22650,331 @@
         "summary": "Preview Choice Order Resume"
       }
     },
+    "/api/v1/projects/{registration_id}/diagnostics/{group_id}/snapshots": {
+      "get": {
+        "operationId": "listChoiceOrderSnapshots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success_tuple_SnapshotMetadataDTO__________"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "414": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          }
+        },
+        "summary": "List Choice Order Snapshots"
+      }
+    },
+    "/api/v1/projects/{registration_id}/diagnostics/{group_id}/snapshots/{snapshot_id}": {
+      "get": {
+        "operationId": "readChoiceOrderSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registration_id",
+            "required": true,
+            "schema": {
+              "title": "Registration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success_DiagnosticSnapshotDetailDTO_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "405": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "414": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "431": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Failure"
+                }
+              }
+            },
+            "description": "Safe structured failure"
+          }
+        },
+        "summary": "Read Choice Order Snapshot"
+      }
+    },
     "/api/v1/projects/{registration_id}/evaluations/{evaluation_id}": {
       "get": {
         "operationId": "readEvaluation",
@@ -26558,6 +27838,54 @@
           },
           {
             "in": "query",
+            "name": "assessment_filter",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "inspect",
+                "incorrect",
+                "unlabelled"
+              ],
+              "title": "Assessment Filter",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_result_snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Result Snapshot Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_label_snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Label Snapshot Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "cursor",
             "required": false,
             "schema": {
@@ -26765,6 +28093,38 @@
                 }
               ],
               "title": "Evaluation Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_result_snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Result Snapshot Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_label_snapshot_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Label Snapshot Id"
             }
           },
           {

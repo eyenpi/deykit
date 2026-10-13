@@ -72,6 +72,7 @@ class Workflow:
         self.bundle = bundle
         self.progress_log = output / "progress.jsonl"
         self.state_path = output / "workflow-state.json"
+        self.completed_steps: list[str] = []
         self.decision_id = "tutorial-choice"
         self.dataset_id = "tutorial-cases"
         self.v1_revision = ""
@@ -199,6 +200,7 @@ class Workflow:
             stream.write(json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n")
 
     def checkpoint(self, step: str) -> None:
+        self.completed_steps.append(step)
         identifiers = (
             "decision_id",
             "dataset_id",
@@ -225,6 +227,7 @@ class Workflow:
         )
         state = {
             "completed_step": step,
+            "completed_steps": list(self.completed_steps),
             "project": str(self.project),
             "ids": {
                 key: value

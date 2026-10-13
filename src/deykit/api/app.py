@@ -29,7 +29,7 @@ def create_inner_app(
 ) -> FastAPI:
     registry = ProjectRegistry(dependencies, max_registrations=config.max_registrations)
     workers = TrackedWorkers()
-    supervisor = ExecutionSupervisor()
+    supervisor = ExecutionSupervisor(workers)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

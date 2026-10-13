@@ -98,6 +98,7 @@ it("retries a committed archive before navigating and loading the overview", asy
   });
   const gateway: WorkspaceGateway = {
     execution: disconnectedWorkspace.execution,
+    debugging: disconnectedWorkspace.debugging,
     authoring: {
       ...disconnectedWorkspace.authoring,
       decisions: {
@@ -248,6 +249,7 @@ it("retries a committed archive before navigating and loading the overview", asy
 it("keeps project form values and operation ID after a failed mutation", async () => {
   const gateway: WorkspaceGateway = {
     execution: disconnectedWorkspace.execution,
+    debugging: disconnectedWorkspace.debugging,
     authoring: disconnectedWorkspace.authoring,
     recentProjects: async () => ({ items: [], warnings: [] }),
     projectOverview: async () => {
@@ -287,6 +289,7 @@ it("renders server supplied project context and keeps Run/History within decisio
   };
   const gateway: WorkspaceGateway = {
     execution: disconnectedWorkspace.execution,
+    debugging: disconnectedWorkspace.debugging,
     authoring: {
       ...disconnectedWorkspace.authoring,
       decisions: {
@@ -358,6 +361,7 @@ it("renders server supplied project context and keeps Run/History within decisio
 it("uses the selected recent path and focuses only the successful overview transition", async () => {
   const gateway: WorkspaceGateway = {
     execution: disconnectedWorkspace.execution,
+    debugging: disconnectedWorkspace.debugging,
     authoring: {
       ...disconnectedWorkspace.authoring,
       decisions: {
@@ -422,6 +426,7 @@ it("uses the selected recent path and focuses only the successful overview trans
 it("renders structured safe warnings without flattening their fields", async () => {
   const gateway: WorkspaceGateway = {
     execution: disconnectedWorkspace.execution,
+    debugging: disconnectedWorkspace.debugging,
     authoring: disconnectedWorkspace.authoring,
     recentProjects: async () => ({
       items: [],
@@ -455,6 +460,7 @@ it("renders structured safe warnings without flattening their fields", async () 
 it("reconnects without losing a failed project form or its entered values", async () => {
   const gateway: WorkspaceGateway = {
     execution: disconnectedWorkspace.execution,
+    debugging: disconnectedWorkspace.debugging,
     authoring: disconnectedWorkspace.authoring,
     recentProjects: async () => ({ items: [], warnings: [] }),
     projectOverview: async () => {

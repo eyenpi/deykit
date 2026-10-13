@@ -203,6 +203,40 @@ export interface paths {
     readonly patch?: never;
     readonly trace?: never;
   };
+  readonly "/api/v1/projects/{registration_id}/checks/{group_id}/snapshots": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Check Snapshots */
+    readonly get: operations["listCheckSnapshots"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/checks/{group_id}/snapshots/{snapshot_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Check Snapshot */
+    readonly get: operations["readCheckSnapshot"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
   readonly "/api/v1/projects/{registration_id}/checks/preview": {
     readonly parameters: {
       readonly query?: never;
@@ -852,6 +886,40 @@ export interface paths {
     readonly put?: never;
     /** Preview Choice Order Resume */
     readonly post: operations["previewChoiceOrderResume"];
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/diagnostics/{group_id}/snapshots": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** List Choice Order Snapshots */
+    readonly get: operations["listChoiceOrderSnapshots"];
+    readonly put?: never;
+    readonly post?: never;
+    readonly delete?: never;
+    readonly options?: never;
+    readonly head?: never;
+    readonly patch?: never;
+    readonly trace?: never;
+  };
+  readonly "/api/v1/projects/{registration_id}/diagnostics/{group_id}/snapshots/{snapshot_id}": {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path?: never;
+      readonly cookie?: never;
+    };
+    /** Read Choice Order Snapshot */
+    readonly get: operations["readChoiceOrderSnapshot"];
+    readonly put?: never;
+    readonly post?: never;
     readonly delete?: never;
     readonly options?: never;
     readonly head?: never;
@@ -1516,6 +1584,17 @@ export interface components {
       /** Total */
       readonly total: string;
     };
+    /** AssessmentCountsDTO */
+    readonly AssessmentCountsDTO: {
+      /** All */
+      readonly all: string;
+      /** Incorrect */
+      readonly incorrect: string;
+      /** Inspect */
+      readonly inspect: string;
+      /** Unlabelled */
+      readonly unlabelled: string;
+    };
     /** BootstrapReply */
     readonly BootstrapReply: {
       /**
@@ -1553,6 +1632,20 @@ export interface components {
     };
     /** CaseDetailDTO */
     readonly CaseDetailDTO: {
+      /** Case Input Hash */
+      readonly case_input_hash: string;
+      readonly context: components["schemas"]["ResultContextDTO"];
+      /** Probabilities */
+      readonly probabilities: readonly components["schemas"]["ProbabilityRowDTO"][];
+      /** Probabilities Unavailable Reason */
+      readonly probabilities_unavailable_reason:
+        | (
+            | "probabilities_not_provided"
+            | "probability_question_unavailable"
+            | "invalid_probability_source"
+            | "probability_options_unavailable"
+          )
+        | null;
       /**
        * Schema Version
        * @default 1
@@ -1832,6 +1925,56 @@ export interface components {
        *     }
        */
       readonly settings?: components["schemas"]["ExecutionSettingsRequestDTO"];
+    };
+    /** CheckSnapshotCaseDTO */
+    readonly CheckSnapshotCaseDTO: {
+      /** Actual Option Id */
+      readonly actual_option_id: string | null;
+      /** Case Id */
+      readonly case_id: string;
+      /** Dataset Id */
+      readonly dataset_id: string;
+      /** Expected Option Ids */
+      readonly expected_option_ids: readonly string[];
+      /** Input Hash */
+      readonly input_hash: string;
+      /** Original Split */
+      readonly original_split: string;
+      /** Passed */
+      readonly passed: boolean | null;
+      /** Provenance */
+      readonly provenance: string;
+      /** Reason */
+      readonly reason: string;
+      /** Regression Id */
+      readonly regression_id: string;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /** Run Id */
+      readonly run_id: string;
+      /** Source Attempt Id */
+      readonly source_attempt_id: string | null;
+      /** Source Result Snapshot Id */
+      readonly source_result_snapshot_id: string | null;
+      /** Source Run Id */
+      readonly source_run_id: string | null;
+      /** Status */
+      readonly status: string;
+    };
+    /** CheckSnapshotDetailDTO */
+    readonly CheckSnapshotDetailDTO: {
+      /**
+       * Baseline Unavailable
+       * @constant
+       */
+      readonly baseline_unavailable: "frozen_regression_selection";
+      /** Cases */
+      readonly cases: readonly components["schemas"]["CheckSnapshotCaseDTO"][];
+      /** Expectation Failures */
+      readonly expectation_failures: string;
+      /** Members */
+      readonly members: readonly components["schemas"]["FrozenMemberContextDTO"][];
+      readonly snapshot: components["schemas"]["SnapshotMetadataDTO"];
     };
     /** CheckViewDTO */
     readonly CheckViewDTO: {
@@ -2373,6 +2516,16 @@ export interface components {
        */
       readonly kind: "describe_option";
     };
+    /** DiagnosticSnapshotDetailDTO */
+    readonly DiagnosticSnapshotDetailDTO: {
+      /** Members */
+      readonly members: readonly components["schemas"]["FrozenMemberContextDTO"][];
+      readonly snapshot: components["schemas"]["SnapshotMetadataDTO"];
+      /** Summary */
+      readonly summary: {
+        readonly [key: string]: unknown;
+      };
+    };
     /** DiagnosticViewDTO */
     readonly DiagnosticViewDTO: {
       /**
@@ -2801,6 +2954,33 @@ export interface components {
        * @constant
        */
       readonly schema_version: 1;
+    };
+    /** FrozenMemberContextDTO */
+    readonly FrozenMemberContextDTO: {
+      /** Dataset Content Hash */
+      readonly dataset_content_hash: string;
+      /** Dataset Id */
+      readonly dataset_id: string;
+      /** Dataset Snapshot Id */
+      readonly dataset_snapshot_id: string;
+      /** Decision Definition Hash */
+      readonly decision_definition_hash: string;
+      /** Decision Id */
+      readonly decision_id: string;
+      /** Decision Revision Id */
+      readonly decision_revision_id: string;
+      /** Label Content Hash */
+      readonly label_content_hash: string;
+      /** Label Snapshot Id */
+      readonly label_snapshot_id: string;
+      /** Result Content Hash */
+      readonly result_content_hash: string;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /** Run Id */
+      readonly run_id: string;
+      /** Through Event Sequence */
+      readonly through_event_sequence: string;
     };
     /** GroupAcceptedDTO */
     readonly GroupAcceptedDTO: {
@@ -3563,6 +3743,15 @@ export interface components {
        */
       readonly schema_version: 1;
     };
+    /** ProbabilityRowDTO */
+    readonly ProbabilityRowDTO: {
+      /** Option Id */
+      readonly option_id: string;
+      /** Option Name */
+      readonly option_name: string;
+      /** Probability */
+      readonly probability: string;
+    };
     /** ProjectOverviewDTO */
     readonly ProjectOverviewDTO: {
       /** Datasets */
@@ -4101,8 +4290,44 @@ export interface components {
        */
       readonly schema_version: 1;
     };
+    /** ResultContextDTO */
+    readonly ResultContextDTO: {
+      /** Dataset Content Hash */
+      readonly dataset_content_hash: string;
+      /** Dataset Id */
+      readonly dataset_id: string;
+      /** Dataset Snapshot Id */
+      readonly dataset_snapshot_id: string;
+      /** Decision Definition Hash */
+      readonly decision_definition_hash: string;
+      /** Decision Id */
+      readonly decision_id: string;
+      /** Decision Revision Id */
+      readonly decision_revision_id: string;
+      /** Evaluation Id */
+      readonly evaluation_id: string | null;
+      /**
+       * Evaluation Mode
+       * @enum {string}
+       */
+      readonly evaluation_mode: "original" | "saved_answer_reevaluation";
+      /** Label Content Hash */
+      readonly label_content_hash: string;
+      /** Label Snapshot Id */
+      readonly label_snapshot_id: string;
+      /** Result Content Hash */
+      readonly result_content_hash: string;
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /** Run Id */
+      readonly run_id: string;
+      /** Through Event Sequence */
+      readonly through_event_sequence: string;
+    };
     /** ResultPageDTO */
     readonly ResultPageDTO: {
+      readonly assessment_counts: components["schemas"]["AssessmentCountsDTO"];
+      readonly context: components["schemas"]["ResultContextDTO"];
       /** Evaluation Id */
       readonly evaluation_id: string | null;
       /** Filtered Count */
@@ -4829,6 +5054,30 @@ export interface components {
       /** Selected Fields */
       readonly selected_fields: readonly string[];
     };
+    /** SnapshotMetadataDTO */
+    readonly SnapshotMetadataDTO: {
+      /** Content Hash */
+      readonly content_hash: string;
+      /** Created At */
+      readonly created_at: string;
+      /** Group Id */
+      readonly group_id: string;
+      /** Id */
+      readonly id: string;
+      /** Results */
+      readonly results: readonly components["schemas"]["SnapshotResultDTO"][];
+      /** Segment Id */
+      readonly segment_id: string | null;
+      /** Sequence */
+      readonly sequence: string;
+    };
+    /** SnapshotResultDTO */
+    readonly SnapshotResultDTO: {
+      /** Result Snapshot Id */
+      readonly result_snapshot_id: string;
+      /** Run Id */
+      readonly run_id: string;
+    };
     /** SplitCommitDTO */
     readonly SplitCommitDTO: {
       readonly dataset: components["schemas"]["DatasetDTO"];
@@ -5080,6 +5329,21 @@ export interface components {
        */
       readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
     };
+    /** Success[CheckSnapshotDetailDTO] */
+    readonly Success_CheckSnapshotDetailDTO_: {
+      readonly data: components["schemas"]["CheckSnapshotDetailDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
     /** Success[CheckViewDTO] */
     readonly Success_CheckViewDTO_: {
       readonly data: components["schemas"]["CheckViewDTO"];
@@ -5218,6 +5482,21 @@ export interface components {
     /** Success[DemoCreateDTO] */
     readonly Success_DemoCreateDTO_: {
       readonly data: components["schemas"]["DemoCreateDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[DiagnosticSnapshotDetailDTO] */
+    readonly Success_DiagnosticSnapshotDetailDTO_: {
+      readonly data: components["schemas"]["DiagnosticSnapshotDetailDTO"];
       /**
        * Schema Version
        * @default 1
@@ -5893,6 +6172,22 @@ export interface components {
     /** Success[SplitPreviewDTO] */
     readonly Success_SplitPreviewDTO_: {
       readonly data: components["schemas"]["SplitPreviewDTO"];
+      /**
+       * Schema Version
+       * @default 1
+       * @constant
+       */
+      readonly schema_version: 1;
+      /**
+       * Warnings
+       * @default []
+       */
+      readonly warnings?: readonly components["schemas"]["ErrorDTO"][];
+    };
+    /** Success[tuple[SnapshotMetadataDTO, ...]] */
+    readonly Success_tuple_SnapshotMetadataDTO__________: {
+      /** Data */
+      readonly data: readonly components["schemas"]["SnapshotMetadataDTO"][];
       /**
        * Schema Version
        * @default 1
@@ -7515,6 +7810,269 @@ export interface operations {
         };
         content: {
           readonly "application/json": components["schemas"]["Success_GroupResumePreviewDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly listCheckSnapshots: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_tuple_SnapshotMetadataDTO__________"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readCheckSnapshot: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+        readonly snapshot_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_CheckSnapshotDetailDTO_"];
         };
       };
       /** @description Safe structured failure */
@@ -13942,6 +14500,269 @@ export interface operations {
       };
     };
   };
+  readonly listChoiceOrderSnapshots: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_tuple_SnapshotMetadataDTO__________"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
+  readonly readChoiceOrderSnapshot: {
+    readonly parameters: {
+      readonly query?: never;
+      readonly header?: never;
+      readonly path: {
+        readonly group_id: string;
+        readonly registration_id: string;
+        readonly snapshot_id: string;
+      };
+      readonly cookie?: never;
+    };
+    readonly requestBody?: never;
+    readonly responses: {
+      /** @description Successful Response */
+      readonly 200: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Success_DiagnosticSnapshotDetailDTO_"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 400: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 403: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 404: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 405: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 409: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 413: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 414: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 415: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 422: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 431: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 500: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+      /** @description Safe structured failure */
+      readonly 502: {
+        headers: {
+          readonly [name: string]: unknown;
+        };
+        content: {
+          readonly "application/json": components["schemas"]["Failure"];
+        };
+      };
+    };
+  };
   readonly startChoiceOrder: {
     readonly parameters: {
       readonly query?: never;
@@ -17827,8 +18648,12 @@ export interface operations {
   readonly listResults: {
     readonly parameters: {
       readonly query?: {
+        readonly assessment_filter?:
+          "all" | "inspect" | "incorrect" | "unlabelled";
         readonly cursor?: string | null;
         readonly evaluation_id?: string | null;
+        readonly expected_label_snapshot_id?: string | null;
+        readonly expected_result_snapshot_id?: string | null;
         readonly limit?: number;
         readonly split?: ("development" | "calibration" | "test") | null;
         readonly status?: string | null;
@@ -17966,6 +18791,8 @@ export interface operations {
     readonly parameters: {
       readonly query?: {
         readonly evaluation_id?: string | null;
+        readonly expected_label_snapshot_id?: string | null;
+        readonly expected_result_snapshot_id?: string | null;
         readonly include_attempts?: "true" | "false";
         readonly include_input?: "true" | "false";
         readonly include_request?: "true" | "false";

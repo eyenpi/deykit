@@ -70,7 +70,8 @@ export function Shell({
   const activeDecisionId =
     route.kind === "decision" ||
     route.kind === "examples" ||
-    route.kind === "decision-history"
+    route.kind === "decision-history" ||
+    route.kind === "regressions"
       ? route.decisionId
       : undefined;
   const decisionContext = !!decision && !!activeDecisionId;
@@ -181,6 +182,20 @@ export function Shell({
                         >
                           History
                         </button>
+                        <button
+                          aria-current={
+                            route.kind === "regressions" ? "page" : undefined
+                          }
+                          onClick={() =>
+                            go({
+                              kind: "regressions",
+                              registrationId,
+                              decisionId: item.id,
+                            })
+                          }
+                        >
+                          Regression examples
+                        </button>
                       </div>
                     )}
                   </div>
@@ -224,6 +239,26 @@ export function Shell({
               onClick={() => go({ kind: "fixtures", registrationId })}
             >
               Fixtures
+            </button>
+            <button
+              aria-current={
+                route.kind === "comparisons" || route.kind === "comparison"
+                  ? "page"
+                  : undefined
+              }
+              onClick={() => go({ kind: "comparisons", registrationId })}
+            >
+              Comparisons
+            </button>
+            <button
+              aria-current={
+                route.kind === "reports" || route.kind === "report"
+                  ? "page"
+                  : undefined
+              }
+              onClick={() => go({ kind: "reports", registrationId })}
+            >
+              Reports
             </button>
           </nav>
         )}

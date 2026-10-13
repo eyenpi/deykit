@@ -19,10 +19,12 @@ class FileDemoDestinationFactory:
         fault_hook: FaultHook | None = None,
         index_updater: IndexUpdater | None = None,
         acquisition_hook: Callable[[str], None] | None = None,
+        admission_timeout_seconds: float | None = None,
     ) -> None:
         self._fault_hook = fault_hook
         self._index_updater = index_updater
         self._acquisition_hook = acquisition_hook
+        self._admission_timeout_seconds = admission_timeout_seconds
 
     def open_existing(
         self, path: Path, *, operation_id: str, intent_hash: str
@@ -39,7 +41,10 @@ class FileDemoDestinationFactory:
             return None
         try:
             source = FileProjectSource._from_files(
-                files, fault_hook=self._fault_hook, index_updater=self._index_updater
+                files,
+                fault_hook=self._fault_hook,
+                index_updater=self._index_updater,
+                admission_timeout_seconds=self._admission_timeout_seconds,
             )
         except BaseException:
             files.close()
@@ -70,7 +75,10 @@ class FileDemoDestinationFactory:
         try:
             files = SafeFiles.create_exclusive(path, acquisition_hook=self._acquisition_hook)
             return FileProjectSource._from_files(
-                files, fault_hook=self._fault_hook, index_updater=self._index_updater
+                files,
+                fault_hook=self._fault_hook,
+                index_updater=self._index_updater,
+                admission_timeout_seconds=self._admission_timeout_seconds,
             )
         except ServiceFailure as error:
             if files is not None:

@@ -109,13 +109,27 @@ class LocalBoundary:
             ),
             (
                 rf"{registrations}/runs/[^/]+/results",
-                {"GET": {"evaluation_id", "status", "split", "tag", "cursor", "limit"}},
+                {
+                    "GET": {
+                        "evaluation_id",
+                        "status",
+                        "split",
+                        "tag",
+                        "assessment_filter",
+                        "expected_result_snapshot_id",
+                        "expected_label_snapshot_id",
+                        "cursor",
+                        "limit",
+                    }
+                },
             ),
             (
                 rf"{registrations}/runs/[^/]+/results/[^/]+",
                 {
                     "GET": {
                         "evaluation_id",
+                        "expected_result_snapshot_id",
+                        "expected_label_snapshot_id",
                         "include_input",
                         "include_request",
                         "include_response",

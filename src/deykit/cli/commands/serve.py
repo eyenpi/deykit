@@ -26,6 +26,7 @@ from deykit.runner.backends import ProviderBackends
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.source import API_SOURCE_ADMISSION_TIMEOUT_SECONDS
 
 
 def register(root: typer.Typer) -> None:
@@ -62,10 +63,16 @@ def launch_local_server(
         dependencies = ApiDependencies(
             clock=clock,
             id_factory=new_id,
-            source_factory=lambda path, create: FileProjectSource(path, create=create),
+            source_factory=lambda path, create: FileProjectSource(
+                path,
+                create=create,
+                admission_timeout_seconds=API_SOURCE_ADMISSION_TIMEOUT_SECONDS,
+            ),
             recent_store=RecentProjectsStore(clock),
             demo_staging_factory=DemoStagingSource,
-            demo_destination_factory=FileDemoDestinationFactory(),
+            demo_destination_factory=FileDemoDestinationFactory(
+                admission_timeout_seconds=API_SOURCE_ADMISSION_TIMEOUT_SECONDS
+            ),
             provider_operations_factory=create_provider_operations,
             backends_factory=ProviderBackends,
         )

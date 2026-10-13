@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import faulthandler
+import hashlib
 import json
 import os
 import signal
 import socket
+import stat
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -45,6 +49,9 @@ from deykit.runner.ports import Backend, BackendFactory
 from deykit.storage import FileProjectSource
 from deykit.storage.demo_destination import FileDemoDestinationFactory
 from deykit.storage.demo_staging import DemoStagingSource
+from deykit.storage.source import API_SOURCE_ADMISSION_TIMEOUT_SECONDS
+
+_WITNESS_LOCK = threading.RLock()
 
 
 class QualificationClock:
@@ -113,10 +120,25 @@ class DispatchWitness:
     for_case_by_case: dict[str, int] = field(default_factory=dict)
     dispatch_by_case: dict[str, int] = field(default_factory=dict)
     publish: Callable[[], None] | None = None
+    lock: Any = field(default_factory=lambda: _WITNESS_LOCK, repr=False)
+
+    def record_dispatch(self, case_id: str) -> None:
+        with self.lock:
+            self.dispatch_calls += 1
+            self.dispatch_by_case[case_id] = self.dispatch_by_case.get(case_id, 0) + 1
+        self.changed()
+
+    def record_for_case(self, case_id: str) -> None:
+        with self.lock:
+            self.for_case_calls += 1
+            self.for_case_by_case[case_id] = self.for_case_by_case.get(case_id, 0) + 1
+        self.changed()
 
     def changed(self) -> None:
-        if self.publish is not None:
-            self.publish()
+        with self.lock:
+            publish = self.publish
+        if publish is not None:
+            publish()
 
 
 class WitnessTransport:
@@ -132,11 +154,7 @@ class WitnessTransport:
     async def dispatch(
         self, request: CompiledRequest, *, timeout_seconds: float
     ) -> DispatchOutcome:
-        self._witness.dispatch_calls += 1
-        self._witness.dispatch_by_case[self._case_id] = (
-            self._witness.dispatch_by_case.get(self._case_id, 0) + 1
-        )
-        self._witness.changed()
+        self._witness.record_dispatch(self._case_id)
         control = os.environ.get("DEYKIT_FIXTURE_CONTROL_DIRECTORY")
         if control is not None:
             directory = Path(control)
@@ -171,18 +189,21 @@ class WitnessBackend:
         return self._fixture.preflight(decision_id, dataset_id, definition)
 
     def for_case(self, case_id: str) -> ProviderTransport:
-        self._witness.for_case_calls += 1
-        self._witness.for_case_by_case[case_id] = self._witness.for_case_by_case.get(case_id, 0) + 1
-        self._witness.changed()
+        self._witness.record_for_case(case_id)
         return WitnessTransport(self._fixture.for_case(case_id), self._witness, case_id)
 
 
 class OfflineBackendFactory:
     """Use the production fixture resolver and reject live adapters before credential use."""
 
-    def __init__(self, source: ApiProjectSource, clock: QualificationClock) -> None:
+    def __init__(
+        self,
+        source: ApiProjectSource,
+        clock: QualificationClock,
+        witness_lock: Any | None = None,
+    ) -> None:
         self._delegate = ProviderBackends(source, clock)
-        self._dispatch = DispatchWitness()
+        self._dispatch = DispatchWitness(lock=witness_lock or _WITNESS_LOCK)
 
     @property
     def witness(self) -> DispatchWitness:
@@ -269,6 +290,380 @@ class LifespanWitness:
             raise
 
 
+class ResumeObservation:
+    """Persist a bounded, private trace for the two G resume requests."""
+
+    def __init__(self, control_directory: Path, *, enabled: bool) -> None:
+        self.enabled = enabled
+        self.started_at = time.monotonic()
+        self.events: list[dict[str, Any]] = []
+        self.ordinal = 0
+        self.dump_arms = 0
+        self.terminal_events: list[dict[str, Any]] = []
+        self.worker_snapshots: list[dict[str, Any]] = []
+        self._boundary_app: Any | None = None
+        self._future_refs: dict[int, dict[str, Any]] = {}
+        self._worker_future_ids: set[int] = set()
+        self._owner_future_ids: set[int] = set()
+        self._closed = False
+        self._trace_path: Path | None = None
+        self._temporary_trace_path: Path | None = None
+        self._stack_file: Any | None = None
+        if not enabled:
+            return
+
+        directory = control_directory.lstat()
+        getuid = getattr(os, "getuid", None)
+        if (
+            not stat.S_ISDIR(directory.st_mode)
+            or (getuid is not None and directory.st_uid != getuid())
+            or stat.S_IMODE(directory.st_mode) != 0o700
+        ):
+            raise RuntimeError("resume_observation_directory_unsafe")
+
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        trace_path = control_directory / "resume-observation.json"
+        temporary_trace_path = control_directory / "resume-observation.json.tmp"
+        stack_path = control_directory / "resume-observation-stack.private"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow
+        try:
+            stack_fd = os.open(stack_path, flags, 0o600)
+            os.fchmod(stack_fd, 0o600)
+            self._stack_file = os.fdopen(stack_fd, "wb", buffering=0)
+            self._trace_path = trace_path
+            self._temporary_trace_path = temporary_trace_path
+            self._persist()
+        except BaseException:
+            if self._stack_file is not None:
+                self._stack_file.close()
+                self._stack_file = None
+            raise
+
+    def admit(self) -> int | None:
+        if not self.enabled or self.ordinal >= 2:
+            return None
+        self.ordinal += 1
+        ordinal = self.ordinal
+        self._record(ordinal, "admitted")
+        if self.dump_arms < 2 and self._stack_file is not None:
+            faulthandler.dump_traceback_later(
+                8,
+                repeat=False,
+                file=self._stack_file,
+            )
+            self.dump_arms += 1
+        return ordinal
+
+    def response_started(self, ordinal: int, status: int) -> None:
+        self._record(ordinal, "response_started", status=status)
+
+    def body_complete(self, ordinal: int, digest: str) -> None:
+        self._record(ordinal, "body_complete", sha256=digest)
+
+    def bind_boundary(self, app: Any) -> None:
+        self._boundary_app = app
+
+    def capture_workers(
+        self,
+        app: Any,
+        *,
+        ordinal: int | None,
+        checkpoint: str,
+        scope_path: Any = None,
+    ) -> None:
+        if not self.enabled or self._closed:
+            return
+        if checkpoint == "shutdown":
+            self._snapshot_retained(ordinal=None, checkpoint=checkpoint)
+            return
+        inner = getattr(app, "app", None)
+        state = getattr(inner, "state", None)
+        supervisor = getattr(state, "execution_supervisor", None)
+        workers = getattr(state, "workers", None)
+        registration_id: str | None = None
+        group_id: str | None = None
+        if ordinal is not None:
+            # The request path is used only to look up the supervisor's private owner.
+            # It is never copied into the evidence file.
+            if isinstance(scope_path, str):
+                segments = scope_path.split("/")
+                if len(segments) == 8 and _is_diagnostic_resume_path(scope_path):
+                    registration_id, group_id = segments[4], segments[6]
+
+        owner = None
+        if supervisor is not None and registration_id and group_id:
+            owner = getattr(supervisor, "_group_tasks", {}).get((registration_id, group_id))
+        if owner is not None and id(owner) not in self._owner_future_ids:
+            if len(self._owner_future_ids) < 2:
+                self._owner_future_ids.add(id(owner))
+                self._observe_future(owner, ordinal=ordinal, owner=True, worker_index=None)
+
+        worker_list: tuple[Any, ...] | None = None
+        if workers is not None:
+            try:
+                worker_list = tuple(workers._tasks)
+            except (AttributeError, TypeError):
+                worker_list = None
+        available_slots = max(0, 16 - len(self._worker_future_ids))
+        worker_overflow = 0
+        if worker_list is not None:
+            for future in worker_list:
+                identity = id(future)
+                if identity in self._worker_future_ids:
+                    continue
+                if available_slots == 0:
+                    worker_overflow += 1
+                    continue
+                self._worker_future_ids.add(identity)
+                worker_index = len(self._worker_future_ids)
+                self._observe_future(
+                    future,
+                    ordinal=ordinal,
+                    owner=False,
+                    worker_index=worker_index,
+                )
+                available_slots -= 1
+
+        owner_identity = id(owner) if owner is not None else None
+        known_refs = [
+            {
+                "owner": bool(item["owner"]),
+                "worker_index": item["worker_index"],
+                "state": self._future_state(item["future"]),
+            }
+            for item in self._future_refs.values()
+        ]
+        snapshot: dict[str, Any] = {
+            "checkpoint": checkpoint,
+            "ordinal": ordinal,
+            "owner_lookup": "available" if supervisor is not None else "unavailable",
+            "owner_present": None if supervisor is None else owner is not None,
+            "owner_observed": (
+                None
+                if supervisor is None
+                else owner_identity in self._owner_future_ids
+                if owner_identity is not None
+                else False
+            ),
+            "worker_list": "available" if worker_list is not None else "unavailable",
+            "worker_count": len(worker_list) if worker_list is not None else None,
+            "worker_overflow_count": worker_overflow if worker_list is not None else None,
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+            "futures": known_refs,
+        }
+        if len(self.worker_snapshots) < 3:
+            self.worker_snapshots.append(snapshot)
+            self._persist()
+
+    def _snapshot_retained(self, *, ordinal: int | None, checkpoint: str) -> None:
+        snapshot: dict[str, Any] = {
+            "checkpoint": checkpoint,
+            "ordinal": ordinal,
+            "owner_lookup": "unrequested",
+            "owner_present": None,
+            "owner_observed": None,
+            "worker_list": "unrequested",
+            "worker_count": None,
+            "worker_overflow_count": None,
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+            "futures": [
+                {
+                    "owner": bool(item["owner"]),
+                    "worker_index": item["worker_index"],
+                    "state": self._future_state(item["future"]),
+                }
+                for item in self._future_refs.values()
+            ],
+        }
+        if len(self.worker_snapshots) < 3:
+            self.worker_snapshots.append(snapshot)
+            self._persist()
+
+    def _observe_future(
+        self,
+        future: Any,
+        *,
+        ordinal: int | None,
+        owner: bool,
+        worker_index: int | None,
+    ) -> None:
+        identity = id(future)
+        existing = self._future_refs.get(identity)
+        if existing is not None:
+            if worker_index is not None and existing["worker_index"] is None:
+                existing["worker_index"] = worker_index
+            existing["owner"] = existing["owner"] or owner
+            return
+        self._future_refs[identity] = {
+            "future": future,
+            "ordinal": ordinal,
+            "owner": owner,
+            "worker_index": worker_index,
+        }
+        future.add_done_callback(lambda completed: self._future_done(identity, completed))
+
+    @staticmethod
+    def _future_state(future: Any) -> str:
+        try:
+            if not future.done():
+                return "pending"
+            if future.cancelled():
+                return "cancelled"
+            error = future.exception()
+        except asyncio.CancelledError:
+            return "cancelled"
+        except BaseException:
+            return "unclassified_failure"
+        if error is None:
+            return "returned"
+        if isinstance(error, asyncio.CancelledError):
+            return "cancelled"
+        if isinstance(error, ServiceFailure):
+            return "service_failure"
+        return "unclassified_failure"
+
+    def _future_done(self, identity: int, future: Any) -> None:
+        if self._closed or len(self.terminal_events) >= 18:
+            return
+        observed = self._future_refs.get(identity)
+        if observed is None:
+            return
+        event: dict[str, Any] = {
+            "ordinal": observed["ordinal"],
+            "owner": bool(observed["owner"]),
+            "worker_index": observed["worker_index"],
+            "state": self._future_state(future),
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+        }
+        self.terminal_events.append(event)
+        self._persist()
+
+    def _record(
+        self,
+        ordinal: int,
+        stage: str,
+        *,
+        status: int | None = None,
+        sha256: str | None = None,
+    ) -> None:
+        if len(self.events) >= 6:
+            return
+        event: dict[str, Any] = {
+            "ordinal": ordinal,
+            "stage": stage,
+            "elapsed_ms": max(0, round((time.monotonic() - self.started_at) * 1000)),
+        }
+        if status is not None:
+            event["status"] = status
+        if sha256 is not None:
+            event["sha256"] = sha256
+        self.events.append(event)
+        self._persist()
+
+    def _persist(self) -> None:
+        if self._trace_path is None or self._temporary_trace_path is None:
+            return
+        payload = json.dumps(
+            {
+                "schema_version": 1,
+                "events": self.events,
+                "worker_snapshots": self.worker_snapshots,
+                "terminal_events": self.terminal_events,
+            },
+            separators=(",", ":"),
+        ).encode("ascii")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(self._temporary_trace_path, flags, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            offset = 0
+            while offset < len(payload):
+                offset += os.write(fd, payload[offset:])
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(self._temporary_trace_path, self._trace_path)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        if self._boundary_app is not None:
+            self.capture_workers(self._boundary_app, ordinal=None, checkpoint="shutdown")
+        self._closed = True
+        if self._stack_file is not None:
+            faulthandler.cancel_dump_traceback_later()
+            self._stack_file.close()
+            self._stack_file = None
+
+
+class ResumeObservationApp:
+    """Observe only two diagnostic resume responses without changing app behavior."""
+
+    def __init__(self, app: Any, observation: ResumeObservation) -> None:
+        self._app = app
+        self._observation = observation
+        self._observation.bind_boundary(app)
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if (
+            not self._observation.enabled
+            or scope.get("type") != "http"
+            or scope.get("method") != "POST"
+            or not _is_diagnostic_resume_path(scope.get("path"))
+        ):
+            await self._app(scope, receive, send)
+            return
+
+        ordinal = self._observation.admit()
+        if ordinal is None:
+            await self._app(scope, receive, send)
+            return
+
+        digest = hashlib.sha256()
+
+        async def observe(message: dict[str, Any]) -> None:
+            message_type = message.get("type")
+            if message_type == "http.response.start":
+                status = message.get("status")
+                await send(message)
+                if isinstance(status, int) and 100 <= status <= 599:
+                    self._observation.response_started(ordinal, status)
+                    self._observation.capture_workers(
+                        self._app,
+                        ordinal=ordinal,
+                        checkpoint="response_boundary",
+                        scope_path=scope.get("path"),
+                    )
+                return
+            if message_type == "http.response.body":
+                body = message.get("body", b"")
+                if isinstance(body, bytes):
+                    digest.update(body)
+                body_complete = not message.get("more_body", False)
+                await send(message)
+                if body_complete:
+                    self._observation.body_complete(ordinal, digest.hexdigest())
+                return
+            await send(message)
+
+        await self._app(scope, receive, observe)
+
+
+def _is_diagnostic_resume_path(path: Any) -> bool:
+    if not isinstance(path, str):
+        return False
+    segments = path.split("/")
+    return (
+        len(segments) == 8
+        and segments[:3] == ["", "api", "v1"]
+        and segments[3] == "projects"
+        and bool(segments[4])
+        and segments[5] == "diagnostics"
+        and bool(segments[6])
+        and segments[7] == "resume"
+    )
+
+
 class QualificationServer(uvicorn.Server):
     """Own one socket and publish lifecycle evidence after the app has shut down."""
 
@@ -319,11 +714,16 @@ class QualificationServer(uvicorn.Server):
             "supervisor_run_tasks_empty": not supervisor._run_tasks,
             "supervisor_group_tasks_empty": not supervisor._group_tasks,
         }
-        fixture_dispatch_by_case: Counter[str] = Counter()
-        for_case_by_case: Counter[str] = Counter()
-        for item in self._backends:
-            fixture_dispatch_by_case.update(item.witness.dispatch_by_case)
-            for_case_by_case.update(item.witness.for_case_by_case)
+        with _WITNESS_LOCK:
+            fixture_dispatch_by_case: Counter[str] = Counter()
+            for_case_by_case: Counter[str] = Counter()
+            fixture_dispatch_calls = 0
+            for_case_calls = 0
+            for item in self._backends:
+                fixture_dispatch_calls += item.witness.dispatch_calls
+                for_case_calls += item.witness.for_case_calls
+                fixture_dispatch_by_case.update(item.witness.dispatch_by_case)
+                for_case_by_case.update(item.witness.for_case_by_case)
         witness = {
             "lifespan_startup_completed": self._lifespan.startup_completed,
             "lifespan_startup_error": self._lifespan.startup_error,
@@ -349,11 +749,11 @@ class QualificationServer(uvicorn.Server):
             "model_timeouts": self._model_lister.timeouts,
             "model_list_inference_calls_contract": 0,
             "model_list_timeouts": self._model_lister.timeouts,
-            "fixture_dispatch_calls": sum(item.witness.dispatch_calls for item in self._backends),
+            "fixture_dispatch_calls": fixture_dispatch_calls,
             "fixture_dispatch_by_case": dict(sorted(fixture_dispatch_by_case.items())),
             "live_dispatch_calls": 0,
             "all_resolved_backends_fixture_only": True,
-            "for_case_calls": sum(item.witness.for_case_calls for item in self._backends),
+            "for_case_calls": for_case_calls,
             "for_case_by_case": dict(sorted(for_case_by_case.items())),
             "jev_api_key_present": "JEV_API_KEY" in os.environ,
         }
@@ -379,29 +779,31 @@ def _dependencies(
         if control is not None:
             path = Path(control) / "counts.json"
             temporary = path.with_suffix(".tmp")
-            fixture_dispatch_by_case: Counter[str] = Counter()
-            for_case_by_case: Counter[str] = Counter()
-            for factory in backend_factories:
-                fixture_dispatch_by_case.update(factory.witness.dispatch_by_case)
-                for_case_by_case.update(factory.witness.for_case_by_case)
-            _write_json(
-                temporary,
-                {
-                    "fixture_dispatch_calls": sum(
-                        f.witness.dispatch_calls for f in backend_factories
-                    ),
-                    "for_case_calls": sum(f.witness.for_case_calls for f in backend_factories),
+            with _WITNESS_LOCK:
+                fixture_dispatch_by_case: Counter[str] = Counter()
+                for_case_by_case: Counter[str] = Counter()
+                fixture_dispatch_calls = 0
+                for_case_calls = 0
+                for factory in backend_factories:
+                    fixture_dispatch_calls += factory.witness.dispatch_calls
+                    for_case_calls += factory.witness.for_case_calls
+                    fixture_dispatch_by_case.update(factory.witness.dispatch_by_case)
+                    for_case_by_case.update(factory.witness.for_case_by_case)
+                snapshot = {
+                    "fixture_dispatch_calls": fixture_dispatch_calls,
+                    "for_case_calls": for_case_calls,
                     "fixture_dispatch_by_case": dict(sorted(fixture_dispatch_by_case.items())),
                     "for_case_by_case": dict(sorted(for_case_by_case.items())),
                     "live_dispatch_calls": 0,
-                },
-            )
-            temporary.replace(path)
+                }
+                _write_json(temporary, snapshot)
+                temporary.replace(path)
 
     def backend_factory(source: ApiProjectSource, selected_clock: Any) -> BackendFactory:
-        factory = OfflineBackendFactory(source, selected_clock)
-        backend_factories.append(factory)
-        factory.witness.publish = publish_counts
+        factory = OfflineBackendFactory(source, selected_clock, _WITNESS_LOCK)
+        with _WITNESS_LOCK:
+            backend_factories.append(factory)
+            factory.witness.publish = publish_counts
         publish_counts()
         return factory
 
@@ -410,10 +812,16 @@ def _dependencies(
     dependencies = ApiDependencies(
         clock=clock,
         id_factory=ids,
-        source_factory=lambda path, create: FileProjectSource(path, create=create),
+        source_factory=lambda path, create: FileProjectSource(
+            path,
+            create=create,
+            admission_timeout_seconds=API_SOURCE_ADMISSION_TIMEOUT_SECONDS,
+        ),
         recent_store=RecentProjectsStore(clock, workspace / "recent-projects.json"),
         demo_staging_factory=DemoStagingSource,
-        demo_destination_factory=FileDemoDestinationFactory(),
+        demo_destination_factory=FileDemoDestinationFactory(
+            admission_timeout_seconds=API_SOURCE_ADMISSION_TIMEOUT_SECONDS
+        ),
         provider_operations_factory=lambda source: create_provider_operations(
             source,
             environment={"M08_FAKE_ENV": "nonsecret-fake-environment-value"},
@@ -445,7 +853,15 @@ def serve_installed_api(workspace: Path, ready_file: Path) -> None:
     boundary = create_app(
         LocalServerConfig(authority, origin, AssetCatalog.from_package()), dependencies
     )
-    lifespan = LifespanWitness(boundary)
+    observe_resume = os.environ.get("DEYKIT_G_RESUME_OBSERVATION") == "1"
+    control_directory = os.environ.get("DEYKIT_FIXTURE_CONTROL_DIRECTORY")
+    if observe_resume and not control_directory:
+        raise RuntimeError("resume_observation_directory_missing")
+    resume_observation = ResumeObservation(
+        Path(control_directory) if control_directory else Path("."),
+        enabled=observe_resume,
+    )
+    lifespan = LifespanWitness(ResumeObservationApp(boundary, resume_observation))
     config = uvicorn.Config(
         lifespan,
         host=host,
@@ -482,6 +898,7 @@ def serve_installed_api(workspace: Path, ready_file: Path) -> None:
     try:
         server.run(sockets=[listener])
     finally:
+        resume_observation.close()
         signal.signal(signal.SIGTERM, previous_sigterm)
         listener.close()
 

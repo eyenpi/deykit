@@ -1,12 +1,29 @@
 import { useEffect, useRef, useState } from "react";
-import { safeMessage } from "../../api/client";
+import { ApiError, safeMessage } from "../../api/client";
 import type { ApiOperationData } from "../../api/client";
 import { ErrorSummary, LoadingState } from "../../components/States";
 import type { ExecutionGateway } from "../../workspace/gateway";
 import type { DecisionAuthoringOperations } from "../../workspace/gateway";
 import type { WorkspaceNavigation } from "../../workspace/navigation";
+import type { DebuggingGateway } from "../../workspace/gateway";
+import type { ExampleAuthoringOperations } from "../../workspace/gateway";
+import { AnnotationSheet } from "../debugging/AnnotationSheet";
+import { ResultAssessmentControls } from "../debugging/ResultAssessmentControls";
+import { CurrentLabelSheet } from "../debugging/CurrentLabelSheet";
+import { RegressionSheet } from "../debugging/RegressionSheet";
 import type { CaseDetailView, ResultRowView } from "./execution-inspection";
-import { decodeCaseDetail, decodeResultRow } from "./execution-inspection";
+import {
+  decodeAssessmentCounts,
+  decodeCaseDetail,
+  decodeResultContext,
+  decodeResultRow,
+  sameAssessmentCounts,
+  sameResultContext,
+} from "./execution-inspection";
+import type {
+  AssessmentCountsView,
+  ResultContextView,
+} from "./execution-inspection";
 
 type Run = ApiOperationData<"readRun">;
 type EvaluationPage = ApiOperationData<"listEvaluations">;
@@ -14,8 +31,12 @@ type Evaluation = ApiOperationData<"readEvaluation">;
 type ResultPage = ApiOperationData<"listResults">;
 type SnapshotIdentity = {
   scope: string;
+  epoch: number;
   resultSnapshotId: string;
   labelSnapshotId: string;
+  context: ResultContextView;
+  assessmentCounts: AssessmentCountsView;
+  assessmentPopulationScope: string;
 };
 
 type Reveal = {
@@ -29,6 +50,8 @@ export function RunCaseInspector({
   registrationId,
   run,
   execution,
+  debugging,
+  labelOperations,
   readRevision,
   navigation,
   evaluationId,
@@ -37,6 +60,8 @@ export function RunCaseInspector({
   registrationId: string;
   run: Run;
   execution: ExecutionGateway;
+  debugging: DebuggingGateway;
+  labelOperations: ExampleAuthoringOperations;
   readRevision: DecisionAuthoringOperations["revision"];
   navigation: WorkspaceNavigation;
   evaluationId?: string;
@@ -55,6 +80,10 @@ export function RunCaseInspector({
   const [status, setStatus] = useState("");
   const [split, setSplit] = useState("");
   const [tag, setTag] = useState("");
+  const [assessmentFilter, setAssessmentFilter] = useState<
+    "all" | "inspect" | "incorrect" | "unlabelled"
+  >("all");
+  const [pageSize, setPageSize] = useState(50);
   const [detail, setDetail] = useState<CaseDetailView>();
   const [reveal, setReveal] = useState<Reveal>({
     input: false,
@@ -64,17 +93,64 @@ export function RunCaseInspector({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
+  const [annotationOpen, setAnnotationOpen] = useState(false);
+  const [currentLabelOpen, setCurrentLabelOpen] = useState(false);
+  const [regressionOpen, setRegressionOpen] = useState(false);
+  const [evaluationBusy, setEvaluationBusy] = useState(false);
+  const [contextChanged, setContextChanged] = useState(false);
   const [reload, setReload] = useState(0);
   const moreController = useRef<AbortController | undefined>(undefined);
+  const scopeEpoch = useRef(0);
+  const lastResultSource = useRef("");
+  const lastReload = useRef(reload);
   const [publishedScope, setPublishedScope] = useState("");
   const [publishedSnapshot, setPublishedSnapshot] =
     useState<SnapshotIdentity>();
+  const publishedSnapshotRef = useRef(publishedSnapshot);
+  publishedSnapshotRef.current = publishedSnapshot;
   const [detailScope, setDetailScope] = useState("");
-  const resultScope = `${registrationId}|${run.run_id}|${evaluationId ?? ""}|${status}|${split}|${tag}|${reload}`;
+  const sourceScope = `${registrationId}|${run.run_id}|${evaluationId ?? ""}`;
+  const assessmentPopulationScope = `${sourceScope}|${status}|${split}|${tag}`;
+  const resultScope = `${sourceScope}|${status}|${split}|${tag}|${assessmentFilter}|${pageSize}|${reload}`;
   const requestedDetailScope = `${resultScope}|${caseId ?? ""}|${reveal.input}|${reveal.request}|${reveal.response}|${reveal.attempts}`;
   const resultsCurrent =
     publishedScope === resultScope && publishedSnapshot?.scope === resultScope;
+  const publishedPopulationCurrent =
+    resultsCurrent &&
+    !contextChanged &&
+    publishedSnapshot?.scope === resultScope &&
+    publishedSnapshot?.assessmentPopulationScope === assessmentPopulationScope;
   const detailCurrent = detailScope === requestedDetailScope;
+  const localScopeLocked =
+    annotationOpen ||
+    currentLabelOpen ||
+    regressionOpen ||
+    evaluationBusy ||
+    contextChanged;
+
+  function invalidateAfterContextConflict(cause: unknown) {
+    if (!(cause instanceof ApiError) || cause.code !== "result_context_changed")
+      return;
+    setRows([]);
+    setCursor(undefined);
+    setResultPage(undefined);
+    setDetail(undefined);
+    setDetailScope("");
+    setReveal({
+      input: false,
+      request: false,
+      response: false,
+      attempts: false,
+    });
+    setPublishedScope("");
+    setContextChanged(true);
+  }
+
+  useEffect(() => {
+    setAnnotationOpen(false);
+    setCurrentLabelOpen(false);
+    setRegressionOpen(false);
+  }, [caseId]);
 
   useEffect(() => {
     const revisionId = run.sources.decision_revision_id;
@@ -120,13 +196,33 @@ export function RunCaseInspector({
     moreController.current?.abort();
     moreController.current = undefined;
     let active = true;
+    const sourceChanged = lastResultSource.current !== sourceScope;
+    const explicitRefresh = lastReload.current !== reload;
+    lastResultSource.current = sourceScope;
+    lastReload.current = reload;
+    const lastSnapshot = publishedSnapshotRef.current;
+    const priorSnapshot =
+      sourceChanged || explicitRefresh
+        ? undefined
+        : lastSnapshot?.scope.startsWith(`${sourceScope}|`)
+          ? lastSnapshot
+          : undefined;
     setLoading(true);
     setError(undefined);
-    setSelectedEvaluation(undefined);
-    setEvaluations(undefined);
+    if (sourceChanged) {
+      setSelectedEvaluation(undefined);
+      setEvaluations(undefined);
+      setRows([]);
+      setPublishedScope("");
+      setDetail(undefined);
+      setReveal({
+        input: false,
+        request: false,
+        response: false,
+        attempts: false,
+      });
+    }
     setRows([]);
-    setResultPage(undefined);
-    setPublishedSnapshot(undefined);
     setDetail(undefined);
     setReveal({
       input: false,
@@ -166,8 +262,20 @@ export function RunCaseInspector({
           registrationId,
           runId: run.run_id,
           query: {
-            limit: 50,
+            limit: pageSize,
+            ...(pinned
+              ? {
+                  expected_result_snapshot_id: pinned.result_snapshot_id,
+                  expected_label_snapshot_id: pinned.label_snapshot_id,
+                }
+              : priorSnapshot
+                ? {
+                    expected_result_snapshot_id: priorSnapshot.resultSnapshotId,
+                    expected_label_snapshot_id: priorSnapshot.labelSnapshotId,
+                  }
+                : {}),
             ...(pinned ? { evaluation_id: pinned.evaluation_id } : {}),
+            assessment_filter: assessmentFilter,
             ...(status ? { status } : {}),
             ...(split
               ? { split: split as "development" | "calibration" | "test" }
@@ -177,8 +285,24 @@ export function RunCaseInspector({
           signal: controller.signal,
         });
         if (!active) return;
+        const context = decodeResultContext(result.data.context);
+        const assessmentCounts = decodeAssessmentCounts(
+          result.data.assessment_counts,
+        );
         if (
           result.data.run_id !== run.run_id ||
+          context.runId !== run.run_id ||
+          context.resultSnapshotId !== result.data.result_snapshot_id ||
+          context.labelSnapshotId !== result.data.label_snapshot_id ||
+          context.evaluationId !== result.data.evaluation_id ||
+          (priorSnapshot &&
+            (!sameResultContext(context, priorSnapshot.context) ||
+              (priorSnapshot.assessmentPopulationScope ===
+                assessmentPopulationScope &&
+                !sameAssessmentCounts(
+                  assessmentCounts,
+                  priorSnapshot.assessmentCounts,
+                )))) ||
           (pinned &&
             (result.data.evaluation_id !== pinned.evaluation_id ||
               result.data.result_snapshot_id !== pinned.result_snapshot_id ||
@@ -190,14 +314,27 @@ export function RunCaseInspector({
         setResultPage(result.data);
         setPublishedSnapshot({
           scope: resultScope,
+          epoch:
+            priorSnapshot?.resultSnapshotId ===
+              result.data.result_snapshot_id &&
+            priorSnapshot.labelSnapshotId === result.data.label_snapshot_id
+              ? priorSnapshot.epoch
+              : ++scopeEpoch.current,
           resultSnapshotId: result.data.result_snapshot_id,
           labelSnapshotId: result.data.label_snapshot_id,
+          context,
+          assessmentCounts,
+          assessmentPopulationScope,
         });
         setRows(result.data.items.map((item) => decodeResultRow(item.source)));
         setCursor(result.data.next_cursor ?? undefined);
         setPublishedScope(resultScope);
+        setContextChanged(false);
       } catch (cause) {
-        if (active && !controller.signal.aborted) setError(safeMessage(cause));
+        if (active && !controller.signal.aborted) {
+          invalidateAfterContextConflict(cause);
+          setError(safeMessage(cause));
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -213,10 +350,13 @@ export function RunCaseInspector({
     registrationId,
     run.run_id,
     evaluationId,
+    assessmentFilter,
     status,
     split,
     tag,
+    pageSize,
     reload,
+    sourceScope,
   ]);
 
   useEffect(() => {
@@ -241,6 +381,8 @@ export function RunCaseInspector({
         caseId,
         query: {
           ...(evaluationId ? { evaluation_id: evaluationId } : {}),
+          expected_result_snapshot_id: publishedSnapshot.resultSnapshotId,
+          expected_label_snapshot_id: publishedSnapshot.labelSnapshotId,
           include_input: flags.input ? "true" : "false",
           include_request: flags.request ? "true" : "false",
           include_response: flags.response ? "true" : "false",
@@ -250,13 +392,19 @@ export function RunCaseInspector({
       })
       .then((result) => {
         if (!active) return;
-        const decoded = decodeCaseDetail(result.data.source);
+        const decoded = decodeCaseDetail(result.data);
         if (
           decoded.runId !== run.run_id ||
           decoded.caseId !== caseId ||
           decoded.evaluationId !== (evaluationId ?? null) ||
           decoded.resultSnapshotId !== publishedSnapshot.resultSnapshotId ||
           decoded.labelSnapshotId !== publishedSnapshot.labelSnapshotId ||
+          decoded.context.runId !== run.run_id ||
+          decoded.context.resultSnapshotId !==
+            publishedSnapshot.resultSnapshotId ||
+          decoded.context.labelSnapshotId !==
+            publishedSnapshot.labelSnapshotId ||
+          !sameResultContext(decoded.context, publishedSnapshot.context) ||
           (selectedEvaluation &&
             (decoded.resultSnapshotId !==
               selectedEvaluation.result_snapshot_id ||
@@ -265,11 +413,26 @@ export function RunCaseInspector({
           throw new Error(
             "The case detail does not match the selected frozen result.",
           );
-        setDetail(decoded);
+        setDetail({
+          ...decoded,
+          inputSource: flags.input ? decoded.inputSource : null,
+          attempts: flags.attempts
+            ? decoded.attempts.map((attempt) => ({
+                ...attempt,
+                requestBodySource: flags.request
+                  ? attempt.requestBodySource
+                  : null,
+                responseSource: flags.response ? attempt.responseSource : null,
+              }))
+            : [],
+        });
         setDetailScope(requestedDetailScope);
       })
       .catch((cause: unknown) => {
-        if (active && !controller.signal.aborted) setError(safeMessage(cause));
+        if (active && !controller.signal.aborted) {
+          invalidateAfterContextConflict(cause);
+          setError(safeMessage(cause));
+        }
       });
     return () => {
       active = false;
@@ -310,7 +473,10 @@ export function RunCaseInspector({
         runId: run.run_id,
         query: {
           cursor,
-          limit: 50,
+          limit: pageSize,
+          expected_result_snapshot_id: capturedSnapshot.resultSnapshotId,
+          expected_label_snapshot_id: capturedSnapshot.labelSnapshotId,
+          assessment_filter: assessmentFilter,
           ...(selectedEvaluation
             ? { evaluation_id: selectedEvaluation.evaluation_id }
             : {}),
@@ -323,10 +489,22 @@ export function RunCaseInspector({
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
+      const context = decodeResultContext(result.data.context);
+      const assessmentCounts = decodeAssessmentCounts(
+        result.data.assessment_counts,
+      );
       if (
         result.data.run_id !== run.run_id ||
         result.data.result_snapshot_id !== capturedSnapshot.resultSnapshotId ||
         result.data.label_snapshot_id !== capturedSnapshot.labelSnapshotId ||
+        context.runId !== run.run_id ||
+        context.resultSnapshotId !== capturedSnapshot.resultSnapshotId ||
+        context.labelSnapshotId !== capturedSnapshot.labelSnapshotId ||
+        !sameResultContext(context, capturedSnapshot.context) ||
+        !sameAssessmentCounts(
+          assessmentCounts,
+          capturedSnapshot.assessmentCounts,
+        ) ||
         (selectedEvaluation &&
           (result.data.evaluation_id !== selectedEvaluation.evaluation_id ||
             result.data.result_snapshot_id !==
@@ -349,7 +527,10 @@ export function RunCaseInspector({
       setResultPage(result.data);
       setCursor(result.data.next_cursor ?? undefined);
     } catch (cause) {
-      if (!controller.signal.aborted) setError(safeMessage(cause));
+      if (!controller.signal.aborted) {
+        invalidateAfterContextConflict(cause);
+        setError(safeMessage(cause));
+      }
     } finally {
       if (moreController.current === controller) {
         moreController.current = undefined;
@@ -366,6 +547,9 @@ export function RunCaseInspector({
       registrationId,
       runId: run.run_id,
       ...(value ? { evaluationId: value } : {}),
+      ...(current.kind === "run" && current.returnGroup
+        ? { returnGroup: current.returnGroup }
+        : {}),
     });
   }
 
@@ -378,6 +562,9 @@ export function RunCaseInspector({
       runId: run.run_id,
       ...(evaluationId ? { evaluationId } : {}),
       ...(nextCaseId ? { caseId: nextCaseId } : {}),
+      ...(current.kind === "run" && current.returnGroup
+        ? { returnGroup: current.returnGroup }
+        : {}),
     });
   }
 
@@ -387,7 +574,13 @@ export function RunCaseInspector({
         <h2>Frozen results</h2>
         <button
           type="button"
-          disabled={loading}
+          disabled={
+            loading ||
+            annotationOpen ||
+            currentLabelOpen ||
+            regressionOpen ||
+            evaluationBusy
+          }
           onClick={() => setReload((value) => value + 1)}
         >
           Refresh frozen results
@@ -423,6 +616,7 @@ export function RunCaseInspector({
           Evaluation snapshot
           <select
             value={evaluationId ?? ""}
+            disabled={localScopeLocked}
             onChange={(event) => selectEvaluation(event.currentTarget.value)}
           >
             <option value="">Current results</option>
@@ -444,17 +638,68 @@ export function RunCaseInspector({
       {error && (
         <ErrorSummary
           message={error}
-          retry={() => setReload((value) => value + 1)}
+          retry={
+            localScopeLocked ? undefined : () => setReload((value) => value + 1)
+          }
         />
       )}
       {loading && <LoadingState>Refreshing frozen results…</LoadingState>}
-      {resultsCurrent && resultPage && (
+      {resultsCurrent && resultPage && publishedSnapshot && (
         <p role="status" aria-label="Published result snapshot">
           {resultPage.filtered_count} rows in the server result set;{" "}
           {resultPage.selected_count} selected by this frozen run. Result
           snapshot {resultPage.result_snapshot_id}; label snapshot{" "}
           {resultPage.label_snapshot_id}.
         </p>
+      )}
+      {publishedPopulationCurrent && publishedSnapshot && (
+        <section aria-label="Frozen result context">
+          <h3>Frozen source context</h3>
+          <p>
+            Evaluation{" "}
+            {publishedSnapshot.context.evaluationId ?? "original run"}; mode{" "}
+            {publishedSnapshot.context.evaluationMode}; decision{" "}
+            {publishedSnapshot.context.decisionId} revision{" "}
+            {publishedSnapshot.context.decisionRevisionId}; dataset{" "}
+            {publishedSnapshot.context.datasetId} snapshot{" "}
+            {publishedSnapshot.context.datasetSnapshotId}.
+          </p>
+          <p>
+            Result content hash{" "}
+            <code>{publishedSnapshot.context.resultContentHash}</code>; label
+            content hash{" "}
+            <code>{publishedSnapshot.context.labelContentHash}</code>;
+            definition hash{" "}
+            <code>{publishedSnapshot.context.decisionDefinitionHash}</code>;
+            dataset hash{" "}
+            <code>{publishedSnapshot.context.datasetContentHash}</code>; through
+            event {publishedSnapshot.context.throughEventSequence}.
+          </p>
+          <dl aria-label="Global assessment counts">
+            <dt>All</dt>
+            <dd>{publishedSnapshot.assessmentCounts.all}</dd>
+            <dt>Needs inspection</dt>
+            <dd>{publishedSnapshot.assessmentCounts.inspect}</dd>
+            <dt>Incorrect</dt>
+            <dd>{publishedSnapshot.assessmentCounts.incorrect}</dd>
+            <dt>Unlabelled</dt>
+            <dd>{publishedSnapshot.assessmentCounts.unlabelled}</dd>
+          </dl>
+        </section>
+      )}
+      {resultsCurrent && resultPage && publishedSnapshot && (
+        <ResultAssessmentControls
+          registrationId={registrationId}
+          runId={run.run_id}
+          resultSnapshotId={resultPage.result_snapshot_id}
+          labelSnapshotId={resultPage.label_snapshot_id}
+          scopeIdentity={`${registrationId}|${run.run_id}|${publishedSnapshot.epoch}|${publishedSnapshot.resultSnapshotId}|${publishedSnapshot.labelSnapshotId}`}
+          isCurrent={resultsCurrent}
+          onBusyChange={setEvaluationBusy}
+          selectedEvaluation={selectedEvaluation}
+          operations={debugging.evaluations}
+          navigation={navigation}
+        />
       )}
       {resultsCurrent &&
         resultPage &&
@@ -470,9 +715,44 @@ export function RunCaseInspector({
         )}
       <div className="actions">
         <label className="field">
+          Results per page
+          <select
+            value={pageSize}
+            disabled={localScopeLocked}
+            onChange={(event) => setPageSize(Number(event.currentTarget.value))}
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={50}>50</option>
+          </select>
+        </label>
+        <label className="field">
+          Assessment
+          <select
+            value={assessmentFilter}
+            disabled={localScopeLocked}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (
+                value === "all" ||
+                value === "inspect" ||
+                value === "incorrect" ||
+                value === "unlabelled"
+              )
+                setAssessmentFilter(value);
+            }}
+          >
+            <option value="all">All assessments</option>
+            <option value="inspect">Needs inspection</option>
+            <option value="incorrect">Incorrect</option>
+            <option value="unlabelled">Unlabelled</option>
+          </select>
+        </label>
+        <label className="field">
           Status
           <select
             value={status}
+            disabled={localScopeLocked}
             onChange={(event) => setStatus(event.currentTarget.value)}
           >
             <option value="">All</option>
@@ -487,6 +767,7 @@ export function RunCaseInspector({
           Split
           <select
             value={split}
+            disabled={localScopeLocked}
             onChange={(event) => setSplit(event.currentTarget.value)}
           >
             <option value="">All splits</option>
@@ -499,6 +780,7 @@ export function RunCaseInspector({
           Tag{" "}
           <input
             value={tag}
+            disabled={localScopeLocked}
             onChange={(event) => setTag(event.currentTarget.value)}
           />
         </label>
@@ -524,6 +806,7 @@ export function RunCaseInspector({
                     <button
                       type="button"
                       className="text-button"
+                      disabled={localScopeLocked}
                       onClick={() => selectCase(row.caseId)}
                     >
                       {row.caseId}
@@ -559,7 +842,9 @@ export function RunCaseInspector({
       {resultsCurrent && cursor && (
         <button
           type="button"
-          disabled={loading}
+          disabled={
+            loading || annotationOpen || currentLabelOpen || evaluationBusy
+          }
           onClick={() => void loadMore()}
         >
           Load more results
@@ -572,12 +857,31 @@ export function RunCaseInspector({
         >
           <div className="document-title-row">
             <h3>{caseId}</h3>
-            <button type="button" onClick={() => selectCase(undefined)}>
+            <button
+              type="button"
+              disabled={localScopeLocked}
+              onClick={() => selectCase(undefined)}
+            >
               Close inspection
             </button>
           </div>
           {detailCurrent && detail && (
             <>
+              <button type="button" onClick={() => setAnnotationOpen(true)}>
+                Add annotation
+              </button>
+              {historicalDefinition && detail.questionId && (
+                <button type="button" onClick={() => setCurrentLabelOpen(true)}>
+                  Review current label
+                </button>
+              )}
+              {detail.status === "valid" &&
+                historicalDefinition &&
+                detail.questionId && (
+                  <button type="button" onClick={() => setRegressionOpen(true)}>
+                    Add regression example
+                  </button>
+                )}
               <dl>
                 <dt>Answer</dt>
                 <dd>{detail.answer?.option_id ?? "Unavailable"}</dd>
@@ -602,7 +906,29 @@ export function RunCaseInspector({
                 </dd>
                 <dt>Label provenance</dt>
                 <dd>{detail.labelProvenance ?? "Unavailable"}</dd>
+                <dt>Frozen case input hash</dt>
+                <dd>
+                  <code>{detail.caseInputHash}</code>
+                </dd>
               </dl>
+              <section aria-label="Reported probabilities">
+                <h4>Reported probabilities</h4>
+                {detail.probabilities.length > 0 ? (
+                  <ul>
+                    {detail.probabilities.map((item) => (
+                      <li key={item.optionId}>
+                        {item.optionName} · {item.optionId}: {item.probability}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>
+                    Unavailable:{" "}
+                    {detail.probabilitiesUnavailableReason ??
+                      "No probability data was recorded."}
+                  </p>
+                )}
+              </section>
               {detail.annotations.length > 0 && (
                 <section>
                   <h4>Annotations</h4>
@@ -617,6 +943,63 @@ export function RunCaseInspector({
               )}
             </>
           )}
+          {annotationOpen && detailCurrent && detail && (
+            <AnnotationSheet
+              key={`${registrationId}:${run.run_id}:${caseId}`}
+              registrationId={registrationId}
+              runId={run.run_id}
+              caseId={caseId}
+              operations={debugging.annotations}
+              navigation={navigation}
+              onClose={() => setAnnotationOpen(false)}
+            />
+          )}
+          {currentLabelOpen &&
+            detailCurrent &&
+            detail &&
+            detail.questionId &&
+            historicalDefinition && (
+              <CurrentLabelSheet
+                key={`${registrationId}:${run.run_id}:${detail.context.decisionId}:${detail.context.datasetId}:${caseId}:${detail.caseInputHash}`}
+                registrationId={registrationId}
+                decisionId={detail.context.decisionId}
+                datasetId={detail.context.datasetId}
+                caseId={caseId}
+                frozenInputHash={detail.caseInputHash}
+                frozenQuestionId={detail.questionId}
+                frozenOptionIds={
+                  historicalDefinition.revision.record.definition.questions
+                    .find((question) => question.id === detail.questionId)
+                    ?.options.map((option) => option.id) ?? []
+                }
+                frozenExpectedOptionIds={detail.expectedOptionIds}
+                operations={labelOperations}
+                navigation={navigation}
+                onClose={() => setCurrentLabelOpen(false)}
+              />
+            )}
+          {regressionOpen &&
+            detailCurrent &&
+            detail &&
+            detail.status === "valid" && (
+              <RegressionSheet
+                key={`${registrationId}:${run.run_id}:${detail.caseId}:${detail.resultSnapshotId}`}
+                registrationId={registrationId}
+                decisionId={detail.context.decisionId}
+                decisionName={detail.context.decisionId}
+                runId={run.run_id}
+                caseId={detail.caseId}
+                resultSnapshotId={detail.resultSnapshotId}
+                options={
+                  historicalDefinition?.revision.record.definition.questions.find(
+                    (question) => question.id === detail.questionId,
+                  )?.options ?? []
+                }
+                operations={debugging.regressions}
+                navigation={navigation}
+                onClose={() => setRegressionOpen(false)}
+              />
+            )}
           <fieldset>
             <legend>Reveal frozen evidence explicitly</legend>
             {(["input", "request", "response", "attempts"] as const).map(
@@ -625,6 +1008,7 @@ export function RunCaseInspector({
                   <input
                     type="checkbox"
                     checked={reveal[key]}
+                    disabled={localScopeLocked}
                     onChange={(event) => {
                       const checked = event.currentTarget.checked;
                       setReveal((current) => ({ ...current, [key]: checked }));
@@ -640,6 +1024,7 @@ export function RunCaseInspector({
             <LoadingState>Loading selected case…</LoadingState>
           )}
           {detailCurrent &&
+            reveal.input &&
             detail?.inputSource !== null &&
             detail?.inputSource !== undefined && (
               <section>
@@ -648,6 +1033,7 @@ export function RunCaseInspector({
               </section>
             )}
           {detailCurrent &&
+            reveal.attempts &&
             detail?.attempts.map((attempt) => (
               <section key={attempt.attemptId}>
                 <h4>
@@ -658,7 +1044,7 @@ export function RunCaseInspector({
                   {attempt.errorCode ?? "No error code"}{" "}
                   {attempt.errorReason ?? ""}
                 </p>
-                {attempt.requestBodySource !== null && (
+                {reveal.request && attempt.requestBodySource !== null && (
                   <>
                     <h5>Sanitized request</h5>
                     <pre className="source-editor">
@@ -666,7 +1052,7 @@ export function RunCaseInspector({
                     </pre>
                   </>
                 )}
-                {attempt.responseSource !== null && (
+                {reveal.response && attempt.responseSource !== null && (
                   <>
                     <h5>Sanitized response</h5>
                     <pre className="source-editor">
