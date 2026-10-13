@@ -580,7 +580,9 @@ export function ReportSheet({
           {checking ? "Verifying target…" : "Verify saved target"}
         </button>
         {verified && (
-          <pre aria-label="Verified report target">{verified.content}</pre>
+          <pre className="source-editor" aria-label="Verified report target">
+            {verified.content}
+          </pre>
         )}
         <fieldset disabled={busy || state.kind === "committed"}>
           <legend>Raw source options (each off by default)</legend>
@@ -930,7 +932,7 @@ export function ReportPage({
   }
 
   return (
-    <article className="document">
+    <article className="document report-page">
       <h1>Saved report</h1>
       {loading ? <LoadingState>Loading report metadata…</LoadingState> : null}
       {error && (
@@ -948,7 +950,9 @@ export function ReportPage({
             Report <code>{report.report_id}</code>; content hash{" "}
             <code>{report.content_hash}</code>; saved {report.created_at}.
           </p>
-          <pre aria-label="Pinned report identity">{reportContext(report)}</pre>
+          <pre className="source-editor" aria-label="Pinned report identity">
+            {reportContext(report)}
+          </pre>
           {report.legacy && (
             <p className="warning-summary">This report is a legacy record.</p>
           )}
