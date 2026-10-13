@@ -1585,6 +1585,7 @@ async function exerciseKnownReportDownloadFailures(
         .getByRole("combobox", { name: "Download format", exact: true })
         .selectOption(format);
       let forwardedCalls = 0;
+      let redirectFulfilled = false;
       const routeHandler = async (route: Route) => {
         const actual = await route.fetch({ maxRetries: 0, maxRedirects: 0 });
         const actualBytes = await actual.body();
@@ -1636,6 +1637,7 @@ async function exerciseKnownReportDownloadFailures(
             headers: { location: `${path}?format=${format}` },
             body: "",
           });
+          redirectFulfilled = true;
         }
       };
       const matcher = (url: URL) =>
@@ -1648,27 +1650,34 @@ async function exerciseKnownReportDownloadFailures(
             : "Preview report bytes";
         // Rejected media/size/redirect responses intentionally cancel the body.
         // Observe their headers; recovery below must still prove full exact bytes.
-        const rejectedHeaders = page.waitForResponse(
-          (response) => {
-            const url = new URL(response.url());
-            return (
-              response.request().method() === "GET" &&
-              url.pathname === path &&
-              url.searchParams.get("format") === format
-            );
-          },
-          { timeout: 12_000 },
-        );
-        void rejectedHeaders.catch(() => undefined);
-        await page.getByRole("button", { name: action, exact: true }).click();
-        const observed = { response: await rejectedHeaders };
-        expect(observed.response.status()).toBe(
-          fault.includes("service-unavailable")
-            ? 503
-            : fault === "redirect"
-              ? 302
-              : 200,
-        );
+        const matchesRequest = (request: Request) => {
+          const url = new URL(request.url());
+          return request.method() === "GET" && url.pathname === path &&
+            url.searchParams.get("format") === format;
+        };
+        if (fault === "redirect") {
+          // Fetch redirect:error rejects the request before publishing a Response.
+          const rejectedRedirect = page.waitForEvent("requestfailed", {
+            predicate: matchesRequest,
+            timeout: 12_000,
+          });
+          void rejectedRedirect.catch(() => undefined);
+          await page.getByRole("button", { name: action, exact: true }).click();
+          const failedRequest = await rejectedRedirect;
+          expect(failedRequest.failure()).not.toBeNull();
+          expect(redirectFulfilled).toBe(true);
+        } else {
+          const rejectedHeaders = page.waitForResponse(
+            (response) => matchesRequest(response.request()),
+            { timeout: 12_000 },
+          );
+          void rejectedHeaders.catch(() => undefined);
+          await page.getByRole("button", { name: action, exact: true }).click();
+          const response = await rejectedHeaders;
+          expect(response.status()).toBe(
+            fault.includes("service-unavailable") ? 503 : 200,
+          );
+        }
         expect(forwardedCalls).toBe(1);
         await expect(page.getByRole("alert")).toBeVisible();
         await expect(
