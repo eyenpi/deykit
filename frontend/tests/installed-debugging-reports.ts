@@ -31,28 +31,40 @@ import {
 async function openReportSeedProject(page: Page, projectPath: string) {
   const bootstrap = await captureResponse(
     page,
-    (response) => new URL(response.url()).pathname === "/api/v1/session/bootstrap",
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/session/bootstrap",
     () => page.goto("/").then(() => undefined),
   );
   expect(bootstrap.response.status()).toBe(200);
-  const session = object(object(JSON.parse(bootstrap.body.toString("utf8"))).data);
+  const session = object(
+    object(JSON.parse(bootstrap.body.toString("utf8"))).data,
+  );
   expect(typeof session.capability).toBe("string");
   // Recent-project rows also say "Open project"; use the welcome action itself.
-  await page.getByRole("main").locator(".start-actions")
-    .getByRole("button", { name: /^Open project/ }).click();
-  const dialog = page.getByRole("dialog", { name: "Open project", exact: true });
+  await page
+    .getByRole("main")
+    .locator(".start-actions")
+    .getByRole("button", { name: /^Open project/ })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Open project",
+    exact: true,
+  });
   await dialog.getByLabel("Project folder path").fill(projectPath);
   const opened = await captureOperation(page, "registerProject", {}, () =>
     dialog.getByRole("button", { name: "Open project", exact: true }).click(),
   );
-  const registration = decodeSuccessEnvelope<ApiOperationData<"registerProject">>(
-    opened.body, 200, opened.response.status(),
-  );
+  const registration = decodeSuccessEnvelope<
+    ApiOperationData<"registerProject">
+  >(opened.body, 200, opened.response.status());
   expect(validators.validateRegistrationDTO(registration)).toBe(true);
   const registrationId = safeId(registration.registration_id);
-  await expect(page.getByRole("heading", {
-    name: registration.project.name, exact: true,
-  })).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: registration.project.name,
+      exact: true,
+    }),
+  ).toBeVisible();
   return { registrationId };
 }
 
@@ -1485,18 +1497,28 @@ export async function runReportsWorkflow(
     await reads.waitForIdle();
     await qualification.enterPhase("narrow-report-keyboard");
     await page.setViewportSize({ width: 320, height: 800 });
-    await expect(page.getByRole("heading", { name: "Saved report", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Saved report", exact: true }),
+    ).toBeVisible();
     await expect(page.getByLabel("Pinned report identity")).toBeVisible();
-    expect(await page.evaluate(() =>
-      document.documentElement.scrollWidth <= window.innerWidth,
-    )).toBe(true);
-    const previewButton = page.getByRole("button", { name: "Preview report bytes", exact: true });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    const previewButton = page.getByRole("button", {
+      name: "Preview report bytes",
+      exact: true,
+    });
     await previewButton.focus();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button", { name: "Download Markdown", exact: true })).toBeFocused();
+    await expect(
+      page.getByRole("button", { name: "Download Markdown", exact: true }),
+    ).toBeFocused();
     await page.keyboard.press("Shift+Tab");
     await expect(previewButton).toBeFocused();
     await qualification.captureScreenshot(page, "m12-report-narrow-320.png");
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Sandbox", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Sandbox", exact: true }),
@@ -1694,8 +1716,11 @@ async function exerciseKnownReportDownloadFailures(
         // Observe their headers; recovery below must still prove full exact bytes.
         const matchesRequest = (request: Request) => {
           const url = new URL(request.url());
-          return request.method() === "GET" && url.pathname === path &&
-            url.searchParams.get("format") === format;
+          return (
+            request.method() === "GET" &&
+            url.pathname === path &&
+            url.searchParams.get("format") === format
+          );
         };
         if (fault === "redirect") {
           const rejectionStarted = Date.now();
@@ -1708,9 +1733,11 @@ async function exerciseKnownReportDownloadFailures(
           await page.getByRole("button", { name: action, exact: true }).click();
           const failedRequest = await rejectedRedirect;
           expect(failedRequest.failure()).not.toBeNull();
-          await expect.poll(() => redirectFulfilled, {
-            timeout: Math.max(1, 12_000 - (Date.now() - rejectionStarted)),
-          }).toBe(true);
+          await expect
+            .poll(() => redirectFulfilled, {
+              timeout: Math.max(1, 12_000 - (Date.now() - rejectionStarted)),
+            })
+            .toBe(true);
         } else {
           const rejectedHeaders = page.waitForResponse(
             (response) => matchesRequest(response.request()),
