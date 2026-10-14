@@ -1,4 +1,4 @@
-"""Serve the packaged local workspace on one explicit loopback socket."""
+"""Serve the headless local API on one explicit loopback socket."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import asyncio
 import signal
 import socket
 import threading
-import webbrowser
 from pathlib import Path
 from typing import Annotated, cast
 
@@ -15,7 +14,6 @@ import uvicorn
 from fastapi import FastAPI
 
 from deykit.api.app import create_app
-from deykit.api.assets import AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProjectsStore
@@ -47,7 +45,6 @@ def launch_local_server(
     project_path: Path | None,
     *,
     port: int = 8765,
-    open_browser: bool = True,
 ) -> None:
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("invalid_local_port")
@@ -76,9 +73,7 @@ def launch_local_server(
             provider_operations_factory=create_provider_operations,
             backends_factory=ProviderBackends,
         )
-        app = create_app(
-            LocalServerConfig(authority, origin, AssetCatalog.from_package()), dependencies
-        )
+        app = create_app(LocalServerConfig(authority, origin), dependencies)
     except BaseException:
         listener.close()
         raise
@@ -141,9 +136,7 @@ def launch_local_server(
             raise failure[0]
         if not server.started:
             raise RuntimeError("local_server_start_failed")
-        typer.echo(f"Deykit local workspace: {origin}")
-        if open_browser:
-            webbrowser.open(origin, new=2)
+        typer.echo(f"Deykit local API: {origin}")
         while thread.is_alive():
             thread.join(timeout=0.25)
     except KeyboardInterrupt:
@@ -165,9 +158,9 @@ def launch_local_server(
 def serve(
     ctx: typer.Context,
     port: Annotated[int, typer.Option("--port", min=0, max=65535)] = 8765,
-    no_open: Annotated[bool, typer.Option("--no-open")] = False,
 ) -> None:
+    """Start the headless loopback API; terminal workflows do not require it."""
     state = ctx.find_root().obj
     if not isinstance(state, CliState):
         raise RuntimeError("CLI state unavailable")
-    launch_local_server(state.explicit_project, port=port, open_browser=not no_open)
+    launch_local_server(state.explicit_project, port=port)

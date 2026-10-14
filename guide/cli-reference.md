@@ -33,8 +33,6 @@ choices are considered. Changed arguments with the same operation ID fail as a
 conflict. Missing-resource alternatives are read-only, project-local, and are
 attached only when an explicit exact selector fails.
 
-`serve` starts the packaged local browser workspace on the loopback interface.
-Use `serve --no-open` to keep the browser closed, or `serve --port 0` to request
-an available port. `demo PATH --open` creates the authored Sandbox first, then
-starts the same workspace with that project registered and opens the browser
-after the service is ready. See the [local workspace guide](local-api.md).
+`serve` optionally starts the headless loopback API. It serves no pages and
+opens no browser. Use `serve --port 0` for an available port. `demo PATH` creates
+an authored fixture project and exits. See the [API guide](local-api.md).

@@ -10,7 +10,6 @@ import pytest
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 
-from deykit.api.assets import AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.errors import TransportFailure, error_response
 from deykit.api.routes.results import register as register_result_routes
@@ -49,7 +48,7 @@ class _Workers:
 
 def _result_api(source, clock):
     origin = "http://127.0.0.1:8769"
-    config = LocalServerConfig("127.0.0.1:8769", origin, AssetCatalog.from_package())
+    config = LocalServerConfig("127.0.0.1:8769", origin)
     session = SessionCapability.create()
     app = FastAPI(redirect_slashes=False)
 

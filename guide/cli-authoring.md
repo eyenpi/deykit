@@ -7,7 +7,7 @@ request and need no browser or credential.
 
 Put `--project PATH` and `--json` before the command. Without `--project`, the
 CLI looks upward from the current directory for `deykit.project.json`; it does
-not use a browser's recent project. `--help` and `--version` are plain text.
+not use API recent-project preferences. `--help` and `--version` are plain text.
 In JSON mode, each command emits one versioned object on stdout: successful
 `data` plus `warnings`, or a safe `error`. A validation/conflict error exits 2.
 Lists include `total` and an exclusive `next_cursor`; use `--limit` and
@@ -28,9 +28,7 @@ For an installed example, `uv run deykit --json demo ./sandbox` creates a new
 portable project with 12 cases, 11 fixture bindings, and 9 authored labels.
 The result reports its actual project, decision, revision, dataset, profile,
 and fixture-set IDs. Its evidence mode is `authored_fixture`; creation makes
-zero provider requests. The destination directory must not exist. Add `--open`
-to start the local browser workspace after the demo has been created; the new
-project is registered for that server session. Use the returned IDs in
+zero provider requests. The destination directory must not exist. Use the returned IDs in
 subsequent commands rather than copying IDs from an example.
 
 Create a definition file as UTF-8 text. The question and option IDs are stable

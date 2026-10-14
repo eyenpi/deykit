@@ -6,7 +6,6 @@ from pathlib import Path
 import httpx
 
 from deykit.api.app import create_app
-from deykit.api.assets import AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProjectsStore
@@ -57,9 +56,7 @@ def test_os_set_and_forget_mutate_then_fail_return_safe_http500(tmp_path: Path) 
         provider_operations_factory=provider_operations,
         backends_factory=ProviderBackends,
     )
-    app = create_app(
-        LocalServerConfig("127.0.0.1:8748", origin, AssetCatalog.from_package()), dependencies
-    )
+    app = create_app(LocalServerConfig("127.0.0.1:8748", origin), dependencies)
 
     async def exercise() -> None:
         async with app.app.router.lifespan_context(app.app):

@@ -8,7 +8,6 @@ import pytest
 from pydantic import ValidationError
 
 from deykit.api.app import create_app
-from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.dto.authoring import EditorTransformRequest, MappingTransformRequest
@@ -141,18 +140,10 @@ def test_decision_editor_projection_and_transform_are_protected_and_exact(tmp_pa
         provider_operations_factory=create_provider_operations,
         backends_factory=ProviderBackends,
     )
-    html = b"<html><body>test</body></html>"
     app = create_app(
         LocalServerConfig(
             "127.0.0.1:8765",
             origin,
-            AssetCatalog(
-                {
-                    "index.html": Asset(
-                        html, "text/html; charset=utf-8", hashlib.sha256(html).hexdigest()
-                    )
-                }
-            ),
         ),
         dependencies,
     )

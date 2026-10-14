@@ -1,13 +1,11 @@
 """The app drains admitted source work before releasing retained handles."""
 
 import asyncio
-import hashlib
 from threading import Event
 
 import httpx
 
 from deykit.api.app import create_app
-from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProjectsStore
@@ -29,20 +27,10 @@ def test_shutdown_waits_for_admitted_request_before_closing_retained_source(tmp_
         opened.append(source)
         return source
 
-    shell = b"<html><body>shell</body></html>"
     app = create_app(
         LocalServerConfig(
             "127.0.0.1:8765",
             origin,
-            AssetCatalog(
-                {
-                    "index.html": Asset(
-                        shell,
-                        "text/html; charset=utf-8",
-                        hashlib.sha256(shell).hexdigest(),
-                    )
-                }
-            ),
         ),
         ApiDependencies(
             clock=clock,

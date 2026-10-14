@@ -1,7 +1,6 @@
 """Adversarial requests must stop before any inner application effect."""
 
 import asyncio
-import hashlib
 import json
 from typing import Any
 
@@ -9,7 +8,6 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from deykit.api.app import create_app as _create_app
-from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.dto.common import Count, CountText, ExactIntegerText
@@ -60,17 +58,9 @@ def create_app(test_config: LocalServerConfig) -> Any:
 
 
 def config() -> LocalServerConfig:
-    body = b"<html><body>test-only asset</body></html>"
     return LocalServerConfig(
         "127.0.0.1:8765",
         ORIGIN.decode(),
-        AssetCatalog(
-            {
-                "index.html": Asset(
-                    body, "text/html; charset=utf-8", hashlib.sha256(body).hexdigest()
-                )
-            }
-        ),
     )
 
 
@@ -334,14 +324,27 @@ def test_bootstrap_no_query(query: bytes) -> None:
     assert run(create_app(config()), query=query)[0] == 422
 
 
-def test_shell_csp_and_no_api_html_fallback() -> None:
+def test_headless_root_csp_and_no_api_html_fallback() -> None:
     status, body, headers = run(create_app(config()), method="GET", path="/", headers=[HOST])
-    assert status == 200 and b"test-only asset" in body
+    assert status == 404 and b"<html" not in body
     assert b"unsafe-eval" not in headers[b"content-security-policy"]
     assert b"frame-ancestors 'none'" in headers[b"content-security-policy"]
     assert run(create_app(config()), method="POST", path="/api/v1/session/bootstrap/")[0] == 403
     assert run(create_app(config()), method="TRACE")[0] == 405
     assert run(create_app(config()), method="OPTIONS")[0] == 403
+
+
+@pytest.mark.parametrize(
+    "path,status", [("/", 404), ("/index.html", 403), ("/assets", 404), ("/assets/app.js", 403)]
+)
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_removed_ui_paths_serve_no_html(path: str, status: int, method: str) -> None:
+    actual, body, headers = run(create_app(config()), method=method, path=path, headers=[HOST])
+    assert actual == status
+    assert b"<html" not in body
+    assert headers[b"content-type"].startswith(b"application/json")
+    if method == "HEAD":
+        assert body == b""
 
 
 def test_exact_display_primitives() -> None:

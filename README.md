@@ -1,42 +1,49 @@
 # Deykit
 
-Deykit is a local decision debugger for reviewing how typed decisions behave on
-examples. Author decisions, datasets, and labels; run exact authored fixtures or
-explicitly selected live-provider work; then inspect frozen results and
-comparisons. Diagnostics explore request-order sensitivity, while regression
-checks replay saved, human-reviewed examples. JSON and Markdown reports preserve
-the selected evidence and can omit raw inputs, requests, and responses.
+Deykit is a terminal tool for debugging typed decisions on examples. Author
+choices or JSON decisions, datasets and reviewed labels; execute authored fixtures
+or explicitly selected live-provider work; inspect frozen results, compare
+versions, diagnose request-order sensitivity and replay regression checks.
+JSON and Markdown reports preserve selected evidence with optional raw content.
 
-## Try the local demo
+## Try it
 
-Use Python 3.11 or newer and install the locked development environment:
+Requires Python 3.11+ and uv:
 
 ```sh
 uv sync --locked
-uv run deykit demo ./deykit-demo
-uv run deykit --project ./deykit-demo serve --no-open
+uv run deykit --json demo ./deykit-demo
+uv run deykit --project ./deykit-demo --json project validate
+uv run deykit --help
 ```
 
-The demo creates a portable project from authored fixture content. It needs no
-provider key and does not measure model quality. Open the local workspace shown
-by the service, or follow the [CLI walkthrough](guide/cli-workflow.md). The
-browser and CLI both work with local project data; see [local API usage](guide/local-api.md).
+The demo creates a portable project with 12 cases, 11 authored fixture bindings
+and 9 labels. It makes no provider requests and does not measure model quality.
+Use the IDs returned by commands rather than copying placeholder IDs.
+There is no browser UI or Node requirement.
 
-## Explore
+For a complete offline walkthrough, run:
 
-Start with [browser authoring](guide/browser-authoring.md) to edit decisions,
-examples, fixture sets, and labels. [Execution review](guide/browser-execution.md)
-covers previewing and starting bounded runs, inspecting frozen evaluations, and
-explicitly selecting live-provider execution when appropriate. Use
-[debugging and regression review](guide/browser-debugging.md) to filter saved
-results, compare evaluations, annotate cases, and create regression examples
-with explicitly selected acceptable answers. Diagnostic and check groups have
-shared request limits and keep selected snapshots immutable as newer progress
-arrives. Reports are saved artifacts, not new executions.
+```sh
+uv run python guide/examples/cli-workflow.py --output './walkthrough output'
+```
 
-For contributor checks, see [development and verification](guide/development.md).
-The architecture notes record the scope and limits of [browser execution](architecture/browser-execution-verification.md),
-[browser debugging](architecture/browser-debugging-verification.md), and
-[reports](architecture/reports.md). Authored fixtures verify software behavior;
-live-provider observations, CI, native platforms and physical accessibility or
-IME checks remain separate evidence. Licensed under [MIT](LICENSE).
+The output directory must be new. The [walkthrough](guide/cli-workflow.md) covers exact JSON, runs, results,
+reports, reevaluation, comparisons, diagnostics and regression checks.
+
+## Workflows
+
+- [CLI reference](guide/cli-reference.md) and [authoring](guide/cli-authoring.md)
+- [Providers and credentials](guide/providers.md), [execution](guide/runs.md)
+- [Comparisons](guide/comparisons.md), [diagnostics and regressions](guide/diagnostics-regressions.md)
+- [Reports](guide/reports.md) and [portable projects](guide/project.md)
+
+Projects and evidence remain local. Commands open project files directly; no
+server is required. The optional [headless API](guide/local-api.md) is retained
+for integrations and serves no pages. Live execution is explicit and may cost
+money; tests and the authored walkthrough stay offline.
+
+See [Contributing](CONTRIBUTING.md), [development](guide/development.md),
+[architecture](architecture/overview.md), [verification status](architecture/verification.md),
+[security](SECURITY.md) and the [public repository checklist](guide/public-repository.md).
+This is an early local tool. Licensed under [MIT](LICENSE).

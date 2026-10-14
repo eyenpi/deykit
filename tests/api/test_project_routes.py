@@ -1,12 +1,10 @@
 """Real API project flows share application services and durable project receipts."""
 
 import asyncio
-import hashlib
 
 import httpx
 
 from deykit.api.app import create_app
-from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProjectsStore
@@ -19,7 +17,6 @@ from deykit.storage.demo_staging import DemoStagingSource
 
 
 def test_register_overview_demo_replay_and_recent_projects(tmp_path):
-    html = b"<html><body>local shell</body></html>"
     port = 8765
     origin = f"http://127.0.0.1:{port}"
     clock = SystemClock()
@@ -37,13 +34,6 @@ def test_register_overview_demo_replay_and_recent_projects(tmp_path):
         LocalServerConfig(
             f"127.0.0.1:{port}",
             origin,
-            AssetCatalog(
-                {
-                    "index.html": Asset(
-                        html, "text/html; charset=utf-8", hashlib.sha256(html).hexdigest()
-                    )
-                }
-            ),
         ),
         dependencies,
     )

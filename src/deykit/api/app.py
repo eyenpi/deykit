@@ -1,4 +1,4 @@
-"""Construct the strict local API, session, and assets app."""
+"""Construct the strict headless local API and session boundary."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -6,10 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
-from starlette.responses import JSONResponse, Response
-
-from deykit.application.errors import ServiceFailure
-from deykit.contracts.errors import ServiceError
+from starlette.responses import JSONResponse
 
 from .config import LocalServerConfig
 from .dependencies import ApiDependencies
@@ -99,22 +96,10 @@ def create_inner_app(
     app.state.workers = workers
     app.state.execution_supervisor = supervisor
 
-    async def asset(request: Request) -> Response:
-        name = request.url.path.removeprefix("/") or "index.html"
-        entry = config.ui_assets.assets.get(name)
-        if entry is None:
-            return error_response(TransportFailure(404, "not_found", "route_not_found"))
-        return Response(entry.body, headers={"content-type": entry.content_type})
-
-    app.add_route("/", asset, methods=["GET", "HEAD"], include_in_schema=False)
-    for name in config.ui_assets.assets:
-        app.add_route(f"/{name}", asset, methods=["GET", "HEAD"], include_in_schema=False)
     return app
 
 
 def create_app(config: LocalServerConfig, dependencies: ApiDependencies) -> LocalBoundary:
     """Construct the loopback boundary without opening resources or starting I/O."""
-    if "index.html" not in config.ui_assets.assets:
-        raise ServiceFailure(ServiceError(code="preflight_failed", reason="ui_assets_unavailable"))
     session = SessionCapability.create()
     return LocalBoundary(create_inner_app(config, session, dependencies), config, session)

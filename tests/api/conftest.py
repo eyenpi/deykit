@@ -10,7 +10,6 @@ import pytest
 import uvicorn
 
 from deykit.api.app import create_app
-from deykit.api.assets import AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies
 from deykit.api.recent import RecentProject
@@ -55,6 +54,11 @@ def api_dependencies() -> ApiDependencies:
 
 
 @pytest.fixture
+def security_api_dependencies():
+    return api_dependencies
+
+
+@pytest.fixture
 def local_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, int]]:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
@@ -70,9 +74,7 @@ def local_server(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, int]]:
         return denied(sock, target)
 
     monkeypatch.setattr(socket.socket, "connect", connect)
-    config = LocalServerConfig(
-        f"127.0.0.1:{port}", f"http://127.0.0.1:{port}", AssetCatalog.from_package()
-    )
+    config = LocalServerConfig(f"127.0.0.1:{port}", f"http://127.0.0.1:{port}")
     server = uvicorn.Server(
         uvicorn.Config(
             create_app(config, api_dependencies()),

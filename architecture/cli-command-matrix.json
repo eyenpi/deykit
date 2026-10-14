@@ -354,7 +354,7 @@
     },
     {
       "path": "demo",
-      "service": "DemoService.create; optional LocalAPI browser workspace",
+      "service": "DemoService.create",
       "owner": "M07",
       "status": "implemented",
       "verification": {
@@ -369,17 +369,7 @@
       "status": "implemented",
       "verification": {
         "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
-        "behavior": "tests/cli/test_serve.py::test_serve_forwards_project_port_and_no_open"
-      }
-    },
-    {
-      "path": "demo --open",
-      "service": "DemoService.create followed by launch_local_server",
-      "owner": "M07",
-      "status": "implemented",
-      "verification": {
-        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
-        "behavior": "tests/cli/test_serve.py::test_demo_open_starts_server_only_after_demo_service_returns"
+        "behavior": "tests/cli/test_serve.py::test_serve_forwards_project_and_port"
       }
     },
     {

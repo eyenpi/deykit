@@ -1,8 +1,8 @@
 # Version 1 contracts
 
-The P01 foundation establishes contracts and pure semantics. Storage, authoring,
-provider HTTP, runner, API, and browser workflows are separate owners. This package
-does not yet provide a runnable debugging application.
+These versioned contracts define exact values, immutable evidence and narrow
+ports shared by the working CLI and headless API. Storage, provider
+HTTP and presentation adapters depend inward on these contracts.
 
 ## Dependency direction and handoff
 
@@ -10,7 +10,7 @@ does not yet provide a runnable debugging application.
 resource IDs, exact JSON/record codecs, schema validation, and narrow capability
 protocols. `deykit.domain` contains pure definition/input/label semantics. These
 modules have no HTTP, SQLite, UI, filesystem, provider SDK, or system clock dependency.
-The CLI uses Typer; later CLI/API adapters call the same application services.
+The CLI uses Typer; CLI and API adapters call the same application services.
 
 Public imports are explicit modules, not an expanding wildcard facade:
 
@@ -21,7 +21,7 @@ Public imports are explicit modules, not an expanding wildcard facade:
 | Provider P06/P09 | `ports.ChoiceCompiler` and `ProviderTransport`; `records.ProviderProfile`, `CompiledRequest`, `NormalizedAnswer`, `DispatchOutcome` |
 | Runner P08 | `ports.Clock`; `records.ExecutionSettings`, `RunManifest`, `RunSegment`, `RunEvent`, `AttemptRecord`, `AttemptEvent` |
 | Evidence P10–P13 | `records.CaseResult`, `ResultSnapshot`, `EvaluationRecord`, `ComparisonRecord`, `RegressionRecord`, `ReportRecord` |
-| API/UI | User JSON and previews are `JsonSource` strings; never parse editor JSON through JavaScript Number. |
+| API | User JSON and previews are `JsonSource` strings; transport values retain exact source text. |
 
 Every persisted owned record has an explicit `schema_version: 1`. `load_record`
 requires the version on every nested owned record and checks JSON before Pydantic.

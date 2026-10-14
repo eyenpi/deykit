@@ -10,7 +10,8 @@
       "Global --project and --json options are documented separately in guide/cli-reference.md and are not repeated as leaf parameters.",
       "All observed options are public help entries; hidden is explicitly false for every committed leaf parameter.",
       "The root callback adds --project and --json plus the eager --version flag; their parser metadata is recorded separately from leaf commands.",
-      "Typer injects --install-completion and --show-completion on the root command; they are recorded as framework-provided global flags and remain enabled."
+      "Typer injects --install-completion and --show-completion on the root command; they are recorded as framework-provided global flags and remain enabled.",
+      "Terminal-first amendment removes demo --open and serve --no-open; all other parser parameters are preserved and verified against actual Typer metadata."
     ]
   },
   "global_options": [
@@ -2635,23 +2636,6 @@
           "maximum": null,
           "choices": [],
           "hidden": false
-        },
-        {
-          "name": "open_browser",
-          "options": [
-            "--open"
-          ],
-          "secondary_options": [],
-          "type": "boolean",
-          "default": false,
-          "required": false,
-          "multiple": false,
-          "nargs": 1,
-          "is_flag": true,
-          "minimum": null,
-          "maximum": null,
-          "choices": [],
-          "hidden": false
         }
       ]
     },
@@ -2672,23 +2656,6 @@
           "is_flag": false,
           "minimum": 0,
           "maximum": 65535,
-          "choices": [],
-          "hidden": false
-        },
-        {
-          "name": "no_open",
-          "options": [
-            "--no-open"
-          ],
-          "secondary_options": [],
-          "type": "boolean",
-          "default": false,
-          "required": false,
-          "multiple": false,
-          "nargs": 1,
-          "is_flag": true,
-          "minimum": null,
-          "maximum": null,
           "choices": [],
           "hidden": false
         }

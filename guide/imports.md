@@ -14,4 +14,4 @@ Editing the dataset, input files, selected decision draft or relevant labels aft
 
 Removing a case clears its current labels but keeps historical snapshots and operation evidence. Re-adding the same ID starts unlabelled. Archiving hides a dataset from the ordinary list and prevents new case/import changes until it is restored.
 
-The initial service boundary supports these flows in Python. CLI, API and browser wiring are separate integration work; there is no new end-user import command in this change.
+The service boundary supports these flows in Python. Use `dataset import-jsonl` and `dataset import-csv` for terminal imports; see [CLI authoring](cli-authoring.md).

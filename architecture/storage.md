@@ -203,8 +203,8 @@ There is no assumed Windows equivalent to parent-directory fsync. Physical
 power-loss and OS-crash ordering remain **unverified on every platform**. Network,
 cloud-synchronized and other filesystems are outside the tested guarantee. The
 trusted project selection is not a security sandbox against arbitrary hostile
-same-user mutation. Full P18 packaging, bundled browser assets, physical keyboard/UI
-acceptance, and authorized provider evidence remain separate integration gates.
+same-user mutation. Packaging, native platform acceptance, and authorized provider
+evidence have separate verification boundaries; see [verification](verification.md).
 
 ## Demo destination admission (M07)
 
@@ -235,13 +235,13 @@ above. Windows-specific code and authored call checks are not evidence of execut
 Windows; native Windows validation remains a separate gate. Neither path adds a
 power-loss durability claim.
 
-`portability.yml` runs the full offline suite on `ubuntu-24.04`, `macos-15` and
+`ci.yml` runs the full offline suite on `ubuntu-24.04`, `macos-15` and
 `windows-2025`, Python 3.11/3.13. It records OS/build, Python patch, architecture,
 filesystem, SQLite, commit and lockfile identity, and archives JUnit skip/results.
 Ubuntu creates a quiescent source/history archive; every matrix host verifies its
 exact byte hashes, idempotent replay and index rebuild. Clean wheel/sdist checks run
 outside the checkout without Node on PATH, but cover only the current basic installed
-CLI/codec check, not the later full browser/demo/CLI packaging gate.
+CLI/codec check, not the full installed demo/CLI workflow gate.
 Windows hosted Server CI does not demonstrate a physical Windows 11 desktop. Read
 actual PR checks for results; a workflow definition is not platform evidence.
 
