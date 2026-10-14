@@ -10,6 +10,10 @@ parameters. For example, report `--target-kind` is parsed as text and then
 validated against the report service's supported target kinds. Run
 `deykit --help` or a group command with `--help` for the installed interface.
 
+For agent discovery, `deykit --json capabilities` returns the current command
+catalog without opening a project. Add a command path, such as `capabilities
+results show`, for its parser parameters. See [agent workflows](agents.md).
+
 Use global `--project PATH` to select a portable project directly. If omitted,
 Deykit searches the current directory and its parents for its project marker.
 Put `--json` before the command to receive one versioned JSON envelope. Successful

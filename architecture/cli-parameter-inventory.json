@@ -11,7 +11,8 @@
       "All observed options are public help entries; hidden is explicitly false for every committed leaf parameter.",
       "The root callback adds --project and --json plus the eager --version flag; their parser metadata is recorded separately from leaf commands.",
       "Typer injects --install-completion and --show-completion on the root command; they are recorded as framework-provided global flags and remain enabled.",
-      "Terminal-first amendment removes demo --open and serve --no-open; all other parser parameters are preserved and verified against actual Typer metadata."
+      "Terminal-first amendment removes demo --open and serve --no-open; all other parser parameters are preserved and verified against actual Typer metadata.",
+      "Agent-workflow amendment adds capabilities; its catalog and command parameters are derived at runtime from the installed CLI parser, with no project or credential access."
     ]
   },
   "global_options": [
@@ -5761,6 +5762,28 @@
           "required": true,
           "multiple": false,
           "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "capabilities": {
+      "guide": "guide/agents.md",
+      "parameters": [
+        {
+          "name": "command",
+          "options": [
+            "command"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": -1,
           "is_flag": false,
           "minimum": null,
           "maximum": null,
