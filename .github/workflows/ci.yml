@@ -123,6 +123,13 @@ jobs:
         with:
           version: '0.12.23'
           python-version: '3.11'
+      - name: Use runner scratch space for Windows test projects
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMPDIR=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
       - run: uv sync --locked
       - name: Record native platform and filesystem
         run: uv run python tests/storage/platform_metadata.py
