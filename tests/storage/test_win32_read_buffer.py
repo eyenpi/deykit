@@ -31,7 +31,11 @@ class ReadFixture(Native):
         return True
 
 
-@pytest.mark.parametrize("body", [b"", b"tiny\x00record", b"x" * 131073])
+@pytest.mark.parametrize(
+    "body",
+    [b"", b"tiny\x00record", b"x" * 131073],
+    ids=["empty", "embedded-nul", "large-short-reads"],
+)
 def test_read_retains_every_byte_including_nuls_and_short_reads(body):
     api = ReadFixture(body, short_read=313)
     assert api.read(Handle(api, 1), len(body)) == body
