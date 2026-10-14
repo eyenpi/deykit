@@ -23,8 +23,8 @@ def cli(cwd: Path, *args: str, input_text: str | None = None) -> subprocess.Comp
     return subprocess.run(
         [str(executable), *args],
         cwd=cwd,
-        input=input_text,
-        stdin=subprocess.DEVNULL if input_text is None else None,
+        # An empty pipe is non-interactive on Windows too; NUL can report a TTY.
+        input=input_text if input_text is not None else "",
         text=True,
         capture_output=True,
         check=False,

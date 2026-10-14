@@ -1198,17 +1198,34 @@ def test_active_owner_busy_retry_budget_expiry_errors_after_drain(monkeypatch):
             evaluation_service=_EvaluationService(),  # type: ignore[arg-type]
         )
 
-        async def finish_after_budget() -> None:
-            await asyncio.sleep(0.05)
-            service.wait_forever.set()
+        elapsed = 0.0
+        waits = []
+        real_wait = asyncio.wait
 
-        release = asyncio.create_task(finish_after_budget())
+        async def budget_wait(tasks, *, timeout=None, **kwargs):
+            nonlocal elapsed
+            if timeout is None:
+                return await real_wait(tasks, **kwargs)
+            waits.append(timeout)
+            elapsed += timeout
+            await asyncio.sleep(0)
+            if elapsed >= 0.025:
+                service.wait_forever.set()
+            return set(), set(tasks)
+
+        # Virtualize only the supervisor's budget; keep the real loop and worker drain.
+        clocked_asyncio = SimpleNamespace(**vars(asyncio))
+        clocked_asyncio.get_running_loop = lambda: SimpleNamespace(time=lambda: elapsed)
+        clocked_asyncio.wait = budget_wait
+        monkeypatch.setattr(supervisor_module, "asyncio", clocked_asyncio)
         with pytest.raises(ServiceFailure) as failed:
             await supervisor.shutdown()
-        await release
 
         assert failed.value.error.reason == "shutdown_cancel_failed"
-        assert service.cancel_attempts > 1
+        assert elapsed == pytest.approx(0.025)
+        assert waits == pytest.approx([0.005] * 5)
+        assert service.cancel_attempts == 5
+        assert service.durable_cancelled_ids == []
         assert supervisor._tasks == set()
         assert supervisor._run_tasks == {}
         assert supervisor._runs == {}
