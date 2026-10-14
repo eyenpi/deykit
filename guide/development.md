@@ -13,7 +13,7 @@ uv build
 uv run python tests/check_install.py
 ```
 
-Run expensive checks sequentially. Most tests block socket connections and use
+Run expensive local checks sequentially. Most tests block socket connections and use
 authored software fixtures, not live inference. API socket checks allow only an
 explicitly bound loopback test port. Dependency installation/build may access
 package registries.
@@ -26,7 +26,8 @@ no credentials, PYTHONPATH or Node. It also runs the complete authored CLI
 walkthrough once from the wheel.
 
 The consolidated `CI` workflow tests Python 3.11/3.13 on Linux, macOS and Windows.
-Matrix jobs are sequential. It checks code, tests, portability, artifacts and
+The six native jobs use independent hosted runners in parallel, with one test
+worker per runner; local verification stays sequential. It checks code, tests, portability, artifacts and
 redacted history. Configuration is not evidence of hosted success. See
 [verification evidence](../architecture/verification.md) and the
 [public repository checklist](public-repository.md).

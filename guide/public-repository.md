@@ -1,7 +1,8 @@
 # Making the repository public and finishing platform verification
 
-Preparation does not change visibility, publish a package or prove CI passed.
-The owner performs the visibility change below.
+The repository is public. The visibility steps below document the original
+transition; the remaining work is actual native CI verification. No package
+publication or deployment is implied.
 
 1. Review the merged preparation PR and final main commit. The current tree keeps
    the terminal workflows, headless API, tests, user guides, MIT license and
@@ -24,7 +25,8 @@ The owner performs the visibility change below.
    platform gates only when evidenced. POSIX and mocked checks are not Windows
    evidence. Browser/IME/layout acceptance is retired with the UI removal.
 
-Optional OS keyring acceptance uses a unique disposable test entry. Verify
+Native macOS keyring acceptance has passed with a unique disposable entry;
+Windows/Linux keyrings are not claimed. For other native environments, verify
 set/status/read/forget and cleanup without printing a provider key or changing
 access approvals. An unavailable/locked backend remains an explicit limitation.
 
