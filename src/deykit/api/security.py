@@ -1,4 +1,4 @@
-"""Raw ASGI boundary outside routing, body validation, errors and asset serving."""
+"""Raw ASGI boundary outside routing, body validation, errors."""
 
 import re
 from urllib.parse import parse_qsl
@@ -202,13 +202,7 @@ class LocalBoundary:
             or b"//" in raw
             or raw.decode("ascii") != scope["path"]
         ):
-            # Packaged fingerprinted assets have dots; admit only exact known names below.
-            name = scope["path"].removeprefix("/")
-            if not (
-                raw == scope["path"].encode("ascii", errors="replace")
-                and name in scope["deykit.asset_names"]
-            ):
-                raise TransportFailure(403, "local_access_denied", "invalid_path")
+            raise TransportFailure(403, "local_access_denied", "invalid_path")
         return raw
 
     @staticmethod
@@ -277,7 +271,6 @@ class LocalBoundary:
 
         try:
             headers = scope["headers"]
-            scope = {**scope, "deykit.asset_names": self.config.ui_assets.assets}
             raw = self._scope(scope, headers)
             self.check_authority(headers)
             method = scope["method"]

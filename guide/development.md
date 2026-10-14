@@ -1,9 +1,7 @@
 # Local development
 
-Requires Python 3.11+ and uv. The local CLI includes project authoring, the
-authored fixture demo, and the loopback browser workspace. The demo and workspace
-need no provider credential; `demo --open` starts the workspace after successful
-demo creation.
+Requires Python 3.11+ and uv. Deykit is terminal-first. There is no frontend,
+Node requirement or browser launcher. The optional API is headless.
 
 ```sh
 uv sync --locked --python 3.11
@@ -15,12 +13,20 @@ uv build
 uv run python tests/check_install.py
 ```
 
-Most tests block socket connections and validate authored software fixtures, not
-model quality. Focused API and installed-browser qualification uses explicit local
-loopback sockets. Dependency installation/build may access package registries.
+Run expensive checks sequentially. Most tests block socket connections and use
+authored software fixtures, not live inference. API socket checks allow only an
+explicitly bound loopback test port. Dependency installation/build may access
+package registries.
 
-The `Offline foundation` CI tests Python 3.11/3.13 on Ubuntu. Its conditional frontend
-job activates when frontend sources arrive, with Node 22, npm 11.19.1, unit/build/format
-checks and Playwright Chromium. CI success is recorded separately from authored config.
-See [contract handoff](../architecture/contracts.md) and
-[verification evidence](../architecture/verification.md).
+Use `tests/check_install.py --offline` when all locked dependencies/build tools
+are cached. It installs both artifacts with locked runtime dependencies in fresh
+spaced/non-ASCII paths, checks exact JSON, creates the authored demo, and verifies
+that no UI files are shipped. The installed CLI runs outside the checkout with
+no credentials, PYTHONPATH or Node. It also runs the complete authored CLI
+walkthrough once from the wheel.
+
+The consolidated `CI` workflow tests Python 3.11/3.13 on Linux, macOS and Windows.
+Matrix jobs are sequential. It checks code, tests, portability, artifacts and
+redacted history. Configuration is not evidence of hosted success. See
+[verification evidence](../architecture/verification.md) and the
+[public repository checklist](public-repository.md).

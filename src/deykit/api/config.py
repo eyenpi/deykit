@@ -3,14 +3,11 @@
 import re
 from dataclasses import dataclass
 
-from .assets import AssetCatalog
-
 
 @dataclass(frozen=True)
 class LocalServerConfig:
     authority: str
     origin: str
-    ui_assets: AssetCatalog
     max_registrations: int = 32
 
     def __post_init__(self) -> None:

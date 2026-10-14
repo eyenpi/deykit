@@ -1,7 +1,6 @@
 """Focused M09 HTTP admission, projection, and protected report regressions."""
 
 import asyncio
-import hashlib
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +10,6 @@ import httpx
 from fastapi import FastAPI
 
 from deykit.api.app import create_app
-from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies, ApiProjectSource
 from deykit.api.recent import RecentProjectsStore
@@ -79,18 +77,10 @@ def _app(tmp_path: Path) -> _AppContext:
         provider_operations_factory=create_provider_operations,
         backends_factory=ProviderBackends,
     )
-    html = b"<html><body>test</body></html>"
     boundary = create_app(
         LocalServerConfig(
             "127.0.0.1:8743",
             origin,
-            AssetCatalog(
-                {
-                    "index.html": Asset(
-                        html, "text/html; charset=utf-8", hashlib.sha256(html).hexdigest()
-                    )
-                }
-            ),
         ),
         dependencies,
     )

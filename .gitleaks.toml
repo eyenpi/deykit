@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated OpenAPI provenance hashes, verified by the contract generator"
+condition = "AND"
+paths = ['^frontend/src/api/generated/manifest\.json$']
+regexTarget = "line"
+regexes = ['^\s*"openapi(\.d\.ts)?":\s*"[a-f0-9]{64}",?\s*$']

@@ -1,24 +1,42 @@
-# P01 verification evidence
+# Verification status
 
-Local environment: macOS ARM64, uv 0.12.23, managed CPython 3.11.16. Ordinary tests
-have socket connections disabled and use no secrets, provider keys or inference.
+Deykit is terminal-first. The frontend, bundled browser assets, browser launch
+options and browser-only qualification drivers are removed. The optional API
+remains headless. Existing portable projects and immutable evidence are unchanged.
 
-| Requirement | Evidence |
-| --- | --- |
-| A01 semantic vs wire identity | Golden vectors H01/H02/H07/H08 plus wire criteria order test |
-| A02 exact numeric/source round trip | H03–H12, 39-digit decimal under Decimal precision 2, browser source envelope, selected input, request and stored CaseRecord round trips |
-| A03 strict JSON/schema | Duplicate escaped keys, invalid UTF-8/surrogates/nonfinite, malformed schema, blocked remote refs, local refs, exact integer/multipleOf/bounds |
-| A04 stable option expectation IDs | Rename keeps applicability; deletion exposes missing IDs; disputed/stale/incompatible causes retained together |
-| Resource boundaries | Actual accepted/rejected UTF-8 bytes, nesting, nodes, coefficient digits and explicit/effective exponents; maximum admitted source hashes/selects/persists; aggregate snapshot rejects explicitly |
-| Frozen/safe records | Nested mutation rejection, draft/runnable separation, missing/unsupported version, extra/type rejection, exact request hash, unknown retry rejection |
-| Portable package foundation | Wheel and sdist built and separately installed in clean spaced/non-ASCII paths; installed source codec round trip and CLI version/help with no Node on PATH |
+## Current local verification
 
-Executed locally: pytest, Ruff lint/format, strict mypy, uv build, and
-`tests/check_install.py`. The repeatable commands are in `guide/development.md`.
-GitHub Actions also passed the Python 3.11/3.13 Ubuntu contract, build, wheel/sdist
-installation and installed CLI checks on commit e5c28c6. The final successor commit
-and independent final-commit review must still be inspected on the PR.
+The UI-removal/public-preparation branch is checked on macOS arm64 / Python 3.11.
+The final PR records exact local results and source identity. Packaging verifies
+that no UI files remain, installs wheel and sdist outside the checkout with
+locked dependencies, and runs the authored terminal walkthrough from the wheel.
+Tests are offline, run sequentially, and make no provider requests.
 
-Limits: no provider compatibility/quality observation, browser workflow, SQLite or
-recovery implementation, manual keyboard acceptance, Windows installation claim,
-or complete A45 bundled UI/demo claim. These remain explicit later milestone gates.
+## Retained historical evidence
+
+At `874e750`, [PR #52](https://github.com/eyenpi/deykit/pull/52) recorded a
+clean-installed 99-command/8-phase terminal workflow and source-scoped
+security/recovery/exact-JSON checks. Two separate synthetic Jev text/JSON
+compatibility attempts completed with one attempt each and zero retries.
+They establish bounded compatibility, not model quality; the authorized live
+budget is exhausted. No new inference is needed for removing the UI.
+
+Historical browser evidence belongs to the retired UI. The
+[archived acceptance record](https://github.com/eyenpi/deykit/tree/4feb8577f0244ba728cc9db9bea25920e70cfea0/architecture)
+retains original commit boundaries, artifacts and limitations. Older failed or
+interrupted runs remain failed; there is no fresh full-suite aggregate claim.
+
+## Remaining platform gates
+
+Hosted jobs did not start because GitHub reported a billing/spending-limit block
+while the repository was private. The consolidated **CI** configuration is not
+a passing result. After the owner makes the repository public, run it on final
+main and retain actual native Linux/macOS/Windows × Python 3.11/3.13 results.
+It covers offline tests, process-crash recovery, cross-platform source copies,
+clean installs, the terminal walkthrough and redacted history. No UI job remains.
+
+POSIX and mocked ports cannot substitute for native Windows observations.
+Physical power-loss durability remains unverified on every platform. Optional
+OS keyring acceptance is separate from injected credential-store tests.
+Browser layout, keyboard, IME and screen-reader gates are retired with the UI.
+Follow the [public repository checklist](../guide/public-repository.md).

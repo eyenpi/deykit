@@ -33,11 +33,6 @@ dev = ["pytest>=8,<10", "ruff>=0.14,<1", "mypy>=1.19,<2", "types-jsonschema>=4.2
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/deykit"]
-artifacts = [
-    "src/deykit/api/static/**",
-    "src/deykit/api/GENERATED-ASSETS.md",
-    "src/deykit/api/THIRD-PARTY-NOTICES.md",
-]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -50,8 +45,10 @@ include = [
     "/pyproject.toml",
     "/uv.lock",
     "/AGENTS.md",
-    "/frontend",
-    "/scripts",
+    "/CONTRIBUTING.md",
+    "/SECURITY.md",
+    "/.gitleaks.toml",
+    "/.github",
 ]
 exclude = [
     "**/node_modules",
@@ -98,13 +95,6 @@ exclude = [
     "**/*.log",
     "**/.DS_Store",
 ]
-
-[tool.hatch.build.targets.sdist.force-include]
-"frontend/tools/contracts/generate.mjs" = "frontend/tools/contracts/generate.mjs"
-"frontend/tools/contracts/package.json" = "frontend/tools/contracts/package.json"
-"frontend/tools/contracts/test/generate.test.mjs" = "frontend/tools/contracts/test/generate.test.mjs"
-"frontend/tools/contracts/test/typecheck.cts" = "frontend/tools/contracts/test/typecheck.cts"
-"frontend/tools/contracts/test/validator-bundle-entry.mjs" = "frontend/tools/contracts/test/validator-bundle-entry.mjs"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -11,7 +11,6 @@ import pytest
 from pydantic import ValidationError
 
 from deykit.api.app import create_app
-from deykit.api.assets import Asset, AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.dependencies import ApiDependencies, ApiProjectSource
 from deykit.api.dto.execution import (
@@ -58,18 +57,10 @@ def _app(
     tmp_path: Path, *, dependencies: ApiDependencies | None = None
 ) -> tuple[LocalBoundary, str]:
     origin = "http://127.0.0.1:8765"
-    html = b"<html><body>test</body></html>"
     app = create_app(
         LocalServerConfig(
             "127.0.0.1:8765",
             origin,
-            AssetCatalog(
-                {
-                    "index.html": Asset(
-                        html, "text/html; charset=utf-8", hashlib.sha256(html).hexdigest()
-                    )
-                }
-            ),
         ),
         dependencies or _dependencies(tmp_path),
     )

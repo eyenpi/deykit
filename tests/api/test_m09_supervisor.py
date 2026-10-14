@@ -585,6 +585,17 @@ def test_replay_acknowledgements_never_replace_held_fresh_owner(method, kind):
             assert owners[key] is original
             assert original in supervisor._tasks and not original.done()
 
+            async def wait_replay_settled() -> None:
+                while supervisor._tasks != {original}:
+                    await asyncio.sleep(0.001)
+
+            # The acknowledgement precedes worker cleanup. Observe that cleanup
+            # before issuing another replay so this ownership oracle cannot
+            # accidentally exhaust the independently tested bounded worker pool.
+            await asyncio.wait_for(wait_replay_settled(), timeout=5)
+            if kind is not None:
+                assert supervisor._group_capacity._value == 3
+
         await supervisor.shutdown()
         assert service.cancelled_ids == ["run-1" if kind is None else "group-1"]
         assert supervisor._tasks == set()

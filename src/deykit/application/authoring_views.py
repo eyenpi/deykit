@@ -1,4 +1,4 @@
-"""Pure exact-source projections and edits for browser-facing authoring forms."""
+"""Pure exact-source projections and edits for headless API authoring operations."""
 
 from copy import deepcopy
 from dataclasses import dataclass

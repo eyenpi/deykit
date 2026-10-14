@@ -3,18 +3,16 @@
 import asyncio
 
 import httpx
-from conftest import api_dependencies
 
 from deykit.api.app import create_app
-from deykit.api.assets import AssetCatalog
 from deykit.api.config import LocalServerConfig
 from deykit.api.security import LocalBoundary
 
 
-def test_m09_route_inventory_and_binary_report_policy():
+def test_m09_route_inventory_and_binary_report_policy(security_api_dependencies):
     app = create_app(
-        LocalServerConfig("127.0.0.1:8741", "http://127.0.0.1:8741", AssetCatalog.from_package()),
-        api_dependencies(),
+        LocalServerConfig("127.0.0.1:8741", "http://127.0.0.1:8741"),
+        security_api_dependencies(),
     ).app
     openapi = app.openapi()
     expected = {
@@ -151,6 +149,8 @@ def test_m09_query_keys_are_exact_and_route_specific():
     assert boundary("/api/v1/projects/p/runs", "POST") == set()
     assert boundary("/api/v1/projects/p/runs/r/results/c", "GET") == {
         "evaluation_id",
+        "expected_result_snapshot_id",
+        "expected_label_snapshot_id",
         "include_input",
         "include_request",
         "include_response",
@@ -161,11 +161,13 @@ def test_m09_query_keys_are_exact_and_route_specific():
     assert boundary("/api/v1/projects/p/reports/report/download/extra") == set()
 
 
-def test_all_post_resume_previews_require_versioned_json_before_project_lookup():
+def test_all_post_resume_previews_require_versioned_json_before_project_lookup(
+    security_api_dependencies,
+):
     origin = "http://127.0.0.1:8742"
     app = create_app(
-        LocalServerConfig("127.0.0.1:8742", origin, AssetCatalog.from_package()),
-        api_dependencies(),
+        LocalServerConfig("127.0.0.1:8742", origin),
+        security_api_dependencies(),
     )
     paths = (
         "/api/v1/projects/registration/runs/run/resume-preview",

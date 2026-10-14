@@ -13,7 +13,6 @@ from deykit.providers.configuration import create_provider_operations
 from deykit.runner.backends import ProviderBackends
 
 from .app import create_inner_app
-from .assets import AssetCatalog
 from .config import LocalServerConfig
 from .dependencies import ApiDependencies
 from .dto.common import Failure
@@ -68,8 +67,8 @@ def _schema_dependencies() -> ApiDependencies:
 
 
 def contract_documents() -> dict[str, bytes]:
-    # Construction does not load assets, run lifespan, open folders or resolve credentials.
-    config = LocalServerConfig("127.0.0.1:8765", "http://127.0.0.1:8765", AssetCatalog({}))
+    # Construction does not run lifespan, open folders or resolve credentials.
+    config = LocalServerConfig("127.0.0.1:8765", "http://127.0.0.1:8765")
     app = create_inner_app(config, SessionCapability.create(), _schema_dependencies())
     openapi = app.openapi()
     for path_item in openapi["paths"].values():

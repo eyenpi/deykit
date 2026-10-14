@@ -6,7 +6,7 @@ A disputed, stale, or incompatible expectation remains visible and is excluded
 from correctness calculations by the evaluation layer.
 
 The service API below is usable by a Python caller with an opened `ProjectSource`
-and injected `Clock`; the CLI/browser adapters are delivered separately.
+and injected `Clock`; the CLI exposes these operations through `label` commands.
 
 ```python
 from deykit.application.labels import LabelEdit, LabelService
