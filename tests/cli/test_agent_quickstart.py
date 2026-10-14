@@ -6,11 +6,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 
-def test_agent_quickstart_real_console_and_existing_destination(tmp_path: Path) -> None:
+
+@pytest.mark.parametrize("stdio_encoding", ["utf-8", "cp1252", "ascii"])
+def test_agent_quickstart_real_console_and_existing_destination(
+    tmp_path: Path, stdio_encoding: str
+) -> None:
     script = Path(__file__).parents[2] / "guide/examples/agent-quickstart.py"
-    output = tmp_path / "external agent output ü with spaces"
-    environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    output = tmp_path / "external agent output 東京 ü with spaces"
+    environment = {**os.environ, "PYTHONIOENCODING": stdio_encoding}
     command = [sys.executable, str(script), "--output", str(output)]
     result = subprocess.run(
         command,

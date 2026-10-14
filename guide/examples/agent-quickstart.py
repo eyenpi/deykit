@@ -22,6 +22,7 @@ def quickstart(output: Path) -> dict[str, Any]:
     def call(*arguments: str, expected: int = 0) -> dict[str, Any]:
         result = subprocess.run(
             [str(executable), "--project", str(project), "--json", *arguments],
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -112,7 +113,7 @@ def main() -> None:
     arguments = parser.parse_args()
     if arguments.output.exists():
         parser.error("output directory must be new")
-    print(json.dumps(quickstart(arguments.output.absolute()), ensure_ascii=False))
+    print(json.dumps(quickstart(arguments.output.absolute())))
 
 
 if __name__ == "__main__":

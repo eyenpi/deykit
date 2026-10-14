@@ -41,8 +41,8 @@ creates an authored project, takes returned IDs, lists cases, previews exactly
 one request, verifies that preview created no run, executes in fixture mode,
 replays the same operation without an additional attempt, inspects a result,
 checks a missing selector, exports JSON and validates project integrity.
-This exercise verifies the first-use path. The full-suite grouped-report/resume
-check remains incomplete; see [local evidence and limitations](../architecture/agent-workflows.md).
+This exercise verifies the first-use path. See
+[local evidence and limitations](../architecture/agent-workflows.md) for broader verification.
 It writes `summary.json`, `receipts.json`, `report.json` and a portable project
 inside the new output directory. On interruption, inspect the retained receipts
 and project; rerun the exercise with a new directory. The full demo intentionally
