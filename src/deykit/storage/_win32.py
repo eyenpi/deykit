@@ -373,17 +373,21 @@ class Native:
                 offset += next_offset
 
     def read(self, handle: Handle, limit: int) -> bytes:
-        if self.inspect(handle, directory=False).size > limit:
+        observed_size = self.inspect(handle, directory=False).size
+        if observed_size > limit:
             fail("record_resource_limit")
+        capacity = min(65536, max(4096, observed_size + 1), limit + 1)
+        buffer = c.create_string_buffer(capacity)
         result = bytearray()
         while len(result) <= limit:
-            size = min(1048576, limit + 1 - len(result))
-            buffer = c.create_string_buffer(size)
+            size = min(capacity, limit + 1 - len(result))
             count = DWORD()
             self._check(self._read(handle.value, buffer, size, c.byref(count), None))
+            if count.value > size:
+                raise OSError("Invalid storage read count")
             if not count.value:
                 return bytes(result)
-            result.extend(buffer.raw[: count.value])
+            result.extend(c.string_at(buffer, count.value))
         fail("record_resource_limit")
 
     def write(self, handle: Handle, body: bytes) -> None:

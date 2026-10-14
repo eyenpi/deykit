@@ -71,6 +71,18 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
+      - name: Native regressions before expensive integration checks
+        run: >-
+          uv run pytest -vv -ra
+          tests/storage/test_win32_read_buffer.py
+          tests/api/test_path_admission.py
+          tests/api/test_project_routes.py
+          tests/api/test_api_m09_start_ack.py::test_http_group_start_acknowledges_before_held_execution_preparation_and_replays_receipt
+          tests/api/test_m09_http_guards.py::test_http_results_evaluation_pin_and_report_download_are_protected
+          tests/api/test_m09_supervisor.py::test_group_callback_survives_disconnect_and_resume_uses_callback_identity
+          tests/providers/test_jev.py::test_a42_success_raw_response_and_usage_are_sanitized
+          tests/cli/test_inventory.py::test_documented_cli_parameter_inventory_matches_typer_metadata
+          tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: portable-source-project

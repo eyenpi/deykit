@@ -25,6 +25,7 @@ def test_rejects_nonliteral_or_nonlocal_path_syntax(value: str) -> None:
     assert error.value.error.reason == "invalid_project_path"
 
 
-def test_accepts_absolute_paths_with_spaces_and_unicode() -> None:
-    assert str(_path("/tmp/Decision project ü")) == "/tmp/Decision project ü"
-    assert str(_path("/tmp/%2e%2e")) == "/tmp/%2e%2e"
+def test_accepts_absolute_paths_with_spaces_and_unicode(tmp_path) -> None:
+    for name in ("Decision project ü", "%2e%2e"):
+        expected = tmp_path / name
+        assert _path(str(expected)) == expected

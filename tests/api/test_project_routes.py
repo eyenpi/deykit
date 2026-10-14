@@ -1,8 +1,10 @@
 """Real API project flows share application services and durable project receipts."""
 
 import asyncio
+import os
 
 import httpx
+import pytest
 
 from deykit.api.app import create_app
 from deykit.api.config import LocalServerConfig
@@ -100,8 +102,14 @@ def test_register_overview_demo_replay_and_recent_projects(tmp_path):
                 project_root = tmp_path / "Project ü"
                 moved_root = tmp_path / "Project moved"
                 replacement_sentinel = project_root / "replacement.txt"
-                project_root.rename(moved_root)
-                project_root.mkdir()
+                if os.name == "nt":
+                    with pytest.raises(PermissionError) as held:
+                        project_root.rename(moved_root)
+                    assert held.value.winerror == 32
+                    assert project_root.is_dir() and not moved_root.exists()
+                else:
+                    project_root.rename(moved_root)
+                    project_root.mkdir()
                 replacement_sentinel.write_text("preserve replacement")
                 anchored_rebuild = await client.post(
                     f"/api/v1/projects/{registration_id}/rebuild-index",
@@ -146,3 +154,11 @@ def test_register_overview_demo_replay_and_recent_projects(tmp_path):
                 ]
 
     asyncio.run(exercise())
+
+    if os.name == "nt":
+        project_root = tmp_path / "Project ü"
+        moved_root = tmp_path / "Project moved"
+        project_root.rename(moved_root)
+        assert moved_root.is_dir() and not project_root.exists()
+        with FileProjectSource(moved_root) as reopened:
+            assert reopened.capture_snapshot()

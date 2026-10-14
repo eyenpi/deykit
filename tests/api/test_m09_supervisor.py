@@ -490,10 +490,9 @@ def test_group_callback_survives_disconnect_and_resume_uses_callback_identity(ki
         assert resumed.replayed
 
         key = (registration.id, "group-1")
-        for _ in range(100):
-            if supervisor._tasks == {worker}:
-                break
-            await asyncio.sleep(0)
+        async with asyncio.timeout(5):
+            while supervisor._tasks != {worker}:
+                await asyncio.sleep(0.001)
         assert supervisor._group_tasks[key] is worker
         assert supervisor._groups[key] == (registration, service, kind)
         assert supervisor._tasks == {worker}
