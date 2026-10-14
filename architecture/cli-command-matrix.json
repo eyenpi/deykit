@@ -717,6 +717,16 @@
         "registration": "tests/runner/test_console_groups.py::test_group_commands_registered_with_explicit_help",
         "behavior": "tests/runner/test_console_groups.py::test_real_console_diagnostics_regressions_fixture_flow"
       }
+    },
+    {
+      "path": "capabilities",
+      "service": "Installed CLI parser discovery",
+      "owner": "CLI",
+      "status": "implemented",
+      "verification": {
+        "registration": "tests/cli/test_inventory.py::test_matrix_implemented_rows_match_registered_cli_leaves",
+        "behavior": "tests/cli/test_capabilities.py::test_capabilities_without_project_or_credentials"
+      }
     }
   ]
 }
