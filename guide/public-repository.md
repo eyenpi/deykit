@@ -17,8 +17,9 @@ publication or deployment is implied.
    Standard hosted runners are free for public repositories; larger runners and
    excess storage can incur charges. See [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
    Visibility alone does not prove an existing account restriction cleared.
-4. Require the source/secret-scan job and all six native Python matrix entries to
-   actually pass. Inspect JUnit artifacts and skipped native tests. Fix failures
+4. Require the shared source job, Linux/macOS full suites, all three Windows
+   partitions and the focused Python 3.13 compatibility job to actually pass.
+   Together the Windows partitions cover one complete suite. Inspect JUnit artifacts and skipped native tests. Fix failures
    on a branch and rerun the final head. Do not bypass protection or mark
    unstarted jobs green. No frontend or browser CI job remains.
 5. Update issues #18 and #19 with exact native results and close their remaining

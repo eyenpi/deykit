@@ -5,6 +5,7 @@ import socket
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -121,3 +122,32 @@ def plain_terminal_text() -> Callable[[str], str]:
         return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
 
     return strip_styles
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--ci-partition",
+        choices=("core", "runner-labels", "reports-comparisons"),
+        default=None,
+        help="Run a disjoint Windows CI partition after normal test collection.",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    partition = config.getoption("--ci-partition")
+    if partition is None:
+        return
+    root = Path(__file__).parent
+    special = {
+        "runner": "runner-labels",
+        "labels": "runner-labels",
+        "reports": "reports-comparisons",
+        "comparisons": "reports-comparisons",
+    }
+    selected, deselected = [], []
+    for item in items:
+        directory = item.path.relative_to(root).parts[0]
+        target = special.get(directory, "core")
+        (selected if target == partition else deselected).append(item)
+    config.hook.pytest_deselected(items=deselected)
+    items[:] = selected

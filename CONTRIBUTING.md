@@ -10,7 +10,9 @@ and safe errors. Labels and credentials never enter model input.
 
 Run relevant offline tests, Ruff, mypy and package checks. Run expensive local commands
 sequentially with one verification process. Native CI jobs use independent hosted
-machines; each runs one test worker. Do not run live provider requests
+machines; each runs one test worker. Full suites run once per OS; Windows uses
+disjoint partitions, and Python 3.13 has a focused compatibility job. Static checks
+and artifact builds run once. Known documentation-only changes skip runtime jobs. Do not run live provider requests
 as part of tests or CI. There is no frontend build or browser dependency.
 
 Open a pull request explaining the problem, resulting behavior and actual

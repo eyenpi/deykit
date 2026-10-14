@@ -32,9 +32,15 @@ Earlier hosted jobs could not start while the repository was private because of
 a billing/spending-limit block. The repository is now public and native CI can
 run. The configuration alone is not a passing result: consult [Actions](https://github.com/eyenpi/deykit/actions/workflows/ci.yml)
 and [platform verification](https://github.com/eyenpi/deykit/issues/18) for actual
-source identities and Linux/macOS/Windows × Python 3.11/3.13 results.
+source identities and native Linux/macOS/Windows results. At Ali's request,
+CI now runs one full Python 3.11 suite per OS (three disjoint Windows partitions)
+and focused Python 3.13 compatibility checks on Linux. Shared static checks and
+artifact builds run once; all OSes check copied projects and clean package
+installs, while the complete installed walkthrough runs once on Linux. Known
+Markdown-only changes skip runtime jobs; a skipped job is not fresh native proof.
 It covers offline tests, process-crash recovery, cross-platform source copies,
 clean installs, the terminal walkthrough and redacted history. No UI job remains.
+The earlier six full-suite matrix has been superseded, not recorded as passing.
 
 POSIX and mocked ports cannot substitute for native Windows observations.
 Physical power-loss durability remains unverified on every platform. The native macOS keyring was checked on Python 3.11.16/keyring 25.7.0 through

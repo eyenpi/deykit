@@ -18,11 +18,33 @@ jobs:
     name: Source and secret scan
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      runtime: ${{ steps.scope.outputs.runtime }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Decide whether runtime verification is needed
+        id: scope
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          runtime=true
+          if [[ "$EVENT_NAME" != workflow_dispatch ]] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git diff --no-renames --name-only -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-paths"
+            runtime=false
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                README.md|CONTRIBUTING.md|AGENTS.md|SECURITY.md|CODE_OF_CONDUCT.md|guide/*.md|architecture/*.md) ;;
+                *) runtime=true ;;
+              esac
+            done < "$RUNNER_TEMP/changed-paths"
+          fi
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "Runtime checks required: $runtime" >> "$GITHUB_STEP_SUMMARY"
       - name: Scan history with pinned Gitleaks
         shell: bash
         run: |
@@ -38,25 +60,61 @@ jobs:
           version: '0.12.23'
           python-version: '3.11'
       - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - name: Check the documented CLI inventory
+        run: uv run pytest -q tests/cli/test_inventory.py
+      - name: Build wheel and sdist once
+        if: steps.scope.outputs.runtime == 'true'
+        run: uv build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.scope.outputs.runtime == 'true'
+        with:
+          name: distributions
+          path: dist/deykit-*
+          retention-days: 3
       - name: Create authored cross-platform project
+        if: steps.scope.outputs.runtime == 'true'
         run: uv run python tests/storage/check_cross_platform_copy.py create portable-project.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.scope.outputs.runtime == 'true'
         with:
           name: portable-source-project
           path: portable-project.zip
           retention-days: 3
 
   python:
-    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    name: ${{ matrix.os }} / Python 3.11 / ${{ matrix.partition }}
     needs: source
+    if: needs.source.outputs.runtime == 'true'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 5
       matrix:
-        os: [ubuntu-24.04, macos-15, windows-2025]
-        python: ['3.11', '3.13']
+        include:
+          - os: ubuntu-24.04
+            partition: full
+            args: ''
+            packages: true
+          - os: macos-15
+            partition: full
+            args: ''
+            packages: true
+          - os: windows-2025
+            partition: core
+            args: --ci-partition=core
+            packages: true
+          - os: windows-2025
+            partition: runner-labels
+            args: --ci-partition=runner-labels
+            packages: false
+          - os: windows-2025
+            partition: reports-comparisons
+            args: --ci-partition=reports-comparisons
+            packages: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -64,38 +122,61 @@ jobs:
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.12.23'
-          python-version: ${{ matrix.python }}
+          python-version: '3.11'
       - run: uv sync --locked
       - name: Record native platform and filesystem
         run: uv run python tests/storage/platform_metadata.py
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy
-      - name: Native regressions before expensive integration checks
-        run: >-
-          uv run pytest -vv -ra
-          tests/storage/test_win32_read_buffer.py
-          tests/api/test_path_admission.py
-          tests/api/test_project_routes.py
-          tests/api/test_api_m09_start_ack.py::test_http_group_start_acknowledges_before_held_execution_preparation_and_replays_receipt
-          tests/api/test_m09_http_guards.py::test_http_results_evaluation_pin_and_report_download_are_protected
-          tests/api/test_m09_supervisor.py::test_group_callback_survives_disconnect_and_resume_uses_callback_identity
-          tests/providers/test_jev.py::test_a42_success_raw_response_and_usage_are_sanitized
-          tests/cli/test_inventory.py::test_documented_cli_parameter_inventory_matches_typer_metadata
-          tests/reports/test_cli_reports.py::test_installed_console_registers_report_commands_and_flags
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: portable-source-project
-      - name: Verify copied bytes, replay and rebuilt index
-        run: uv run python tests/storage/check_cross_platform_copy.py verify portable-project.zip
-      - run: uv build
-      - name: Clean locked wheel and sdist installs without Node
-        run: uv run python tests/check_install.py
-      - name: Full offline suite including storage and process death
-        run: uv run pytest -vv -ra --durations=20 --junitxml=platform-results.xml
+      - name: Offline suite including storage and process death
+        run: uv run pytest -ra --durations=20 --junitxml=platform-results.xml ${{ matrix.args }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: platform-${{ matrix.os }}-${{ matrix.python }}
+          name: platform-${{ matrix.os }}-3.11-${{ matrix.partition }}
           path: platform-results.xml
+          retention-days: 3
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: matrix.packages
+        with:
+          name: portable-source-project
+      - name: Verify copied bytes, replay and rebuilt index
+        if: matrix.packages
+        run: uv run python tests/storage/check_cross_platform_copy.py verify portable-project.zip
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: matrix.packages
+        with:
+          name: distributions
+          path: dist
+      - name: Clean wheel and sdist installs; complete installed walkthrough once
+        if: matrix.os == 'ubuntu-24.04'
+        run: uv run python tests/check_install.py
+      - name: Clean native wheel and sdist installs
+        if: matrix.packages && matrix.os != 'ubuntu-24.04'
+        run: uv run python tests/check_install.py --skip-walkthrough
+
+  compatibility:
+    name: Python 3.13 compatibility
+    needs: source
+    if: needs.source.outputs.runtime == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.12.23'
+          python-version: '3.13'
+      - run: uv sync --locked
+      - name: Exact JSON, records, schemas, providers, metrics and CLI compatibility
+        run: >-
+          uv run pytest -ra --durations=10 --junitxml=compatibility-results.xml
+          tests/test_exact_json.py tests/test_records.py tests/test_schema.py
+          tests/providers tests/metrics tests/cli/test_inventory.py
+          tests/cli/test_capabilities.py tests/storage/test_win32_read_buffer.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: compatibility-ubuntu-3.13
+          path: compatibility-results.xml
           retention-days: 3

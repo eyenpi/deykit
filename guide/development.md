@@ -25,9 +25,21 @@ that no UI files are shipped. The installed CLI runs outside the checkout with
 no credentials, PYTHONPATH or Node. It also runs the complete authored CLI
 walkthrough once from the wheel.
 
-The consolidated `CI` workflow tests Python 3.11/3.13 on Linux, macOS and Windows.
-The six native jobs use independent hosted runners in parallel, with one test
-worker per runner; local verification stays sequential. It checks code, tests, portability, artifacts and
-redacted history. Configuration is not evidence of hosted success. See
-[verification evidence](../architecture/verification.md) and the
-[public repository checklist](public-repository.md).
+The `CI` workflow runs shared lint/type checks and builds the artifacts once.
+It runs the full offline suite on Python 3.11 on Linux, macOS and Windows, plus
+focused Python 3.13 checks for exact JSON, records, schemas, providers, metrics
+and CLI compatibility on Linux. Windows divides the full suite into three
+non-overlapping partitions to shorten wall time; it does not drop tests.
+
+Each OS checks the same wheel/sdist and copied project. Clean installations and
+CLI probes run on each OS; the complete installed walkthrough runs once on Linux.
+Use `tests/check_install.py --skip-walkthrough` for installation probes alone.
+Changes limited to known Markdown guides/instructions skip runtime jobs; shared
+checks, the documented CLI inventory and the redacted history scan still run.
+Unknown paths and manual dispatches require runtime verification.
+
+Hosted runners use one test worker each; expensive local verification stays
+sequential. Python 3.13 compatibility checks do not establish a full suite on
+that interpreter or native macOS/Windows 3.13 qualification. Configuration is
+not evidence of success. See [verification evidence](../architecture/verification.md)
+and the [public repository checklist](public-repository.md).
