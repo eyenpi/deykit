@@ -71,8 +71,6 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
-      - name: Full offline suite including storage and process death
-        run: uv run pytest -q -ra --junitxml=platform-results.xml
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: portable-source-project
@@ -81,6 +79,8 @@ jobs:
       - run: uv build
       - name: Clean locked wheel and sdist installs without Node
         run: uv run python tests/check_install.py
+      - name: Full offline suite including storage and process death
+        run: uv run pytest -q -ra --junitxml=platform-results.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:

@@ -1,7 +1,9 @@
 """Deny network access while retaining stdlib socketpair IPC on Windows."""
 
+import re
 import socket
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import pytest
@@ -111,3 +113,11 @@ def no_network(monkeypatch):
     ):
         monkeypatch.setattr(socket, name, guard.denied)
     return guard
+
+
+@pytest.fixture
+def plain_terminal_text() -> Callable[[str], str]:
+    def strip_styles(text: str) -> str:
+        return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+
+    return strip_styles
