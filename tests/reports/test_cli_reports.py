@@ -57,7 +57,7 @@ def cli_report_project(fixture_graph, group_report_graph, tmp_path_factory):
     )
 
 
-def test_installed_console_registers_report_commands_and_flags():
+def test_installed_console_registers_report_commands_and_flags(plain_terminal_text):
     help_result = subprocess.run(
         [str(_executable()), "--help"], capture_output=True, text=True, timeout=10, check=False
     )
@@ -94,7 +94,7 @@ def test_installed_console_registers_report_commands_and_flags():
         "--output",
         "--format",
     ):
-        assert option in export_help
+        assert option in plain_terminal_text(export_help)
 
 
 def test_console_exports_each_target_and_pinned_group_snapshots(cli_report_project):

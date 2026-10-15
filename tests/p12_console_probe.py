@@ -114,13 +114,14 @@ def probe(cli: Path, project: Path) -> None:
     environment = dict(os.environ)
     environment.pop("PYTHONPATH", None)
 
-    def invoke(*args: str, code: int = 0):
+    def invoke(*args: str, code: int = 0, project_root: Path | None = None):
+        target = project if project_root is None else project_root
         completed = subprocess.run(
-            [str(cli), "--json", "--project", str(project), *args],
+            [str(cli), "--json", "--project", str(target), *args],
             text=True,
             capture_output=True,
             env=environment,
-            cwd=project.parent,
+            cwd=target.parent,
             timeout=60,
         )
         assert completed.returncode == code, (args, completed.stdout, completed.stderr)
@@ -233,9 +234,18 @@ def probe(cli: Path, project: Path) -> None:
     # Current case removed above; a restored case still uses exact authored original bytes.
     with FileProjectSource(project) as source:
         source.commit("restore-case", (SourceChange(original.key, original.body, None),))
-    missed = invoke(*missing_args, "--operation-id", "miss", code=3)
+    # Binding rejection is independent of the preceding history/replay scenario.
+    # Reuse the exact authored seed, without its unrelated accumulated history.
+    missing_project = project.with_name(f"{project.name} missing")
+    with FileProjectSource(missing_project, create=True) as source:
+        source.commit(
+            "seed", tuple(SourceChange(key, dump_record(record), None) for key, record in seed)
+        )
+    missed = invoke(*missing_args, "--operation-id", "miss", code=3, project_root=missing_project)
     assert missed["group"]["attempts_used"] == 2
-    assert missed["group"]["members"][1]["cases"][0]["status"] == "response_error"
+    missing_case = missed["group"]["members"][1]["cases"][0]
+    assert missing_case["status"] == "response_error"
+    assert missing_case["error"]["code"] == "missing_fixture"
     print("PASS P12 offline real-console fixture flow")
 
 

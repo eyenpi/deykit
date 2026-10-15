@@ -91,7 +91,7 @@ def test_a42_success_raw_response_and_usage_are_sanitized():
     def handle(request):
         return httpx.Response(
             200,
-            content=VALID[:-2]
+            content=VALID.rstrip()[:-1]
             + (b',"debug":"SECRET_SENTINEL","headers":{"Authorization":"Bearer SECRET_SENTINEL"}}'),
         )
 

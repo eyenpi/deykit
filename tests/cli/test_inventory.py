@@ -83,7 +83,7 @@ def _has_qualified_symbol(tree: ast.AST, symbol: str) -> bool:
     return True
 
 
-def test_matrix_implemented_rows_match_registered_cli_leaves() -> None:
+def test_matrix_implemented_rows_match_registered_cli_leaves(plain_terminal_text) -> None:
     matrix_path = Path(__file__).parents[2] / "architecture" / "cli-command-matrix.json"
     matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
     rows = matrix["commands"]
@@ -131,10 +131,10 @@ def test_matrix_implemented_rows_match_registered_cli_leaves() -> None:
         result = runner.invoke(app, [*command_path.split(), "--help"])
         assert result.exit_code == 0, command_path
         for flag in flags:
-            assert flag in result.output, (path, flag)
+            assert flag in plain_terminal_text(result.output), (path, flag)
 
 
-def test_documented_cli_parameter_inventory_matches_typer_metadata() -> None:
+def test_documented_cli_parameter_inventory_matches_typer_metadata(plain_terminal_text) -> None:
     inventory_path = Path(__file__).parents[2] / "architecture" / "cli-parameter-inventory.json"
     inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
     root = get_command(app)
@@ -177,7 +177,11 @@ def test_documented_cli_parameter_inventory_matches_typer_metadata() -> None:
                 continue
             for flag in (*expected["options"], *expected["secondary_options"]):
                 if flag.startswith("-"):
-                    assert flag in help_result.output, (path, expected["name"], flag)
+                    assert flag in plain_terminal_text(help_result.output), (
+                        path,
+                        expected["name"],
+                        flag,
+                    )
 
     global_options = []
     for parameter in root.params:

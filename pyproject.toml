@@ -48,6 +48,7 @@ include = [
     "/CONTRIBUTING.md",
     "/SECURITY.md",
     "/.gitleaks.toml",
+    "/.gitattributes",
     "/.github",
 ]
 exclude = [

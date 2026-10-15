@@ -1,7 +1,8 @@
 # Making the repository public and finishing platform verification
 
-Preparation does not change visibility, publish a package or prove CI passed.
-The owner performs the visibility change below.
+The repository is public. The visibility steps below document the original
+transition; the remaining work is actual native CI verification. No package
+publication or deployment is implied.
 
 1. Review the merged preparation PR and final main commit. The current tree keeps
    the terminal workflows, headless API, tests, user guides, MIT license and
@@ -16,15 +17,18 @@ The owner performs the visibility change below.
    Standard hosted runners are free for public repositories; larger runners and
    excess storage can incur charges. See [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
    Visibility alone does not prove an existing account restriction cleared.
-4. Require the source/secret-scan job and all six native Python matrix entries to
-   actually pass. Inspect JUnit artifacts and skipped native tests. Fix failures
+4. Require the shared source job, Linux/macOS full suites and the focused
+   Python 3.13 compatibility job to actually pass. Windows CI is disabled to
+   limit runner time; native Windows verification is deferred.
+   Inspect JUnit artifacts and skipped native tests. Fix failures
    on a branch and rerun the final head. Do not bypass protection or mark
    unstarted jobs green. No frontend or browser CI job remains.
 5. Update issues #18 and #19 with exact native results and close their remaining
-   platform gates only when evidenced. POSIX and mocked checks are not Windows
+   platform gates only when evidenced or explicitly deferred. POSIX and mocked checks are not Windows
    evidence. Browser/IME/layout acceptance is retired with the UI removal.
 
-Optional OS keyring acceptance uses a unique disposable test entry. Verify
+Native macOS keyring acceptance has passed with a unique disposable entry;
+Windows/Linux keyrings are not claimed. For other native environments, verify
 set/status/read/forget and cleanup without printing a provider key or changing
 access approvals. An unavailable/locked backend remains an explicit limitation.
 

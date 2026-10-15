@@ -28,15 +28,27 @@ interrupted runs remain failed; there is no fresh full-suite aggregate claim.
 
 ## Remaining platform gates
 
-Hosted jobs did not start because GitHub reported a billing/spending-limit block
-while the repository was private. The consolidated **CI** configuration is not
-a passing result. After the owner makes the repository public, run it on final
-main and retain actual native Linux/macOS/Windows × Python 3.11/3.13 results.
+Earlier hosted jobs could not start while the repository was private because of
+a billing/spending-limit block. The repository is now public and native CI can
+run. The configuration alone is not a passing result: consult [Actions](https://github.com/eyenpi/deykit/actions/workflows/ci.yml)
+and [platform verification](https://github.com/eyenpi/deykit/issues/18) for actual
+source identities and native platform results. At Ali's request, Windows CI is
+disabled to limit runner time. Native Windows verification is deferred; earlier
+partial, failed or cancelled runs do not establish a complete Windows pass.
+CI runs full Python 3.11 suites on Linux and macOS and focused Python 3.13
+compatibility checks on Linux. Shared static checks and
+artifact builds run once; both CI platforms check copied projects and clean package
+installs, while the complete installed walkthrough runs once on Linux. Known
+Markdown-only changes skip runtime jobs; a skipped job is not fresh native proof.
 It covers offline tests, process-crash recovery, cross-platform source copies,
 clean installs, the terminal walkthrough and redacted history. No UI job remains.
+The earlier six full-suite matrix has been superseded, not recorded as passing.
 
 POSIX and mocked ports cannot substitute for native Windows observations.
-Physical power-loss durability remains unverified on every platform. Optional
-OS keyring acceptance is separate from injected credential-store tests.
+Physical power-loss durability remains unverified on every platform. The native macOS keyring was checked on Python 3.11.16/keyring 25.7.0 through
+real CLI set/status/read/forget operations using a unique disposable value. It
+remained absent from project files and the entry was removed; no inference or
+access-setting changes occurred. This does not establish Windows/Linux keyring
+behavior. Environment references remain available on all supported platforms.
 Browser layout, keyboard, IME and screen-reader gates are retired with the UI.
 Follow the [public repository checklist](../guide/public-repository.md).

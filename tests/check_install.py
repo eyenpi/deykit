@@ -27,6 +27,9 @@ def run(*args: str, cwd: Path, env: dict[str, str] | None = None) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--offline", action="store_true", help="Use cached dependencies only.")
+    parser.add_argument(
+        "--skip-walkthrough", action="store_true", help="Run installation probes only."
+    )
     options = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     uv = shutil.which("uv")
@@ -104,7 +107,7 @@ def main() -> None:
             )
             run(str(python), "-I", "-c", code, cwd=destination, env=env)
             run(str(cli), "demo", str(destination / f"demo {index} ü"), cwd=destination, env=env)
-            if artifact.suffix == ".whl":
+            if artifact.suffix == ".whl" and not options.skip_walkthrough:
                 run(
                     str(python),
                     "-I",

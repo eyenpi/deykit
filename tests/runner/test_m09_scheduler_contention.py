@@ -173,18 +173,25 @@ def test_m09_dispatch_contention_stops_at_original_deadline_without_transport(se
         async def wait(self, seconds):
             clock.value += seconds
             await asyncio.sleep(0)
-            if clock.value >= 1 and not release_lock.is_set():
+            # Each waiter observes native lock release before virtual time advances again.
+            if clock.value >= 1:
                 release_lock.set()
                 assert holder is not None
                 await asyncio.to_thread(holder.join, 2)
+                assert not holder.is_alive()
 
     service.scheduler.waiter = ReleaseAtDeadline()
-    result = asyncio.run(
-        service.start(
-            request(settings=ExecutionSettings(concurrency=1, deadline_seconds=1)),
-            operation_id="start-deadline-contention",
+    try:
+        result = asyncio.run(
+            service.start(
+                request(settings=ExecutionSettings(concurrency=1, deadline_seconds=1)),
+                operation_id="start-deadline-contention",
+            )
         )
-    )
+    finally:
+        release_lock.set()
+        if holder is not None:
+            holder.join(timeout=2)
 
     assert holder is not None and not holder.is_alive()
     assert factory.calls == []
