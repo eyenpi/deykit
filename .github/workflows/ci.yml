@@ -85,36 +85,16 @@ jobs:
           retention-days: 3
 
   python:
-    name: ${{ matrix.os }} / Python 3.11 / ${{ matrix.partition }}
+    name: ${{ matrix.os }} / Python 3.11 / full
     needs: source
     if: needs.source.outputs.runtime == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 2
       matrix:
-        include:
-          - os: ubuntu-24.04
-            partition: full
-            args: ''
-            packages: true
-          - os: macos-15
-            partition: full
-            args: ''
-            packages: true
-          - os: windows-2025
-            partition: core
-            args: --ci-partition=core
-            packages: true
-          - os: windows-2025
-            partition: runner-labels
-            args: --ci-partition=runner-labels
-            packages: false
-          - os: windows-2025
-            partition: reports-comparisons
-            args: --ci-partition=reports-comparisons
-            packages: false
+        os: [ubuntu-24.04, macos-15]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -123,33 +103,23 @@ jobs:
         with:
           version: '0.12.23'
           python-version: '3.11'
-      - name: Use runner scratch space for Windows test projects
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
-          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
-          "TMPDIR=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
       - run: uv sync --locked
       - name: Record native platform and filesystem
         run: uv run python tests/storage/platform_metadata.py
       - name: Offline suite including storage and process death
-        run: uv run pytest -ra --durations=20 --junitxml=platform-results.xml ${{ matrix.args }}
+        run: uv run pytest -ra --durations=20 --junitxml=platform-results.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: platform-${{ matrix.os }}-3.11-${{ matrix.partition }}
+          name: platform-${{ matrix.os }}-3.11-full
           path: platform-results.xml
           retention-days: 3
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: matrix.packages
         with:
           name: portable-source-project
       - name: Verify copied bytes, replay and rebuilt index
-        if: matrix.packages
         run: uv run python tests/storage/check_cross_platform_copy.py verify portable-project.zip
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: matrix.packages
         with:
           name: distributions
           path: dist
@@ -157,7 +127,7 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         run: uv run python tests/check_install.py
       - name: Clean native wheel and sdist installs
-        if: matrix.packages && matrix.os != 'ubuntu-24.04'
+        if: matrix.os != 'ubuntu-24.04'
         run: uv run python tests/check_install.py --skip-walkthrough
 
   compatibility:

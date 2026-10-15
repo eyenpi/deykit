@@ -10,8 +10,9 @@ and safe errors. Labels and credentials never enter model input.
 
 Run relevant offline tests, Ruff, mypy and package checks. Run expensive local commands
 sequentially with one verification process. Native CI jobs use independent hosted
-machines; each runs one test worker. Full suites run once per OS; Windows uses
-disjoint partitions, and Python 3.13 has a focused compatibility job. Static checks
+machines; each runs one test worker. Full suites run on Linux and macOS;
+Python 3.13 has a focused Linux compatibility job. Windows CI is disabled to
+limit runner time; native Windows verification is deferred. Static checks
 and artifact builds run once. Known documentation-only changes skip runtime jobs. Do not run live provider requests
 as part of tests or CI. There is no frontend build or browser dependency.
 

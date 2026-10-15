@@ -235,13 +235,15 @@ above. Windows-specific code and authored call checks are not evidence of execut
 Windows; native Windows validation remains a separate gate. Neither path adds a
 power-loss durability claim.
 
-`ci.yml` runs the full offline suite on `ubuntu-24.04`, `macos-15` and
-`windows-2025`, Python 3.11/3.13. It records OS/build, Python patch, architecture,
-filesystem, SQLite, commit and lockfile identity, and archives JUnit skip/results.
+`ci.yml` runs the full offline suite on `ubuntu-24.04` and `macos-15` with
+Python 3.11, plus focused Python 3.13 checks on Ubuntu. Windows CI is disabled
+to limit runner time; native Windows verification is deferred.
+The native jobs record OS/build, Python patch, architecture,
+filesystem, SQLite, commit and lockfile identity, and archive JUnit skip/results.
 Ubuntu creates a quiescent source/history archive; every matrix host verifies its
 exact byte hashes, idempotent replay and index rebuild. Clean wheel/sdist checks run
-outside the checkout without Node on PATH, but cover only the current basic installed
-CLI/codec check, not the full installed demo/CLI workflow gate.
+outside the checkout without Node on PATH. Both platforms check installed CLI/codec
+behavior; Linux also runs the complete installed authored terminal walkthrough.
 Windows hosted Server CI does not demonstrate a physical Windows 11 desktop. Read
 actual PR checks for results; a workflow definition is not platform evidence.
 
@@ -287,7 +289,7 @@ Automated local evidence includes exact-byte and hash inventories, real POSIX ha
 symlink, FIFO and retained-ancestor races, fresh snapshot/commit conflict checks, cleanup,
 and linear operation counts on 10 and 1000 leaves. Case-sensitive collision injections
 run only when the actual filesystem supports two names differing only by case. Windows
-native traversal and handle-count acceptance still require the real Windows CI matrix;
+native traversal and handle-count acceptance still require real Windows verification;
 no Windows result is inferred from POSIX execution.
 
 

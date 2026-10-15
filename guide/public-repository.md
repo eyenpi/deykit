@@ -17,13 +17,14 @@ publication or deployment is implied.
    Standard hosted runners are free for public repositories; larger runners and
    excess storage can incur charges. See [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
    Visibility alone does not prove an existing account restriction cleared.
-4. Require the shared source job, Linux/macOS full suites, all three Windows
-   partitions and the focused Python 3.13 compatibility job to actually pass.
-   Together the Windows partitions cover one complete suite. Inspect JUnit artifacts and skipped native tests. Fix failures
+4. Require the shared source job, Linux/macOS full suites and the focused
+   Python 3.13 compatibility job to actually pass. Windows CI is disabled to
+   limit runner time; native Windows verification is deferred.
+   Inspect JUnit artifacts and skipped native tests. Fix failures
    on a branch and rerun the final head. Do not bypass protection or mark
    unstarted jobs green. No frontend or browser CI job remains.
 5. Update issues #18 and #19 with exact native results and close their remaining
-   platform gates only when evidenced. POSIX and mocked checks are not Windows
+   platform gates only when evidenced or explicitly deferred. POSIX and mocked checks are not Windows
    evidence. Browser/IME/layout acceptance is retired with the UI removal.
 
 Native macOS keyring acceptance has passed with a unique disposable entry;

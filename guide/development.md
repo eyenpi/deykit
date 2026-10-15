@@ -26,13 +26,14 @@ no credentials, PYTHONPATH or Node. It also runs the complete authored CLI
 walkthrough once from the wheel.
 
 The `CI` workflow runs shared lint/type checks and builds the artifacts once.
-It runs the full offline suite on Python 3.11 on Linux, macOS and Windows, plus
+It runs the full offline suite on Python 3.11 on Linux and macOS, plus
 focused Python 3.13 checks for exact JSON, records, schemas, providers, metrics
-and CLI compatibility on Linux. Windows divides the full suite into three
-non-overlapping partitions to shorten wall time; it does not drop tests.
+and CLI compatibility on Linux. Windows CI is disabled to limit runner time;
+native Windows verification is deferred. Windows tests and adapters remain
+available for manual verification on a Windows machine.
 
-Each OS checks the same wheel/sdist and copied project. Clean installations and
-CLI probes run on each OS; the complete installed walkthrough runs once on Linux.
+Both CI platforms check the same wheel/sdist and copied project. Clean installations
+and CLI probes run on each; the complete installed walkthrough runs once on Linux.
 Use `tests/check_install.py --skip-walkthrough` for installation probes alone.
 Changes limited to known Markdown guides/instructions skip runtime jobs; shared
 checks, the documented CLI inventory and the redacted history scan still run.
