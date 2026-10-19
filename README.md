@@ -11,46 +11,13 @@ Ask your agent to read [AGENTS.md](AGENTS.md) and the
 [agent workflow guide](guide/agents.md), then work on your examples in a separate
 local project. A useful starting request is:
 
-> Use Deykit to evaluate this decision on my examples. Start offline, preserve
+> Use https://github.com/eyenpi/deykit to evaluate this decision on my examples. Start offline, preserve
 > exact inputs, show failures and exclusions, and export a report. Ask for live
 > execution only if my request has not already authorized the provider and limits.
 
 The instructions are self-contained and require no private services. The CLI
 returns versioned JSON, exposes its current command parameters, previews work,
 and preserves immutable results and retry receipts.
-
-## Start from a checkout
-
-Requires Python 3.11+ and uv. Clone this repo or use an existing checkout:
-
-```sh
-git clone https://github.com/eyenpi/deykit.git
-cd deykit
-uv sync --locked
-uv run deykit --json capabilities
-uv run deykit --json capabilities run
-uv run python guide/examples/agent-quickstart.py --output /absolute/new/deykit-example
-```
-
-Choose a new output directory. The quickstart discovers the CLI, creates a demo,
-previews and executes one fixture case, verifies safe replay, checks a missing
-selector, and exports a report with structured command receipts. It needs no key
-and makes no provider requests. Fixture outcomes are authored software evidence;
-they do not measure model quality.
-
-For commands launched from another working directory, pin both locations:
-
-```sh
-uv run --directory /absolute/deykit -- deykit \
-  --project /absolute/your-project --json project validate
-```
-
-The [full offline walkthrough](guide/cli-workflow.md) covers authoring exact JSON,
-labels, comparisons, reevaluation, diagnostics and frozen regression checks:
-
-```sh
-uv run python guide/examples/cli-workflow.py --output /absolute/new/walkthrough
-```
 
 ## Workflows
 
