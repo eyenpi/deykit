@@ -38,7 +38,7 @@ def _has_persisted_version(value: object) -> bool:
 
 
 def _validation_tree(value: JsonValue) -> JsonValue:
-    """Normalize exact numbers only in a copy used to validate the owned report envelope."""
+    """Normalize exact numbers only in a copy used to validate owned report models."""
     if isinstance(value, dict):
         return {key: _validation_tree(item) for key, item in value.items()}
     if isinstance(value, list):

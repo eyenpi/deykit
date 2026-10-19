@@ -29,6 +29,7 @@ from deykit.contracts.ports import (
 )
 from deykit.contracts.records import ProjectRecord
 from deykit.storage._body_validation import _SuccessfulBodyValidationMemo
+from deykit.storage._journal_validation import _SuccessfulJournalValidationMemo
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
 from deykit.storage.index import SourceIndex
@@ -140,6 +141,7 @@ class FileProjectSource:
         self._mutex = threading.RLock()
         self._local = threading.local()
         self._body_validation = _SuccessfulBodyValidationMemo()
+        self._journal_validation = _SuccessfulJournalValidationMemo()
         self._admission_timeout_seconds = admission_timeout_seconds
         self._admission_condition = threading.Condition()
         self._admission_waiters: deque[object] = deque()
@@ -165,6 +167,7 @@ class FileProjectSource:
                 self.files.close()
             finally:
                 self._body_validation.clear()
+                self._journal_validation.clear()
 
     def _validate_source_body(self, key: ResourceKey, body: bytes) -> None:
         if getattr(self._local, "source_depth", 0) <= 0:
@@ -538,7 +541,11 @@ class FileProjectSource:
         if body is None:
             fail("journal_manifest_missing", "conflict")
         try:
-            manifest = load_record(JournalManifest, body)
+            manifest = (
+                self._journal_validation.load(JournalManifest, body)
+                if getattr(self._local, "source_depth", 0) > 0
+                else load_record(JournalManifest, body)
+            )
         except JsonError:
             fail("journal_invalid", "conflict")
         if manifest.operation_id != folder[-1]:
@@ -547,7 +554,11 @@ class FileProjectSource:
         if decision is None:
             fail("journal_decision_missing", "conflict")
         try:
-            marker = load_record(CommitDecision, decision)
+            marker = (
+                self._journal_validation.load(CommitDecision, decision)
+                if getattr(self._local, "source_depth", 0) > 0
+                else load_record(CommitDecision, decision)
+            )
         except JsonError:
             fail("journal_invalid", "conflict")
         if marker.operation_id != manifest.operation_id or marker.manifest_hash != bytes_hash(body):
@@ -585,8 +596,10 @@ class FileProjectSource:
     def _recover(self) -> None:
         # Completed history must be intact before even recovery may alter source.
         # Pending replacements can temporarily differ from the latest completed ledger.
-        self._check_integrity(self._all(), check_current=False)
-        for operation_id in self.files.names(("history", "journal")):
+        pending = self.files.names(("history", "journal"))
+        if pending:
+            self._check_integrity(self._all(), check_current=False)
+        for operation_id in pending:
             try:
                 validate_resource_id(operation_id)
             except ValueError:

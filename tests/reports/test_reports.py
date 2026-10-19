@@ -79,7 +79,11 @@ from deykit.reports.models import (
     ReportRequest,
     ReportView,
 )
-from deykit.reports.projection import project_json_source, project_opaque_response_bytes
+from deykit.reports.projection import (
+    _admit_evaluation_metrics,
+    project_json_source,
+    project_opaque_response_bytes,
+)
 from deykit.reports.render import render_content
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
@@ -209,8 +213,7 @@ class UnknownOnceBackends(BackendFactory):
         return ControlledBackend()
 
 
-@pytest.fixture(scope="session")
-def group_report_graph(
+def build_group_report_graph(
     fixture_graph: FixtureGraph, tmp_path_factory: pytest.TempPathFactory
 ) -> GroupReportGraph:
     """Build once, or reuse DEYKIT_TEST_REPORT_GROUP_PROJECT from a prior authored run."""
@@ -611,8 +614,7 @@ def group_report_graph(
         )
 
 
-@pytest.fixture(scope="session")
-def fixture_graph(tmp_path_factory: pytest.TempPathFactory) -> FixtureGraph:
+def build_fixture_graph(tmp_path_factory: pytest.TempPathFactory) -> FixtureGraph:
     reused_root = os.environ.get("DEYKIT_TEST_REPORT_PROJECT")
     if reused_root is not None:
         root = Path(reused_root).resolve()
@@ -797,6 +799,70 @@ class MemorySnapshotSource:
 
 def snapshot(graph: FixtureGraph) -> tuple[StoredRecord, ...]:
     return graph.records
+
+
+@pytest.mark.parametrize("count", [100, 1000, 10**20, 10**30 + 1000])
+def test_metrics_projection_preserves_exact_exponent_counts(
+    fixture_graph: FixtureGraph, count: int
+) -> None:
+    record = next(
+        item
+        for item in fixture_graph.records
+        if item.key == ResourceKey("evaluations", fixture_graph.evaluation_id)
+    )
+    evaluation = load_record(EvaluationRecord, record.body)
+    metrics = parse_json(evaluation.metrics_source)
+    assert isinstance(metrics, dict)
+    baseline = metrics["baseline"]
+    assert isinstance(baseline, dict)
+    baseline["fit_support"] = count
+    source = dump_json(metrics)
+    assert f'"fit_support":{count}' not in source
+    projected = _admit_evaluation_metrics(source)
+    assert type(projected.baseline.fit_support) is int
+    assert projected.baseline.fit_support == count
+
+
+@pytest.mark.parametrize(
+    "count",
+    [Decimal("100.5"), Decimal("100.000000000000000000000000001"), True, "100", -100],
+)
+def test_metrics_projection_rejects_noninteger_or_invalid_counts(
+    fixture_graph: FixtureGraph, count
+) -> None:
+    record = next(
+        item
+        for item in fixture_graph.records
+        if item.key == ResourceKey("evaluations", fixture_graph.evaluation_id)
+    )
+    evaluation = load_record(EvaluationRecord, record.body)
+    metrics = parse_json(evaluation.metrics_source)
+    assert isinstance(metrics, dict)
+    baseline = metrics["baseline"]
+    assert isinstance(baseline, dict)
+    baseline["fit_support"] = count
+    with pytest.raises(ServiceFailure) as error:
+        _admit_evaluation_metrics(dump_json(metrics))
+    assert error.value.error.reason == "report_metrics_mismatch"
+
+
+@pytest.mark.parametrize("version", ["1", "1.0", "1e0", "true", '"1"'])
+def test_metrics_projection_preserves_strict_explicit_record_version(
+    fixture_graph: FixtureGraph, version: str
+) -> None:
+    record = next(
+        item
+        for item in fixture_graph.records
+        if item.key == ResourceKey("evaluations", fixture_graph.evaluation_id)
+    )
+    evaluation = load_record(EvaluationRecord, record.body)
+    source = evaluation.metrics_source[:-1] + ',"schema_version":' + version + "}"
+    if version == "1":
+        assert _admit_evaluation_metrics(source).schema_version == 1
+        return
+    with pytest.raises(ServiceFailure) as error:
+        _admit_evaluation_metrics(source)
+    assert error.value.error.reason == "report_metrics_mismatch"
 
 
 def test_sanitizer_and_raw_material_keep_exact_source_and_opaque_bytes() -> None:

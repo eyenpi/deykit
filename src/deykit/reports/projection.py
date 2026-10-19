@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import json
+from decimal import Decimal
 from typing import Literal, cast
 
 from deykit.application.dataset_support import fail
@@ -26,6 +28,7 @@ from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import PreparedCase
 from deykit.contracts.redaction import Sanitizer, safe_choice_response
 from deykit.metrics import assess_results
+from deykit.reports.admission import _require_integer_record_version, _validation_tree
 from deykit.reports.models import (
     AttemptEvidence,
     EvaluationMetrics,
@@ -98,7 +101,12 @@ def _admit_evaluation_metrics(source: str) -> EvaluationMetrics:
         parsed = parse_json(source)
         if not isinstance(parsed, dict) or parsed.get("profile") != "deykit-evaluation-v1":
             fail("report_metrics_mismatch", "incompatible_data")
-        metrics = EvaluationMetrics.model_validate_json(source)
+        # Record versions retain strict integer tokens while counts are normalized.
+        _require_integer_record_version(json.loads(source, parse_float=Decimal))
+        validation_source = json.dumps(
+            _validation_tree(parsed), ensure_ascii=False, allow_nan=False
+        )
+        metrics = EvaluationMetrics.model_validate_json(validation_source)
     except ValueError:
         fail("report_metrics_mismatch", "incompatible_data")
     # P10 metrics_source is a profile source, not a persisted Record envelope.

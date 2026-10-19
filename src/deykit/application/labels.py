@@ -16,8 +16,8 @@ from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
 from deykit.contracts.ports import (
     Clock,
     CommitReceipt,
-    ProjectSource,
     ResourceKey,
+    SnapshotSource,
     SourceChange,
     StoredRecord,
 )
@@ -103,20 +103,80 @@ class LabelMutation:
 class LabelService:
     def __init__(
         self,
-        source: ProjectSource,
+        source: SnapshotSource,
         clock: Clock,
         id_factory: Callable[[], str] = new_id,
         *,
         capture_snapshot: Callable[[], tuple[StoredRecord, ...]] | None = None,
     ) -> None:
         self.source, self.clock, self.id_factory = source, clock, id_factory
-        self.capture_snapshot = capture_snapshot
+        self.capture_snapshot = capture_snapshot or (lambda: self.source.capture_snapshot())
 
-    def _context(self, decision_id: str) -> tuple[ChoiceDefinition, str, str]:
-        decision = required(self.source, ResourceKey("decisions", identifier(decision_id)))
-        decoded(DecisionRecord, decision)
-        draft = required(self.source, ResourceKey("drafts", decision_id))
-        return self._context_from_records(decision, draft)
+    def _capture_index(self) -> dict[ResourceKey, StoredRecord]:
+        index: dict[ResourceKey, StoredRecord] = {}
+        for record in self.capture_snapshot():
+            if record.key in index:
+                fail("duplicate_captured_key", "incompatible_data")
+            index[record.key] = record
+        return index
+
+    @staticmethod
+    def _snapshot_required(
+        index: dict[ResourceKey, StoredRecord], key: ResourceKey
+    ) -> StoredRecord:
+        record = index.get(key)
+        if record is None:
+            raise ServiceFailure(ServiceError(code="not_found", resource_id=key.resource_id))
+        return record
+
+    def _read_from_index(
+        self,
+        index: dict[ResourceKey, StoredRecord],
+        decision_id: str,
+        dataset_id: str,
+        case_id: str,
+        question_id: str | None,
+    ) -> LabelView:
+        definition, decision_etag, draft_etag = self._context_from_records(
+            self._snapshot_required(index, ResourceKey("decisions", decision_id)),
+            self._snapshot_required(index, ResourceKey("drafts", decision_id)),
+        )
+        decoded(DatasetRecord, self._snapshot_required(index, ResourceKey("datasets", dataset_id)))
+        case = decoded(
+            CaseRecord, self._snapshot_required(index, ResourceKey("cases", case_id, (dataset_id,)))
+        )
+        if case.id != case_id or case.dataset_id != dataset_id:
+            fail("invalid_record")
+        question = question_id if question_id is not None else definition.questions[0].id
+        return self._view_from_records(
+            decision_id,
+            dataset_id,
+            case_id,
+            question,
+            definition,
+            decision_etag,
+            draft_etag,
+            case,
+            index.get(
+                ResourceKey("labels", label_id(case_id, question), (decision_id, dataset_id))
+            ),
+        )
+
+    def _require_editable(
+        self, index: dict[ResourceKey, StoredRecord], review: LabelReview
+    ) -> None:
+        decision = decoded(
+            DecisionRecord,
+            self._snapshot_required(index, ResourceKey("decisions", review.decision_id)),
+        )
+        dataset = decoded(
+            DatasetRecord,
+            self._snapshot_required(index, ResourceKey("datasets", review.dataset_id)),
+        )
+        if decision.archived:
+            fail("decision_archived", "conflict")
+        if dataset.archived:
+            fail("dataset_archived", "conflict")
 
     @staticmethod
     def _context_from_records(
@@ -174,26 +234,8 @@ class LabelService:
     ) -> LabelView:
         self._read_controls(decision_id, dataset_id, case_id, question_id)
         with self.source.consistent_read():
-            definition, decision_etag, draft_etag = self._context(decision_id)
-            required(self.source, ResourceKey("datasets", identifier(dataset_id)))
-            case = decoded(
-                CaseRecord,
-                required(self.source, ResourceKey("cases", identifier(case_id), (dataset_id,))),
-            )
-            question = question_id if question_id is not None else definition.questions[0].id
-            stored = self.source.read(
-                ResourceKey("labels", label_id(case_id, question), (decision_id, dataset_id))
-            )
-            return self._view_from_records(
-                decision_id,
-                dataset_id,
-                case_id,
-                question,
-                definition,
-                decision_etag,
-                draft_etag,
-                case,
-                stored,
+            return self._read_from_index(
+                self._capture_index(), decision_id, dataset_id, case_id, question_id
             )
 
     def list(
@@ -217,45 +259,12 @@ class LabelService:
             admission.resource(cursor)
         if not 1 <= admission.integer(limit, "invalid_page_limit") <= 500:
             fail("invalid_page_limit")
-        capture_snapshot = self.capture_snapshot
-        if capture_snapshot is not None:
-            return self._list_from_snapshot(
-                capture_snapshot,
-                decision_id,
-                dataset_id,
-                status=status,
-                cursor=cursor,
-                limit=limit,
-            )
-        with self.source.consistent_read():
-            definition, _, _ = self._context(decision_id)
-            required(self.source, ResourceKey("datasets", identifier(dataset_id)))
-            pairs = {
-                (case_id, definition.questions[0].id)
-                for case_id in self.source.list_ids("cases", (dataset_id,))
-            }
-            for key in self.source.list_ids("labels", (decision_id, dataset_id)):
-                label = self._label(
-                    required(self.source, ResourceKey("labels", key, (decision_id, dataset_id)))
-                )
-                pairs.add((label.case_id, label.question_id))
-            views = {
-                label_id(case, question): self.read(
-                    decision_id, dataset_id, case, question_id=question
-                )
-                for case, question in sorted(pairs)
-            }
-            visible = tuple(
-                key
-                for key, view in views.items()
-                if status is None or status == view.status or status in view.reasons
-            )
-            chosen, next_cursor = page(visible, cursor, limit)
-            return LabelPage(tuple(views[key] for key in chosen), len(visible), next_cursor)
+        return self._list_from_snapshot(
+            decision_id, dataset_id, status=status, cursor=cursor, limit=limit
+        )
 
     def _list_from_snapshot(
         self,
-        capture_snapshot: Callable[[], tuple[StoredRecord, ...]],
         decision_id: str,
         dataset_id: str,
         *,
@@ -264,24 +273,15 @@ class LabelService:
         limit: int,
     ) -> LabelPage:
         with self.source.consistent_read():
-            records = capture_snapshot()
-            index: dict[ResourceKey, StoredRecord] = {}
+            index = self._capture_index()
             scoped_ids: dict[tuple[str, tuple[str, ...]], list[str]] = {}
-            for record in records:
-                if record.key in index:
-                    fail("duplicate_captured_key", "incompatible_data")
-                index[record.key] = record
+            for record in index.values():
                 scoped_ids.setdefault((record.key.collection, record.key.scope), []).append(
                     record.key.resource_id
                 )
 
             def snapshot_required(key: ResourceKey) -> StoredRecord:
-                record = index.get(key)
-                if record is None:
-                    raise ServiceFailure(
-                        ServiceError(code="not_found", resource_id=key.resource_id)
-                    )
-                return record
+                return self._snapshot_required(index, key)
 
             definition, decision_etag, draft_etag = self._context_from_records(
                 snapshot_required(ResourceKey("decisions", identifier(decision_id))),
@@ -437,22 +437,16 @@ class LabelService:
             ]
             if len(set(targets)) != len(targets):
                 fail("duplicate_label_target")
+            index = self._capture_index()
             prepared: list[tuple[LabelEdit, LabelView]] = []
             for edit in edits:
                 r = edit.review
-                view = self.read(r.decision_id, r.dataset_id, r.case_id, question_id=r.question_id)
+                view = self._read_from_index(
+                    index, r.decision_id, r.dataset_id, r.case_id, r.question_id
+                )
                 if view.review != r:
                     fail("label_review_changed", "conflict")
-                dataset = decoded(
-                    DatasetRecord, required(self.source, ResourceKey("datasets", r.dataset_id))
-                )
-                decision = decoded(
-                    DecisionRecord, required(self.source, ResourceKey("decisions", r.decision_id))
-                )
-                if decision.archived:
-                    fail("decision_archived", "conflict")
-                if dataset.archived:
-                    fail("dataset_archived", "conflict")
+                self._require_editable(index, r)
                 self._validate(edit, view)
                 prepared.append((edit, view))
             changes: list[SourceChange] = []
@@ -521,15 +515,17 @@ class LabelService:
                     )
                 )
             # Detect external source edits during preparation, too. Cooperating writers are locked.
+            fresh = self._capture_index()
             for edit, _ in prepared:
                 r = edit.review
                 if (
-                    self.read(
-                        r.decision_id, r.dataset_id, r.case_id, question_id=r.question_id
+                    self._read_from_index(
+                        fresh, r.decision_id, r.dataset_id, r.case_id, r.question_id
                     ).review
                     != r
                 ):
                     fail("label_review_changed", "conflict")
+                self._require_editable(fresh, r)
             return self._result(
                 self.source.commit(operation_id, tuple(changes), intent_hash=digest)
             )
