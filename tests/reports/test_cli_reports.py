@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -15,7 +16,18 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-pytest_plugins = ("test_reports",)
+from deykit.application.evaluations import EvaluationService
+from deykit.application.execution import ExecutionService
+from deykit.application.imports import ImportService
+from deykit.application.labels import LabelEdit, LabelService
+from deykit.cli.context import SystemClock
+from deykit.cli.main import app
+from deykit.contracts.json_value import dump_json, parse_json
+from deykit.domain.import_mapping import ImportMapping
+from deykit.providers.choice import JevChoiceCompiler
+from deykit.runner.backends import ProviderBackends
+from deykit.runner.planner import RunRequest
+from deykit.storage import FileProjectSource
 
 
 def _executable() -> Path:
@@ -95,6 +107,136 @@ def test_installed_console_registers_report_commands_and_flags(plain_terminal_te
         "--format",
     ):
         assert option in plain_terminal_text(export_help)
+
+
+def test_cli_saved_run_exports_exact_exponent_count_without_provider_calls(tmp_path, monkeypatch):
+    project = tmp_path / "exponent count project"
+    info = _payload(_console(project, "demo", str(project), "--operation-id", "exponent-demo"))[
+        "data"
+    ]["info"]
+    clock = SystemClock()
+    with FileProjectSource(project) as source:
+        imports = ImportService(source, clock)
+        preview = imports.preview(
+            info["dataset_id"],
+            "\n".join(
+                dump_json(
+                    {
+                        "id": f"fit-{number}",
+                        "input": {"text": f"Question {number}?", "context": {"source": "fixture"}},
+                    }
+                )
+                for number in range(91)
+            ),
+            format="jsonl",
+            mapping=ImportMapping(input_kind="json", input_column="input", id_column="id"),
+            decision_id=info["decision_id"],
+        )
+        assert not preview.exclusions
+        imported = imports.commit(preview, operation_id="exponent-import")
+        labels = LabelService(source, clock, capture_snapshot=source.capture_snapshot)
+        reviews = labels.list(info["decision_id"], info["dataset_id"], limit=500)
+        assert reviews.next_cursor is None
+        labels.batch(
+            tuple(
+                LabelEdit(
+                    view.review,
+                    action="set",
+                    acceptable_option_ids=("question",),
+                    provenance="model_generated",
+                )
+                for view in reviews.items
+                if view.case.id in imported.imported_case_ids
+            ),
+            operation_id="exponent-labels",
+        )
+        runner = ExecutionService(source, source, ProviderBackends(source, clock), clock)
+        request = RunRequest(
+            decision_id=info["decision_id"],
+            dataset_id=info["dataset_id"],
+            revision_id=info["revision_id"],
+            mode="fixture",
+            fixture_set_id=info["fixture_set_id"],
+            case_ids=("ex-001",),
+        )
+        assert runner.preview(request).initial_requests == 1
+        run = asyncio.run(runner.start(request, operation_id="exponent-run"))
+        assert run.latest_result_snapshot_id is not None
+        evaluation = (
+            EvaluationService(source, clock)
+            .evaluate_saved(
+                run.run_id, run.latest_result_snapshot_id, operation_id="exponent-evaluation"
+            )
+            .record
+        )
+        assert '"fit_support":1e2' in evaluation.metrics_source
+        saved_evidence = source.capture_snapshot()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("exporting saved evidence must not resolve a backend, compile or evaluate")
+
+    monkeypatch.setattr(ProviderBackends, "resolve", forbidden)
+    monkeypatch.setattr(JevChoiceCompiler, "compile", forbidden)
+    monkeypatch.setattr(EvaluationService, "evaluate_saved", forbidden)
+
+    def export(*args):
+        result = CliRunner().invoke(
+            app, ["--project", str(project), "--json", "report", "export", *args]
+        )
+        assert result.exit_code == 0, result.output
+        assert result.stderr == ""
+        outcome = json.loads(result.stdout)["data"]
+        assert outcome["success"] is True
+        return outcome
+
+    json_path = tmp_path / "report.json"
+    created = export(
+        run.run_id,
+        "--target-kind",
+        "run",
+        "--evaluation",
+        evaluation.id,
+        "--format",
+        "json",
+        "--output",
+        str(json_path),
+        "--operation-id",
+        "exponent-report",
+    )
+    artifact = parse_json(json_path.read_bytes())
+    context = artifact["content"]["evaluations"][0]["context"]
+    assert context["evaluation_hash"] == evaluation.content_hash
+    saved_metrics = parse_json(evaluation.metrics_source)
+    projected_metrics = artifact["content"]["evaluations"][0]["metrics"]
+    assert projected_metrics.pop("schema_version") == 1
+    assert projected_metrics == saved_metrics
+    assert projected_metrics["baseline"]["fit_support"] == 100
+    report_id = created["report"]["report_id"]
+    for format_name in ("json", "markdown"):
+        destination = tmp_path / f"reexport.{format_name}"
+        outcome = export(
+            "--report-id", report_id, "--format", format_name, "--output", str(destination)
+        )
+        assert outcome["report"] == created["report"]
+        if format_name == "json":
+            assert destination.read_bytes() == json_path.read_bytes()
+        else:
+            markdown = destination.read_text(encoding="utf-8")
+            assert "- Fitting support: 100;" in markdown
+            for identity in (
+                report_id,
+                artifact["content_hash"],
+                run.run_id,
+                evaluation.id,
+                evaluation.result_snapshot_id,
+                evaluation.label_snapshot_id,
+            ):
+                assert identity in markdown
+    with FileProjectSource(project) as source:
+        assert (
+            tuple(item for item in source.capture_snapshot() if item.key.collection != "reports")
+            == saved_evidence
+        )
 
 
 def test_console_exports_each_target_and_pinned_group_snapshots(cli_report_project):
