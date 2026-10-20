@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 
 from deykit.application.dataset_support import decoded, fail, identifier, safe_hash
 from deykit.contracts.base import Record
@@ -15,6 +15,7 @@ from deykit.contracts.ports import (
     Clock,
     Collection,
     CommitReceipt,
+    RecordViewSource,
     ResourceKey,
     SnapshotSource,
     SourceChange,
@@ -106,7 +107,11 @@ class RunRepository:
         return identifier(self.id_factory())
 
     def history(self, run_id: str) -> RunHistory:
-        return read_history(self.source, identifier(run_id), decoder=self._decoder)
+        run_id = identifier(run_id)
+        if callable(getattr(self.source, "read_records", None)):
+            records = cast(RecordViewSource, self.source).read_records()
+            return history_from_records(records, run_id, decoder=self._decoder)
+        return read_history(self.source, run_id, decoder=self._decoder)
 
     @staticmethod
     def replay_run(receipt: CommitReceipt) -> str:

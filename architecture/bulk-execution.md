@@ -154,3 +154,52 @@ Final offline verification after the internal hash-budget repair: 1328 tests pas
 21 skipped; Ruff, formatting, mypy, source/wheel builds and clean wheel/sdist CLI
 installation checks passed on this macOS host. No live provider or native Windows
 verification was performed.
+
+## Follow-up: bounded I/O profiling
+
+The next iteration uses 100 cases, then 300, then 1000. It does not rerun the full
+suite or the 10000-case execution. Two avoidable costs were reproduced before fixing:
+16 updates enumerated one sibling directory 68 times, and two operational history
+reads in an admitted epoch performed three full source walks instead of one.
+
+`SafeFiles.read_many` now selects exact paths through one anchored walk of their
+shared parents. Staging and application use ordered batch writes on POSIX, retaining
+only the current directory ancestry. Directory spelling is checked on entry and exit;
+each replacement still checks the target type/link count and retains file/directory
+flushes. Existing `staged:N` and `applied:N` fault checkpoints remain in order. Handles
+and spelling inventories are discarded at the end of each batch. Windows retains
+individual writes plus final spelling checks; no Windows speedup is claimed.
+
+Operational repository reads can use the optional `RecordViewSource` capability.
+Each new lock acquisition still reads and validates source/history bytes; nested
+observations reuse that admitted view, just as individual source reads do. Independent
+snapshot comparisons for previews/freezing and the fresh source comparison before a
+commit decision remain in place. Adapters exposing only `SnapshotSource` retain their
+existing snapshot-based history path. Stored layout, request bytes and hash profiles
+are unchanged.
+
+| Cases | Mode | Before execution (s) | After execution (s) |
+| ---: | --- | ---: | ---: |
+| 100 | Profiled | 3.571 | 2.207 |
+| 300 | Profiled | 15.184 | 8.173 |
+| 1000 | Unprofiled, earlier baseline | 59.239 | 31.285 |
+
+Every row completed with exactly N planned cases, unique transport calls, attempts
+and valid saved results. Imported bytes, input hashes and every compiled request were
+independently compared and match. Both 100/300 pairs were measured in this iteration;
+the 1000 baseline is the earlier measurement above, not a new matched host timing.
+Profiled timings are not compared with unprofiled timings.
+
+At 300 cases, path-spelling checks fell from 66472 to 1029, directory listings from
+93884 to 14134, and full source walks from 61 to 36. A separate read of the completed
+1000-case project captured 9018 records: 5.130 seconds cold and 0.824 seconds warm,
+with profiling enabled. Even the warm read opened 19185 filesystem objects. Fresh
+whole-project traversal remains the scaling floor; these reductions do not establish
+that the 10000-case runtime is acceptable. Removing that floor requires a separate
+decision about compact storage for immutable lifecycle evidence.
+
+Focused storage/recovery checks passed (40 tests in 6.9 seconds); batch traversal,
+corruption, group snapshot and bulk runner checks passed (88 tests, 3 skipped, in
+29.4 seconds); body validation, paths, replacements and API route checks passed
+(32 tests, 2 skipped, in 0.7 seconds). Ruff, formatting, mypy and package builds passed.
+The earlier full-suite result applies to the preceding commit, not this follow-up.

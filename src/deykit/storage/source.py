@@ -321,6 +321,13 @@ class FileProjectSource:
                 )
             )
 
+    def read_records(self) -> tuple[StoredRecord, ...]:
+        """Operational observation; snapshot capture additionally checks independent bytes."""
+        with self.consistent_read():
+            records = self._all()
+            self._check_integrity(records)
+            return records
+
     def capture_snapshot(
         self, keys: tuple[ResourceKey, ...] | None = None
     ) -> tuple[StoredRecord, ...]:
@@ -466,8 +473,8 @@ class FileProjectSource:
                 return self._receipt(archived, manifest, replayed=True)
             existing = {record.key: record for record in current}
             entries: list[JournalEntry] = []
+            self.files.read_many(tuple(key_path(change.key) for change in ordered))
             for change in ordered:
-                self.files.check_path_spelling(key_path(change.key))
                 if change.key.collection == "project" and change.body is None:
                     fail("project_identity_immutable", "conflict")
                 old = existing.get(change.key)
@@ -509,13 +516,21 @@ class FileProjectSource:
             manifest_body = dump_record(manifest)
             stage = ("history", "journal", operation_id)
             self.files.mkdir(stage)
+            staged: list[tuple[Parts, bytes | None]] = []
+            checkpoints: dict[int, int] = {}
             for index, change in enumerate(ordered):
                 old = existing.get(change.key)
                 if old is not None:
-                    self.files.replace((*stage, f"old-{index}.json"), old.body)
+                    staged.append(((*stage, f"old-{index}.json"), old.body))
                 if change.body is not None:
-                    self.files.replace((*stage, f"new-{index}.json"), change.body)
-                self._hook(f"staged:{index}")
+                    staged.append(((*stage, f"new-{index}.json"), change.body))
+                checkpoints[len(staged) - 1] = index
+
+            def after_stage(index: int) -> None:
+                if index in checkpoints:
+                    self._hook(f"staged:{checkpoints[index]}")
+
+            self.files.apply_many(tuple(staged), after_write=after_stage)
             self.files.replace((*stage, "manifest.json"), manifest_body)
             self._hook("prepared")
             if current != self._fresh_all():
@@ -609,11 +624,20 @@ class FileProjectSource:
             fail("journal_integrity_error", "conflict")
         return manifest
 
-    def _blob(self, folder: Parts, index: int, entry: JournalEntry, *, old: bool) -> bytes | None:
+    def _blob(
+        self,
+        folder: Parts,
+        index: int,
+        entry: JournalEntry,
+        *,
+        old: bool,
+        bodies: dict[Parts, bytes] | None = None,
+    ) -> bytes | None:
         expected = entry.old_hash if old else entry.new_hash
         if expected is None:
             return None
-        body = self._history_read((*folder, f"{'old' if old else 'new'}-{index}.json"))
+        path = (*folder, f"{'old' if old else 'new'}-{index}.json")
+        body = self._history_read(path) if bodies is None else bodies.get(path)
         if body is None or bytes_hash(body) != expected:
             fail("journal_integrity_error", "conflict")
         self._validate_source_body(entry.key, body)
@@ -622,20 +646,30 @@ class FileProjectSource:
     def _apply(self, folder: Parts, manifest: JournalManifest) -> None:
         # Validate every blob/target before applying anything. Recovery never overwrites
         # unrelated external changes and can repeat after every replacement boundary.
-        new_bodies = []
+        paths = tuple(
+            (*folder, f"{kind}-{index}.json")
+            for index, entry in enumerate(manifest.entries)
+            for kind, digest in (("old", entry.old_hash), ("new", entry.new_hash))
+            if digest is not None
+        )
+        bodies = self.files.read_many((*paths, *(key_path(e.key) for e in manifest.entries)))
+        changes: list[tuple[Parts, bytes | None]] = []
         for index, entry in enumerate(manifest.entries):
-            self._blob(folder, index, entry, old=True)
-            body = self._blob(folder, index, entry, old=False)
-            current = self._read(entry.key)
-            if (current.etag if current else None) not in (entry.old_hash, entry.new_hash):
+            self._blob(folder, index, entry, old=True, bodies=bodies)
+            body = self._blob(folder, index, entry, old=False, bodies=bodies)
+            path = key_path(entry.key)
+            current = bodies.get(path)
+            if current is not None:
+                self._validate_source_body(entry.key, current)
+            if (bytes_hash(current) if current is not None else None) not in (
+                entry.old_hash,
+                entry.new_hash,
+            ):
                 fail("recovery_source_conflict", "conflict")
-            new_bodies.append(body)
-        for index, (entry, body) in enumerate(zip(manifest.entries, new_bodies, strict=True)):
-            if body is None:
-                self.files.unlink(key_path(entry.key))
-            else:
-                self.files.replace(key_path(entry.key), body)
-            self._hook(f"applied:{index}")
+            changes.append((path, body))
+        self.files.apply_many(
+            tuple(changes), after_write=lambda index: self._hook(f"applied:{index}")
+        )
 
     def _recover(self) -> None:
         self._local.records = None
@@ -669,10 +703,17 @@ class FileProjectSource:
     def _receipt(
         self, folder: Parts, manifest: JournalManifest, *, replayed: bool
     ) -> CommitReceipt:
+        bodies = self.files.read_many(
+            tuple(
+                (*folder, f"new-{index}.json")
+                for index, entry in enumerate(manifest.entries)
+                if entry.new_hash is not None
+            )
+        )
         records = []
         deleted = []
         for index, entry in enumerate(manifest.entries):
-            body = self._blob(folder, index, entry, old=False)
+            body = self._blob(folder, index, entry, old=False, bodies=bodies)
             if body is None:
                 deleted.append(entry.key)
             else:

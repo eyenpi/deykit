@@ -147,3 +147,9 @@ class SnapshotSource(ProjectSource, Protocol):
     def capture_snapshot(
         self, keys: tuple[ResourceKey, ...] | None = None
     ) -> tuple[StoredRecord, ...]: ...
+
+
+class RecordViewSource(Protocol):
+    """Admit fresh source/history, then reuse that lock epoch's validated record view."""
+
+    def read_records(self) -> tuple[StoredRecord, ...]: ...

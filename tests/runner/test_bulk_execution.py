@@ -460,3 +460,22 @@ def test_bulk_waiting_transport_does_not_reprocess_unchanged_history(setup, monk
             await task
 
     asyncio.run(run())
+
+
+def test_operational_history_reuses_the_admitted_epoch(setup, monkeypatch):
+    source, service, _, _ = setup(1)
+    result = asyncio.run(service.start(request(), operation_id="view"))
+    walks = []
+    read_tree = source.files.read_tree
+
+    def observe(parts, visitor, **kwargs):
+        if parts == ("source",):
+            walks.append(parts)
+        return read_tree(parts, visitor, **kwargs)
+
+    monkeypatch.setattr(source.files, "read_tree", observe)
+    with source.consistent_read():
+        first = service.repository.history(result.run_id)
+        second = service.repository.history(result.run_id)
+        assert first.results() == second.results()
+    assert len(walks) == 1
