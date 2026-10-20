@@ -11,7 +11,7 @@ class ModelInvalid(ValueError):
     """Only a caller-chosen safe reason; never carries user fields or values."""
 
 
-def admit_model(kind: type[M], value: object, reason: str) -> M:
+def admit_model(kind: type[M], value: object, reason: str, *, max_nodes: int = 100_000) -> M:
     """Rebuild all nested fields, including instances made with model_copy/construct."""
     if type(value) is not kind:
         raise ModelInvalid(reason)
@@ -20,7 +20,7 @@ def admit_model(kind: type[M], value: object, reason: str) -> M:
     def plain(item: object, depth: int = 0) -> object:
         nonlocal count
         count += 1
-        if depth > 64 or count > 100_000:
+        if depth > 64 or count > max_nodes:
             raise ModelInvalid(reason)
         if isinstance(item, BaseModel):
             return plain(vars(item), depth + 1)

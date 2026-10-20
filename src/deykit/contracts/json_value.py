@@ -37,9 +37,11 @@ GENERATED_LIMITS = JsonLimits(max_bytes=2_097_152, max_depth=128, max_nodes=200_
 RECORD_LIMITS = JsonLimits(max_bytes=16_777_216, max_depth=256, max_nodes=1_000_000)
 
 
-def _valid_string(value: str) -> None:
-    if any(0xD800 <= ord(c) <= 0xDFFF for c in value):
-        raise JsonError("invalid_unicode")
+def _valid_string(value: str) -> bytes:
+    try:
+        return value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise JsonError("invalid_unicode") from None
 
 
 def parse_json(source: str | bytes, limits: JsonLimits = DEFAULT_LIMITS) -> JsonValue:
@@ -51,8 +53,7 @@ def parse_json(source: str | bytes, limits: JsonLimits = DEFAULT_LIMITS) -> Json
             source = source.decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             raise JsonError("invalid_utf8") from None
-    _valid_string(source)
-    if len(source.encode("utf-8")) > limits.max_bytes:
+    if len(_valid_string(source)) > limits.max_bytes:
         raise JsonError("json_resource_limit")
 
     def number(token: str) -> Decimal:
@@ -172,7 +173,13 @@ def _number(value: Decimal | int, *, canonical: bool) -> str:
     return prefix + plain
 
 
-def _dump_json(value: JsonValue, *, sort_keys: bool, canonical: bool) -> str:
+def _dump_json(
+    value: JsonValue,
+    *,
+    sort_keys: bool,
+    canonical: bool,
+    limits: JsonLimits = GENERATED_LIMITS,
+) -> str:
     """Exact UTF-8 JSON text. Object insertion order is retained for provider bodies."""
 
     def encode(node: JsonValue) -> str:
@@ -198,7 +205,7 @@ def _dump_json(value: JsonValue, *, sort_keys: bool, canonical: bool) -> str:
         source = encode(value)
     except RecursionError:
         raise JsonError("json_resource_limit") from None
-    parse_json(source, GENERATED_LIMITS)  # Bound derived wire/canonical output separately.
+    parse_json(source, limits)  # Bound derived wire/canonical output separately.
     return source
 
 
@@ -207,12 +214,14 @@ def dump_json(value: JsonValue, *, sort_keys: bool = False) -> str:
     return _dump_json(value, sort_keys=sort_keys, canonical=False)
 
 
-def canonical_bytes(value: JsonValue) -> bytes:
-    return _dump_json(value, sort_keys=True, canonical=True).encode("utf-8")
+def canonical_bytes(value: JsonValue, *, limits: JsonLimits = GENERATED_LIMITS) -> bytes:
+    return _dump_json(value, sort_keys=True, canonical=True, limits=limits).encode("utf-8")
 
 
-def semantic_hash(value: JsonValue) -> str:
-    return hashlib.sha256(HASH_FORMAT.encode() + b"\n" + canonical_bytes(value)).hexdigest()
+def semantic_hash(value: JsonValue, *, limits: JsonLimits = GENERATED_LIMITS) -> str:
+    return hashlib.sha256(
+        HASH_FORMAT.encode() + b"\n" + canonical_bytes(value, limits=limits)
+    ).hexdigest()
 
 
 def bytes_hash(body: bytes) -> str:

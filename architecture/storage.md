@@ -25,15 +25,21 @@ Source methods include read/list/consistent-read/commit, `capture_snapshot(keys=
 below. In a consistent-read context the same instance is reentrant on its owning
 thread; competing threads/processes fail with a safe conflict rather than wait while
 holding unrelated locks. Application read-modify-write work can use that context, but
-must still supply expected ETags for explicit concurrency behavior.
+must still supply expected ETags for explicit concurrency behavior. Nested reads share
+that entered epoch's validated records. New lock acquisitions read fresh source and
+history bytes; snapshots compare independently read bytes and commits recheck source
+before their decision. Pending recovery and potentially visible write failures
+invalidate the entered view. See [bulk execution](bulk-execution.md) for retention
+bounds, execution batching and control checks.
 
 ## Authoritative layout
 
 ```text
 deykit.project.json                  # sole project metadata and ancestor-discovery marker
 source/<collection>/<scope...>/<id>.json
+source/_chunks/<operation-id>.json    # essential manifest hash/sequence references
 history/journal/<operation-id>/       # staged manifests/blobs; recovery required
-history/operations/<operation-id>/    # immutable completed manifests and old/new bodies
+history/operations/<operation-id>/    # immutable manifests and exact bodies (JSON or packs)
 history/cancellations/<run-id>/       # append-only cancellation requests
 history/cancel_ack/<run-id>/          # immutable acknowledgement per resume segment
 .deykit/index.sqlite3                 # disposable derived cache
@@ -43,8 +49,56 @@ history/cancel_ack/<run-id>/          # immutable acknowledgement per resume seg
 Keep the root marker, `source/`, and **all `history/`** in backups/copies/version
 control. Only `.deykit/` is disposable, and removal/copy is supported while the project
 is quiescent. Do not delete lock files while processes own the project. An arbitrary
-copy during mutation is not claimed transactional. Individual readable JSON files are
-used for history rather than sharing a partially writable JSONL tail.
+copy during mutation is not claimed transactional. Each operation owns immutable
+history files; there is no shared writable JSONL tail.
+
+New operations containing at least 16 changes, or any attempts, attempt-events,
+run-events or prepared-cases, use the private `chunks-v1` manifest variant. Exact
+old/new record bytes are framed into `chunk-N.pack` files, normally at most 4 MiB
+each. A single record can exceed that target within its existing 16 MiB limit;
+physical pack reads are bounded at 32 MiB. Every frame identifies its manifest entry
+and old/new role. Lengths, identities, complete membership and both pack and record
+hashes are checked. No input JSON is parsed and reserialized to create a pack.
+
+Those four high-volume immutable collections live in the operation packs and are
+exposed as ordinary logical `StoredRecord` values. Mutable records and other resource
+collections retain their individual source JSON files. Each packed operation also
+has an independent `source/_chunks/` reference bound to its exact manifest bytes and
+sequence, so losing an entire archive is detected. References are not user records.
+Physical records cannot shadow packed immutable identities. New clients read mixed
+legacy and packed operations without rewriting existing evidence. Older clients
+reject this new private variant; projects receiving packed writes require this client
+version or newer. There is no automatic conversion of existing large histories.
+
+`chunks-v2` extends the same framing to mutable cases. Operations with at least 16
+case changes, or any change to an already packed case, keep all their case entries
+in history rather than individual source JSON. Reads resolve chronological versions;
+deletion is an explicit tombstone, and later create-only writes can recreate the ID.
+Old hashes connect successive packed versions. Conversion removes the touched legacy
+source files only after the durable decision; recovery accepts an already removed
+target but preserves unrelated external edits. Physical files cannot shadow packed
+cases or their tombstones. Existing v1 packs and individual legacy cases remain
+readable, and untouched legacy files are not migrated. Edit packed cases through
+CLI/API commands with the same ETags and previews as before.
+
+Logical source and integrity indexes extend only when every previously admitted
+operation is still present with freshly read, exactly matching bytes. Changed,
+removed or reordered evidence triggers full reconstruction. Fresh physical bytes
+are compared separately. Snapshots and the predecision capture still independently
+read source/history. The source view retains at most 131072 current records and
+65536 operations, 262144 journal entries and 128 MiB of distinct retained
+body/reference bytes, including historical case versions
+and the immediate previous projection. The integrity index shares that bounded view.
+Prefix checking retains at most 131072 logical keys; failed speculative checks do
+not publish keys into its admitted index. These bounds do not limit process RSS.
+
+The optional `IncrementalRecordViewSource` port returns full admitted records plus
+changes/deletions bound to the caller's exact prior vector. Absence of a proved
+difference requests full reconstruction. It changes no freshness boundary. The run
+history index retains one run, at most 131072 source records / 128 MiB of logical
+serialized bodies; changed records, deletions, group budgets and unsupported deltas
+use full admission. Append-only updates validate new sequences and affected attempt
+transitions with the same rules as full reconstruction, then reuse unchanged results.
 
 Cases scope by `(dataset_id,)`; labels/label-history by `(decision_id, dataset_id)`;
 revisions by `(decision_id,)`; attempts/run-events/segments by `(run_id,)`;
@@ -81,7 +135,9 @@ contains new StoredRecords plus `deleted_keys`, and a replay flag.
 3. Stage old/new bytes and a versioned manifest with checked file flushes (and
    parent-directory fsync on POSIX). Recheck source fingerprints against the captured state.
 4. Persist and flush the commit decision, bound to the manifest hash. Only then replace
-   source files atomically one by one; POSIX also syncs each affected directory.
+   physical source files atomically and publish a packed operation's essential source
+   reference; POSIX also syncs each affected directory. Packed immutable bodies were
+   already staged and flushed before the decision.
 5. Move the completed journal into essential operation history; POSIX syncs both parents.
    Only after that update the disposable index.
 
@@ -141,6 +197,11 @@ SQLite is built from authoritative records in an in-memory connection, serialize
 then atomically replaced through the safe filesystem adapter. It holds only scoped
 IDs and ETags. Deleting/corrupting it changes no source or history; rebuild is explicit.
 No source operation reads SQLite to decide truth or replay an operation.
+The private connection can reuse rows after comparing admitted vectors, applying
+only changed/deleted rows. Its full serialized image still replaces the disposable
+file. The connection is serialized across joined source workers, explicitly closed,
+and discarded above 131072 rows. A mismatch or explicit rebuild uses all authoritative
+records; neither existing on-disk SQLite bytes nor filesystem timestamps are trusted.
 
 POSIX traversal uses anchored directory descriptors and O_NOFOLLOW;
 symlinked internal directories/files, nonregular source files, and multiply linked

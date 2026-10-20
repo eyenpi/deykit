@@ -9,6 +9,7 @@ from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from deykit.storage._batch_access import FileChanges, SelectedFiles
 from deykit.storage._paths import Parts, check_component
 from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
@@ -30,6 +31,7 @@ class _Files(Protocol):
     def read(self, parts: Parts, *, limit: int) -> bytes | None: ...
     def read_tree(self, parts: Parts, visitor: TreeReadVisitor, *, limit: int) -> None: ...
     def replace(self, parts: Parts, body: bytes) -> None: ...
+    def apply_many(self, changes: FileChanges, after_write: Callable[[int], None]) -> None: ...
     def unlink(self, parts: Parts) -> None: ...
     def rename_directory(self, old: Parts, new: Parts) -> None: ...
     def remove_directory(self, parts: Parts) -> None: ...
@@ -139,6 +141,36 @@ class SafeFiles:
             if limit < 0:
                 fail("record_resource_limit")
             backend.read_tree(parts, visitor, limit=limit)
+
+    def read_many(self, paths: tuple[Parts, ...], *, limit: int = 16_777_216) -> dict[Parts, bytes]:
+        with self._access((), empty=True) as backend:
+            if limit < 0:
+                fail("record_resource_limit")
+            visitor = SelectedFiles(paths)
+            groups: dict[str, list[Parts]] = {}
+            for path in paths:
+                groups.setdefault(path[0], []).append(path)
+            for group in groups.values():
+                prefix = group[0][:-1]
+                for path in group[1:]:
+                    while path[: len(prefix)] != prefix:
+                        prefix = prefix[:-1]
+                if prefix:
+                    backend.read_tree(prefix, visitor, limit=limit)
+                else:
+                    for path in group:
+                        body = backend.read(path, limit=limit)
+                        if body is not None:
+                            visitor.bodies[path] = body
+            return visitor.bodies
+
+    def apply_many(
+        self, changes: FileChanges, *, after_write: Callable[[int], None] | None = None
+    ) -> None:
+        with self._access((), empty=True) as backend:
+            # Validate the entire request before the first filesystem mutation.
+            SelectedFiles(tuple(parts for parts, _ in changes))
+            backend.apply_many(changes, after_write or (lambda _: None))
 
     def replace(self, parts: Parts, body: bytes) -> None:
         with self._access(parts) as backend:

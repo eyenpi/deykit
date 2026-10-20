@@ -7,8 +7,8 @@ from collections import OrderedDict
 from deykit.contracts.ports import ResourceKey
 from deykit.storage.records import key_path, validate_body
 
-_MAX_ENTRIES = 2048
-_MAX_RETAINED_KEY_BYTES = 8 * 1024 * 1024
+_MAX_ENTRIES = 131_072
+_MAX_RETAINED_KEY_BYTES = 64 * 1024 * 1024
 
 
 class _SuccessfulBodyValidationMemo:

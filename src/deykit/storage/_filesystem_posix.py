@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
+from deykit.storage._batch_access import FileChanges
 from deykit.storage._paths import Parts, check_component
+from deykit.storage._posix_batch import DirectoryBatch
 from deykit.storage._replace_result import _ReplaceResult
 from deykit.storage._tree_read import TreeReadVisitor
 from deykit.storage.errors import fail
@@ -323,6 +325,34 @@ class PosixFiles:
             if result.post_commit_error is not None:
                 raise result.post_commit_error
 
+    def apply_many(self, changes: FileChanges, after_write: Callable[[int], None]) -> None:
+        if self.closed:
+            fail("storage_closed", "internal_error")
+        with DirectoryBatch(self) as batch:
+            for index, (parts, body) in enumerate(changes):
+                try:
+                    parent = batch.parent(parts[:-1], create=body is not None)
+                except FileNotFoundError:
+                    if body is not None:
+                        raise
+                else:
+                    name = parts[-1]
+                    parent.expect(name)
+                    self._check_target(parent.fd, name, spelling=False)
+                    if body is None:
+                        try:
+                            os.unlink(name, dir_fd=parent.fd)
+                            os.fsync(parent.fd)
+                        except FileNotFoundError:
+                            pass
+                        parent.names.pop(name.casefold(), None)
+                    else:
+                        result = self._replace_in(parent.fd, name, body)
+                        if result.post_commit_error is not None:
+                            raise result.post_commit_error
+                        parent.names[name.casefold()] = name
+                after_write(index)
+
     def _replace_in(
         self,
         parent: int,
@@ -397,8 +427,9 @@ class PosixFiles:
                 return
 
     @staticmethod
-    def _check_target(parent: int, name: str) -> None:
-        PosixFiles._check_spelling(parent, name)
+    def _check_target(parent: int, name: str, *, spelling: bool = True) -> None:
+        if spelling:
+            PosixFiles._check_spelling(parent, name)
         try:
             info = os.stat(name, dir_fd=parent, follow_symlinks=False)
         except FileNotFoundError:

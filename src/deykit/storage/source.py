@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Container, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,13 +23,35 @@ from deykit.contracts.json_value import JsonError, bytes_hash
 from deykit.contracts.ports import (
     Collection,
     CommitReceipt,
+    RecordViewDelta,
     ResourceKey,
     SourceChange,
     StoredRecord,
 )
 from deykit.contracts.records import ProjectRecord
 from deykit.storage._body_validation import _SuccessfulBodyValidationMemo
+from deykit.storage._chunks import (
+    CHUNK_LIMIT,
+    COMPACT_COLLECTIONS,
+    ChunkManifest,
+    chunk_name,
+    compact_entry,
+    decode_chunks,
+    encode_chunks,
+    expected_files,
+    manifest_kind,
+    reference_body,
+    reference_path,
+)
+from deykit.storage._collision_index import CollisionIndex
+from deykit.storage._history_capture import (
+    HistoryCapture,
+    OperationEvidence,
+    OperationValidationMemo,
+)
+from deykit.storage._integrity_index import IntegrityIndex
 from deykit.storage._journal_validation import _SuccessfulJournalValidationMemo
+from deykit.storage._source_view import CapturedView, SourceViewMemo
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
 from deykit.storage.index import SourceIndex
@@ -75,6 +97,14 @@ class HistoryEntry:
     after: StoredRecord | None
 
 
+@dataclass(frozen=True)
+class _CommittedView:
+    before: tuple[StoredRecord, ...]
+    after: tuple[StoredRecord, ...]
+    changes: tuple[StoredRecord, ...]
+    deleted: tuple[ResourceKey, ...]
+
+
 class _SourceTreeVisitor:
     def __init__(
         self,
@@ -82,12 +112,23 @@ class _SourceTreeVisitor:
         validator: Callable[[ResourceKey, bytes], object] = validate_body,
     ) -> None:
         self.records = records
+        self.references: dict[str, bytes] = {}
         self.validator = validator
 
     def include(self, parts: Parts) -> bool:
         return not parts[-1].startswith(".tmp-")
 
     def validate_entry(self, parts: Parts, *, directory: bool) -> None:
+        if parts[1] == "_chunks":
+            if len(parts) == 2 and directory:
+                return
+            if len(parts) != 3 or directory or not parts[-1].endswith(".json"):
+                fail("invalid_source_path")
+            try:
+                validate_resource_id(parts[-1][:-5])
+            except ValueError:
+                fail("invalid_source_path")
+            return
         if not directory:
             path_key(parts)
             return
@@ -103,6 +144,9 @@ class _SourceTreeVisitor:
                 fail("invalid_source_path")
 
     def accept_file(self, parts: Parts, body: bytes) -> None:
+        if parts[1] == "_chunks":
+            self.references[parts[-1][:-5]] = body
+            return
         key = path_key(parts)
         self.validator(key, body)
         self.records.append(StoredRecord(key, body, bytes_hash(body)))
@@ -137,11 +181,21 @@ class FileProjectSource:
         self.files = files
         self.root = self.files.root
         self._hook = fault_hook or (lambda _: None)
-        self._index = index_updater or SourceIndex(self.files).rebuild
+        self._default_index = SourceIndex(self.files) if index_updater is None else None
+        self._index: IndexUpdater
+        if self._default_index is not None:
+            self._index = self._default_index.rebuild
+        else:
+            assert index_updater is not None
+            self._index = index_updater
         self._mutex = threading.RLock()
         self._local = threading.local()
         self._body_validation = _SuccessfulBodyValidationMemo()
         self._journal_validation = _SuccessfulJournalValidationMemo()
+        self._operation_validation = OperationValidationMemo()
+        self._collisions = CollisionIndex()
+        self._source_view = SourceViewMemo()
+        self._integrity = IntegrityIndex()
         self._admission_timeout_seconds = admission_timeout_seconds
         self._admission_condition = threading.Condition()
         self._admission_waiters: deque[object] = deque()
@@ -168,6 +222,12 @@ class FileProjectSource:
             finally:
                 self._body_validation.clear()
                 self._journal_validation.clear()
+                self._operation_validation.clear()
+                self._collisions.clear()
+                self._source_view.clear()
+                self._integrity.clear()
+                if self._default_index is not None:
+                    self._default_index.close()
 
     def _validate_source_body(self, key: ResourceKey, body: bytes) -> None:
         if getattr(self._local, "source_depth", 0) <= 0:
@@ -190,8 +250,17 @@ class FileProjectSource:
                     fail("source_busy", "conflict")
                 self._local.source_depth = depth + 1
                 try:
-                    self._recover()
+                    if self.files.names(("history", "journal")):
+                        self._local.records = None
+                        self._local.record_capture = None
+                        self._local.checked_records = None
+                        self._recover()
                     yield self
+                except BaseException:
+                    self._local.records = None
+                    self._local.record_capture = None
+                    self._local.checked_records = None
+                    raise
                 finally:
                     self._local.source_depth = depth
                     self._mutex.release()
@@ -202,10 +271,17 @@ class FileProjectSource:
                     try:
                         with acquire(self.files, "source.lock"):
                             self._local.source_depth = 1
+                            self._local.records = None
+                            self._local.record_capture = None
+                            self._local.checked_records = None
                             try:
                                 self._recover()
                                 yield self
                             finally:
+                                self._local.committed_view = None
+                                self._local.records = None
+                                self._local.record_capture = None
+                                self._local.checked_records = None
                                 self._local.source_depth = 0
                     finally:
                         self._mutex.release()
@@ -266,6 +342,12 @@ class FileProjectSource:
             return next((record for record in records if record.key == key), None)
 
     def _all(self) -> tuple[StoredRecord, ...]:
+        captured = getattr(self._local, "records", None)
+        if captured is not None:
+            return cast(tuple[StoredRecord, ...], captured)
+        return self._fresh_all()
+
+    def _fresh_all(self) -> tuple[StoredRecord, ...]:
         records: list[StoredRecord] = []
         project = self.files.read(("deykit.project.json",))
         if project is not None:
@@ -278,8 +360,57 @@ class FileProjectSource:
                     ResourceKey("project", project_record.id), project, bytes_hash(project)
                 )
             )
-        self.files.read_tree(("source",), _SourceTreeVisitor(records, self._validate_source_body))
-        return tuple(sorted(records, key=lambda item: key_path(item.key)))
+        visitor = _SourceTreeVisitor(records, self._validate_source_body)
+        self.files.read_tree(("source",), visitor)
+        history = HistoryCapture(self.files)
+        evidence = self._completed_operations(history)
+        self._validate_chunk_references(visitor.references, evidence)
+        physical = tuple(records)
+        previous_view = self._source_view.get(physical, evidence)
+        if previous_view is None:
+            previous_view = self._source_view.advance(physical, evidence)
+        if previous_view is not None:
+            if previous_view is not self._source_view.view:
+                self._collisions.check(set(previous_view.by_key))
+                self._source_view.put(previous_view)
+            self._local.packed_cases = previous_view.packed_cases
+            if getattr(self._local, "source_depth", 0):
+                self._local.records = previous_view.records
+                self._local.record_capture = (previous_view.records, history)
+            return previous_view.records
+        keys = {record.key for record in records}
+        cases: dict[ResourceKey, StoredRecord | None] = {}
+        for operation in sorted(evidence, key=lambda item: item.sequence):
+            for record in operation.records:
+                if record.key in keys:
+                    fail("immutable_source_changed", "conflict")
+                keys.add(record.key)
+                records.append(record)
+            for key, old_hash, case_record in operation.cases:
+                previous_case = cases.get(key)
+                if key in cases and (previous_case.etag if previous_case else None) != old_hash:
+                    fail("journal_integrity_error", "conflict")
+                cases[key] = case_record
+        if keys.intersection(cases):
+            fail("immutable_source_changed", "conflict")
+        records.extend(record for record in cases.values() if record is not None)
+        self._check_collisions({record.key for record in records})
+        self._local.packed_cases = frozenset(cases)
+        captured = tuple(sorted(records, key=lambda item: key_path(item.key)))
+        self._source_view.put(
+            CapturedView(
+                physical,
+                evidence,
+                captured,
+                self._local.packed_cases,
+                {r.key: r for r in captured},
+                tuple((key_path(r.key), r) for r in captured),
+            )
+        )
+        if getattr(self._local, "source_depth", 0):
+            self._local.records = captured
+            self._local.record_capture = (captured, history)
+        return captured
 
     def list_ids(self, collection: Collection, scope: tuple[str, ...] = ()) -> tuple[str, ...]:
         key_path(ResourceKey(collection, "scope-validation", scope))
@@ -294,6 +425,43 @@ class FileProjectSource:
                 )
             )
 
+    def read_records(self) -> tuple[StoredRecord, ...]:
+        """Operational observation; snapshot capture additionally checks independent bytes."""
+        with self.consistent_read():
+            records = self._all()
+            self._check_integrity(records)
+            return records
+
+    def read_record_view(self, previous: tuple[StoredRecord, ...] | None) -> RecordViewDelta:
+        with self.consistent_read():
+            records = self._all()
+            self._check_integrity(records)
+            if previous is None:
+                return RecordViewDelta(records)
+            if previous is records or previous == records:
+                return RecordViewDelta(records, (), previous_records=previous)
+            view = self._source_view.view
+            if (
+                view is not None
+                and view.records is records
+                and view.parent_records is not None
+                and previous == view.parent_records
+            ):
+                return RecordViewDelta(
+                    records,
+                    tuple(view.by_key[key] for key in view.changed if key in view.by_key),
+                    tuple(key for key in view.changed if key not in view.by_key),
+                    previous_records=previous,
+                )
+            committed = cast(_CommittedView | None, getattr(self._local, "committed_view", None))
+            if (
+                committed is not None
+                and committed.after is records
+                and previous == committed.before
+            ):
+                return RecordViewDelta(records, committed.changes, committed.deleted, previous)
+            return RecordViewDelta(records)
+
     def capture_snapshot(
         self, keys: tuple[ResourceKey, ...] | None = None
     ) -> tuple[StoredRecord, ...]:
@@ -301,9 +469,11 @@ class FileProjectSource:
             before = self._all()
             self._check_integrity(before)
             self._hook("snapshot_captured")
-            after = self._all()
+            after = self._fresh_all()
             if before != after:
+                self._local.checked_records = None
                 fail("unstable_source", "conflict")
+            self._local.records = before
             if keys is None:
                 return before
             if len(set(keys)) != len(keys):
@@ -378,13 +548,11 @@ class FileProjectSource:
         manifest = self._manifest(folder)
         if manifest.intent_hash != intent_hash:
             fail("operation_id_conflict", "conflict")
-        expected_files = {"manifest.json", "commit.json"}
+        bodies = self._operation_bodies(folder, manifest)
         for index, entry in enumerate(manifest.entries):
-            for old in (True, False):
-                body = self._blob(folder, index, entry, old=old)
-                if body is not None:
-                    expected_files.add(f"{'old' if old else 'new'}-{index}.json")
-        if set(self.files.names(folder)) != expected_files:
+            self._blob(folder, index, entry, old=True, bodies=bodies)
+            self._blob(folder, index, entry, old=False, bodies=bodies)
+        if set(self.files.names(folder)) != expected_files(manifest):
             fail("journal_integrity_error", "conflict")
         if manifest.operation_id != operation_id:
             fail("journal_identity_mismatch", "conflict")
@@ -423,6 +591,9 @@ class FileProjectSource:
         payload = self._payload(ordered)
         with self.consistent_read():
             current = self._all()  # Invalid/unknown versions anywhere block mutation.
+            # Preparation callbacks can expose uncooperative history edits within this epoch.
+            self._local.checked_records = None
+            self._local.record_capture = None
             self._check_integrity(current)
             archived = ("history", "operations", operation_id)
             previous = self.files.read((*archived, "manifest.json"))
@@ -433,10 +604,15 @@ class FileProjectSource:
                 ):
                     fail("operation_id_conflict", "conflict")
                 return self._receipt(archived, manifest, replayed=True)
-            existing = {record.key: record for record in current}
+            view = self._source_view.view
+            existing = (
+                dict(view.by_key)
+                if view is not None and view.records is current
+                else {record.key: record for record in current}
+            )
             entries: list[JournalEntry] = []
+            self.files.read_many(tuple(key_path(change.key) for change in ordered))
             for change in ordered:
-                self.files.check_path_spelling(key_path(change.key))
                 if change.key.collection == "project" and change.body is None:
                     fail("project_identity_immutable", "conflict")
                 old = existing.get(change.key)
@@ -466,14 +642,26 @@ class FileProjectSource:
                     final_keys.discard(change.key)
                 else:
                     final_keys.add(change.key)
-            self._check_collisions(final_keys)
-            sequence = 1 + max(
-                (
-                    self._manifest(("history", "operations", name)).sequence
-                    for name in self.files.names(("history", "operations"))
-                ),
-                default=0,
+            self._collisions.check(final_keys, publish=False)
+            sequence = cast(int, self._local.next_sequence)
+            blobs = tuple(
+                (index, old, body)
+                for index, change in enumerate(ordered)
+                for old, body in (
+                    (True, existing[change.key].body if change.key in existing else None),
+                    (False, change.body),
+                )
+                if body is not None
             )
+            packed_cases = sum(c.key.collection == "cases" for c in ordered) >= 16 or any(
+                c.key in self._local.packed_cases for c in ordered
+            )
+            packed = (
+                packed_cases
+                or len(ordered) >= 16
+                or any(c.key.collection in COMPACT_COLLECTIONS for c in ordered)
+            )
+            chunks = encode_chunks(blobs) if packed else ()
             manifest = JournalManifest(
                 operation_id=operation_id,
                 payload_hash=payload,
@@ -481,20 +669,45 @@ class FileProjectSource:
                 intent_hash=intent_hash,
                 sequence=sequence,
             )
+            if packed:
+                manifest = ChunkManifest(
+                    **manifest.model_dump(),
+                    body_format="chunks-v2" if packed_cases else "chunks-v1",
+                    blob_chunks=tuple(bytes_hash(c) for c in chunks),
+                )
             manifest_body = dump_record(manifest)
             stage = ("history", "journal", operation_id)
             self.files.mkdir(stage)
-            for index, change in enumerate(ordered):
-                old = existing.get(change.key)
-                if old is not None:
-                    self.files.replace((*stage, f"old-{index}.json"), old.body)
-                if change.body is not None:
-                    self.files.replace((*stage, f"new-{index}.json"), change.body)
-                self._hook(f"staged:{index}")
+            if packed:
+                self.files.apply_many(
+                    tuple(((*stage, chunk_name(i)), body) for i, body in enumerate(chunks))
+                )
+                for index in range(len(ordered)):
+                    self._hook(f"staged:{index}")
+            else:
+                staged = tuple(
+                    ((*stage, f"{'old' if old else 'new'}-{index}.json"), body)
+                    for index, old, body in blobs
+                )
+                checkpoints = {
+                    i: index
+                    for i, (index, _, _) in enumerate(blobs)
+                    if i == len(blobs) - 1 or blobs[i + 1][0] != index
+                }
+
+                def after_stage(index: int) -> None:
+                    if index in checkpoints:
+                        self._hook(f"staged:{checkpoints[index]}")
+
+                self.files.apply_many(staged, after_write=after_stage)
             self.files.replace((*stage, "manifest.json"), manifest_body)
             self._hook("prepared")
-            if current != self._all():
+            if current != self._fresh_all():
+                self._local.checked_records = None
                 fail("unstable_source", "conflict")
+            self._local.records = None
+            self._local.record_capture = None
+            self._local.checked_records = None
             self.files.replace(
                 (*stage, "commit.json"),
                 dump_record(
@@ -505,7 +718,41 @@ class FileProjectSource:
             )
             self._hook("decided")
             self._apply(stage, manifest)
+            for change in ordered:
+                if change.body is None:
+                    existing.pop(change.key, None)
+                else:
+                    existing[change.key] = StoredRecord(
+                        change.key, change.body, bytes_hash(change.body)
+                    )
             self.files.rename_directory(stage, archived)
+            if view is not None and view.records is current:
+                changed = {change.key for change in ordered}
+                retained = (
+                    tuple(item for item in view.ordered if item[1].key not in changed)
+                    if changed.intersection(view.by_key)
+                    else view.ordered
+                )
+                additions = tuple(
+                    (key_path(key), existing[key]) for key in changed if key in existing
+                )
+                updated = tuple(
+                    r for _, r in sorted((*retained, *additions), key=lambda item: item[0])
+                )
+            else:
+                updated = tuple(sorted(existing.values(), key=lambda item: key_path(item.key)))
+            self._local.records = updated
+            self._local.checked_records = updated
+            self._local.committed_view = _CommittedView(
+                current,
+                updated,
+                tuple(existing[c.key] for c in ordered if c.body is not None),
+                tuple(c.key for c in ordered if c.body is None),
+            )
+            if isinstance(manifest, ChunkManifest) and manifest.body_format == "chunks-v2":
+                self._local.packed_cases |= {
+                    entry.key for entry in manifest.entries if entry.collection == "cases"
+                }
             self._hook("archived")
             self._update_index()
             return self._receipt(archived, manifest, replayed=False)
@@ -521,36 +768,31 @@ class FileProjectSource:
         if datetime.fromisoformat(new_end) < datetime.fromisoformat(new["started_at"]):
             fail("invalid_segment_end")
 
-    @staticmethod
-    def _check_collisions(keys: set[ResourceKey]) -> None:
-        paths = [key_path(key) for key in keys]
-        folded: dict[tuple[str, ...], tuple[str, ...]] = {}
-        project_count = sum(key.collection == "project" for key in keys)
-        if project_count > 1:
-            fail("project_identity_conflict", "conflict")
-        for path in paths:
-            for depth in range(1, len(path) + 1):
-                prefix = path[:depth]
-                canonical = tuple(component.casefold() for component in prefix)
-                if canonical in folded and folded[canonical] != prefix:
-                    fail("casefold_collision", "conflict")
-                folded[canonical] = prefix
+    def _check_collisions(self, keys: set[ResourceKey]) -> None:
+        self._collisions.check(keys)
+
+    def _history_read(self, parts: Parts) -> bytes | None:
+        captured = getattr(self._local, "history_capture", None)
+        if captured is not None and parts[:2] == ("history", "operations"):
+            return cast(HistoryCapture, captured).read(parts)
+        return self.files.read(parts)
 
     def _manifest(self, folder: Parts) -> JournalManifest:
-        body = self.files.read((*folder, "manifest.json"))
+        body = self._history_read((*folder, "manifest.json"))
         if body is None:
             fail("journal_manifest_missing", "conflict")
         try:
+            kind = manifest_kind(body)
             manifest = (
-                self._journal_validation.load(JournalManifest, body)
+                self._journal_validation.load(kind, body)
                 if getattr(self._local, "source_depth", 0) > 0
-                else load_record(JournalManifest, body)
+                else load_record(kind, body)
             )
         except JsonError:
             fail("journal_invalid", "conflict")
         if manifest.operation_id != folder[-1]:
             fail("journal_identity_mismatch", "conflict")
-        decision = self.files.read((*folder, "commit.json"))
+        decision = self._history_read((*folder, "commit.json"))
         if decision is None:
             fail("journal_decision_missing", "conflict")
         try:
@@ -565,11 +807,39 @@ class FileProjectSource:
             fail("journal_integrity_error", "conflict")
         return manifest
 
-    def _blob(self, folder: Parts, index: int, entry: JournalEntry, *, old: bool) -> bytes | None:
+    def _operation_bodies(self, folder: Parts, manifest: JournalManifest) -> dict[Parts, bytes]:
+        names = expected_files(manifest) - {"manifest.json", "commit.json"}
+        paths = tuple((*folder, name) for name in sorted(names))
+        if getattr(self._local, "history_capture", None) is not None:
+            bodies = {
+                path: body for path in paths if (body := self._history_read(path)) is not None
+            }
+        else:
+            bodies = self.files.read_many(paths, limit=CHUNK_LIMIT)
+        if isinstance(manifest, ChunkManifest):
+            chunks = tuple(
+                bodies.get((*folder, chunk_name(i)), b"") for i in range(len(manifest.blob_chunks))
+            )
+            return {
+                (*folder, f"{'old' if old else 'new'}-{index}.json"): body
+                for (index, old), body in decode_chunks(manifest, chunks).items()
+            }
+        return bodies
+
+    def _blob(
+        self,
+        folder: Parts,
+        index: int,
+        entry: JournalEntry,
+        *,
+        old: bool,
+        bodies: dict[Parts, bytes] | None = None,
+    ) -> bytes | None:
         expected = entry.old_hash if old else entry.new_hash
         if expected is None:
             return None
-        body = self.files.read((*folder, f"{'old' if old else 'new'}-{index}.json"))
+        path = (*folder, f"{'old' if old else 'new'}-{index}.json")
+        body = self._history_read(path) if bodies is None else bodies.get(path)
         if body is None or bytes_hash(body) != expected:
             fail("journal_integrity_error", "conflict")
         self._validate_source_body(entry.key, body)
@@ -578,22 +848,68 @@ class FileProjectSource:
     def _apply(self, folder: Parts, manifest: JournalManifest) -> None:
         # Validate every blob/target before applying anything. Recovery never overwrites
         # unrelated external changes and can repeat after every replacement boundary.
-        new_bodies = []
+        bodies = self._operation_bodies(folder, manifest)
+        reference = None
+        if isinstance(manifest, ChunkManifest):
+            raw_manifest = self._history_read((*folder, "manifest.json"))
+            if raw_manifest is None or self._manifest(folder) != manifest:
+                fail("journal_integrity_error", "conflict")
+            reference = reference_body(manifest, raw_manifest)
+        paths = tuple(key_path(e.key) for e in manifest.entries)
+        if reference is not None:
+            paths = (*paths, reference_path(manifest.operation_id))
+        targets = self.files.read_many(paths)
+        if reference is not None and targets.get(reference_path(manifest.operation_id)) not in (
+            None,
+            reference,
+        ):
+            fail("recovery_source_conflict", "conflict")
+        changes: list[tuple[Parts, bytes | None, int]] = []
         for index, entry in enumerate(manifest.entries):
-            self._blob(folder, index, entry, old=True)
-            body = self._blob(folder, index, entry, old=False)
-            current = self._read(entry.key)
-            if (current.etag if current else None) not in (entry.old_hash, entry.new_hash):
+            self._blob(folder, index, entry, old=True, bodies=bodies)
+            body = self._blob(folder, index, entry, old=False, bodies=bodies)
+            path = key_path(entry.key)
+            current = targets.get(path)
+            if current is not None:
+                self._validate_source_body(entry.key, current)
+            if compact_entry(manifest, entry) and entry.collection == "cases":
+                if current is not None and bytes_hash(current) != entry.old_hash:
+                    fail("recovery_source_conflict", "conflict")
+                body = None  # A packed case replaces its former physical source file.
+            elif compact_entry(manifest, entry):
+                if entry.old_hash is not None or body is None or current is not None:
+                    fail("recovery_source_conflict", "conflict")
+            elif (bytes_hash(current) if current is not None else None) not in (
+                entry.old_hash,
+                entry.new_hash,
+            ):
                 fail("recovery_source_conflict", "conflict")
-            new_bodies.append(body)
-        for index, (entry, body) in enumerate(zip(manifest.entries, new_bodies, strict=True)):
-            if body is None:
-                self.files.unlink(key_path(entry.key))
+            changes.append((path, body, index))
+        pending: list[tuple[Parts, bytes | None, int]] = []
+
+        def flush() -> None:
+            if pending:
+                self.files.apply_many(
+                    tuple((path, body) for path, body, _ in pending),
+                    after_write=lambda i: self._hook(f"applied:{pending[i][2]}"),
+                )
+                pending.clear()
+
+        for change, entry in zip(changes, manifest.entries, strict=True):
+            if compact_entry(manifest, entry) and targets.get(change[0]) is None:
+                flush()
+                self._hook(f"applied:{change[2]}")
             else:
-                self.files.replace(key_path(entry.key), body)
-            self._hook(f"applied:{index}")
+                pending.append(change)
+        flush()
+        if reference is not None:
+            self.files.replace(reference_path(manifest.operation_id), reference)
+            self._hook("chunk_linked")
 
     def _recover(self) -> None:
+        self._local.records = None
+        self._local.record_capture = None
+        self._local.checked_records = None
         # Completed history must be intact before even recovery may alter source.
         # Pending replacements can temporarily differ from the latest completed ledger.
         pending = self.files.names(("history", "journal"))
@@ -610,8 +926,14 @@ class FileProjectSource:
                 self._hook("discarded")
                 continue
             manifest = self._manifest(folder)
+            self._local.records = None
+            self._local.record_capture = None
+            self._local.checked_records = None
             self._apply(folder, manifest)
             self.files.rename_directory(folder, ("history", "operations", operation_id))
+            self._local.records = None
+            self._local.record_capture = None
+            self._local.checked_records = None
             self._hook("recovered")
             self._update_index()
         self._check_integrity(self._all())
@@ -619,10 +941,11 @@ class FileProjectSource:
     def _receipt(
         self, folder: Parts, manifest: JournalManifest, *, replayed: bool
     ) -> CommitReceipt:
+        bodies = self._operation_bodies(folder, manifest)
         records = []
         deleted = []
         for index, entry in enumerate(manifest.entries):
-            body = self._blob(folder, index, entry, old=False)
+            body = self._blob(folder, index, entry, old=False, bodies=bodies)
             if body is None:
                 deleted.append(entry.key)
             else:
@@ -632,44 +955,109 @@ class FileProjectSource:
     def _check_integrity(
         self, records: tuple[StoredRecord, ...], *, check_current: bool = True
     ) -> None:
-        latest: dict[ResourceKey, tuple[int, str | None]] = {}
-        project_ids: set[str] = set()
-        sequences: set[int] = set()
-        for operation_id in self.files.names(("history", "operations")):
-            folder = ("history", "operations", operation_id)
-            manifest = self._manifest(folder)
-            if manifest.sequence in sequences:
-                fail("journal_sequence_conflict", "conflict")
-            sequences.add(manifest.sequence)
-            expected_files = {"manifest.json", "commit.json"}
-            paths = [key_path(entry.key) for entry in manifest.entries]
-            if len(set(paths)) != len(paths):
-                fail("duplicate_target_path", "conflict")
-            for index, entry in enumerate(manifest.entries):
-                for old, digest in ((True, entry.old_hash), (False, entry.new_hash)):
-                    self._blob(folder, index, entry, old=old)
-                    if digest is not None:
-                        expected_files.add(f"{'old' if old else 'new'}-{index}.json")
-                if entry.key.collection == "project":
-                    project_ids.add(entry.key.resource_id)
-                    if entry.new_hash is None:
-                        fail("project_identity_immutable", "conflict")
-                if entry.key.collection in IMMUTABLE:
-                    if entry.key not in latest or latest[entry.key][0] < manifest.sequence:
-                        latest[entry.key] = (manifest.sequence, entry.new_hash)
-            if set(self.files.names(folder)) != expected_files:
-                fail("journal_integrity_error", "conflict")
-        current = {record.key: record.etag for record in records}
-        current_projects = {key.resource_id for key in current if key.collection == "project"}
-        if len(project_ids) > 1 or (project_ids and current_projects != project_ids):
-            fail("project_identity_changed", "conflict")
-        if check_current:
-            for key, (_, expected_hash) in latest.items():
-                if current.get(key) != expected_hash:
-                    fail("immutable_source_changed", "conflict")
-        self._validate_cancellation_history(set(current))
+        if getattr(self._local, "checked_records", None) is records:
+            return
+        pair = getattr(self._local, "record_capture", None)
+        captured = (
+            pair[1] if pair is not None and pair[0] is records else HistoryCapture(self.files)
+        )
+        self._local.record_capture = None
+        self._local.history_capture = captured
+        try:
+            self._check_captured_integrity(records, captured, check_current=check_current)
+            if check_current:
+                self._local.checked_records = records
+        finally:
+            self._local.history_capture = None
 
-    def _validate_cancellation_history(self, keys: set[ResourceKey]) -> None:
+    def _completed_operations(self, captured: HistoryCapture) -> tuple[OperationEvidence, ...]:
+        previous = getattr(self._local, "history_capture", None)
+        self._local.history_capture = captured
+        result: list[OperationEvidence] = []
+        try:
+            for operation_id in captured.names(("history", "operations")):
+                folder = ("history", "operations", operation_id)
+                raw = captured.operations.get(operation_id, {})
+                cached = self._operation_validation.get(operation_id, raw)
+                if cached is None:
+                    manifest = self._manifest(folder)
+                    if set(raw) != expected_files(manifest):
+                        fail("journal_integrity_error", "conflict")
+                    bodies = self._operation_bodies(folder, manifest)
+                    paths = [key_path(entry.key) for entry in manifest.entries]
+                    if len(set(paths)) != len(paths):
+                        fail("duplicate_target_path", "conflict")
+                    virtual: list[StoredRecord] = []
+                    cases: list[tuple[ResourceKey, str | None, StoredRecord | None]] = []
+                    for index, entry in enumerate(manifest.entries):
+                        self._blob(folder, index, entry, old=True, bodies=bodies)
+                        body = self._blob(folder, index, entry, old=False, bodies=bodies)
+                        if entry.collection == "project" and body is None:
+                            fail("project_identity_immutable", "conflict")
+                        if compact_entry(manifest, entry) and entry.collection == "cases":
+                            cases.append(
+                                (
+                                    entry.key,
+                                    entry.old_hash,
+                                    StoredRecord(entry.key, body, bytes_hash(body))
+                                    if body is not None
+                                    else None,
+                                )
+                            )
+                        elif compact_entry(manifest, entry):
+                            if entry.old_hash is not None or body is None:
+                                fail("journal_integrity_error", "conflict")
+                            virtual.append(StoredRecord(entry.key, body, bytes_hash(body)))
+                    cached = OperationEvidence(
+                        manifest.sequence,
+                        tuple((e.key, e.new_hash) for e in manifest.entries),
+                        tuple(virtual),
+                        (operation_id, reference_body(manifest, raw["manifest.json"]))
+                        if isinstance(manifest, ChunkManifest)
+                        else None,
+                        tuple(cases),
+                    )
+                    self._operation_validation.put(operation_id, raw, cached)
+                result.append(cached)
+            return tuple(result)
+        finally:
+            self._local.history_capture = previous
+
+    def _validate_chunk_references(
+        self, references: dict[str, bytes], evidence: tuple[OperationEvidence, ...]
+    ) -> None:
+        pending = dict(references)
+        for operation in evidence:
+            if operation.reference is not None:
+                operation_id, body = operation.reference
+                if pending.pop(operation_id, None) != body:
+                    fail("immutable_source_changed", "conflict")
+        journal = self.files.names(("history", "journal")) if pending else ()
+        for operation_id, body in pending.items():
+            if operation_id not in journal:
+                fail("journal_integrity_error", "conflict")
+            folder = ("history", "journal", operation_id)
+            manifest = self._manifest(folder)
+            raw = self.files.read((*folder, "manifest.json"))
+            if (
+                not isinstance(manifest, ChunkManifest)
+                or raw is None
+                or reference_body(manifest, raw) != body
+            ):
+                fail("journal_integrity_error", "conflict")
+
+    def _check_captured_integrity(
+        self, records: tuple[StoredRecord, ...], captured: HistoryCapture, *, check_current: bool
+    ) -> None:
+        self._local.next_sequence, current = self._integrity.check(
+            self._completed_operations(captured),
+            records,
+            self._source_view.view,
+            check_current=check_current,
+        )
+        self._validate_cancellation_history(current)
+
+    def _validate_cancellation_history(self, keys: Container[ResourceKey]) -> None:
         run_ids: set[str] = set()
         for collection in ("cancellations", "cancel_ack"):
             for run_id in self.files.names(("history", collection)):
@@ -696,11 +1084,12 @@ class FileProjectSource:
             for manifest in sorted(manifests, key=lambda item: item.sequence):
                 operation_id = manifest.operation_id
                 folder = ("history", "operations", operation_id)
+                bodies = self._operation_bodies(folder, manifest)
                 for index, entry in enumerate(manifest.entries):
                     if entry.key != key:
                         continue
-                    old = self._blob(folder, index, entry, old=True)
-                    new = self._blob(folder, index, entry, old=False)
+                    old = self._blob(folder, index, entry, old=True, bodies=bodies)
+                    new = self._blob(folder, index, entry, old=False, bodies=bodies)
                     history.append(
                         HistoryEntry(
                             operation_id,
@@ -712,7 +1101,21 @@ class FileProjectSource:
 
     def _update_index(self) -> None:
         try:
-            self._index(self._all())
+            records = self._all()
+            committed = cast(_CommittedView | None, getattr(self._local, "committed_view", None))
+            if (
+                self._default_index is not None
+                and committed is not None
+                and committed.after is records
+            ):
+                self._default_index.rebuild(
+                    records,
+                    previous=committed.before,
+                    changes=committed.changes,
+                    deleted_keys=committed.deleted,
+                )
+            else:
+                self._index(records)
             self.last_index_error = None
         except Exception:
             # Source commit is durable; a cache failure cannot undo it or obscure success.

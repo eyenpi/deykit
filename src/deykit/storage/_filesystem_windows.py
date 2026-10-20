@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from deykit.application.errors import ServiceFailure
 from deykit.storage import _win32 as win
+from deykit.storage._batch_access import FileChanges
 from deykit.storage._paths import Parts, check_component
 from deykit.storage._replace_result import _ReplaceResult
 from deykit.storage._tree_read import TreeReadVisitor
@@ -224,6 +225,16 @@ class WindowsFiles:
         after = self._tree_entries(parent)
         if tuple(name for name, _ in after) != tuple(name for name, _ in entries):
             fail("unstable_source", "conflict")
+
+    def apply_many(self, changes: FileChanges, after_write: Callable[[int], None]) -> None:
+        for index, (parts, body) in enumerate(changes):
+            if body is None:
+                self.unlink(parts)
+            else:
+                self.replace(parts, body)
+            after_write(index)
+        for parts, _ in changes:
+            self.check_path_spelling(parts)
 
     def _check_target(self, parent: win.Handle, name: str) -> None:
         self._check_spelling(parent, name)

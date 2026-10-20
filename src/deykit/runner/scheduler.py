@@ -95,7 +95,8 @@ class Scheduler:
     ) -> None:
         self.repository = repository
         self.waiter = waiter or AsyncWaiter()
-        self.hook = hook or (lambda _stage, _attempt: None)
+        self._default_hook: Callable[[str, AttemptRecord], None] = lambda _stage, _attempt: None
+        self.hook = hook or self._default_hook
 
     @staticmethod
     def _record_contention(stop: Stop, error: _SourceContentionExhausted) -> None:
@@ -114,6 +115,7 @@ class Scheduler:
         operation: Callable[[], _RepositoryResult],
         *,
         deadline: float | None = None,
+        offload: bool = False,
     ) -> _RepositoryResult:
         """Retry only source-lock acquisition, never a callable that entered its epoch."""
         repo = self.repository
@@ -128,10 +130,31 @@ class Scheduler:
             if deadline is not None and now >= deadline:
                 raise _SegmentDeadlineElapsed
             entered = False
-            try:
+
+            def invoke() -> _RepositoryResult:
+                nonlocal entered
                 with repo.source.consistent_read():
                     entered = True
                     return operation()
+
+            try:
+                if not offload:
+                    return invoke()
+                pending = asyncio.create_task(asyncio.to_thread(invoke))
+                try:
+                    return await asyncio.shield(pending)
+                except asyncio.CancelledError:
+                    # Source publication must finish before execution ownership is released.
+                    while not pending.done():
+                        try:
+                            await asyncio.shield(pending)
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception:
+                            break
+                    if not pending.cancelled():
+                        pending.exception()
+                    raise
             except ServiceFailure as error:
                 if entered or error.error.code != "conflict" or error.error.reason != "source_busy":
                     raise
@@ -159,6 +182,9 @@ class Scheduler:
         stop: Stop,
         timeout: int,
         deadline: float,
+        *,
+        dispatch_ready: bool | None = None,
+        received: list[tuple[AttemptRecord, DispatchOutcome, float | None]] | None = None,
     ) -> DispatchOutcome:
         repo = self.repository
         started: float | None = None
@@ -173,12 +199,16 @@ class Scheduler:
                 )
             else:
                 try:
-                    dispatched = await self._source_call(
-                        attempt.run_id,
-                        "dispatch_transition",
-                        lambda: repo.dispatched(attempt, segment, deadline=deadline),
-                        deadline=deadline,
-                    )
+                    dispatched = dispatch_ready
+                    if dispatched and repo.clock.monotonic() >= deadline:
+                        dispatched = False
+                    if dispatched is None:
+                        dispatched = await self._source_call(
+                            attempt.run_id,
+                            "dispatch_transition",
+                            lambda: repo.dispatched(attempt, segment, deadline=deadline),
+                            deadline=deadline,
+                        )
                 except _SegmentDeadlineElapsed:
                     stop.state = "budget_exhausted"
                     stop.reason = ServiceError(
@@ -190,9 +220,18 @@ class Scheduler:
                     outcome = DispatchOutcome(state="not_sent", error=error.error)
                 else:
                     if not dispatched:
+                        if repo.clock.monotonic() >= deadline:
+                            stop.state = "budget_exhausted"
+                            stop.reason = ServiceError(
+                                code="run_incomplete",
+                                resource_id=attempt.run_id,
+                                reason="segment_deadline",
+                            )
                         outcome = DispatchOutcome(
                             state="not_sent",
-                            error=ServiceError(
+                            error=stop.reason
+                            if stop.state == "budget_exhausted"
+                            else ServiceError(
                                 code="run_incomplete", reason="cancelled_before_dispatch"
                             ),
                         )
@@ -242,6 +281,11 @@ class Scheduler:
             if started is not None
             else None
         )
+        if received is not None:
+            received.append((attempt, outcome, settlement_duration))
+            if cancelled:
+                raise asyncio.CancelledError
+            return outcome
         try:
             await self._source_call(
                 attempt.run_id,
@@ -272,6 +316,10 @@ class Scheduler:
         progress: Callable[[RunHistory], None] | None = None,
         deadline: float | None = None,
     ) -> RunHistory:
+        if len(history.prepared) >= 64 and self.hook is self._default_hook:
+            return await self._run_bulk(
+                history, segment, backend, progress=progress, deadline=deadline
+            )
         repo, clock = self.repository, self.repository.clock
         run_id = history.manifest.id
         deadline = (
@@ -465,6 +513,220 @@ class Scheduler:
             ) from None
         if stop.contention_failure is not None:
             raise ServiceFailure(stop.contention_failure) from None
+        if outer_cancelled:
+            raise asyncio.CancelledError
+        return result
+
+    async def _run_bulk(
+        self,
+        history: RunHistory,
+        segment: RunSegment,
+        backend: Backend,
+        *,
+        progress: Callable[[RunHistory], None] | None,
+        deadline: float | None,
+    ) -> RunHistory:
+        repo, clock = self.repository, self.repository.clock
+        source_call = partial(self._source_call, offload=True)
+        run_id = history.manifest.id
+        deadline = (
+            deadline
+            if deadline is not None
+            else (clock.monotonic() + history.manifest.settings.deadline_seconds)
+        )
+        queue = [
+            (clock.monotonic() + work.delay_seconds, work)
+            for work in history.work(retry_unknown=segment.retry_unknown)
+        ]
+        active: dict[asyncio.Task[DispatchOutcome], AttemptRecord] = {}
+        received: list[tuple[AttemptRecord, DispatchOutcome, float | None]] = []
+        stop = Stop()
+        outer_cancelled = False
+
+        async def settle() -> tuple[RunHistory, bool]:
+            batch = tuple(received)
+
+            def capture() -> tuple[RunHistory, bool]:
+                if batch:
+                    repo.settle_many(batch)
+                current = repo.history(run_id)
+                return current, repo.cancelled(current, segment)
+
+            try:
+                return await source_call(run_id, "settlement" if batch else "history", capture)
+            finally:
+                # Uncertain publications never replay; later responses are separate work.
+                del received[: len(batch)]
+
+        try:
+            while queue or active:
+                if stop.persistence_failed:
+                    break
+                had_received = bool(received)
+                settled = tuple(received)
+                current, cancel_requested = await settle()
+                settled_ids = {attempt.id for attempt, _, _ in settled}
+                for task, attempt in tuple(active.items()):
+                    if task.done() and attempt.id in settled_ids:
+                        del active[task]
+                        task.result()
+                if settled and stop.state is None:
+                    eligible = {work.prepared.case_id: work for work in current.work()}
+                    for attempt, outcome, _ in settled:
+                        retry = eligible.get(attempt.case_id)
+                        if outcome.retryable and retry is not None and retry.kind == "rate_retry":
+                            queue.append((clock.monotonic() + retry.delay_seconds, retry))
+                if had_received and progress is not None:
+                    try:
+                        progress(current)
+                    except Exception:
+                        stop.state = "interrupted"
+                        stop.reason = ServiceError(
+                            code="internal_error", reason="progress_callback_failed"
+                        )
+                if cancel_requested:
+                    stop.state = "cancelled"
+                    stop.reason = ServiceError(code="run_incomplete", reason="cancel_requested")
+                elif queue and (clock.monotonic() >= deadline or current.remaining <= 0):
+                    stop.state = "budget_exhausted"
+                    stop.reason = ServiceError(
+                        code="run_incomplete",
+                        reason=(
+                            "segment_deadline"
+                            if clock.monotonic() >= deadline
+                            else "execution_group_cap"
+                            if current.group and current.group.remaining == 0
+                            else "attempt_cap"
+                        ),
+                    )
+                if stop.state is None:
+                    queue.sort(key=lambda entry: entry[0])
+                    available = history.manifest.settings.concurrency - len(active)
+                    due = tuple(
+                        work for due_at, work in queue[:available] if due_at <= clock.monotonic()
+                    )
+                    if due:
+                        try:
+                            prepared = await source_call(
+                                run_id,
+                                "reservation",
+                                partial(
+                                    repo.prepare_dispatch_many,
+                                    run_id,
+                                    segment,
+                                    due,
+                                    deadline=deadline,
+                                ),
+                                deadline=deadline,
+                            )
+                        except _SegmentDeadlineElapsed:
+                            stop.state = "budget_exhausted"
+                            stop.reason = ServiceError(
+                                code="run_incomplete", reason="segment_deadline"
+                            )
+                        else:
+                            del queue[: len(prepared)]
+                            for attempt, ready in prepared:
+                                task = asyncio.create_task(
+                                    self._dispatch(
+                                        attempt,
+                                        segment,
+                                        backend,
+                                        stop,
+                                        history.manifest.settings.timeout_seconds,
+                                        deadline,
+                                        dispatch_ready=ready,
+                                        received=received,
+                                    )
+                                )
+                                active[task] = attempt
+                if not active and (not queue or stop.state is not None):
+                    break
+                if received:
+                    continue
+                pending = [task for task in active if not task.done()]
+                if pending:
+                    delay = None
+                    if (
+                        stop.state is None
+                        and queue
+                        and len(active) < history.manifest.settings.concurrency
+                    ):
+                        delay = max(0.0, min(due_at for due_at, _ in queue) - clock.monotonic())
+                    if delay is None:
+                        await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                    else:
+                        timer = asyncio.create_task(self.waiter.wait(delay))
+                        try:
+                            await asyncio.wait(
+                                [*pending, timer], return_when=asyncio.FIRST_COMPLETED
+                            )
+                        finally:
+                            timer.cancel()
+                            await asyncio.gather(timer, return_exceptions=True)
+                elif queue:
+                    delay = max(0.0, min(due_at for due_at, _ in queue) - clock.monotonic())
+                    await self.waiter.wait(min(0.25, delay))
+        except asyncio.CancelledError:
+            outer_cancelled = True
+            stop.state = "interrupted"
+            stop.reason = ServiceError(code="run_incomplete", reason="owner_cancelled")
+        except _SourceContentionExhausted as error:
+            self._record_contention(stop, error)
+        except ServiceFailure:
+            stop.persistence_failed = True
+        finally:
+            if active:
+                drained = asyncio.gather(*active, return_exceptions=True)
+                while not drained.done():
+                    try:
+                        await asyncio.shield(drained)
+                    except asyncio.CancelledError:
+                        outer_cancelled = True
+                        stop.state = "interrupted"
+                        stop.reason = ServiceError(code="run_incomplete", reason="owner_cancelled")
+            # Received responses remain unknown after any failed publication; never redispatch.
+            if received:
+                try:
+                    current, cancel_requested = await settle()
+                except _SourceContentionExhausted as error:
+                    self._record_contention(stop, error)
+                except ServiceFailure:
+                    stop.persistence_failed = True
+        if stop.persistence_failed:
+            raise ServiceFailure(
+                ServiceError(code="internal_error", resource_id=run_id, reason="persistence_failed")
+            ) from None
+        if stop.contention_failure is not None:
+            raise ServiceFailure(stop.contention_failure)
+
+        def finalize() -> RunHistory:
+            current = repo.history(run_id)
+            if repo.cancelled(current, segment) and not outer_cancelled:
+                stop.state = "cancelled"
+                stop.reason = ServiceError(code="run_incomplete", reason="cancel_requested")
+            elif (
+                stop.state is None
+                and clock.monotonic() >= deadline
+                and any(item.status == "pending" for item in current.results())
+            ):
+                stop.state = "budget_exhausted"
+                stop.reason = ServiceError(code="run_incomplete", reason="segment_deadline")
+            state = stop.state or (
+                "completed"
+                if all(item.status == "valid" for item in current.results())
+                else "completed_with_errors"
+            )
+            return repo.finish(run_id, state, segment.id, stop.reason)
+
+        try:
+            result = await source_call(run_id, "finalization", finalize)
+        except _SourceContentionExhausted as error:
+            raise ServiceFailure(error.error) from None
+        except ServiceFailure:
+            raise ServiceFailure(
+                ServiceError(code="internal_error", resource_id=run_id, reason="persistence_failed")
+            ) from None
         if outer_cancelled:
             raise asyncio.CancelledError
         return result

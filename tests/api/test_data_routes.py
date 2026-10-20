@@ -89,6 +89,19 @@ class _EpochSource:
         )
         return result
 
+    def capture_snapshot(self, keys=None):
+        records = self.source.capture_snapshot(keys)
+        self.reads.extend(
+            (
+                record.key.collection,
+                record.key.resource_id,
+                getattr(self.local, "epoch", 0),
+                record.etag,
+            )
+            for record in records
+        )
+        return records
+
     def __getattr__(self, name):
         return getattr(self.source, name)
 

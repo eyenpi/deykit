@@ -6,13 +6,23 @@ from typing import cast
 from deykit.application.dataset_support import decoded, fail
 from deykit.contracts.codec import dump_record
 from deykit.contracts.execution_groups import RegressionRemoval
-from deykit.contracts.json_value import JsonValue, bytes_hash, semantic_hash
+from deykit.contracts.json_value import JsonError, JsonLimits, JsonValue, bytes_hash, semantic_hash
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import RegressionRecord
 from deykit.runner.group_models import GroupPlan
-from deykit.runner.planner import RunPlan
+from deykit.runner.planner import MAX_PLAN_BYTES, RunPlan
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
+_REVIEW_LIMITS = JsonLimits(max_bytes=MAX_PLAN_BYTES, max_depth=128, max_nodes=2_000_000)
+
+
+def _review_digest(payload: JsonValue, reason: str) -> str:
+    try:
+        return semantic_hash(payload, limits=_REVIEW_LIMITS)
+    except JsonError as error:
+        if error.code == "json_resource_limit":
+            fail(reason, "preflight_failed")
+        raise
 
 
 def _record_identities(records: tuple[StoredRecord, ...]) -> list[JsonValue]:
@@ -128,7 +138,7 @@ def run_review_payload(plan: RunPlan) -> JsonValue:
 
 
 def run_review_hash(plan: RunPlan) -> str:
-    return semantic_hash(run_review_payload(plan))
+    return _review_digest(run_review_payload(plan), "run_resource_limit")
 
 
 def group_review_hash(plan: GroupPlan, selection_source: str) -> str:
@@ -148,7 +158,7 @@ def group_review_hash(plan: GroupPlan, selection_source: str) -> str:
         ),
         "membership_records": _record_identities(plan.review_membership_records),
     }
-    return semantic_hash(payload)
+    return _review_digest(payload, "execution_group_resource_limit")
 
 
 def require_review_hash(expected: str | None, actual: str) -> None:

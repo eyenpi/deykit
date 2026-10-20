@@ -43,7 +43,7 @@ def service(source: FileProjectSource) -> ExecutionService:
 
 @contextmanager
 def _cancel_epoch(source: FileProjectSource) -> Iterator[None]:
-    """Retry only nonblocking source-lock acquisition for this CLI cancellation."""
+    """Retry only source-lock acquisition for CLI cancellation and active progress reads."""
     deadline = _monotonic() + _CANCEL_ACQUISITION_BUDGET_SECONDS
     delay_index = 0
     first_busy: ServiceFailure | None = None
@@ -209,7 +209,12 @@ def show_run(ctx: typer.Context, run_id: str) -> None:
     def work(cli: CliState) -> object:
         with cli.source() as source:
             with selection_context(source, (selector_hint("run", run_id, ()),)):
-                return service(source).show(run_id)
+                runner = service(source)
+                if runner.execution.execution_active():
+                    with _cancel_epoch(source):
+                        history = runner.repository.history(run_id)
+                    return progress_view(history, active=True)
+                return runner.show(run_id)
 
     execute(ctx, work)
 

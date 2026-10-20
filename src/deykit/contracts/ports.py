@@ -147,3 +147,24 @@ class SnapshotSource(ProjectSource, Protocol):
     def capture_snapshot(
         self, keys: tuple[ResourceKey, ...] | None = None
     ) -> tuple[StoredRecord, ...]: ...
+
+
+class RecordViewSource(Protocol):
+    """Admit fresh source/history, then reuse that lock epoch's validated record view."""
+
+    def read_records(self) -> tuple[StoredRecord, ...]: ...
+
+
+@dataclass(frozen=True)
+class RecordViewDelta:
+    records: tuple[StoredRecord, ...]
+    # None requests full reconstruction. Empty changes means exact unchanged records.
+    changes: tuple[StoredRecord, ...] | None = None
+    deleted_keys: tuple[ResourceKey, ...] = ()
+    previous_records: tuple[StoredRecord, ...] | None = None
+
+
+class IncrementalRecordViewSource(Protocol):
+    """Fresh admission plus a proved difference from an exact previous logical view."""
+
+    def read_record_view(self, previous: tuple[StoredRecord, ...] | None) -> RecordViewDelta: ...
