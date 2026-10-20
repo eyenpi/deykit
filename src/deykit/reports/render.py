@@ -96,6 +96,9 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
         f"- Evidence modes: {_inline(modes)}",
         f"- Limitations: {_inline(', '.join(content.limitations) or 'none')}",
     ]
+    from deykit.reports.classification_render import classification_markdown
+
+    lines.extend(classification_markdown(content, _inline))
     if content.evaluations:
         lines += ["", "## Evaluation contexts", ""]
         for number, evaluation in enumerate(content.evaluations, 1):
@@ -437,7 +440,7 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
 def render_content(
     record: ReportRecord, content: ReportContent, format: ReportFormat
 ) -> RenderedArtifact:
-    if format not in ("json", "markdown"):
+    if format not in ("json", "markdown", "csv"):
         raise ValueError("invalid_report_format")
     if format == "json":
         parsed = parse_json(record.content_source)
@@ -449,6 +452,10 @@ def render_content(
             "content": parsed,
         }
         body = (dump_json(envelope, sort_keys=True) + "\n").encode("utf-8", "strict")
+    elif format == "csv":
+        from deykit.reports.classification_render import classification_csv
+
+        body = classification_csv(record, content)
     else:
         body = _markdown(record, content).encode("utf-8", "strict")
         if len(body) > _MAX_MARKDOWN_BYTES:

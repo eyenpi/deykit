@@ -463,6 +463,8 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                         "operation_id": "http-report",
                         "target_id": evaluation_id,
                         "target_kind": "evaluation",
+                        "preset": "classification",
+                        "pricing": {"rates": []},
                     },
                 )
                 assert report.status_code == 200, report.text
@@ -504,6 +506,20 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                 assert markdown.status_code == 200
                 assert markdown.content == expected_markdown
                 assert markdown.headers["content-type"] == "text/plain; charset=utf-8"
+                csv_download = await client.get(
+                    f"{base}/reports/{report_id}/download?format=csv", headers=headers
+                )
+                assert csv_download.status_code == 200
+                assert csv_download.content == (
+                    ReportService(source, context.dependencies.clock)
+                    .render(report_id, format="csv")
+                    .body
+                )
+                assert csv_download.headers["content-type"] == "text/csv; charset=utf-8"
+                assert csv_download.headers["cache-control"] == "no-store"
+                assert csv_download.headers["content-disposition"] == (
+                    f'attachment; filename="report-{report_id}.csv"'
+                )
 
                 missing = await client.get(
                     f"{base}/reports/missing-report/download?format=markdown", headers=headers

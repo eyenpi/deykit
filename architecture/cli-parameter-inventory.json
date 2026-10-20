@@ -93,10 +93,21 @@
       "parser_type": "str",
       "accepted_values": [
         "json",
-        "markdown"
+        "markdown",
+        "csv"
       ],
       "guide": "guide/reports.md",
       "authority": "Report command validation; not Click choices."
+    },
+    {
+      "command": "report export",
+      "parameter": "preset",
+      "parser_type": "str",
+      "accepted_values": [
+        "classification"
+      ],
+      "guide": "guide/reports.md",
+      "authority": "ReportRequest contract; not Click choices."
     }
   ],
   "commands": {
@@ -4804,6 +4815,40 @@
           "name": "group_snapshot",
           "options": [
             "--group-snapshot"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "preset",
+          "options": [
+            "--preset"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "pricing",
+          "options": [
+            "--pricing"
           ],
           "secondary_options": [],
           "type": "str",

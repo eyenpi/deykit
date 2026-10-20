@@ -44,6 +44,7 @@ from deykit.reports.admission import (
     admit_report_metadata,
     report_hash,
 )
+from deykit.reports.classification import classification_report
 from deykit.reports.group_projection import (
     project_check,
     project_diagnostic,
@@ -53,6 +54,7 @@ from deykit.reports.group_projection import (
 )
 from deykit.reports.models import (
     CheckReport,
+    ClassificationPricing,
     DiagnosticReport,
     ExportOutcome,
     FrozenTarget,
@@ -222,7 +224,9 @@ def admit_report_from_records(
                     fail("report_redaction_context_mismatch", "incompatible_data")
                 fail("report_link_mismatch", "incompatible_data")
         expected_limitations_value = expected_limitations(
-            admitted.content.evaluations, admitted.content.raw_material
+            admitted.content.evaluations,
+            admitted.content.raw_material,
+            admitted.content.classification,
         )
     if admitted.content.limitations != expected_limitations_value:
         fail("report_link_mismatch", "incompatible_data")
@@ -248,6 +252,11 @@ def admit_report_from_records(
         if sanitizer_would_change(admitted.content, active_sanitizer):
             fail("report_redaction_context_mismatch", "incompatible_data")
         fail("report_link_mismatch", "incompatible_data")
+    classification = admitted.content.classification
+    if classification is not None and classification != classification_report(
+        admitted.content.evaluations, classification.pricing
+    ):
+        fail("report_classification_mismatch", "incompatible_data")
     return ReportView(admitted.record, admitted.etag, admitted.content, replayed)
 
 
@@ -286,6 +295,16 @@ class ReportService:
                     "requests": request.raw.requests,
                     "responses": request.raw.responses,
                 },
+                **(
+                    {
+                        "preset": request.preset,
+                        "pricing": _json_tree(request.pricing.model_dump(mode="python"))
+                        if request.pricing is not None
+                        else None,
+                    }
+                    if request.preset is not None
+                    else {}
+                ),
             }
         )
         with self.source.consistent_read() as source:
@@ -479,6 +498,13 @@ class ReportService:
                 evaluations.append(projected)
                 material.extend(raw_items)
             eval_ids = tuple(dict.fromkeys(view.record.id for view in eval_views))
+            classification = (
+                classification_report(
+                    tuple(evaluations), request.pricing or ClassificationPricing()
+                )
+                if request.preset == "classification"
+                else None
+            )
             if group_snapshot is None:
                 result_ids = tuple(
                     dict.fromkeys(view.record.result_snapshot_id for view in eval_views)
@@ -487,7 +513,9 @@ class ReportService:
                     dict.fromkeys(view.record.label_snapshot_id for view in eval_views)
                 )
                 raw_tuple = tuple(dict.fromkeys(material))
-                limitation_tuple = expected_limitations(tuple(evaluations), raw_tuple)
+                limitation_tuple = expected_limitations(
+                    tuple(evaluations), raw_tuple, classification
+                )
             else:
                 limitation_tuple = ()
             content = ReportContent(
@@ -508,6 +536,7 @@ class ReportService:
                 check=check_source,
                 raw_material=raw_tuple,
                 limitations=limitation_tuple,
+                classification=classification,
             )
             if group_snapshot is not None:
                 group_report = diagnostic_source or check_source
@@ -639,6 +668,8 @@ class ReportService:
                 fail("report_artifact_limit")
             if error.args == ("invalid_report_format",):
                 fail("invalid_report_format")
+            if error.args == ("csv_requires_classification",):
+                fail("csv_requires_classification")
             raise
         if len(artifact.body) > 8 * 1024 * 1024:
             fail("report_artifact_limit")

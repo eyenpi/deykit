@@ -16,6 +16,7 @@ from deykit.cli.selection import SelectorHint, SelectorOwner, selection_context,
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.selection import ResourceKind
 from deykit.reports.models import (
+    ClassificationPricing,
     ExportOutcome,
     RawChoices,
     ReportFormat,
@@ -37,7 +38,7 @@ def _invalid(reason: str) -> ServiceFailure:
 
 
 def _format(value: str) -> ReportFormat:
-    if value not in ("json", "markdown"):
+    if value not in ("json", "markdown", "csv"):
         raise _invalid("invalid_report_format")
     return cast(ReportFormat, value)
 
@@ -103,6 +104,8 @@ def export(
     evaluation: Annotated[str | None, typer.Option("--evaluation")] = None,
     result_snapshot: Annotated[str | None, typer.Option("--result-snapshot")] = None,
     group_snapshot: Annotated[str | None, typer.Option("--group-snapshot")] = None,
+    preset: Annotated[str | None, typer.Option("--preset")] = None,
+    pricing: Annotated[str | None, typer.Option("--pricing")] = None,
     include_raw_inputs: Annotated[bool, typer.Option("--include-raw-inputs")] = False,
     include_raw_requests: Annotated[bool, typer.Option("--include-raw-requests")] = False,
     include_raw_responses: Annotated[bool, typer.Option("--include-raw-responses")] = False,
@@ -118,7 +121,15 @@ def export(
         raw_requested = include_raw_inputs or include_raw_requests or include_raw_responses
         creation_selector = any(
             item is not None
-            for item in (target_kind, evaluation, result_snapshot, group_snapshot, operation_id)
+            for item in (
+                target_kind,
+                evaluation,
+                result_snapshot,
+                group_snapshot,
+                operation_id,
+                preset,
+                pricing,
+            )
         )
 
         request: ReportRequest | None
@@ -137,20 +148,36 @@ def export(
                 raise _invalid("invalid_report_selector")
             selected_target_id = identifier(target_id)
             selected_kind = _kind(target_kind)
+            if preset not in (None, "classification"):
+                raise _invalid("invalid_report_preset")
+            if selected_format == "csv" and preset != "classification":
+                raise _invalid("csv_requires_classification")
             try:
+                prices = None
+                if pricing is not None:
+                    from pathlib import Path
+
+                    from deykit.contracts.json_value import parse_json
+
+                    with Path(pricing).open("rb") as price_file:
+                        price_source = price_file.read(1_048_577).decode("utf-8", "strict")
+                    parse_json(price_source)
+                    prices = ClassificationPricing.model_validate_json(price_source)
                 request = ReportRequest(
                     target_id=selected_target_id,
                     target_kind=selected_kind,
                     evaluation_id=evaluation,
                     result_snapshot_id=result_snapshot,
                     group_snapshot_id=group_snapshot,
+                    preset="classification" if preset == "classification" else None,
+                    pricing=prices,
                     raw=RawChoices(
                         inputs=include_raw_inputs,
                         requests=include_raw_requests,
                         responses=include_raw_responses,
                     ),
                 )
-            except (ValidationError, ValueError):
+            except (ValidationError, ValueError, OSError):
                 raise _invalid("invalid_report_request") from None
             if operation_id is not None:
                 identifier(operation_id)

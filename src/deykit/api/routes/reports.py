@@ -17,14 +17,16 @@ from deykit.application.reports import ReportService
 from deykit.contracts.errors import ServiceError
 from deykit.reports.models import ReportMetadata
 
+_DOWNLOAD_FORMATS = {
+    "json": {"contentType": "application/octet-stream", "extension": "json"},
+    "markdown": {"contentType": "text/plain; charset=utf-8", "extension": "md"},
+    "csv": {"contentType": "text/csv; charset=utf-8", "extension": "csv"},
+}
 _DOWNLOAD_POLICY = {
     "formatParameter": "format",
     "reportIdParameter": "report_id",
     "maxBytes": 8388608,
-    "formats": {
-        "json": {"contentType": "application/octet-stream", "extension": "json"},
-        "markdown": {"contentType": "text/plain; charset=utf-8", "extension": "md"},
-    },
+    "formats": _DOWNLOAD_FORMATS,
 }
 
 
@@ -107,6 +109,7 @@ def register(
                 "content": {
                     "application/octet-stream": {"schema": {"type": "string", "format": "binary"}},
                     "text/plain; charset=utf-8": {"schema": {"type": "string", "format": "binary"}},
+                    "text/csv; charset=utf-8": {"schema": {"type": "string", "format": "binary"}},
                 },
             }
         },
@@ -114,7 +117,7 @@ def register(
     async def download_report(
         registration_id: str,
         report_id: str,
-        format: Literal["json", "markdown"],
+        format: Literal["json", "markdown", "csv"],
     ) -> Response:
         # Resolve registration before translating report errors, so admission failures never
         # disclose a guessed report identity.
@@ -131,8 +134,9 @@ def register(
                 reason=error.error.reason,
             )
             raise ServiceFailure(retained, selection=error.selection) from None
-        extension = "json" if format == "json" else "md"
-        media = "application/octet-stream" if format == "json" else "text/plain; charset=utf-8"
+        policy = _DOWNLOAD_FORMATS[format]
+        extension = policy["extension"]
+        media = policy["contentType"]
         return Response(
             content=artifact.body,
             status_code=200,
