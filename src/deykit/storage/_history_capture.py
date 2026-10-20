@@ -4,7 +4,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from deykit.contracts.identities import validate_resource_id
-from deykit.contracts.ports import ResourceKey
+from deykit.contracts.ports import ResourceKey, StoredRecord
+from deykit.storage._chunks import CHUNK_LIMIT
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
 
@@ -14,7 +15,7 @@ class HistoryCapture:
         self.bodies: dict[Parts, bytes] = {}
         self.children: dict[Parts, set[str]] = {}
         self.operations: dict[str, dict[str, bytes]] = {}
-        files.read_tree(("history", "operations"), self)
+        files.read_tree(("history", "operations"), self, limit=CHUNK_LIMIT)
 
     def include(self, parts: Parts) -> bool:
         return True
@@ -44,6 +45,8 @@ class HistoryCapture:
 class OperationEvidence:
     sequence: int
     entries: tuple[tuple[ResourceKey, str | None], ...]
+    records: tuple[StoredRecord, ...] = ()
+    reference: tuple[str, bytes] | None = None
 
 
 class OperationValidationMemo:
@@ -63,15 +66,23 @@ class OperationValidationMemo:
     def put(self, operation_id: str, bodies: dict[str, bytes], value: OperationEvidence) -> None:
         previous = self.entries.pop(operation_id, None)
         if previous is not None:
-            self.bytes -= sum(map(len, previous[0].values()))
-        weight = sum(map(len, bodies.values()))
-        if weight > 64 * 1024 * 1024:
+            self.bytes -= self._weight(*previous)
+        weight = self._weight(bodies, value)
+        if weight > 128 * 1024 * 1024:
             return
         self.entries[operation_id] = (bodies, value)
         self.bytes += weight
-        while len(self.entries) > 65_536 or self.bytes > 64 * 1024 * 1024:
-            _, (removed, _) = self.entries.popitem(last=False)
-            self.bytes -= sum(map(len, removed.values()))
+        while len(self.entries) > 65_536 or self.bytes > 128 * 1024 * 1024:
+            _, (removed, evidence) = self.entries.popitem(last=False)
+            self.bytes -= self._weight(removed, evidence)
+
+    @staticmethod
+    def _weight(bodies: dict[str, bytes], evidence: OperationEvidence) -> int:
+        return (
+            sum(map(len, bodies.values()))
+            + sum(len(record.body) for record in evidence.records)
+            + (len(evidence.reference[1]) if evidence.reference else 0)
+        )
 
     def clear(self) -> None:
         self.entries.clear()

@@ -18,9 +18,10 @@ SQLite entry, or cached filesystem metadata substitutes for those byte reads.
 Completed operation validation can reuse successful results only when the operation's
 entire freshly read file inventory and bytes match. Historical additions, removals,
 changed bytes and duplicate sequences still fail admission. Its memo retains at most
-65536 operations / 64 MiB of body bytes. Body and lifecycle decoding memos each retain
+65536 operations / 128 MiB of raw and decoded evidence bytes. Body and lifecycle decoding memos each retain
 at most 131072 entries / 64 MiB of serialized bytes. These are retention bounds, not
-process RSS limits. There is no persistent validation cache or source-format migration.
+process RSS limits. There is no persistent validation cache. New operations can use
+the compact layout below; existing source/history is not automatically migrated.
 
 Run history indexes records by collection/scope and attempts by case/identity. A
 frozen history reuses its result projection; a new captured history gets a new view.
@@ -63,8 +64,7 @@ directory outside the checkout:
 ```sh
 uv run python tests/runner/benchmark_bulk.py --count 100 --concurrency 64 --output /absolute/new/bulk-100
 uv run python tests/runner/benchmark_bulk.py --count 1000 --concurrency 64 --output /absolute/new/bulk-1000
-uv run python tests/runner/benchmark_bulk.py --count 10000 --concurrency 64 --output /absolute/new/bulk-10000
-uv run python tests/runner/benchmark_bulk.py --count 2500 --concurrency 64 --controls --output /absolute/new/bulk-2500
+uv run python tests/runner/benchmark_bulk.py --count 2500 --concurrency 64 --controls --controls-after 2048 --output /absolute/new/bulk-2500
 ```
 
 The script imports all cases through `ImportService`, previews the complete run and
@@ -72,11 +72,15 @@ executes the standard `ExecutionService` over the real filesystem adapter. It as
 that every selected case has one unique transport call and a saved valid result.
 Import, preview, execution and final read timings are separate. Reported transport
 latency is zero; execution wall time includes scheduling, validation and durable I/O.
-`--controls` holds the first concurrent calls, invokes actual `runs show` and `runs
+`--controls` holds concurrent calls, invokes actual `runs show` and `runs
 cancel` commands in separate processes, drains those calls and explicitly resumes
 pending cases in the same project. Its wall time includes that deliberate control
 exercise. Both command durations must be below five seconds, including interpreter
 startup. It is not a paid/live benchmark.
+`--controls-after 2048` lets 2048 calls settle before holding the next concurrent
+batch, exercising controls against substantial existing history. Start small and
+increase only after the smaller checks pass; no full execution is needed to profile
+the filesystem operation counts.
 
 `--profile` aggregates source epochs from their actual threads, including recovery,
 reservation, dispatch and settlement storage work. Profiled timings must not be mixed
@@ -194,12 +198,68 @@ At 300 cases, path-spelling checks fell from 66472 to 1029, directory listings f
 93884 to 14134, and full source walks from 61 to 36. A separate read of the completed
 1000-case project captured 9018 records: 5.130 seconds cold and 0.824 seconds warm,
 with profiling enabled. Even the warm read opened 19185 filesystem objects. Fresh
-whole-project traversal remains the scaling floor; these reductions do not establish
-that the 10000-case runtime is acceptable. Removing that floor requires a separate
-decision about compact storage for immutable lifecycle evidence.
+whole-project traversal remained the scaling floor; these reductions did not establish
+that the 10000-case runtime was acceptable. The user subsequently approved compact
+storage for new immutable lifecycle evidence, implemented below.
 
 Focused storage/recovery checks passed (40 tests in 6.9 seconds); batch traversal,
 corruption, group snapshot and bulk runner checks passed (88 tests, 3 skipped, in
 29.4 seconds); body validation, paths, replacements and API route checks passed
 (32 tests, 2 skipped, in 0.7 seconds). Ruff, formatting, mypy and package builds passed.
 The earlier full-suite result applies to the preceding commit, not this follow-up.
+
+## Compact evidence follow-up
+
+New attempts, attempt-events, run-events and prepared-cases are stored as exact bytes
+inside bounded, immutable per-operation packs, rather than one source file and one
+history file per record. Large operations also pack their historical old/new bodies;
+mutable source JSON remains individual and editable. Independent source references
+guard against losing an entire archived operation. The current adapter reads legacy
+and packed histories together; older adapters reject the new format. See the
+[storage contract](storage.md) for framing, limits and recovery semantics.
+
+Each new admission still reads authoritative source and history bytes. Exact-byte
+validation memoization, snapshot comparisons and the independent predecision read
+remain in place. Binary framing does not change record bytes, resource identities,
+ETags, request input, or hash profiles. Copies remain self-contained after deleting
+the disposable index. Decided transactions recover after process death before
+application, during application, or after publishing the reference.
+
+The remaining 300-case profile exposed a Python character loop validating Unicode
+scalars. Strict UTF-8 encoding now performs the same validation in C and supplies the
+encoded bytes for the existing size check. Lone surrogate keys/values still fail;
+Unicode scalar values and exact decimal/integer behavior remain unchanged.
+
+Final-tree measurements and focused verification are recorded below. No full-suite
+or 10000-case execution was repeated for this follow-up.
+
+| Cases | Mode | Import (s) | Preview (s) | Execution (s) | Final read (s) |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 300 | Profiled | 0.167 | 0.171 | 2.921 | 0.066 |
+| 1000 | Unprofiled | 0.515 | 0.565 | 7.226 | 0.103 |
+| 2500 | Unprofiled, late cancel/resume | 1.255 | 1.366 | 44.797 | 0.264 |
+
+All rows have exactly N planned cases, unique calls, saved attempts and valid saved
+results. Imported bytes, every input hash and every compiled request were independently
+compared with the preceding 300/1000-case receipts and match. The 2500-case control
+check waited for 2048 settled calls, held 64 calls in
+flight, then cancelled, drained and explicitly resumed. Real CLI show took 2.569
+seconds and cancel took 2.769 seconds, including startup. These differ from the
+earlier first-batch control experiment and are not a matched speedup comparison.
+
+For the 300-case profiles, filesystem opens fell from 205022 before this follow-up
+to 15006 with compact storage (92.7% fewer); directory listings fell from 93884 to
+3571. The earlier unprofiled 1000-case execution was 59.239 seconds versus 7.226 now,
+but those timings were collected at different times on the same host. No final
+10000-case wall time or asymptotically linear execution is claimed. Large existing
+legacy projects still incur their original per-record file reads; this change speeds
+newly written evidence without migrating old data.
+
+Final focused verification: 154 tests passed across exact JSON, source/journal
+validation, recovery, demo receipt admission, debugging projections, compact packs,
+source epochs, bulk execution and group snapshots. The two bounded groups took 5.5
+and 15.6 seconds. Coverage includes malformed framing, same-size/mtime corruption,
+missing archives/references, mixed legacy evidence, copied projects without caches,
+actual child-process death, uncertain settlement, deadline and cancellation/resume.
+Ruff, formatting, mypy (191 source files), and source/wheel builds passed.
+The legacy full-suite result above applies only to the earlier implementation.

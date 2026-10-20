@@ -61,6 +61,12 @@ removed only when no project process holds its locks. Reopen and rebuild the ind
 after copying the whole quiescent folder. Provider credential references do not copy
 actual credentials, and opening a project makes no inference request.
 
+New runs store high-volume immutable evidence in compact binary packs under
+`history/operations/`, with essential references under `source/_chunks/`. Keep both
+in backups and use `runs show` and `results show` to inspect run evidence. Existing
+JSON histories remain readable without conversion. A project written in the compact
+format requires this client version or newer; older clients reject the new format.
+
 The filesystem adapter has POSIX and Windows implementations. The portability CI
 matrix exercises local macOS, Ubuntu and Windows Server filesystems; consult the
 actual PR results before treating a platform as verified. Windows acceptance targets

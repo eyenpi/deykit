@@ -226,11 +226,9 @@ def test_bulk_uncertain_settlement_commit_is_not_repeated(setup):
         nonlocal armed
         if point != "archived" or not armed:
             return
-        for attempt_id in source.files.names(("source", "attempt_events")):
-            for name in source.files.names(("source", "attempt_events", attempt_id)):
-                event = load_record(
-                    AttemptEvent, source.files.read(("source", "attempt_events", attempt_id, name))
-                )
+        for record in source.read_records():
+            if record.key.collection == "attempt_events":
+                event = load_record(AttemptEvent, record.body)
                 if event.state == "known":
                     armed = False
                     raise OSError("injected failure after durable settlement")
@@ -359,7 +357,9 @@ def test_bulk_deadline_after_publication_keeps_unsent_cases_pending(setup):
     source, service, factory, clock = setup(64)
 
     def elapse_after_preparation(point):
-        if point == "archived" and source.files.names(("source", "attempts")):
+        if point == "archived" and any(
+            record.key.collection == "attempts" for record in source.read_records()
+        ):
             clock.value = 601
 
     source._hook = elapse_after_preparation

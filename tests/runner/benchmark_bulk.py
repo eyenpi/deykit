@@ -31,10 +31,13 @@ def main():
     parser.add_argument("--concurrency", type=int, default=16)
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--controls", action="store_true")
+    parser.add_argument("--controls-after", type=int, default=0)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     if not 1 <= args.count <= 10_000 or not 1 <= args.concurrency <= 64:
         parser.error("count must be 1..10000 and concurrency 1..64")
+    if not 0 <= args.controls_after < args.count or (args.controls_after and not args.controls):
+        parser.error("controls-after requires --controls and must be below count")
     factory = Factory()
     with FileProjectSource(args.output / "project", create=True) as source:
         started = time.perf_counter()
@@ -136,7 +139,9 @@ def main():
             ready, release = asyncio.Event(), asyncio.Event()
 
             async def transport(_case_id, _request):
-                if len(factory.calls) == min(args.count, args.concurrency):
+                if len(factory.calls) <= args.controls_after:
+                    return answer()
+                if len(factory.calls) == min(args.count, args.controls_after + args.concurrency):
                     ready.set()
                 await release.wait()
                 return answer()
@@ -152,7 +157,9 @@ def main():
             try:
                 await asyncio.wait_for(ready.wait(), 120)
                 shown, show_seconds = await asyncio.to_thread(cli, "runs", "show", run_ids[0])
-                assert shown["attempts_used"] == min(args.count, args.concurrency)
+                assert shown["attempts_used"] == min(
+                    args.count, args.controls_after + args.concurrency
+                )
                 _, cancel_seconds = await asyncio.to_thread(
                     cli, "runs", "cancel", run_ids[0], "--operation-id", "benchmark-cancel"
                 )
@@ -163,6 +170,7 @@ def main():
                     show_seconds=show_seconds,
                     cancel_seconds=cancel_seconds,
                     calls_at_cancel=len(factory.calls),
+                    controls_after=args.controls_after,
                 )
                 factory.callback = None
                 return await service.resume(cancelled.run_id, operation_id="benchmark-resume")

@@ -200,3 +200,22 @@ def test_large_scoped_record_fingerprint_preserves_the_existing_hash_rule():
     encoded = json.dumps(expected, ensure_ascii=False, separators=(",", ":")).encode()
     assert len(encoded) > 2 * 1024 * 1024
     assert fingerprint(tuple(records)) == hashlib.sha256(b"deykit-json-v1\n" + encoded).hexdigest()
+
+
+def test_unicode_scalar_validation_preserves_exact_values():
+    value = {"é🟣": "\x00\u0085\u2028\uffff\U0010ffffé漢🟣"}
+    assert parse_json(json.dumps(value, ensure_ascii=False)) == value
+    assert parse_json(json.dumps(value, ensure_ascii=True)) == value
+
+
+@pytest.mark.parametrize("codepoint", [0xD800, 0xDBFF, 0xDC00, 0xDFFF])
+@pytest.mark.parametrize("position", ["source", "key", "value"])
+def test_unicode_validation_rejects_lone_surrogates_at_every_boundary(codepoint, position):
+    invalid = "safe" + chr(codepoint) + "tail"
+    source = (
+        json.dumps({invalid: "value"})
+        if position == "key"
+        else json.dumps({"key": invalid}, ensure_ascii=position != "source")
+    )
+    with pytest.raises(JsonError, match="invalid_unicode"):
+        parse_json(source)

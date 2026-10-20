@@ -37,9 +37,11 @@ GENERATED_LIMITS = JsonLimits(max_bytes=2_097_152, max_depth=128, max_nodes=200_
 RECORD_LIMITS = JsonLimits(max_bytes=16_777_216, max_depth=256, max_nodes=1_000_000)
 
 
-def _valid_string(value: str) -> None:
-    if any(0xD800 <= ord(c) <= 0xDFFF for c in value):
-        raise JsonError("invalid_unicode")
+def _valid_string(value: str) -> bytes:
+    try:
+        return value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise JsonError("invalid_unicode") from None
 
 
 def parse_json(source: str | bytes, limits: JsonLimits = DEFAULT_LIMITS) -> JsonValue:
@@ -51,8 +53,7 @@ def parse_json(source: str | bytes, limits: JsonLimits = DEFAULT_LIMITS) -> Json
             source = source.decode("utf-8", errors="strict")
         except UnicodeDecodeError:
             raise JsonError("invalid_utf8") from None
-    _valid_string(source)
-    if len(source.encode("utf-8")) > limits.max_bytes:
+    if len(_valid_string(source)) > limits.max_bytes:
         raise JsonError("json_resource_limit")
 
     def number(token: str) -> Decimal:

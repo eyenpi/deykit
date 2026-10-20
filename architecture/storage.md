@@ -37,8 +37,9 @@ bounds, execution batching and control checks.
 ```text
 deykit.project.json                  # sole project metadata and ancestor-discovery marker
 source/<collection>/<scope...>/<id>.json
+source/_chunks/<operation-id>.json    # essential manifest hash/sequence references
 history/journal/<operation-id>/       # staged manifests/blobs; recovery required
-history/operations/<operation-id>/    # immutable completed manifests and old/new bodies
+history/operations/<operation-id>/    # immutable manifests and exact bodies (JSON or packs)
 history/cancellations/<run-id>/       # append-only cancellation requests
 history/cancel_ack/<run-id>/          # immutable acknowledgement per resume segment
 .deykit/index.sqlite3                 # disposable derived cache
@@ -48,8 +49,26 @@ history/cancel_ack/<run-id>/          # immutable acknowledgement per resume seg
 Keep the root marker, `source/`, and **all `history/`** in backups/copies/version
 control. Only `.deykit/` is disposable, and removal/copy is supported while the project
 is quiescent. Do not delete lock files while processes own the project. An arbitrary
-copy during mutation is not claimed transactional. Individual readable JSON files are
-used for history rather than sharing a partially writable JSONL tail.
+copy during mutation is not claimed transactional. Each operation owns immutable
+history files; there is no shared writable JSONL tail.
+
+New operations containing at least 16 changes, or any attempts, attempt-events,
+run-events or prepared-cases, use the private `chunks-v1` manifest variant. Exact
+old/new record bytes are framed into `chunk-N.pack` files, normally at most 4 MiB
+each. A single record can exceed that target within its existing 16 MiB limit;
+physical pack reads are bounded at 32 MiB. Every frame identifies its manifest entry
+and old/new role. Lengths, identities, complete membership and both pack and record
+hashes are checked. No input JSON is parsed and reserialized to create a pack.
+
+Those four high-volume immutable collections live in the operation packs and are
+exposed as ordinary logical `StoredRecord` values. Mutable records and other resource
+collections retain their individual source JSON files. Each packed operation also
+has an independent `source/_chunks/` reference bound to its exact manifest bytes and
+sequence, so losing an entire archive is detected. References are not user records.
+Physical records cannot shadow packed immutable identities. New clients read mixed
+legacy and packed operations without rewriting existing evidence. Older clients
+reject this new private variant; projects receiving packed writes require this client
+version or newer. There is no automatic conversion of existing large histories.
 
 Cases scope by `(dataset_id,)`; labels/label-history by `(decision_id, dataset_id)`;
 revisions by `(decision_id,)`; attempts/run-events/segments by `(run_id,)`;
@@ -86,7 +105,9 @@ contains new StoredRecords plus `deleted_keys`, and a replay flag.
 3. Stage old/new bytes and a versioned manifest with checked file flushes (and
    parent-directory fsync on POSIX). Recheck source fingerprints against the captured state.
 4. Persist and flush the commit decision, bound to the manifest hash. Only then replace
-   source files atomically one by one; POSIX also syncs each affected directory.
+   physical source files atomically and publish a packed operation's essential source
+   reference; POSIX also syncs each affected directory. Packed immutable bodies were
+   already staged and flushed before the decision.
 5. Move the completed journal into essential operation history; POSIX syncs both parents.
    Only after that update the disposable index.
 
