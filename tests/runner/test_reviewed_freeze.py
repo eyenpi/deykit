@@ -742,3 +742,143 @@ def test_same_etag_body_substitution_conflicts_in_admission_port(setup, monkeypa
     assert source.list_ids("runs") == ()
     assert callbacks == []
     assert factory.calls == []
+
+
+def test_maximum_case_review_is_bounded_and_binds_the_last_case(setup, monkeypatch):
+    from deykit.runner.views import preview_view
+
+    source, runner, factory, _ = setup(1)
+    plan = runner.planner.prepare(request())
+    cases = tuple(
+        plan.cases[0].model_copy(update={"id": f"case-{index:05}"}) for index in range(10000)
+    )
+    prepared = tuple(replace(plan.prepared[0], case_id=case.id) for case in cases)
+    metadata = tuple(record for record in plan.review_records if record.key.collection != "cases")
+    records = tuple(
+        StoredRecord(
+            ResourceKey("cases", case.id, ("data",)),
+            dump_record(case),
+            bytes_hash(dump_record(case)),
+        )
+        for case in cases
+    )
+    large = replace(
+        plan,
+        cases=cases,
+        development_cases=cases,
+        prepared=prepared,
+        review_records=(*metadata, *records),
+        selection=plan.selection.model_copy(
+            update={"settings": ExecutionSettings(max_attempts=10000)}
+        ),
+    )
+    before = source.capture_snapshot()
+    monkeypatch.setattr(runner.planner, "prepare", lambda _: large)
+    preview = runner.preview(large.selection)
+    assert preview.initial_requests == len(preview.selected_case_ids) == 10000
+    assert len(preview.review_context_hash) == 64
+    changed = replace(large, prepared=(*prepared[:-1], replace(prepared[-1], input_hash="f" * 64)))
+    assert preview_view(changed).review_context_hash != preview.review_context_hash
+    assert factory.calls == [] and source.capture_snapshot() == before
+
+
+def test_review_budget_failure_is_safe_preflight_without_source_changes(setup, monkeypatch):
+    from deykit.contracts.json_value import JsonLimits
+    from deykit.runner import review
+
+    source, runner, factory, _ = setup(1)
+    before = source.capture_snapshot()
+    monkeypatch.setattr(review, "_REVIEW_LIMITS", JsonLimits(max_bytes=10), raising=False)
+    with pytest.raises(ServiceFailure) as failure:
+        runner.preview(request())
+    assert failure.value.error.code == "preflight_failed"
+    assert failure.value.error.reason == "run_resource_limit"
+    assert factory.calls == [] and source.capture_snapshot() == before
+
+
+def test_maximum_member_prepared_digest_keeps_the_existing_canonical_rule(setup):
+    import json
+
+    from deykit.contracts.records import PreparedCase
+    from deykit.runner.group_evidence import member_prepared_hash
+
+    _, runner, _, _ = setup(1)
+    planned = runner.planner.prepare(request()).prepared[0]
+    run_id = "r" * 120
+    records, case_ids, expected = [], [], []
+    for index in range(10000):
+        case_id = "c" * 120 + f"{index:05}"
+        body = dump_record(
+            PreparedCase(
+                id=case_id,
+                run_id=run_id,
+                case_id=case_id,
+                input_hash=planned.input_hash,
+                request=planned.request,
+            )
+        )
+        case_ids.append(case_id)
+        records.append(
+            StoredRecord(ResourceKey("prepared_cases", case_id, (run_id,)), body, bytes_hash(body))
+        )
+        expected.append(
+            {
+                "key": {"collection": "prepared_cases", "scope": [run_id], "resource_id": case_id},
+                "body_sha256": bytes_hash(body),
+            }
+        )
+    payload = {"profile": "deykit-group-member-prepared-v1", "run_id": run_id, "prepared": expected}
+    encoded = json.dumps(
+        payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode()
+    assert len(encoded) > 2 * 1024 * 1024
+    assert (
+        member_prepared_hash(run_id, tuple(case_ids), tuple(records))
+        == hashlib.sha256(encoded).hexdigest()
+    )
+
+
+def test_large_owned_group_reference_digest_uses_record_limits():
+    from deykit.contracts.execution_groups import ExecutionMember
+    from deykit.contracts.json_value import JsonError
+    from deykit.contracts.model_admission import ModelInvalid, admit_model
+    from deykit.runner.group_evidence import content_hash
+
+    members = tuple(
+        ExecutionMember(
+            run_id=f"run-{index:05}",
+            manifest_hash="a" * 64,
+            prepared_hash="b" * 64,
+            initial_requests=1,
+        )
+        for index in range(10000)
+    )
+    group = ExecutionGroup(
+        id="group",
+        kind="regression_check",
+        members=members,
+        max_attempts=10000,
+        deadline_seconds=600,
+        operation_id="start",
+        intent_hash="c" * 64,
+        selection_source="{}",
+        content_hash="0" * 64,
+        created_at="2026-10-20T00:00:00Z",
+    )
+    assert len(dump_record(group)) > 2 * 1024 * 1024
+    with pytest.raises(JsonError, match="json_resource_limit"):
+        semantic_hash(group.model_dump(mode="json", exclude={"content_hash"}))
+    with pytest.raises(ModelInvalid):
+        admit_model(ExecutionGroup, group, "default_bound")
+    digest = content_hash(group)
+    assert len(digest) == 64
+    changed = group.model_copy(
+        update={
+            "members": (*members[:-1], members[-1].model_copy(update={"prepared_hash": "f" * 64}))
+        }
+    )
+    assert content_hash(changed) != digest
+    duplicated = group.model_copy(update={"members": (*members[:-1], members[0])})
+    with pytest.raises(ServiceFailure) as failure:
+        content_hash(duplicated)
+    assert failure.value.error.reason == "invalid_group_evidence"

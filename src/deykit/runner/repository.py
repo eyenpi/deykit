@@ -33,6 +33,7 @@ from deykit.contracts.records import (
     RunManifest,
     RunSegment,
 )
+from deykit.runner.decoding import HistoryDecoder
 from deykit.runner.history import RunHistory, WorkItem, history_from_records, read_history
 from deykit.runner.planner import MAX_PLAN_BYTES, RunPlan, evidence_hash
 from deykit.runner.ports import ExecutionProject
@@ -99,11 +100,13 @@ class RunRepository:
             id_factory,
         )
 
+        self._decoder = HistoryDecoder()
+
     def identity(self) -> str:
         return identifier(self.id_factory())
 
     def history(self, run_id: str) -> RunHistory:
-        return read_history(self.source, identifier(run_id))
+        return read_history(self.source, identifier(run_id), decoder=self._decoder)
 
     @staticmethod
     def replay_run(receipt: CommitReceipt) -> str:
@@ -392,6 +395,20 @@ class RunRepository:
     def reserve(
         self, run_id: str, segment: RunSegment, work: WorkItem, *, deadline: float
     ) -> AttemptRecord | None:
+        prepared = self._prepare_many(run_id, segment, (work,), deadline=deadline, dispatch=False)
+        return prepared[0][0] if prepared else None
+
+    def _prepare_many(
+        self,
+        run_id: str,
+        segment: RunSegment,
+        work: tuple[WorkItem, ...],
+        *,
+        deadline: float,
+        dispatch: bool,
+    ) -> tuple[tuple[AttemptRecord, bool], ...]:
+        if not work:
+            return ()
         with self.source.consistent_read():
             history = self.history(run_id)
             if history.group:
@@ -413,50 +430,78 @@ class RunRepository:
                 or self.clock.monotonic() >= deadline
                 or self.cancelled(history, segment)
             ):
-                return None
+                return ()
             eligible = {
                 item.prepared.case_id: item
                 for item in history.work(retry_unknown=segment.retry_unknown)
             }
-            current = eligible.get(work.prepared.case_id)
-            if (
-                current is None
-                or current.kind != work.kind
-                or current.prior_attempt_id != work.prior_attempt_id
-            ):
-                fail("run_work_changed", "conflict")
-            if work.prepared.request is None:
-                fail("invalid_dispatch_plan", "internal_error")
-            attempt = AttemptRecord(
-                id=self.identity(),
-                run_id=run_id,
-                segment_id=segment.id,
-                case_id=work.prepared.case_id,
-                number=history.used + 1,
-                request=work.prepared.request,
-                reserved_at=self.clock.utc_now(),
-                kind=work.kind,
-                prior_attempt_id=work.prior_attempt_id,
-            )
-            event = AttemptEvent(
-                id=self.identity(),
-                attempt_id=attempt.id,
-                sequence=1,
-                state="reserved",
-                created_at=self.clock.utc_now(),
-            )
-            run_event = self.event(
-                history, "attempt_reserved", segment_id=segment.id, attempt_id=attempt.id
-            )
-            self.source.commit(
-                self.identity(),
-                (
-                    change("attempts", attempt, (run_id,)),
-                    change("attempt_events", event, (attempt.id,)),
-                    change("run_events", run_event, (run_id,)),
-                ),
-            )
-            return attempt
+            attempts: list[tuple[AttemptRecord, bool]] = []
+            changes: list[SourceChange] = []
+            selected: set[str] = set()
+            sequence = history.boundary
+            for item in work[: history.remaining]:
+                if self.clock.monotonic() >= deadline:
+                    break
+                current = eligible.get(item.prepared.case_id)
+                if current is None or current != item or item.prepared.case_id in selected:
+                    fail("run_work_changed", "conflict")
+                selected.add(item.prepared.case_id)
+                if item.prepared.request is None:
+                    fail("invalid_dispatch_plan", "internal_error")
+                attempt = AttemptRecord(
+                    id=self.identity(),
+                    run_id=run_id,
+                    segment_id=segment.id,
+                    case_id=item.prepared.case_id,
+                    number=history.used + len(attempts) + 1,
+                    request=item.prepared.request,
+                    reserved_at=self.clock.utc_now(),
+                    kind=item.kind,
+                    prior_attempt_id=item.prior_attempt_id,
+                )
+                reserved = AttemptEvent(
+                    id=self.identity(),
+                    attempt_id=attempt.id,
+                    sequence=1,
+                    state="reserved",
+                    created_at=self.clock.utc_now(),
+                )
+                sequence += 1
+                run_event = self.event(
+                    history, "attempt_reserved", segment_id=segment.id, attempt_id=attempt.id
+                ).model_copy(update={"sequence": sequence})
+                changes.extend(
+                    (
+                        change("attempts", attempt, (run_id,)),
+                        change("attempt_events", reserved, (attempt.id,)),
+                        change("run_events", run_event, (run_id,)),
+                    )
+                )
+                ready = dispatch and self.clock.monotonic() < deadline
+                if ready:
+                    sequence += 1
+                    dispatched = AttemptEvent(
+                        id=self.identity(),
+                        attempt_id=attempt.id,
+                        sequence=2,
+                        state="dispatched",
+                        created_at=self.clock.utc_now(),
+                    )
+                    dispatched_run = self.event(
+                        history, "attempt_dispatched", segment_id=segment.id, attempt_id=attempt.id
+                    ).model_copy(update={"sequence": sequence})
+                    changes.extend(
+                        (
+                            change("attempt_events", dispatched, (attempt.id,)),
+                            change("run_events", dispatched_run, (run_id,)),
+                        )
+                    )
+                attempts.append((attempt, ready))
+                if dispatch and not ready:
+                    break
+            if changes:
+                self.source.commit(self.identity(), tuple(changes))
+            return tuple(attempts)
 
     def dispatched(self, attempt: AttemptRecord, segment: RunSegment, *, deadline: float) -> bool:
         with self.source.consistent_read():
@@ -492,30 +537,52 @@ class RunRepository:
         *,
         duration_seconds: float | None = None,
     ) -> None:
+        self.settle_many(((attempt, outcome, duration_seconds),))
+
+    def prepare_dispatch_many(
+        self, run_id: str, segment: RunSegment, work: tuple[WorkItem, ...], *, deadline: float
+    ) -> tuple[tuple[AttemptRecord, bool], ...]:
+        return self._prepare_many(run_id, segment, work, deadline=deadline, dispatch=True)
+
+    def settle_many(
+        self, received: tuple[tuple[AttemptRecord, DispatchOutcome, float | None], ...]
+    ) -> None:
+        if not received:
+            return
+        run_id = received[0][0].run_id
         with self.source.consistent_read():
-            history = self.history(attempt.run_id)
-            prior = history.final_event(attempt.id)
-            if prior is None or prior.state not in {"reserved", "dispatched"}:
-                fail("invalid_attempt_transition", "conflict")
-            event = AttemptEvent(
-                id=self.identity(),
-                attempt_id=attempt.id,
-                sequence=prior.sequence + 1,
-                state=outcome.state,
-                outcome=outcome,
-                duration_seconds=duration_seconds,
-                created_at=self.clock.utc_now(),
-            )
-            run_event = self.event(
-                history, "attempt_settled", segment_id=attempt.segment_id, attempt_id=attempt.id
-            )
-            self.source.commit(
-                self.identity(),
-                (
-                    change("attempt_events", event, (attempt.id,)),
-                    change("run_events", run_event, (attempt.run_id,)),
-                ),
-            )
+            history = self.history(run_id)
+            changes: list[SourceChange] = []
+            settled: set[str] = set()
+            for index, (attempt, outcome, duration) in enumerate(received, 1):
+                prior = history.final_event(attempt.id)
+                if (
+                    attempt.run_id != run_id
+                    or attempt.id in settled
+                    or prior is None
+                    or prior.state not in {"reserved", "dispatched"}
+                ):
+                    fail("invalid_attempt_transition", "conflict")
+                settled.add(attempt.id)
+                event = AttemptEvent(
+                    id=self.identity(),
+                    attempt_id=attempt.id,
+                    sequence=prior.sequence + 1,
+                    state=outcome.state,
+                    outcome=outcome,
+                    duration_seconds=duration,
+                    created_at=self.clock.utc_now(),
+                )
+                run_event = self.event(
+                    history, "attempt_settled", segment_id=attempt.segment_id, attempt_id=attempt.id
+                ).model_copy(update={"sequence": history.boundary + index})
+                changes.extend(
+                    (
+                        change("attempt_events", event, (attempt.id,)),
+                        change("run_events", run_event, (run_id,)),
+                    )
+                )
+            self.source.commit(self.identity(), tuple(changes))
 
     def recover(self, run_id: str) -> RunHistory:
         """Only an OS execution owner may call recovery; never sends requests."""

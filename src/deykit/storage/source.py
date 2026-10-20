@@ -29,6 +29,11 @@ from deykit.contracts.ports import (
 )
 from deykit.contracts.records import ProjectRecord
 from deykit.storage._body_validation import _SuccessfulBodyValidationMemo
+from deykit.storage._history_capture import (
+    HistoryCapture,
+    OperationEvidence,
+    OperationValidationMemo,
+)
 from deykit.storage._journal_validation import _SuccessfulJournalValidationMemo
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
@@ -142,6 +147,7 @@ class FileProjectSource:
         self._local = threading.local()
         self._body_validation = _SuccessfulBodyValidationMemo()
         self._journal_validation = _SuccessfulJournalValidationMemo()
+        self._operation_validation = OperationValidationMemo()
         self._admission_timeout_seconds = admission_timeout_seconds
         self._admission_condition = threading.Condition()
         self._admission_waiters: deque[object] = deque()
@@ -168,6 +174,7 @@ class FileProjectSource:
             finally:
                 self._body_validation.clear()
                 self._journal_validation.clear()
+                self._operation_validation.clear()
 
     def _validate_source_body(self, key: ResourceKey, body: bytes) -> None:
         if getattr(self._local, "source_depth", 0) <= 0:
@@ -190,8 +197,15 @@ class FileProjectSource:
                     fail("source_busy", "conflict")
                 self._local.source_depth = depth + 1
                 try:
-                    self._recover()
+                    if self.files.names(("history", "journal")):
+                        self._local.records = None
+                        self._local.checked_records = None
+                        self._recover()
                     yield self
+                except BaseException:
+                    self._local.records = None
+                    self._local.checked_records = None
+                    raise
                 finally:
                     self._local.source_depth = depth
                     self._mutex.release()
@@ -202,10 +216,14 @@ class FileProjectSource:
                     try:
                         with acquire(self.files, "source.lock"):
                             self._local.source_depth = 1
+                            self._local.records = None
+                            self._local.checked_records = None
                             try:
                                 self._recover()
                                 yield self
                             finally:
+                                self._local.records = None
+                                self._local.checked_records = None
                                 self._local.source_depth = 0
                     finally:
                         self._mutex.release()
@@ -266,6 +284,12 @@ class FileProjectSource:
             return next((record for record in records if record.key == key), None)
 
     def _all(self) -> tuple[StoredRecord, ...]:
+        captured = getattr(self._local, "records", None)
+        if captured is not None:
+            return cast(tuple[StoredRecord, ...], captured)
+        return self._fresh_all()
+
+    def _fresh_all(self) -> tuple[StoredRecord, ...]:
         records: list[StoredRecord] = []
         project = self.files.read(("deykit.project.json",))
         if project is not None:
@@ -279,7 +303,10 @@ class FileProjectSource:
                 )
             )
         self.files.read_tree(("source",), _SourceTreeVisitor(records, self._validate_source_body))
-        return tuple(sorted(records, key=lambda item: key_path(item.key)))
+        captured = tuple(sorted(records, key=lambda item: key_path(item.key)))
+        if getattr(self._local, "source_depth", 0):
+            self._local.records = captured
+        return captured
 
     def list_ids(self, collection: Collection, scope: tuple[str, ...] = ()) -> tuple[str, ...]:
         key_path(ResourceKey(collection, "scope-validation", scope))
@@ -301,9 +328,11 @@ class FileProjectSource:
             before = self._all()
             self._check_integrity(before)
             self._hook("snapshot_captured")
-            after = self._all()
+            after = self._fresh_all()
             if before != after:
+                self._local.checked_records = None
                 fail("unstable_source", "conflict")
+            self._local.records = before
             if keys is None:
                 return before
             if len(set(keys)) != len(keys):
@@ -423,6 +452,8 @@ class FileProjectSource:
         payload = self._payload(ordered)
         with self.consistent_read():
             current = self._all()  # Invalid/unknown versions anywhere block mutation.
+            # Preparation callbacks can expose uncooperative history edits within this epoch.
+            self._local.checked_records = None
             self._check_integrity(current)
             archived = ("history", "operations", operation_id)
             previous = self.files.read((*archived, "manifest.json"))
@@ -467,13 +498,7 @@ class FileProjectSource:
                 else:
                     final_keys.add(change.key)
             self._check_collisions(final_keys)
-            sequence = 1 + max(
-                (
-                    self._manifest(("history", "operations", name)).sequence
-                    for name in self.files.names(("history", "operations"))
-                ),
-                default=0,
-            )
+            sequence = cast(int, self._local.next_sequence)
             manifest = JournalManifest(
                 operation_id=operation_id,
                 payload_hash=payload,
@@ -493,8 +518,11 @@ class FileProjectSource:
                 self._hook(f"staged:{index}")
             self.files.replace((*stage, "manifest.json"), manifest_body)
             self._hook("prepared")
-            if current != self._all():
+            if current != self._fresh_all():
+                self._local.checked_records = None
                 fail("unstable_source", "conflict")
+            self._local.records = None
+            self._local.checked_records = None
             self.files.replace(
                 (*stage, "commit.json"),
                 dump_record(
@@ -505,7 +533,17 @@ class FileProjectSource:
             )
             self._hook("decided")
             self._apply(stage, manifest)
+            for change in ordered:
+                if change.body is None:
+                    existing.pop(change.key, None)
+                else:
+                    existing[change.key] = StoredRecord(
+                        change.key, change.body, bytes_hash(change.body)
+                    )
             self.files.rename_directory(stage, archived)
+            updated = tuple(sorted(existing.values(), key=lambda item: key_path(item.key)))
+            self._local.records = updated
+            self._local.checked_records = updated
             self._hook("archived")
             self._update_index()
             return self._receipt(archived, manifest, replayed=False)
@@ -536,8 +574,14 @@ class FileProjectSource:
                     fail("casefold_collision", "conflict")
                 folded[canonical] = prefix
 
+    def _history_read(self, parts: Parts) -> bytes | None:
+        captured = getattr(self._local, "history_capture", None)
+        if captured is not None and parts[:2] == ("history", "operations"):
+            return cast(HistoryCapture, captured).read(parts)
+        return self.files.read(parts)
+
     def _manifest(self, folder: Parts) -> JournalManifest:
-        body = self.files.read((*folder, "manifest.json"))
+        body = self._history_read((*folder, "manifest.json"))
         if body is None:
             fail("journal_manifest_missing", "conflict")
         try:
@@ -550,7 +594,7 @@ class FileProjectSource:
             fail("journal_invalid", "conflict")
         if manifest.operation_id != folder[-1]:
             fail("journal_identity_mismatch", "conflict")
-        decision = self.files.read((*folder, "commit.json"))
+        decision = self._history_read((*folder, "commit.json"))
         if decision is None:
             fail("journal_decision_missing", "conflict")
         try:
@@ -569,7 +613,7 @@ class FileProjectSource:
         expected = entry.old_hash if old else entry.new_hash
         if expected is None:
             return None
-        body = self.files.read((*folder, f"{'old' if old else 'new'}-{index}.json"))
+        body = self._history_read((*folder, f"{'old' if old else 'new'}-{index}.json"))
         if body is None or bytes_hash(body) != expected:
             fail("journal_integrity_error", "conflict")
         self._validate_source_body(entry.key, body)
@@ -594,6 +638,8 @@ class FileProjectSource:
             self._hook(f"applied:{index}")
 
     def _recover(self) -> None:
+        self._local.records = None
+        self._local.checked_records = None
         # Completed history must be intact before even recovery may alter source.
         # Pending replacements can temporarily differ from the latest completed ledger.
         pending = self.files.names(("history", "journal"))
@@ -610,8 +656,12 @@ class FileProjectSource:
                 self._hook("discarded")
                 continue
             manifest = self._manifest(folder)
+            self._local.records = None
+            self._local.checked_records = None
             self._apply(folder, manifest)
             self.files.rename_directory(folder, ("history", "operations", operation_id))
+            self._local.records = None
+            self._local.checked_records = None
             self._hook("recovered")
             self._update_index()
         self._check_integrity(self._all())
@@ -632,33 +682,58 @@ class FileProjectSource:
     def _check_integrity(
         self, records: tuple[StoredRecord, ...], *, check_current: bool = True
     ) -> None:
+        if getattr(self._local, "checked_records", None) is records:
+            return
+        captured = HistoryCapture(self.files)
+        self._local.history_capture = captured
+        try:
+            self._check_captured_integrity(records, captured, check_current=check_current)
+            if check_current:
+                self._local.checked_records = records
+        finally:
+            self._local.history_capture = None
+
+    def _check_captured_integrity(
+        self, records: tuple[StoredRecord, ...], captured: HistoryCapture, *, check_current: bool
+    ) -> None:
         latest: dict[ResourceKey, tuple[int, str | None]] = {}
         project_ids: set[str] = set()
         sequences: set[int] = set()
-        for operation_id in self.files.names(("history", "operations")):
+        for operation_id in captured.names(("history", "operations")):
             folder = ("history", "operations", operation_id)
-            manifest = self._manifest(folder)
-            if manifest.sequence in sequences:
-                fail("journal_sequence_conflict", "conflict")
-            sequences.add(manifest.sequence)
-            expected_files = {"manifest.json", "commit.json"}
-            paths = [key_path(entry.key) for entry in manifest.entries]
-            if len(set(paths)) != len(paths):
-                fail("duplicate_target_path", "conflict")
-            for index, entry in enumerate(manifest.entries):
-                for old, digest in ((True, entry.old_hash), (False, entry.new_hash)):
-                    self._blob(folder, index, entry, old=old)
-                    if digest is not None:
-                        expected_files.add(f"{'old' if old else 'new'}-{index}.json")
-                if entry.key.collection == "project":
-                    project_ids.add(entry.key.resource_id)
-                    if entry.new_hash is None:
+            bodies = captured.operations.get(operation_id, {})
+            cached = self._operation_validation.get(operation_id, bodies)
+            if cached is None:
+                manifest = self._manifest(folder)
+                expected_files = {"manifest.json", "commit.json"}
+                keyed = tuple((entry.key, entry) for entry in manifest.entries)
+                paths = [key_path(key) for key, _ in keyed]
+                if len(set(paths)) != len(paths):
+                    fail("duplicate_target_path", "conflict")
+                for index, (key, entry) in enumerate(keyed):
+                    for old, digest in ((True, entry.old_hash), (False, entry.new_hash)):
+                        self._blob(folder, index, entry, old=old)
+                        if digest is not None:
+                            expected_files.add(f"{'old' if old else 'new'}-{index}.json")
+                    if key.collection == "project" and entry.new_hash is None:
                         fail("project_identity_immutable", "conflict")
-                if entry.key.collection in IMMUTABLE:
-                    if entry.key not in latest or latest[entry.key][0] < manifest.sequence:
-                        latest[entry.key] = (manifest.sequence, entry.new_hash)
-            if set(self.files.names(folder)) != expected_files:
-                fail("journal_integrity_error", "conflict")
+                if set(captured.names(folder)) != expected_files:
+                    fail("journal_integrity_error", "conflict")
+                cached = OperationEvidence(
+                    manifest.sequence, tuple((key, entry.new_hash) for key, entry in keyed)
+                )
+                self._operation_validation.put(operation_id, bodies, cached)
+            sequence, entries = cached.sequence, cached.entries
+            if sequence in sequences:
+                fail("journal_sequence_conflict", "conflict")
+            sequences.add(sequence)
+            for key, new_hash in entries:
+                if key.collection == "project":
+                    project_ids.add(key.resource_id)
+                if key.collection in IMMUTABLE:
+                    if key not in latest or latest[key][0] < sequence:
+                        latest[key] = (sequence, new_hash)
+        self._local.next_sequence = max(sequences, default=0) + 1
         current = {record.key: record.etag for record in records}
         current_projects = {key.resource_id for key in current if key.collection == "project"}
         if len(project_ids) > 1 or (project_ids and current_projects != project_ids):

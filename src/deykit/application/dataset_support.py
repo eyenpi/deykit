@@ -1,7 +1,7 @@
 """Typed boundaries shared only by dataset and import services."""
 
 from dataclasses import dataclass
-from typing import NoReturn, TypeVar
+from typing import NoReturn, TypeVar, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -10,9 +10,9 @@ from deykit.contracts.base import Record
 from deykit.contracts.codec import load_record
 from deykit.contracts.errors import ErrorCode, ServiceError
 from deykit.contracts.identities import validate_resource_id
-from deykit.contracts.json_value import JsonError, JsonValue, semantic_hash
+from deykit.contracts.json_value import RECORD_LIMITS, JsonError, JsonValue, semantic_hash
 from deykit.contracts.model_admission import ModelInvalid, admit_model
-from deykit.contracts.ports import ProjectSource, ResourceKey, StoredRecord
+from deykit.contracts.ports import ProjectSource, ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import CaseRecord, DatasetRecord
 
 R = TypeVar("R", bound=Record)
@@ -65,6 +65,17 @@ class CaseView:
 
 
 def cases(source: ProjectSource, dataset_id: str) -> tuple[StoredRecord, ...]:
+    if callable(getattr(source, "capture_snapshot", None)):
+        return tuple(
+            sorted(
+                (
+                    record
+                    for record in cast(SnapshotSource, source).capture_snapshot()
+                    if record.key.collection == "cases" and record.key.scope == (dataset_id,)
+                ),
+                key=lambda record: record.key.resource_id,
+            )
+        )
     return tuple(
         required(source, ResourceKey("cases", key, (dataset_id,)))
         for key in source.list_ids("cases", (dataset_id,))
@@ -72,14 +83,16 @@ def cases(source: ProjectSource, dataset_id: str) -> tuple[StoredRecord, ...]:
 
 
 def fingerprint(records: tuple[StoredRecord, ...]) -> str:
-    return safe_hash(
-        [
-            [item.key.collection, list(item.key.scope), item.key.resource_id, item.etag]
-            for item in sorted(
-                records, key=lambda r: (r.key.collection, r.key.scope, r.key.resource_id)
-            )
-        ]
-    )
+    payload: JsonValue = [
+        [item.key.collection, list(item.key.scope), item.key.resource_id, item.etag]
+        for item in sorted(
+            records, key=lambda r: (r.key.collection, r.key.scope, r.key.resource_id)
+        )
+    ]
+    try:
+        return semantic_hash(payload, limits=RECORD_LIMITS)
+    except JsonError as error:
+        fail(error.code)
 
 
 def page(
@@ -103,9 +116,9 @@ def safe_hash(value: JsonValue) -> str:
 M = TypeVar("M", bound=BaseModel)
 
 
-def validated_model(kind: type[M], value: object, reason: str) -> M:
+def validated_model(kind: type[M], value: object, reason: str, *, max_nodes: int = 100_000) -> M:
     """Map pure strict model admission to the application's safe service error."""
     try:
-        return admit_model(kind, value, reason)
+        return admit_model(kind, value, reason, max_nodes=max_nodes)
     except ModelInvalid:
         fail(reason)

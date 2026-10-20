@@ -172,7 +172,13 @@ def _number(value: Decimal | int, *, canonical: bool) -> str:
     return prefix + plain
 
 
-def _dump_json(value: JsonValue, *, sort_keys: bool, canonical: bool) -> str:
+def _dump_json(
+    value: JsonValue,
+    *,
+    sort_keys: bool,
+    canonical: bool,
+    limits: JsonLimits = GENERATED_LIMITS,
+) -> str:
     """Exact UTF-8 JSON text. Object insertion order is retained for provider bodies."""
 
     def encode(node: JsonValue) -> str:
@@ -198,7 +204,7 @@ def _dump_json(value: JsonValue, *, sort_keys: bool, canonical: bool) -> str:
         source = encode(value)
     except RecursionError:
         raise JsonError("json_resource_limit") from None
-    parse_json(source, GENERATED_LIMITS)  # Bound derived wire/canonical output separately.
+    parse_json(source, limits)  # Bound derived wire/canonical output separately.
     return source
 
 
@@ -207,12 +213,14 @@ def dump_json(value: JsonValue, *, sort_keys: bool = False) -> str:
     return _dump_json(value, sort_keys=sort_keys, canonical=False)
 
 
-def canonical_bytes(value: JsonValue) -> bytes:
-    return _dump_json(value, sort_keys=True, canonical=True).encode("utf-8")
+def canonical_bytes(value: JsonValue, *, limits: JsonLimits = GENERATED_LIMITS) -> bytes:
+    return _dump_json(value, sort_keys=True, canonical=True, limits=limits).encode("utf-8")
 
 
-def semantic_hash(value: JsonValue) -> str:
-    return hashlib.sha256(HASH_FORMAT.encode() + b"\n" + canonical_bytes(value)).hexdigest()
+def semantic_hash(value: JsonValue, *, limits: JsonLimits = GENERATED_LIMITS) -> str:
+    return hashlib.sha256(
+        HASH_FORMAT.encode() + b"\n" + canonical_bytes(value, limits=limits)
+    ).hexdigest()
 
 
 def bytes_hash(body: bytes) -> str:

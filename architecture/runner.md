@@ -36,6 +36,11 @@ bindings. Missing bindings produce evidence; there is no live fallback.
 The planner bounds selected/all dataset cases at 10,000 and copied run evidence at
 32 MiB. The source adapter imposes its own record and project limits. Request timeout
 is a positive integral number of seconds capped at 600; concurrency is capped at 64.
+For at least 64 selected cases, normal execution batches lifecycle writes within the
+configured concurrency and performs source work off the transport event loop. Stored
+records, exact requests and lifetime reservations keep their existing meanings; see
+[bulk execution](bulk-execution.md) for profiling and recovery evidence.
+
 The normal settings are 100 lifetime attempts, concurrency 2, timeout 60 seconds,
 segment scheduling window 600 seconds (supported range 1–86,400), and at most one
 documented rate/overload retry.

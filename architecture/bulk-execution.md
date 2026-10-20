@@ -1,0 +1,156 @@
+# Bulk execution and control responsiveness
+
+Issue #57 concerns local overhead and unavailable controls during ordinary runs. The
+benchmark uses generated two-option text choices and a controlled fake transport. It
+makes no provider request and establishes no model quality or 104-option Beauty
+benchmark equivalence.
+
+## Changes and invariants
+
+A source lock acquisition admits one validated epoch. Nested reads reuse its exact
+records; successful local commits replace that view with their validated changes.
+Re-entering the source lock reads source and operation history again. Pending recovery
+and the commit decision boundary invalidate the view, including a visible archival
+rename followed by an I/O error. Snapshots still compare independently read source
+bytes, and a commit compares source again before its durable decision. No timestamp,
+SQLite entry, or cached filesystem metadata substitutes for those byte reads.
+
+Completed operation validation can reuse successful results only when the operation's
+entire freshly read file inventory and bytes match. Historical additions, removals,
+changed bytes and duplicate sequences still fail admission. Its memo retains at most
+65536 operations / 64 MiB of body bytes. Body and lifecycle decoding memos each retain
+at most 131072 entries / 64 MiB of serialized bytes. These are retention bounds, not
+process RSS limits. There is no persistent validation cache or source-format migration.
+
+Run history indexes records by collection/scope and attempts by case/identity. A
+frozen history reuses its result projection; a new captured history gets a new view.
+Decoding reuse is keyed by the record type, scoped identity, exact bytes and ETag.
+
+For at least 64 selected cases, the normal scheduler publishes preparation and
+settlement batches bounded by the configured concurrency (maximum 64). Reservation
+and dispatch events precede every transport call. Failure to publish a received batch
+stops execution; an uncertain commit is inspected by normal recovery rather than
+replayed as fresh inference. Small runs and explicitly instrumented transition hooks
+retain individual transition scheduling. Both paths use the same reservation,
+eligibility and settlement rules.
+
+Bulk source work runs on a worker thread. While transport calls occupy all slots, the
+scheduler waits for completion rather than repeatedly rebuilding unchanged history.
+A due retry with spare capacity can also wake it. Cancellation is checked before any
+new preparation; in-flight calls still drain under their request timeouts. Cancellation joins any pending source
+publication and drains transport tasks before releasing execution ownership. A
+cancel observation prevents further preparation. Received in-flight outcomes settle;
+proven non-calls remain pending and interrupted/unknown attempts require explicit
+resume policies. Frozen requests and lifetime caps are unchanged.
+
+Review digests use the existing 32 MiB plan budget with a two-million-node bound.
+Scoped record fingerprints and group evidence digests use the existing 16 MiB /
+one-million-node record budget. Group evidence reconstruction admits that same node
+budget before enforcing its typed semantic constraints. These explicit internal
+metadata limits allow 10000 selected cases without changing canonical bytes, hash
+profiles, ordinary model admission, or user input and provider wire limits. Review
+budget exhaustion returns a safe preflight error before execution writes.
+
+Active CLI progress reads use the existing five-second source acquisition budget.
+Only acquisition conflicts are retried. Cancellation's durable operation and progress
+projection execute once after entry; provider calls are never acquisition retries.
+
+## Reproduce
+
+Run expensive commands sequentially. Each invocation requires a new absolute output
+directory outside the checkout:
+
+```sh
+uv run python tests/runner/benchmark_bulk.py --count 100 --concurrency 64 --output /absolute/new/bulk-100
+uv run python tests/runner/benchmark_bulk.py --count 1000 --concurrency 64 --output /absolute/new/bulk-1000
+uv run python tests/runner/benchmark_bulk.py --count 10000 --concurrency 64 --output /absolute/new/bulk-10000
+uv run python tests/runner/benchmark_bulk.py --count 2500 --concurrency 64 --controls --output /absolute/new/bulk-2500
+```
+
+The script imports all cases through `ImportService`, previews the complete run and
+executes the standard `ExecutionService` over the real filesystem adapter. It asserts
+that every selected case has one unique transport call and a saved valid result.
+Import, preview, execution and final read timings are separate. Reported transport
+latency is zero; execution wall time includes scheduling, validation and durable I/O.
+`--controls` holds the first concurrent calls, invokes actual `runs show` and `runs
+cancel` commands in separate processes, drains those calls and explicitly resumes
+pending cases in the same project. Its wall time includes that deliberate control
+exercise. Both command durations must be below five seconds, including interpreter
+startup. It is not a paid/live benchmark.
+
+`--profile` aggregates source epochs from their actual threads, including recovery,
+reservation, dispatch and settlement storage work. Profiled timings must not be mixed
+with ordinary timings. New projects prevent run/operation reuse; source validation
+memos and the OS file cache are naturally warmed by import/preview. The script does
+not flush OS caches. Fresh processes, selected/planned/call counts, persisted results
+and unique call IDs rule out reused results or skipped requests as speedups.
+
+## Regression checks and limits
+
+- Nested reads perform one source traversal and one recovery admission per entered
+  epoch. A failed/partially visible commit invalidates that view before another read.
+- A 64-case run at concurrency 16 uses at most 12 source commits, including preparation,
+  settlement and lifecycle boundaries. Every call observes its durable dispatched
+  request through an independent source adapter.
+- Real CLI progress and cancellation complete in under five seconds with eight calls
+  in flight. All eight outcomes settle; the other 56 cases remain pending.
+- Cancellation/resume, actual process death during a bulk transport, an error after a
+  durable settlement, operation replay and exhausted lifetime capacity do not repeat
+  completed calls. Unknown retries require explicit authorization.
+- Existing storage corruption, exact-byte, snapshot race and crash recovery checks
+  remain required. No acceptance threshold is implemented by skipping these checks.
+
+The authoritative file layout still requires reading growing source/history at each
+new lock acquisition. These changes reduce repeated work and transaction counts;
+they do not claim asymptotically linear filesystem execution, bound provider latency,
+or qualify Windows without native Windows verification. Use a suitable explicitly
+chosen concurrency within the provider's authorized limits; defaults are unchanged.
+
+## Local measurements
+
+An initial 10-case diagnostic profile spent 4.44 seconds of a 7.00-second execution
+inside 250 full operation-integrity checks, with 39 history reconstructions taking
+2.46 seconds. These cumulative times overlap. Source capture, integrity checks and
+history rebuilding were repeated for individual reservation, dispatch and settlement
+transitions. A later 100-case worker-thread profile still spent 2.77 cumulative seconds
+in filesystem tree reads out of 5.05 profiled seconds: fresh global validation remains
+the dominant scaling cost. Profiled runs are diagnostic and excluded from the timing
+comparison below.
+
+Unprofiled local measurements use Python 3.14.7 on macOS arm64, concurrency 64 and two
+options. The 100-case comparison starts from base commit `31ea9366028a` and uses byte
+identical imported input, settings, selected IDs and every compiled request. Every
+completed row has exactly N planned cases, unique calls, saved attempts and valid
+saved results. An initial 10000-case probe failed its generic 2 MiB hash bound before
+any execution; that failed run is excluded.
+
+| Cases | Revision | Import (s) | Preview (s) | Execution (s) | Final read (s) |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 100 | Base | 0.180 | 0.115 | 463.712 | 2.347 |
+| 100 | Fix | 0.144 | 0.075 | 2.022 | 0.120 |
+| 1000 | Fix | 2.265 | 0.708 | 59.239 | 1.226 |
+| 2500 | Fix, cancel/resume | 10.072 | 1.765 | 347.171 | 3.429 |
+| 10000 | Fix, loaded host | 132.498 | 7.854 | 7029.353 | 25.723 |
+
+The matched 100-case execution is approximately 229 times faster locally. The
+2500-case project used no shards; its real CLI progress read took 1.947 seconds and
+cancellation took 2.380 seconds, including interpreter startup. It explicitly resumed
+pending cases and completed with 2500 unique calls and results. These execution
+measurements preceded the explicit internal metadata hash-budget repair; that repair
+preserves the digest bytes used by these smaller runs. The control measurements hold
+the first 64 calls in flight; they do not measure controls against the final history
+or at 10000 cases.
+
+The final 10000-case run completed on the repaired tree with all 10000 unique calls,
+attempts and valid saved results. Its 117.2-minute execution still demonstrates
+substantial local overhead. A separate test investigation shared the host at startup;
+later observations showed heavy app-renderer and system-service CPU activity. This
+row is completion evidence on a loaded host, not a controlled scaling ratio against
+the smaller runs. Only 100 cases have a matched before/after timing; no larger-base
+timing or speedup is claimed. The remaining full source/history reads are a material
+limit, and no wall-time threshold for 10000 cases is claimed.
+
+Final offline verification after the internal hash-budget repair: 1328 tests passed,
+21 skipped; Ruff, formatting, mypy, source/wheel builds and clean wheel/sdist CLI
+installation checks passed on this macOS host. No live provider or native Windows
+verification was performed.

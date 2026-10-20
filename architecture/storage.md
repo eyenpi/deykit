@@ -25,7 +25,12 @@ Source methods include read/list/consistent-read/commit, `capture_snapshot(keys=
 below. In a consistent-read context the same instance is reentrant on its owning
 thread; competing threads/processes fail with a safe conflict rather than wait while
 holding unrelated locks. Application read-modify-write work can use that context, but
-must still supply expected ETags for explicit concurrency behavior.
+must still supply expected ETags for explicit concurrency behavior. Nested reads share
+that entered epoch's validated records. New lock acquisitions read fresh source and
+history bytes; snapshots compare independently read bytes and commits recheck source
+before their decision. Pending recovery and potentially visible write failures
+invalidate the entered view. See [bulk execution](bulk-execution.md) for retention
+bounds, execution batching and control checks.
 
 ## Authoritative layout
 

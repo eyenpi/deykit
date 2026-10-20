@@ -157,3 +157,46 @@ def test_selection_does_not_expand_short_exponent_spelling_at_byte_limit(number)
     selected = document.select(("n", "s"))
     assert len(selected.source) <= len(source)
     assert selected.content_hash == document.content_hash
+
+
+def test_explicit_owned_hash_limits_preserve_default_input_and_wire_limits():
+    import hashlib
+
+    text = "x" * (2 * 1024 * 1024)
+    value = {"owned": text}
+    expected = ('{"owned":"' + text + '"}').encode()
+    for operation in (canonical_bytes, semantic_hash, dump_json):
+        with pytest.raises(JsonError, match="json_resource_limit"):
+            operation(value)
+    with pytest.raises(JsonError, match="json_resource_limit"):
+        JsonDocument(expected.decode())
+    limits = JsonLimits(max_bytes=4 * 1024 * 1024)
+    assert canonical_bytes(value, limits=limits) == expected
+    assert (
+        semantic_hash(value, limits=limits)
+        == hashlib.sha256(b"deykit-json-v1\n" + expected).hexdigest()
+    )
+
+
+def test_large_scoped_record_fingerprint_preserves_the_existing_hash_rule():
+    import hashlib
+
+    from deykit.application.dataset_support import fingerprint
+    from deykit.contracts.codec import dump_record
+    from deykit.contracts.ports import ResourceKey, StoredRecord
+    from deykit.contracts.records import CaseRecord
+
+    dataset = "d" * 120
+    records = []
+    expected = []
+    for index in range(10000):
+        case_id = "c" * 120 + f"{index:05}"
+        body = dump_record(
+            CaseRecord(id=case_id, dataset_id=dataset, input_kind="text", input_source='"sample"')
+        )
+        etag = bytes_hash(body)
+        records.append(StoredRecord(ResourceKey("cases", case_id, (dataset,)), body, etag))
+        expected.append(["cases", [dataset], case_id, etag])
+    encoded = json.dumps(expected, ensure_ascii=False, separators=(",", ":")).encode()
+    assert len(encoded) > 2 * 1024 * 1024
+    assert fingerprint(tuple(records)) == hashlib.sha256(b"deykit-json-v1\n" + encoded).hexdigest()

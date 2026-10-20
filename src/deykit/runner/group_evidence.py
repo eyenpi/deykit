@@ -16,6 +16,7 @@ from deykit.contracts.execution_groups import (
     ExecutionGroupSegment,
 )
 from deykit.contracts.json_value import (
+    RECORD_LIMITS,
     JsonDocument,
     JsonValue,
     bytes_hash,
@@ -67,13 +68,18 @@ def member_prepared_hash(
         "run_id": run_id,
         "prepared": prepared,
     }
-    return hashlib.sha256(canonical_bytes(payload)).hexdigest()
+    return hashlib.sha256(canonical_bytes(payload, limits=RECORD_LIMITS)).hexdigest()
 
 
 def content_hash(record: HashedRecord) -> str:
     """Envelope hash for P12-owned evidence; source strings remain exact strings."""
-    record = validated_model(type(record), record, "invalid_group_evidence")
-    return semantic_hash(cast(JsonValue, record.model_dump(mode="json", exclude={"content_hash"})))
+    record = validated_model(
+        type(record), record, "invalid_group_evidence", max_nodes=RECORD_LIMITS.max_nodes
+    )
+    return semantic_hash(
+        cast(JsonValue, record.model_dump(mode="json", exclude={"content_hash"})),
+        limits=RECORD_LIMITS,
+    )
 
 
 @dataclass(frozen=True)
