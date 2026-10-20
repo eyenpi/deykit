@@ -111,66 +111,65 @@ class RunHistory:
         return self._results
 
     def _project_results(self, *, legacy_deadline_errors: bool) -> tuple[CaseResult, ...]:
-        results: list[CaseResult] = []
-        for prepared in self.prepared:
-            if prepared.error is not None:
-                results.append(
-                    CaseResult(
-                        case_id=prepared.case_id,
-                        input_hash=prepared.input_hash,
-                        status="input_invalid",
-                        error=prepared.error,
-                    )
-                )
-                continue
-            result = CaseResult(
-                case_id=prepared.case_id, input_hash=prepared.input_hash, status="pending"
+        return tuple(
+            self.project_case(prepared, legacy_deadline_errors=legacy_deadline_errors)
+            for prepared in self.prepared
+        )
+
+    def project_case(
+        self, prepared: PreparedCase, *, legacy_deadline_errors: bool = False
+    ) -> CaseResult:
+        if prepared.error is not None:
+            return CaseResult(
+                case_id=prepared.case_id,
+                input_hash=prepared.input_hash,
+                status="input_invalid",
+                error=prepared.error,
             )
-            for attempt in self.case_attempts(prepared.case_id):
-                event = self.final_event(attempt.id)
-                outcome = event.outcome if event else None
-                if outcome is not None and outcome.answer is not None:
-                    result = CaseResult(
-                        case_id=prepared.case_id,
-                        input_hash=prepared.input_hash,
-                        status="valid",
-                        attempt_id=attempt.id,
-                        answer=outcome.answer,
-                    )
-                    break  # A valid saved answer can never be overwritten by another attempt.
-                if (
-                    outcome is not None
-                    and outcome.state == "not_sent"
-                    and outcome.error
-                    and (
-                        outcome.error.reason == "cancelled_before_dispatch"
-                        or (
-                            outcome.error.reason == "segment_deadline"
-                            and not legacy_deadline_errors
-                        )
-                    )
-                ):
-                    continue  # Keep the prior unknown/error; a proven non-call is not new evidence.
-                elif outcome is None or outcome.state == "unknown":
-                    result = CaseResult(
-                        case_id=prepared.case_id,
-                        input_hash=prepared.input_hash,
-                        status="unknown",
-                        attempt_id=attempt.id,
-                        error=outcome.error
-                        if outcome
-                        else ServiceError(code="run_incomplete", reason="unsettled_attempt"),
-                    )
-                else:
-                    result = CaseResult(
-                        case_id=prepared.case_id,
-                        input_hash=prepared.input_hash,
-                        status="response_error",
-                        attempt_id=attempt.id,
-                        error=outcome.error,
-                    )
-            results.append(result)
-        return tuple(results)
+        result = CaseResult(
+            case_id=prepared.case_id, input_hash=prepared.input_hash, status="pending"
+        )
+        for attempt in self.case_attempts(prepared.case_id):
+            event = self.final_event(attempt.id)
+            outcome = event.outcome if event else None
+            if outcome is not None and outcome.answer is not None:
+                result = CaseResult(
+                    case_id=prepared.case_id,
+                    input_hash=prepared.input_hash,
+                    status="valid",
+                    attempt_id=attempt.id,
+                    answer=outcome.answer,
+                )
+                break  # A valid saved answer can never be overwritten by another attempt.
+            if (
+                outcome is not None
+                and outcome.state == "not_sent"
+                and outcome.error
+                and (
+                    outcome.error.reason == "cancelled_before_dispatch"
+                    or (outcome.error.reason == "segment_deadline" and not legacy_deadline_errors)
+                )
+            ):
+                continue  # Keep the prior unknown/error; a proven non-call is not new evidence.
+            elif outcome is None or outcome.state == "unknown":
+                result = CaseResult(
+                    case_id=prepared.case_id,
+                    input_hash=prepared.input_hash,
+                    status="unknown",
+                    attempt_id=attempt.id,
+                    error=outcome.error
+                    if outcome
+                    else ServiceError(code="run_incomplete", reason="unsettled_attempt"),
+                )
+            else:
+                result = CaseResult(
+                    case_id=prepared.case_id,
+                    input_hash=prepared.input_hash,
+                    status="response_error",
+                    attempt_id=attempt.id,
+                    error=outcome.error,
+                )
+        return result
 
     def work(self, *, retry_unknown: bool = False) -> tuple[WorkItem, ...]:
         result_by_id = {result.case_id: result for result in self.results()}
@@ -233,9 +232,8 @@ def history_from_records(
     def selected(kind: type[R], collection: Collection, scope: tuple[str, ...]) -> tuple[R, ...]:
         return tuple(decode(kind, item) for item in indexed.get((collection, scope), ()))
 
-    manifest_source = next(
-        (record for record in records if record.key == ResourceKey("runs", run_id)), None
-    )
+    manifest_key = ResourceKey("runs", run_id)
+    manifest_source = next((record for record in records if record.key == manifest_key), None)
     if manifest_source is None:
         fail("run_missing", "not_found")
     manifest = decode(RunManifest, manifest_source)
@@ -299,38 +297,13 @@ def history_from_records(
     attempt_events: list[AttemptEvent] = []
     segment_ids = {segment.id for segment in segments}
     for attempt in attempts:
-        if (
-            attempt.case_id not in by_id
-            or attempt.segment_id not in segment_ids
-            or attempt.request != by_id[attempt.case_id].request
-        ):
-            fail("attempt_plan_mismatch", "incompatible_data")
-        ordered = sorted(
-            selected(AttemptEvent, "attempt_events", (attempt.id,)),
-            key=lambda item: item.sequence,
-        )
-        if tuple(event.sequence for event in ordered) != tuple(range(1, len(ordered) + 1)):
-            fail("invalid_attempt_sequence", "incompatible_data")
-        if not ordered or ordered[0].state != "reserved":
-            fail("missing_attempt_reservation", "incompatible_data")
-        states = tuple(event.state for event in ordered)
-        if states not in {
-            ("reserved",),
-            ("reserved", "dispatched"),
-            ("reserved", "unknown"),
-            ("reserved", "not_sent"),
-            ("reserved", "dispatched", "known"),
-            ("reserved", "dispatched", "unknown"),
-            ("reserved", "dispatched", "not_sent"),
-        } or any(
-            (event.state in {"reserved", "dispatched"} and event.outcome is not None)
-            or (
-                event.state not in {"reserved", "dispatched"}
-                and (event.outcome is None or event.outcome.state != event.state)
+        ordered = tuple(
+            sorted(
+                selected(AttemptEvent, "attempt_events", (attempt.id,)),
+                key=lambda item: item.sequence,
             )
-            for event in ordered
-        ):
-            fail("invalid_attempt_transition", "incompatible_data")
+        )
+        validate_attempt(attempt, ordered, by_id, segment_ids)
         attempt_events.extend(ordered)
     snapshots = tuple(
         item for item in selected(ResultSnapshot, "result_snapshots", ()) if item.run_id == run_id
@@ -357,3 +330,39 @@ def history_from_records(
     if history.used > history.cap:
         fail("attempt_cap_exceeded", "incompatible_data")
     return history
+
+
+def validate_attempt(
+    attempt: AttemptRecord,
+    ordered: tuple[AttemptEvent, ...],
+    by_id: dict[str, PreparedCase],
+    segment_ids: set[str],
+) -> None:
+    if (
+        attempt.case_id not in by_id
+        or attempt.segment_id not in segment_ids
+        or attempt.request != by_id[attempt.case_id].request
+    ):
+        fail("attempt_plan_mismatch", "incompatible_data")
+    if tuple(event.sequence for event in ordered) != tuple(range(1, len(ordered) + 1)):
+        fail("invalid_attempt_sequence", "incompatible_data")
+    if not ordered or ordered[0].state != "reserved":
+        fail("missing_attempt_reservation", "incompatible_data")
+    states = tuple(event.state for event in ordered)
+    if states not in {
+        ("reserved",),
+        ("reserved", "dispatched"),
+        ("reserved", "unknown"),
+        ("reserved", "not_sent"),
+        ("reserved", "dispatched", "known"),
+        ("reserved", "dispatched", "unknown"),
+        ("reserved", "dispatched", "not_sent"),
+    } or any(
+        (event.state in {"reserved", "dispatched"} and event.outcome is not None)
+        or (
+            event.state not in {"reserved", "dispatched"}
+            and (event.outcome is None or event.outcome.state != event.state)
+        )
+        for event in ordered
+    ):
+        fail("invalid_attempt_transition", "incompatible_data")

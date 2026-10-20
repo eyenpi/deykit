@@ -47,6 +47,7 @@ class OperationEvidence:
     entries: tuple[tuple[ResourceKey, str | None], ...]
     records: tuple[StoredRecord, ...] = ()
     reference: tuple[str, bytes] | None = None
+    cases: tuple[tuple[ResourceKey, str | None, StoredRecord | None], ...] = ()
 
 
 class OperationValidationMemo:
@@ -82,6 +83,7 @@ class OperationValidationMemo:
             sum(map(len, bodies.values()))
             + sum(len(record.body) for record in evidence.records)
             + (len(evidence.reference[1]) if evidence.reference else 0)
+            + sum(len(record.body) for _, _, record in evidence.cases if record is not None)
         )
 
     def clear(self) -> None:

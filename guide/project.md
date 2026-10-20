@@ -66,6 +66,9 @@ New runs store high-volume immutable evidence in compact binary packs under
 in backups and use `runs show` and `results show` to inspect run evidence. Existing
 JSON histories remain readable without conversion. A project written in the compact
 format requires this client version or newer; older clients reject the new format.
+Large case imports/updates also use compact storage, as do later edits to packed
+cases. Use dataset case commands or the API to edit these cases. Individual legacy
+case JSON remains readable, and untouched records are not automatically converted.
 
 The filesystem adapter has POSIX and Windows implementations. The portability CI
 matrix exercises local macOS, Ubuntu and Windows Server filesystems; consult the

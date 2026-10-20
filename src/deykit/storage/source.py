@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Container, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,6 +23,7 @@ from deykit.contracts.json_value import JsonError, bytes_hash
 from deykit.contracts.ports import (
     Collection,
     CommitReceipt,
+    RecordViewDelta,
     ResourceKey,
     SourceChange,
     StoredRecord,
@@ -42,12 +43,15 @@ from deykit.storage._chunks import (
     reference_body,
     reference_path,
 )
+from deykit.storage._collision_index import CollisionIndex
 from deykit.storage._history_capture import (
     HistoryCapture,
     OperationEvidence,
     OperationValidationMemo,
 )
+from deykit.storage._integrity_index import IntegrityIndex
 from deykit.storage._journal_validation import _SuccessfulJournalValidationMemo
+from deykit.storage._source_view import CapturedView, SourceViewMemo
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
 from deykit.storage.index import SourceIndex
@@ -91,6 +95,14 @@ class HistoryEntry:
     operation_id: str
     before: StoredRecord | None
     after: StoredRecord | None
+
+
+@dataclass(frozen=True)
+class _CommittedView:
+    before: tuple[StoredRecord, ...]
+    after: tuple[StoredRecord, ...]
+    changes: tuple[StoredRecord, ...]
+    deleted: tuple[ResourceKey, ...]
 
 
 class _SourceTreeVisitor:
@@ -169,12 +181,21 @@ class FileProjectSource:
         self.files = files
         self.root = self.files.root
         self._hook = fault_hook or (lambda _: None)
-        self._index = index_updater or SourceIndex(self.files).rebuild
+        self._default_index = SourceIndex(self.files) if index_updater is None else None
+        self._index: IndexUpdater
+        if self._default_index is not None:
+            self._index = self._default_index.rebuild
+        else:
+            assert index_updater is not None
+            self._index = index_updater
         self._mutex = threading.RLock()
         self._local = threading.local()
         self._body_validation = _SuccessfulBodyValidationMemo()
         self._journal_validation = _SuccessfulJournalValidationMemo()
         self._operation_validation = OperationValidationMemo()
+        self._collisions = CollisionIndex()
+        self._source_view = SourceViewMemo()
+        self._integrity = IntegrityIndex()
         self._admission_timeout_seconds = admission_timeout_seconds
         self._admission_condition = threading.Condition()
         self._admission_waiters: deque[object] = deque()
@@ -202,6 +223,11 @@ class FileProjectSource:
                 self._body_validation.clear()
                 self._journal_validation.clear()
                 self._operation_validation.clear()
+                self._collisions.clear()
+                self._source_view.clear()
+                self._integrity.clear()
+                if self._default_index is not None:
+                    self._default_index.close()
 
     def _validate_source_body(self, key: ResourceKey, body: bytes) -> None:
         if getattr(self._local, "source_depth", 0) <= 0:
@@ -252,6 +278,7 @@ class FileProjectSource:
                                 self._recover()
                                 yield self
                             finally:
+                                self._local.committed_view = None
                                 self._local.records = None
                                 self._local.record_capture = None
                                 self._local.checked_records = None
@@ -338,14 +365,48 @@ class FileProjectSource:
         history = HistoryCapture(self.files)
         evidence = self._completed_operations(history)
         self._validate_chunk_references(visitor.references, evidence)
+        physical = tuple(records)
+        previous_view = self._source_view.get(physical, evidence)
+        if previous_view is None:
+            previous_view = self._source_view.advance(physical, evidence)
+        if previous_view is not None:
+            if previous_view is not self._source_view.view:
+                self._collisions.check(set(previous_view.by_key))
+                self._source_view.put(previous_view)
+            self._local.packed_cases = previous_view.packed_cases
+            if getattr(self._local, "source_depth", 0):
+                self._local.records = previous_view.records
+                self._local.record_capture = (previous_view.records, history)
+            return previous_view.records
         keys = {record.key for record in records}
-        for operation in evidence:
+        cases: dict[ResourceKey, StoredRecord | None] = {}
+        for operation in sorted(evidence, key=lambda item: item.sequence):
             for record in operation.records:
                 if record.key in keys:
                     fail("immutable_source_changed", "conflict")
                 keys.add(record.key)
                 records.append(record)
+            for key, old_hash, case_record in operation.cases:
+                previous_case = cases.get(key)
+                if key in cases and (previous_case.etag if previous_case else None) != old_hash:
+                    fail("journal_integrity_error", "conflict")
+                cases[key] = case_record
+        if keys.intersection(cases):
+            fail("immutable_source_changed", "conflict")
+        records.extend(record for record in cases.values() if record is not None)
+        self._check_collisions({record.key for record in records})
+        self._local.packed_cases = frozenset(cases)
         captured = tuple(sorted(records, key=lambda item: key_path(item.key)))
+        self._source_view.put(
+            CapturedView(
+                physical,
+                evidence,
+                captured,
+                self._local.packed_cases,
+                {r.key: r for r in captured},
+                tuple((key_path(r.key), r) for r in captured),
+            )
+        )
         if getattr(self._local, "source_depth", 0):
             self._local.records = captured
             self._local.record_capture = (captured, history)
@@ -370,6 +431,36 @@ class FileProjectSource:
             records = self._all()
             self._check_integrity(records)
             return records
+
+    def read_record_view(self, previous: tuple[StoredRecord, ...] | None) -> RecordViewDelta:
+        with self.consistent_read():
+            records = self._all()
+            self._check_integrity(records)
+            if previous is None:
+                return RecordViewDelta(records)
+            if previous is records or previous == records:
+                return RecordViewDelta(records, (), previous_records=previous)
+            view = self._source_view.view
+            if (
+                view is not None
+                and view.records is records
+                and view.parent_records is not None
+                and previous == view.parent_records
+            ):
+                return RecordViewDelta(
+                    records,
+                    tuple(view.by_key[key] for key in view.changed if key in view.by_key),
+                    tuple(key for key in view.changed if key not in view.by_key),
+                    previous_records=previous,
+                )
+            committed = cast(_CommittedView | None, getattr(self._local, "committed_view", None))
+            if (
+                committed is not None
+                and committed.after is records
+                and previous == committed.before
+            ):
+                return RecordViewDelta(records, committed.changes, committed.deleted, previous)
+            return RecordViewDelta(records)
 
     def capture_snapshot(
         self, keys: tuple[ResourceKey, ...] | None = None
@@ -513,7 +604,12 @@ class FileProjectSource:
                 ):
                     fail("operation_id_conflict", "conflict")
                 return self._receipt(archived, manifest, replayed=True)
-            existing = {record.key: record for record in current}
+            view = self._source_view.view
+            existing = (
+                dict(view.by_key)
+                if view is not None and view.records is current
+                else {record.key: record for record in current}
+            )
             entries: list[JournalEntry] = []
             self.files.read_many(tuple(key_path(change.key) for change in ordered))
             for change in ordered:
@@ -546,7 +642,7 @@ class FileProjectSource:
                     final_keys.discard(change.key)
                 else:
                     final_keys.add(change.key)
-            self._check_collisions(final_keys)
+            self._collisions.check(final_keys, publish=False)
             sequence = cast(int, self._local.next_sequence)
             blobs = tuple(
                 (index, old, body)
@@ -557,8 +653,13 @@ class FileProjectSource:
                 )
                 if body is not None
             )
-            packed = len(ordered) >= 16 or any(
-                c.key.collection in COMPACT_COLLECTIONS for c in ordered
+            packed_cases = sum(c.key.collection == "cases" for c in ordered) >= 16 or any(
+                c.key in self._local.packed_cases for c in ordered
+            )
+            packed = (
+                packed_cases
+                or len(ordered) >= 16
+                or any(c.key.collection in COMPACT_COLLECTIONS for c in ordered)
             )
             chunks = encode_chunks(blobs) if packed else ()
             manifest = JournalManifest(
@@ -570,7 +671,9 @@ class FileProjectSource:
             )
             if packed:
                 manifest = ChunkManifest(
-                    **manifest.model_dump(), blob_chunks=tuple(bytes_hash(c) for c in chunks)
+                    **manifest.model_dump(),
+                    body_format="chunks-v2" if packed_cases else "chunks-v1",
+                    blob_chunks=tuple(bytes_hash(c) for c in chunks),
                 )
             manifest_body = dump_record(manifest)
             stage = ("history", "journal", operation_id)
@@ -623,9 +726,33 @@ class FileProjectSource:
                         change.key, change.body, bytes_hash(change.body)
                     )
             self.files.rename_directory(stage, archived)
-            updated = tuple(sorted(existing.values(), key=lambda item: key_path(item.key)))
+            if view is not None and view.records is current:
+                changed = {change.key for change in ordered}
+                retained = (
+                    tuple(item for item in view.ordered if item[1].key not in changed)
+                    if changed.intersection(view.by_key)
+                    else view.ordered
+                )
+                additions = tuple(
+                    (key_path(key), existing[key]) for key in changed if key in existing
+                )
+                updated = tuple(
+                    r for _, r in sorted((*retained, *additions), key=lambda item: item[0])
+                )
+            else:
+                updated = tuple(sorted(existing.values(), key=lambda item: key_path(item.key)))
             self._local.records = updated
             self._local.checked_records = updated
+            self._local.committed_view = _CommittedView(
+                current,
+                updated,
+                tuple(existing[c.key] for c in ordered if c.body is not None),
+                tuple(c.key for c in ordered if c.body is None),
+            )
+            if isinstance(manifest, ChunkManifest) and manifest.body_format == "chunks-v2":
+                self._local.packed_cases |= {
+                    entry.key for entry in manifest.entries if entry.collection == "cases"
+                }
             self._hook("archived")
             self._update_index()
             return self._receipt(archived, manifest, replayed=False)
@@ -641,20 +768,8 @@ class FileProjectSource:
         if datetime.fromisoformat(new_end) < datetime.fromisoformat(new["started_at"]):
             fail("invalid_segment_end")
 
-    @staticmethod
-    def _check_collisions(keys: set[ResourceKey]) -> None:
-        paths = [key_path(key) for key in keys]
-        folded: dict[tuple[str, ...], tuple[str, ...]] = {}
-        project_count = sum(key.collection == "project" for key in keys)
-        if project_count > 1:
-            fail("project_identity_conflict", "conflict")
-        for path in paths:
-            for depth in range(1, len(path) + 1):
-                prefix = path[:depth]
-                canonical = tuple(component.casefold() for component in prefix)
-                if canonical in folded and folded[canonical] != prefix:
-                    fail("casefold_collision", "conflict")
-                folded[canonical] = prefix
+    def _check_collisions(self, keys: set[ResourceKey]) -> None:
+        self._collisions.check(keys)
 
     def _history_read(self, parts: Parts) -> bytes | None:
         captured = getattr(self._local, "history_capture", None)
@@ -757,7 +872,11 @@ class FileProjectSource:
             current = targets.get(path)
             if current is not None:
                 self._validate_source_body(entry.key, current)
-            if compact_entry(manifest, entry):
+            if compact_entry(manifest, entry) and entry.collection == "cases":
+                if current is not None and bytes_hash(current) != entry.old_hash:
+                    fail("recovery_source_conflict", "conflict")
+                body = None  # A packed case replaces its former physical source file.
+            elif compact_entry(manifest, entry):
                 if entry.old_hash is not None or body is None or current is not None:
                     fail("recovery_source_conflict", "conflict")
             elif (bytes_hash(current) if current is not None else None) not in (
@@ -777,7 +896,7 @@ class FileProjectSource:
                 pending.clear()
 
         for change, entry in zip(changes, manifest.entries, strict=True):
-            if compact_entry(manifest, entry):
+            if compact_entry(manifest, entry) and targets.get(change[0]) is None:
                 flush()
                 self._hook(f"applied:{change[2]}")
             else:
@@ -869,12 +988,23 @@ class FileProjectSource:
                     if len(set(paths)) != len(paths):
                         fail("duplicate_target_path", "conflict")
                     virtual: list[StoredRecord] = []
+                    cases: list[tuple[ResourceKey, str | None, StoredRecord | None]] = []
                     for index, entry in enumerate(manifest.entries):
                         self._blob(folder, index, entry, old=True, bodies=bodies)
                         body = self._blob(folder, index, entry, old=False, bodies=bodies)
                         if entry.collection == "project" and body is None:
                             fail("project_identity_immutable", "conflict")
-                        if compact_entry(manifest, entry):
+                        if compact_entry(manifest, entry) and entry.collection == "cases":
+                            cases.append(
+                                (
+                                    entry.key,
+                                    entry.old_hash,
+                                    StoredRecord(entry.key, body, bytes_hash(body))
+                                    if body is not None
+                                    else None,
+                                )
+                            )
+                        elif compact_entry(manifest, entry):
                             if entry.old_hash is not None or body is None:
                                 fail("journal_integrity_error", "conflict")
                             virtual.append(StoredRecord(entry.key, body, bytes_hash(body)))
@@ -885,6 +1015,7 @@ class FileProjectSource:
                         (operation_id, reference_body(manifest, raw["manifest.json"]))
                         if isinstance(manifest, ChunkManifest)
                         else None,
+                        tuple(cases),
                     )
                     self._operation_validation.put(operation_id, raw, cached)
                 result.append(cached)
@@ -918,32 +1049,15 @@ class FileProjectSource:
     def _check_captured_integrity(
         self, records: tuple[StoredRecord, ...], captured: HistoryCapture, *, check_current: bool
     ) -> None:
-        latest: dict[ResourceKey, tuple[int, str | None]] = {}
-        project_ids: set[str] = set()
-        sequences: set[int] = set()
-        for cached in self._completed_operations(captured):
-            sequence, entries = cached.sequence, cached.entries
-            if sequence in sequences:
-                fail("journal_sequence_conflict", "conflict")
-            sequences.add(sequence)
-            for key, new_hash in entries:
-                if key.collection == "project":
-                    project_ids.add(key.resource_id)
-                if key.collection in IMMUTABLE:
-                    if key not in latest or latest[key][0] < sequence:
-                        latest[key] = (sequence, new_hash)
-        self._local.next_sequence = max(sequences, default=0) + 1
-        current = {record.key: record.etag for record in records}
-        current_projects = {key.resource_id for key in current if key.collection == "project"}
-        if len(project_ids) > 1 or (project_ids and current_projects != project_ids):
-            fail("project_identity_changed", "conflict")
-        if check_current:
-            for key, (_, expected_hash) in latest.items():
-                if current.get(key) != expected_hash:
-                    fail("immutable_source_changed", "conflict")
-        self._validate_cancellation_history(set(current))
+        self._local.next_sequence, current = self._integrity.check(
+            self._completed_operations(captured),
+            records,
+            self._source_view.view,
+            check_current=check_current,
+        )
+        self._validate_cancellation_history(current)
 
-    def _validate_cancellation_history(self, keys: set[ResourceKey]) -> None:
+    def _validate_cancellation_history(self, keys: Container[ResourceKey]) -> None:
         run_ids: set[str] = set()
         for collection in ("cancellations", "cancel_ack"):
             for run_id in self.files.names(("history", collection)):
@@ -987,7 +1101,21 @@ class FileProjectSource:
 
     def _update_index(self) -> None:
         try:
-            self._index(self._all())
+            records = self._all()
+            committed = cast(_CommittedView | None, getattr(self._local, "committed_view", None))
+            if (
+                self._default_index is not None
+                and committed is not None
+                and committed.after is records
+            ):
+                self._default_index.rebuild(
+                    records,
+                    previous=committed.before,
+                    changes=committed.changes,
+                    deleted_keys=committed.deleted,
+                )
+            else:
+                self._index(records)
             self.last_index_error = None
         except Exception:
             # Source commit is durable; a cache failure cannot undo it or obscure success.

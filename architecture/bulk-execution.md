@@ -271,3 +271,59 @@ missing archives/references, mixed legacy evidence, copied projects without cach
 actual child-process death, uncertain settlement, deadline and cancellation/resume.
 Ruff, formatting, mypy (191 source files), and source/wheel builds passed.
 The legacy full-suite result above applies only to the earlier implementation.
+
+## Mutable cases and incremental indexes
+
+The subsequent 5000/10000-case measurements above exposed roughly quadratic growth:
+each concurrency-sized batch reread every mutable case file, rebuilt the integrity
+ledger, reconstructed run history, and recreated all SQLite rows. A new 1000-case
+profile made 80 full source captures and 95822 opens in 13.681 profiled seconds.
+Fresh capture took 5.505 cumulative seconds, history reconstruction 2.240 and alias
+checking 1.000; cumulative times overlap.
+
+After explicit user approval, large case mutations and subsequent edits to packed
+cases use `chunks-v2`. Exact case bytes, hashes, previews, ETags, replay and deletion
+history remain intact. Existing files and v1 packs stay readable. Source projections,
+prefixes, integrity ledgers and run histories now extend from admitted changes.
+New attempt transitions use the same validator as full reconstruction. Old byte
+changes, missing keys and unsupported deltas fall back to full validation. Group
+budget validation retains full reconstruction. Immutable result objects for unaffected
+cases are reused. SQLite applies only changed/deleted rows inside its private memory
+database and still atomically publishes a full image.
+
+Every source admission and predecision capture still reads authoritative bytes;
+no timing, inode metadata, index file or memo substitutes for this. The optional
+delta port binds changes to the exact previous record vector after that fresh
+admission. Clients without this capability keep their existing read path.
+
+The small ramp used 300-case profiles, then 1000. At 1000 cases, profiled execution
+fell from 13.681 to 5.912 seconds after the case/ledger changes, before the final
+delta-port optimization. The first 2500-case late-control check completed in 18.061
+seconds; real CLI show/cancel took 2.261/2.293 seconds with 2048 calls settled and
+64 in flight. Exactly 2500 unique calls and valid saved results remained after resume.
+
+Final ordinary measurements and bounded verification follow. Evidence uses the
+same two-option generated inputs, concurrency 64 and controlled fake transport;
+there are no paid/live model requests and no full-suite rerun.
+
+| Cases | Before execution (s) | After execution (s) |
+| ---: | ---: | ---: |
+| 5000 | 119.978 | 29.756 |
+| 10000 | 482.234 | 85.834 |
+
+Both final rows completed with exactly N selected/planned cases, unique calls,
+saved attempts and valid saved results. An independent comparison found byte-identical
+imports, input hashes and every compiled request at both sizes. The published SQLite
+rows also match the authoritative source exactly. These are sequential local runs,
+with naturally warmed OS caches and no concurrent test suite; they do not establish
+live model throughput. The 10000-case execution is now 85.8 seconds (1m26s), but
+doubling still costs 2.88 times as long. Full fresh byte admission and publication of
+growing derived images remain above-linear costs; this is not a linear-scaling claim.
+
+Final bounded checks: 215 focused tests passed, three skipped; Ruff, formatting,
+mypy (195 source files), and source/wheel builds passed. Checks include mixed case
+formats, versioned edits/deletes/recreation, interruption during legacy-file removal,
+fresh reads behind empty deltas, malformed/changed/missing evidence, reconstruction
+equivalence, metadata-budget fallback and recovery admission followed by full current
+integrity validation. The final two guard checks do not change the measured successful
+execution path. No full suite, live provider or native Windows run was performed.

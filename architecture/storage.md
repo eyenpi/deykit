@@ -70,6 +70,36 @@ legacy and packed operations without rewriting existing evidence. Older clients
 reject this new private variant; projects receiving packed writes require this client
 version or newer. There is no automatic conversion of existing large histories.
 
+`chunks-v2` extends the same framing to mutable cases. Operations with at least 16
+case changes, or any change to an already packed case, keep all their case entries
+in history rather than individual source JSON. Reads resolve chronological versions;
+deletion is an explicit tombstone, and later create-only writes can recreate the ID.
+Old hashes connect successive packed versions. Conversion removes the touched legacy
+source files only after the durable decision; recovery accepts an already removed
+target but preserves unrelated external edits. Physical files cannot shadow packed
+cases or their tombstones. Existing v1 packs and individual legacy cases remain
+readable, and untouched legacy files are not migrated. Edit packed cases through
+CLI/API commands with the same ETags and previews as before.
+
+Logical source and integrity indexes extend only when every previously admitted
+operation is still present with freshly read, exactly matching bytes. Changed,
+removed or reordered evidence triggers full reconstruction. Fresh physical bytes
+are compared separately. Snapshots and the predecision capture still independently
+read source/history. The source view retains at most 131072 current records and
+65536 operations, 262144 journal entries and 128 MiB of distinct retained
+body/reference bytes, including historical case versions
+and the immediate previous projection. The integrity index shares that bounded view.
+Prefix checking retains at most 131072 logical keys; failed speculative checks do
+not publish keys into its admitted index. These bounds do not limit process RSS.
+
+The optional `IncrementalRecordViewSource` port returns full admitted records plus
+changes/deletions bound to the caller's exact prior vector. Absence of a proved
+difference requests full reconstruction. It changes no freshness boundary. The run
+history index retains one run, at most 131072 source records / 128 MiB of logical
+serialized bodies; changed records, deletions, group budgets and unsupported deltas
+use full admission. Append-only updates validate new sequences and affected attempt
+transitions with the same rules as full reconstruction, then reuse unchanged results.
+
 Cases scope by `(dataset_id,)`; labels/label-history by `(decision_id, dataset_id)`;
 revisions by `(decision_id,)`; attempts/run-events/segments by `(run_id,)`;
 attempt-events by `(attempt_id,)`. Other resources are globally scoped. Draft ID is
@@ -167,6 +197,11 @@ SQLite is built from authoritative records in an in-memory connection, serialize
 then atomically replaced through the safe filesystem adapter. It holds only scoped
 IDs and ETags. Deleting/corrupting it changes no source or history; rebuild is explicit.
 No source operation reads SQLite to decide truth or replay an operation.
+The private connection can reuse rows after comparing admitted vectors, applying
+only changed/deleted rows. Its full serialized image still replaces the disposable
+file. The connection is serialized across joined source workers, explicitly closed,
+and discarded above 131072 rows. A mismatch or explicit rebuild uses all authoritative
+records; neither existing on-disk SQLite bytes nor filesystem timestamps are trusted.
 
 POSIX traversal uses anchored directory descriptors and O_NOFOLLOW;
 symlinked internal directories/files, nonregular source files, and multiply linked

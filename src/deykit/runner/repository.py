@@ -15,6 +15,7 @@ from deykit.contracts.ports import (
     Clock,
     Collection,
     CommitReceipt,
+    IncrementalRecordViewSource,
     RecordViewSource,
     ResourceKey,
     SnapshotSource,
@@ -34,6 +35,7 @@ from deykit.contracts.records import (
     RunManifest,
     RunSegment,
 )
+from deykit.runner._history_index import HistoryIndex
 from deykit.runner.decoding import HistoryDecoder
 from deykit.runner.history import RunHistory, WorkItem, history_from_records, read_history
 from deykit.runner.planner import MAX_PLAN_BYTES, RunPlan, evidence_hash
@@ -102,15 +104,21 @@ class RunRepository:
         )
 
         self._decoder = HistoryDecoder()
+        self._history_index = HistoryIndex(self._decoder)
 
     def identity(self) -> str:
         return identifier(self.id_factory())
 
     def history(self, run_id: str) -> RunHistory:
         run_id = identifier(run_id)
+        if callable(getattr(self.source, "read_record_view", None)):
+            view = cast(IncrementalRecordViewSource, self.source).read_record_view(
+                self._history_index.vector
+            )
+            return self._history_index.capture(view.records, run_id, view=view)
         if callable(getattr(self.source, "read_records", None)):
             records = cast(RecordViewSource, self.source).read_records()
-            return history_from_records(records, run_id, decoder=self._decoder)
+            return self._history_index.capture(records, run_id)
         return read_history(self.source, run_id, decoder=self._decoder)
 
     @staticmethod

@@ -23,7 +23,7 @@ CHUNK_LIMIT = 32 * 1024 * 1024
 
 
 class ChunkManifest(JournalManifest):
-    body_format: Literal["chunks-v1"] = "chunks-v1"
+    body_format: Literal["chunks-v1", "chunks-v2"] = "chunks-v1"
     blob_chunks: tuple[ContentHash, ...] = Field(min_length=1)
 
 
@@ -50,14 +50,17 @@ def reference_path(operation_id: str) -> tuple[str, ...]:
 def manifest_kind(body: bytes) -> type[JournalManifest]:
     value = parse_json(body, RECORD_LIMITS)
     if isinstance(value, dict) and "body_format" in value:
-        if value["body_format"] != "chunks-v1":
+        if value["body_format"] not in ("chunks-v1", "chunks-v2"):
             raise JsonError("invalid_record")
         return ChunkManifest
     return JournalManifest
 
 
 def compact_entry(manifest: JournalManifest, entry: JournalEntry) -> bool:
-    return isinstance(manifest, ChunkManifest) and entry.collection in COMPACT_COLLECTIONS
+    return isinstance(manifest, ChunkManifest) and (
+        entry.collection in COMPACT_COLLECTIONS
+        or (manifest.body_format == "chunks-v2" and entry.collection == "cases")
+    )
 
 
 def chunk_name(index: int) -> str:
