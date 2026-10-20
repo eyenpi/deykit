@@ -230,14 +230,18 @@ scalars. Strict UTF-8 encoding now performs the same validation in C and supplie
 encoded bytes for the existing size check. Lone surrogate keys/values still fail;
 Unicode scalar values and exact decimal/integer behavior remain unchanged.
 
-Final-tree measurements and focused verification are recorded below. No full-suite
-or 10000-case execution was repeated for this follow-up.
+Measurements and focused verification for code commit `edaeb08` are recorded below.
+After the small checks passed, the user authorized 5000 cases and then 10000 if the
+first run passed with reasonable timing. Both fresh projects passed; no full test
+suite was repeated.
 
 | Cases | Mode | Import (s) | Preview (s) | Execution (s) | Final read (s) |
 | ---: | --- | ---: | ---: | ---: | ---: |
 | 300 | Profiled | 0.167 | 0.171 | 2.921 | 0.066 |
 | 1000 | Unprofiled | 0.515 | 0.565 | 7.226 | 0.103 |
 | 2500 | Unprofiled, late cancel/resume | 1.255 | 1.366 | 44.797 | 0.264 |
+| 5000 | Unprofiled | 2.444 | 2.556 | 119.978 | 0.477 |
+| 10000 | Unprofiled | 5.382 | 5.471 | 482.234 | 1.205 |
 
 All rows have exactly N planned cases, unique calls, saved attempts and valid saved
 results. Imported bytes, every input hash and every compiled request were independently
@@ -250,8 +254,12 @@ earlier first-batch control experiment and are not a matched speedup comparison.
 For the 300-case profiles, filesystem opens fell from 205022 before this follow-up
 to 15006 with compact storage (92.7% fewer); directory listings fell from 93884 to
 3571. The earlier unprofiled 1000-case execution was 59.239 seconds versus 7.226 now,
-but those timings were collected at different times on the same host. No final
-10000-case wall time or asymptotically linear execution is claimed. Large existing
+but those timings were collected at different times on the same host. The new
+10000-case run completed in 8.04 minutes, compared with the earlier 117.2-minute
+loaded-host run; these are not matched host conditions, so no controlled speedup
+ratio is claimed. Doubling from 5000 to 10000 took approximately four times as long,
+so above-linear local overhead remains. These larger runs exercise ordinary execution;
+they do not extend the 2500-case CLI control measurements. Large existing
 legacy projects still incur their original per-record file reads; this change speeds
 newly written evidence without migrating old data.
 
