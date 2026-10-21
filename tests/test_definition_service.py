@@ -445,6 +445,42 @@ def test_order_only_edit_is_explicit_in_diff(authoring):
     assert diff.before_hash != diff.after_hash
 
 
+@pytest.mark.parametrize(
+    ("before_images", "after_images"),
+    [
+        ((), ("product",)),
+        (("product",), ()),
+        (("product", "detail"), ("detail", "product")),
+    ],
+)
+def test_selected_image_changes_are_explicit_in_diff(authoring, before_images, after_images):
+    service, _ = authoring
+    before = json.loads(definition_source())
+    before["selected_images"] = before_images
+    created = service.create("d", "D", json.dumps(before), operation_id="create")
+    saved = service.save(
+        "d",
+        expected_draft_etag=created.draft.etag,
+        expected_decision_etag=created.decision.etag,
+        operation_id="save",
+    )
+    after = {**before, "selected_images": after_images}
+    service.update_draft(
+        "d",
+        json.dumps(after),
+        expected_etag=service.read("d").draft.etag,
+        operation_id="edit",
+    )
+
+    diff = service.diff("d", saved.record.id, "draft")
+
+    assert diff.before_hash != diff.after_hash
+    assert diff.input_changed
+    assert not diff.question_changed
+    assert not diff.option_order_changed
+    assert diff.added_option_ids == diff.removed_option_ids == diff.changed_option_ids == ()
+
+
 def test_latest_saved_revision_exposes_one_saved_identity(authoring):
     service, _ = authoring
     created = service.create("d", "D", definition_source(), operation_id="create")

@@ -20,6 +20,7 @@ from deykit.cli.selection import selection_context, selector_hint
 from deykit.cli.splits import split_dataset
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import parse_json
+from deykit.images.local import LocalImages
 
 dataset_app = typer.Typer(help="Create datasets, import rows, and manage splits.")
 case_app = typer.Typer(help="Manage individual dataset examples.")
@@ -177,6 +178,7 @@ def import_dataset(
     revision: Annotated[str | None, typer.Option("--revision")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     skip_invalid: Annotated[bool, typer.Option("--skip-invalid")] = False,
+    asset_root: Annotated[Path | None, typer.Option("--asset-root")] = None,
     operation_id: Annotated[str | None, typer.Option("--operation-id")] = None,
 ) -> None:
     def work(cli: CliState, op: str) -> object:
@@ -198,9 +200,11 @@ def import_dataset(
             frozen = import_preview(preview, dataset_id)
             with cli.source() as source:
                 with selection_context(source, (selector_hint("dataset", dataset_id, ()),)):
-                    return ImportService(source, SystemClock()).commit(
-                        frozen, operation_id=op, skip_invalid=skip_invalid
-                    )
+                    return ImportService(
+                        source,
+                        SystemClock(),
+                        images=LocalImages(asset_root) if asset_root is not None else None,
+                    ).commit(frozen, operation_id=op, skip_invalid=skip_invalid)
         if format is None or mapping is None:
             raise ServiceFailure(
                 ServiceError(code="validation_error", reason="import_options_required")
@@ -218,7 +222,11 @@ def import_dataset(
                 )
             )
             with selection_context(source, hints):
-                service = ImportService(source, SystemClock())
+                service = ImportService(
+                    source,
+                    SystemClock(),
+                    images=LocalImages(asset_root) if asset_root is not None else None,
+                )
                 parsed = service.parse_mapping(mapping_text)
                 plan = service.preview(
                     dataset_id,

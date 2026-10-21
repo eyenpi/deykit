@@ -6,6 +6,13 @@ from pydantic import Field, model_validator
 
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.identities import ResourceId
+from deykit.contracts.images import ImagePreparation
+
+
+class ImageField(FrozenModel):
+    source: str = Field(min_length=1)
+    name: ResourceId
+    preparation: ImagePreparation = ImagePreparation()
 
 
 class InputField(FrozenModel):
@@ -34,9 +41,12 @@ class ImportMapping(Record):
     split_column: str | None = None
     metadata_column: str | None = None
     metadata_parse_json: bool = False
+    images: tuple[ImageField, ...] = Field(default=(), exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
     def explicit_separation(self) -> Self:
+        if len({image.name for image in self.images}) != len(self.images):
+            raise ValueError("duplicate_image_name")
         if bool(self.input_column) == bool(self.fields):
             raise ValueError("choose_input_column_or_fields")
         if self.fields and (self.input_kind != "json" or self.input_parse_json):
@@ -66,6 +76,9 @@ class ImportMapping(Record):
             raise ValueError("input_metadata_overlap")
         if len(set(metadata)) != len(metadata):
             raise ValueError("metadata_column_overlap")
+        image_columns = {image.source for image in self.images}
+        if image_columns.intersection((*inputs, *metadata)):
+            raise ValueError("image_column_overlap")
         if (
             (self.input_parse_json and self.input_column is None)
             or (self.expected_parse_json and self.expected_column is None)

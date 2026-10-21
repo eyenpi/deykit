@@ -407,6 +407,7 @@ class DecisionService:
                     if previous.input_schema_source is not None
                     else None,
                     previous.selected_fields,
+                    previous.selected_images,
                 )
                 != (
                     current.input_kind,
@@ -414,6 +415,7 @@ class DecisionService:
                     if current.input_schema_source is not None
                     else None,
                     current.selected_fields,
+                    current.selected_images,
                 ),
                 question_changed=(old_question.id, old_question.instructions)
                 != (new_question.id, new_question.instructions),

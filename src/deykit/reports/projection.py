@@ -14,6 +14,7 @@ from deykit.application.evaluations import (
     FrozenEvaluation,
     frozen_evaluation_from_records,
 )
+from deykit.application.images import ImageAssets
 from deykit.comparisons.models import (
     ComparedCase,
     ComparisonCaseSide,
@@ -23,6 +24,7 @@ from deykit.comparisons.models import (
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.evidence import evidence_hash
+from deykit.contracts.images import SelectedImage
 from deykit.contracts.json_value import JsonError, JsonValue, bytes_hash, dump_json, parse_json
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import PreparedCase
@@ -351,6 +353,15 @@ def validate_report_identity_context(
         for case in evaluation.cases:
             identities.append(case.case_id)
             identities.append(case.input_hash)
+            for image in case.selected_images:
+                identities.extend(
+                    (
+                        image.name,
+                        image.asset.id,
+                        image.asset.source.content_hash,
+                        image.asset.prepared.content_hash,
+                    )
+                )
             for value in (
                 case.attempt_id,
                 case.answer_question_id,
@@ -442,6 +453,17 @@ def validate_report_identity_context(
         if group_report.segment_id is not None:
             group_identities.append(group_report.segment_id)
         for member in group_report.members:
+            for treatment in member.image_treatments:
+                group_identities.append(treatment.case_id)
+                for image in treatment.selected_images:
+                    group_identities.extend(
+                        (
+                            image.name,
+                            image.asset.id,
+                            image.asset.source.content_hash,
+                            image.asset.prepared.content_hash,
+                        )
+                    )
             group_identities.extend(
                 (
                     member.run_id,
@@ -761,6 +783,7 @@ def project_evaluation(
     results_by_id = {item.case_id: item for item in frozen.results.results}
     assessment_by_id = {item.case_id: item for item in summary.cases}
     report_cases: list[JsonValue] = []
+    image_assets = ImageAssets({record.key: record for record in records})
     raw_material = list(project_frozen_raw_material(records, frozen, sanitizer, raw, prepared))
     admitted_attempts = snapshot_attempts(records, frozen.results)
     for attempt, _event in admitted_attempts:
@@ -797,6 +820,19 @@ def project_evaluation(
     for case_id in frozen.manifest.case_ids:
         _safe_identity(sanitizer, case_id)
         case = cases_by_id[case_id]
+        assets = image_assets.for_case(case)
+        selected_images = tuple(
+            SelectedImage(name=name, asset=assets[name].identity())
+            for name in definition.selected_images
+        )
+        for image in selected_images:
+            for identity in (
+                image.name,
+                image.asset.id,
+                image.asset.source.content_hash,
+                image.asset.prepared.content_hash,
+            ):
+                _safe_identity(sanitizer, identity)
         result = results_by_id[case_id]
         _safe_identity(sanitizer, result.input_hash)
         if result.attempt_id is not None:
@@ -816,6 +852,9 @@ def project_evaluation(
             {
                 "case_id": case_id,
                 "input_hash": result.input_hash,
+                "selected_images": [
+                    cast(JsonValue, image.model_dump(mode="json")) for image in selected_images
+                ],
                 "split": case.split,
                 "status": result.status,
                 "attempt_id": result.attempt_id,
@@ -973,6 +1012,7 @@ def _typed_evaluation(
                     {
                         "case_id": case.get("case_id"),
                         "input_hash": case.get("input_hash"),
+                        "selected_images": case.get("selected_images", []),
                         "split": case.get("split"),
                         "status": case.get("status"),
                         "attempt_id": case.get("attempt_id"),

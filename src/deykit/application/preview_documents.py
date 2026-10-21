@@ -60,7 +60,10 @@ def _load(source: str | bytes, *, import_kind: bool) -> _ImportEnvelope | _Split
         if not isinstance(rows, list):
             raise _invalid()
         for row in rows:
-            _keys(row, {field.name for field in fields(ImportRow)})
+            expected = {field.name for field in fields(ImportRow)}
+            if isinstance(row, dict) and "assets" not in row:
+                expected.remove("assets")  # Pre-image reviewed imports remain readable.
+            _keys(row, expected)
     try:
         if import_kind:
             return load_record(_ImportEnvelope, source)

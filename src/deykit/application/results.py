@@ -9,7 +9,7 @@ from typing import Literal, cast
 from deykit.application.annotations import annotation_hash
 from deykit.application.dataset_support import fail, identifier, page
 from deykit.application.evaluations import EvaluationMode, FrozenEvaluation, _frozen, _typed, _view
-from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue, parse_json
+from deykit.contracts.json_value import JsonError, JsonValue, parse_json
 from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import (
     AttemptEvent,
@@ -22,6 +22,7 @@ from deykit.contracts.records import (
     RunManifest,
 )
 from deykit.contracts.redaction import Sanitizer, safe_choice_response
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import definition_hash
 from deykit.metrics import assess_results
 from deykit.metrics.summary import CaseAssessment, EvaluationSummary, MetricsInvalid
@@ -566,7 +567,7 @@ class ResultInspection:
             annotations,
             tuple(sorted(attempts, key=lambda item: cast(int, item["number"]))),
             _sanitized_source(row.case.input_source.encode("utf-8")) if include_input else None,
-            JsonDocument(row.case.input_source).content_hash,
+            case_input_hash(row.case),
             *self._probability_projection(capture, row),
         )
 

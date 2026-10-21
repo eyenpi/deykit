@@ -70,6 +70,17 @@ def _group_member_context(number: int, member: MemberEvidenceContext) -> list[st
         f"hash: `{member.baseline_label_hash}`",
         "",
     ]
+    for treatment in member.image_treatments:
+        for image in treatment.selected_images:
+            asset = image.asset
+            lines.append(
+                f"- Image for {_inline(treatment.case_id)} / {_inline(image.name)}: "
+                f"asset `{asset.id}`; source `{asset.source.content_hash}` "
+                f"({asset.source.width}x{asset.source.height} {asset.source.format}); "
+                f"prepared `{asset.prepared.content_hash}` "
+                f"({asset.prepared.width}x{asset.prepared.height} {asset.prepared.format}); "
+                f"policy {_inline(asset.preparation.model_dump(mode='json'))}"
+            )
     return lines
 
 
@@ -252,6 +263,35 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 )
                 + " |"
             )
+        image_cases = tuple(case for case in evaluation.cases if case.selected_images)
+        if image_cases:
+            lines += [
+                "",
+                "### Prepared image treatments",
+                "",
+                "| Case | Image | Asset | Source hash | Prepared hash | Dimensions | Policy |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+            for case in image_cases:
+                for image in case.selected_images:
+                    asset = image.asset
+                    lines.append(
+                        "| "
+                        + " | ".join(
+                            _inline(value)
+                            for value in (
+                                case.case_id,
+                                image.name,
+                                asset.id,
+                                asset.source.content_hash,
+                                asset.prepared.content_hash,
+                                f"{asset.source.width}x{asset.source.height} -> "
+                                f"{asset.prepared.width}x{asset.prepared.height}",
+                                asset.preparation.model_dump(mode="json"),
+                            )
+                        )
+                        + " |"
+                    )
     if content.comparison is not None:
         comparison = content.comparison
         lines += [

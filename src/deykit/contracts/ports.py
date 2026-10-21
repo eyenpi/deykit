@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from typing import Literal, Protocol, get_args
+from typing import Literal, Protocol, get_args, runtime_checkable
 
 from deykit.contracts.identities import validate_resource_id
+from deykit.contracts.images import ImageAsset
 from deykit.contracts.json_value import JsonValue
 from deykit.contracts.records import (
     ChoiceDefinition,
@@ -37,6 +38,17 @@ class ChoiceCompiler(Protocol):
     ) -> NormalizedAnswer: ...
 
 
+@runtime_checkable
+class ImageChoiceCompiler(Protocol):
+    def compile_images(
+        self,
+        definition: ChoiceDefinition,
+        selected_state: JsonValue,
+        profile: ProviderProfile,
+        images: tuple[tuple[str, ImageAsset], ...],
+    ) -> CompiledRequest: ...
+
+
 @dataclass(frozen=True)
 class CompilerIdentity:
     compiler: str
@@ -58,6 +70,7 @@ Collection = Literal[
     "revisions",
     "datasets",
     "cases",
+    "image_assets",
     "labels",
     "label_history",
     "dataset_snapshots",

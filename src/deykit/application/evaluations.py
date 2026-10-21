@@ -181,6 +181,9 @@ def frozen_evaluation_from_records(
     baseline_labels = _required(
         index, LabelSnapshot, "label_snapshots", manifest.baseline_label_snapshot_id
     )
+    from deykit.application.images import check_case_assets
+
+    check_case_assets((*dataset.cases, *baseline_dataset.cases), records)
     if (
         revision.decision_id != manifest.decision_id
         or dataset.dataset_id != manifest.dataset_id

@@ -7,7 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
 from typing import Literal
 
-from deykit.contracts.json_value import JsonDocument, JsonValue
+from deykit.contracts.json_value import JsonValue
 from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import (
     ChoiceDefinition,
@@ -16,6 +16,7 @@ from deykit.contracts.records import (
     LabelSnapshot,
     ResultSnapshot,
 )
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import label_applicability
 
 
@@ -253,7 +254,7 @@ def assess_results(
 
     for result in results.results:
         case = cases.get(result.case_id)
-        if case is None or JsonDocument(case.input_source).content_hash != result.input_hash:
+        if case is None or case_input_hash(case) != result.input_hash:
             raise MetricsInvalid("result_input_mismatch")
         status_counts[result.status] += 1
         label = indexed.get(result.case_id)

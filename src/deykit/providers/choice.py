@@ -67,6 +67,8 @@ def compile_choice(
     adapter: str = "jev",
 ) -> "CompiledRequest":
     """Compile validated, selected input; never accept a CaseRecord or labels."""
+    if definition.selected_images:
+        raise ValueError("Image compilation is not supported by the text choice compiler.")
     if adapter not in {"jev", "fixture"}:
         raise ValueError("Unsupported choice adapter.")
     if not requested_model or requested_model.strip() != requested_model:

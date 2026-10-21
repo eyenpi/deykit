@@ -4,8 +4,9 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
 
-from deykit.contracts.json_value import JsonDocument, parse_json, semantic_hash
+from deykit.contracts.json_value import parse_json, semantic_hash
 from deykit.contracts.records import CaseRecord
+from deykit.domain.case_identity import case_input_hash
 
 Split = Literal["development", "calibration", "test"]
 SPLITS: tuple[Split, ...] = ("development", "calibration", "test")
@@ -52,7 +53,7 @@ def connected_groups(cases: tuple[CaseRecord, ...]) -> tuple[tuple[str, ...], ..
         root(key)
         if case.group_id is not None:
             union(key, "group:" + case.group_id)
-        union(key, "input:" + JsonDocument(case.input_source).content_hash)
+        union(key, "input:" + case_input_hash(case))
         for ancestor in case.derived_from:
             union(key, "case:" + ancestor)
     groups: dict[str, list[str]] = {}

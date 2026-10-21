@@ -142,7 +142,15 @@ def classify_evaluation(
 def classification_report(
     evaluations: tuple[ReportEvaluation, ...], pricing: ClassificationPricing
 ) -> ClassificationReport:
+    limitations = ClassificationReport.model_fields["treatment_limitations"].default
+    if any(case.selected_images for evaluation in evaluations for case in evaluation.cases):
+        limitations = (
+            "cohort_selection_does_not_establish_representativeness",
+            "managed_images_record_source_and_prepared_identities",
+            "compatible_pairs_do_not_establish_model_only_causality",
+        )
     return ClassificationReport(
         pricing=pricing,
         evaluations=tuple(classify_evaluation(item, pricing) for item in evaluations),
+        treatment_limitations=limitations,
     )

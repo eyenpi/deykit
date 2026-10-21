@@ -12,7 +12,7 @@ from deykit.application.errors import ServiceFailure
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
-from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
+from deykit.contracts.json_value import JsonError, JsonValue
 from deykit.contracts.ports import (
     Clock,
     CommitReceipt,
@@ -30,6 +30,7 @@ from deykit.contracts.records import (
     LabelChange,
     LabelRecord,
 )
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import ApplicabilityReason, label_applicability, missing_options
 from deykit.domain.label_identity import label_id
 
@@ -209,7 +210,7 @@ class LabelService:
             label.question_id,
         ) != (decision_id, dataset_id, case_id, question_id):
             fail("label_identity_mismatch")
-        input_hash = JsonDocument(case.input_source).content_hash
+        input_hash = case_input_hash(case)
         review = LabelReview(
             decision_id,
             dataset_id,

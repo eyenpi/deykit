@@ -100,6 +100,7 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
         "requested_model",
         "case_id",
         "input_hash",
+        "selected_images",
         "split",
         "status",
         "attempt_id",
@@ -139,6 +140,9 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
                 "requested_model": context.requested_model,
                 "case_id": case.case_id,
                 "input_hash": case.input_hash,
+                "selected_images": dump_json(
+                    [image.model_dump(mode="json") for image in case.selected_images]
+                ),
                 "split": case.split,
                 "status": case.status,
                 "attempt_id": case.attempt_id or "",

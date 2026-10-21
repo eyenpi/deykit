@@ -45,6 +45,7 @@ from deykit.contracts.records import (
     ProjectRecord,
     ProviderProfile,
 )
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import definition_hash, select_input
 from deykit.domain.import_mapping import ImportMapping
 from deykit.providers.choice import compile_choice
@@ -500,7 +501,7 @@ class DemoService:
                 or label.dataset_id != dataset.id
                 or label.case_id not in cases
                 or label.question_id != revision.definition.questions[0].id
-                or label.input_hash != JsonDocument(cases[label.case_id].input_source).content_hash
+                or label.input_hash != case_input_hash(cases[label.case_id])
                 or len(label.acceptable_option_ids) != 1
                 or not set(label.acceptable_option_ids).issubset(option_ids)
                 for label in labels

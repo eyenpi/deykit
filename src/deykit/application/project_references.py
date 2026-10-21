@@ -22,6 +22,7 @@ from deykit.contracts.execution_groups import (
     ExecutionGroupSegment,
     RegressionRemoval,
 )
+from deykit.contracts.images import ImageAsset
 from deykit.contracts.json_value import JsonDocument, JsonError
 from deykit.contracts.ports import Collection, ResourceKey, StoredRecord
 from deykit.contracts.records import (
@@ -51,6 +52,7 @@ from deykit.contracts.records import (
     RunManifest,
     RunSegment,
 )
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import definition_hash
 from deykit.domain.label_identity import label_id
 from deykit.providers.fixtures import validate_fixture_set
@@ -69,6 +71,7 @@ _MODELS: dict[Collection, type[Record]] = {
     "revisions": DecisionRevision,
     "datasets": DatasetRecord,
     "cases": CaseRecord,
+    "image_assets": ImageAsset,
     "labels": LabelRecord,
     "label_history": LabelChange,
     "dataset_snapshots": DatasetSnapshot,
@@ -328,6 +331,13 @@ def _validate_hard_references(captured: _CapturedProject) -> None:
     for stored, value in captured.all("cases"):
         if isinstance(value, CaseRecord):
             captured.get(stored, "datasets", value.dataset_id)
+            for image in value.images:
+                _, asset = captured.get(stored, "image_assets", image.asset_id)
+                if (
+                    not isinstance(asset, ImageAsset)
+                    or asset.source.content_hash != image.source_hash
+                ):
+                    _failure("image_asset_changed", stored)
     for stored, value in captured.all("labels"):
         if isinstance(value, LabelRecord):
             captured.get(stored, "decisions", value.decision_id)
@@ -347,6 +357,14 @@ def _validate_hard_references(captured: _CapturedProject) -> None:
     for stored, value in captured.all("dataset_snapshots"):
         if isinstance(value, DatasetSnapshot):
             captured.get(stored, "datasets", value.dataset_id)
+            for case in value.cases:
+                for image in case.images:
+                    _, asset = captured.get(stored, "image_assets", image.asset_id)
+                    if (
+                        not isinstance(asset, ImageAsset)
+                        or asset.source.content_hash != image.source_hash
+                    ):
+                        _failure("image_asset_changed", stored)
     for stored, value in captured.all("label_snapshots"):
         if isinstance(value, LabelSnapshot):
             captured.get(stored, "decisions", value.decision_id)
@@ -898,7 +916,11 @@ def _validate_regressions_reports(
         ):
             _failure("regression_evidence_mismatch", stored)
         try:
-            input_hash = JsonDocument(value.input_source).content_hash
+            input_hash = (
+                case_input_hash(value.source_case)
+                if value.source_case is not None
+                else JsonDocument(value.input_source).content_hash
+            )
         except JsonError:
             _failure("regression_evidence_mismatch", stored)
         if input_hash != value.input_hash:
@@ -962,7 +984,7 @@ def _validate_regressions_reports(
             if original_case is None:
                 _failure("regression_evidence_mismatch", stored)
             try:
-                original_input_hash = JsonDocument(original_case.input_source).content_hash
+                original_input_hash = case_input_hash(original_case)
             except JsonError:
                 _failure("regression_evidence_mismatch", stored)
             if (
@@ -974,7 +996,7 @@ def _validate_regressions_reports(
         if value.source_case is not None:
             source_case = value.source_case
             try:
-                source_input_hash = JsonDocument(source_case.input_source).content_hash
+                source_input_hash = case_input_hash(source_case)
             except JsonError:
                 _failure("regression_evidence_mismatch", stored)
             if (

@@ -8,7 +8,7 @@ from deykit.application.execution_review import ReviewedRunPreview, reviewed_run
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
 from deykit.contracts.ports import Clock, CommitReceipt, SnapshotSource
-from deykit.contracts.records import AttemptRecord, RunSegment
+from deykit.contracts.records import AttemptRecord, DatasetSnapshot, RunSegment
 from deykit.runner.history import RunHistory
 from deykit.runner.planner import Planner, RunRequest, start_intent, validate_request
 from deykit.runner.ports import Backend, BackendFactory, ExecutionProject, Waiter
@@ -54,6 +54,20 @@ class ExecutionService:
         return reviewed_run_preview(plan, include_request_source=include_request_source)
 
     def _backend(self, history: RunHistory) -> Backend:
+        from deykit.application.dataset_support import decoded, required
+        from deykit.application.images import check_case_assets
+        from deykit.contracts.ports import ResourceKey
+
+        with self.source.consistent_read():
+            dataset = decoded(
+                DatasetSnapshot,
+                required(
+                    self.source,
+                    ResourceKey("dataset_snapshots", history.manifest.dataset_snapshot_id),
+                ),
+            )
+            if any(case.images for case in dataset.cases):
+                check_case_assets(dataset.cases, self.source.capture_snapshot())
         profile = history.manifest.provider
         if profile is None:
             fail("missing_frozen_provider", "incompatible_data")
