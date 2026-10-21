@@ -116,6 +116,7 @@ def _case_input(body: CaseInputRequest) -> CaseInput:
         group_id=body.group_id,
         derived_from=body.derived_from,
         metadata_source=body.metadata_source,
+        images=body.images,
     )
 
 
@@ -152,6 +153,7 @@ def _import_row(row: ImportRow) -> ImportRowDTO:
             for error in row.errors
         ),
         duplicate_input_ids=row.duplicate_input_ids,
+        assets=row.assets,
     )
 
 
@@ -428,6 +430,7 @@ def register(
                 group_id=body.group_id,
                 derived_from=body.derived_from,
                 metadata_source=body.metadata_source,
+                images=body.images,
             ),
             expected_dataset_etag=body.expected_dataset_etag,
             expected_case_etag=body.expected_case_etag,

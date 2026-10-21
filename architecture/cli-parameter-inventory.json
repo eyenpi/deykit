@@ -12,7 +12,8 @@
       "The root callback adds --project and --json plus the eager --version flag; their parser metadata is recorded separately from leaf commands.",
       "Typer injects --install-completion and --show-completion on the root command; they are recorded as framework-provided global flags and remain enabled.",
       "Terminal-first amendment removes demo --open and serve --no-open; all other parser parameters are preserved and verified against actual Typer metadata.",
-      "Agent-workflow amendment adds capabilities; its catalog and command parameters are derived at runtime from the installed CLI parser, with no project or credential access."
+      "Agent-workflow amendment adds capabilities; its catalog and command parameters are derived at runtime from the installed CLI parser, with no project or credential access.",
+      "Managed-image import adds an explicit absolute --asset-root for local image reads during preview and commit; image bytes stay outside selected text/JSON."
     ]
   },
   "global_options": [
@@ -1578,6 +1579,23 @@
           "multiple": false,
           "nargs": 1,
           "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "asset_root",
+          "options": [
+            "--asset-root"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
           "minimum": null,
           "maximum": null,
           "choices": [],

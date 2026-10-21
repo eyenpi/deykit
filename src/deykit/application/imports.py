@@ -26,12 +26,18 @@ from deykit.application.import_rows import MAX_IMPORT_ROWS, mapped, rows, source
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
+from deykit.contracts.images import (
+    CaseImage,
+    ImageAsset,
+    ImageIdentity,
+    ImagePreparationError,
+    ImageReader,
+)
 from deykit.contracts.json_value import (
     JsonDocument,
     JsonError,
     JsonValue,
     bytes_hash,
-    parse_json,
 )
 from deykit.contracts.ports import (
     Clock,
@@ -50,9 +56,12 @@ from deykit.contracts.records import (
     LabelChange,
     LabelRecord,
 )
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import definition_hash, select_input
 from deykit.domain.import_mapping import ImportMapping
 from deykit.domain.label_identity import label_id
+
+MAX_IMPORT_IMAGE_BYTES = 64 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -63,6 +72,7 @@ class ImportRow:
     acceptable_option_ids: tuple[str, ...] = ()
     errors: tuple[ServiceError, ...] = ()
     duplicate_input_ids: tuple[str, ...] = ()
+    assets: tuple[ImageIdentity, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -169,9 +179,14 @@ def _validated_preview(value: object) -> ImportPreview:
         errors = tuple(
             validated_model(ServiceError, error, "invalid_import_preview") for error in row.errors
         )
+        if type(row.assets) is not tuple:
+            fail("invalid_import_preview")
+        assets = tuple(
+            validated_model(ImageIdentity, asset, "invalid_import_preview") for asset in row.assets
+        )
         if any(error.row != row.row for error in errors) or (case is None and not errors):
             fail("invalid_import_preview")
-        result.append(replace(row, case=case, errors=errors))
+        result.append(replace(row, case=case, errors=errors, assets=assets))
     return replace(preview, mapping=mapping, rows=tuple(result))
 
 
@@ -185,6 +200,15 @@ def _preview_hash(preview: ImportPreview) -> str:
                 "expected": list(item.acceptable_option_ids),
                 "errors": [cast(JsonValue, error.model_dump(mode="json")) for error in item.errors],
                 "duplicates": list(item.duplicate_input_ids),
+                **(
+                    {
+                        "assets": [
+                            cast(JsonValue, asset.model_dump(mode="json")) for asset in item.assets
+                        ]
+                    }
+                    if item.assets
+                    else {}
+                ),
             }
         )
         for item in preview.rows
@@ -207,10 +231,16 @@ def _preview_hash(preview: ImportPreview) -> str:
 
 class ImportService:
     def __init__(
-        self, source: ProjectSource, clock: Clock, id_factory: Callable[[], str] = new_id
+        self,
+        source: ProjectSource,
+        clock: Clock,
+        id_factory: Callable[[], str] = new_id,
+        *,
+        images: ImageReader | None = None,
     ) -> None:
         self.source, self.clock, self.id_factory = source, clock, id_factory
         self.datasets = DatasetService(source, clock, id_factory)
+        self.images = images
 
     @staticmethod
     def parse_mapping(source: str | bytes) -> ImportMapping:
@@ -307,6 +337,7 @@ class ImportService:
         mapping: ImportMapping,
         decision_id: str | None,
         selector: str,
+        prepared_assets: dict[str, ImageAsset] | None = None,
     ) -> ImportPreview:
         dataset = self.datasets.read(dataset_id)
         DatasetService.check_etag(dataset, dataset.etag)
@@ -319,10 +350,12 @@ class ImportService:
         seen_inputs: dict[str, list[str]] = {}
         for stored in current:
             case = decoded(CaseRecord, stored)
-            seen_inputs.setdefault(safe_hash(parse_json(case.input_source)), []).append(case.id)
+            seen_inputs.setdefault(case_input_hash(case), []).append(case.id)
         question = context.definition.questions[0] if context.definition else None
         valid_options = {option.id for option in question.options} if question else set()
         results: list[ImportRow] = []
+        image_ids: set[str] = set()
+        image_bytes = 0
         for source_row in rows(text, format):
             if source_row.error is not None:
                 results.append(
@@ -333,6 +366,36 @@ class ImportService:
                 if source_row.value is None:
                     fail("invalid_import_row")
                 supplied_id, value, expected = mapped(source_row.value, mapping)
+                assets: dict[str, ImageAsset] = {}
+                case_images: list[CaseImage] = []
+                for field in mapping.images:
+                    if self.images is None:
+                        fail("local_image_reader_required")
+                    path = source_row.value.get(field.source)
+                    if not isinstance(path, str):
+                        fail("image_path_required")
+                    try:
+                        asset = self.images.prepare(path, field.preparation)
+                    except ImagePreparationError as error:
+                        fail(error.reason)
+                    except ValueError:
+                        fail("image_preparation_failed")
+                    asset = validated_model(ImageAsset, asset, "invalid_image_asset")
+                    if asset.id not in image_ids:
+                        image_bytes += len(asset.source_base64) + len(asset.prepared_base64 or "")
+                        if image_bytes > MAX_IMPORT_IMAGE_BYTES:
+                            fail("import_image_resource_limit")
+                        image_ids.add(asset.id)
+                    assets.setdefault(asset.id, asset)
+                    case_images.append(
+                        CaseImage(
+                            name=field.name,
+                            asset_id=asset.id,
+                            source_hash=asset.source.content_hash,
+                        )
+                    )
+                if case_images:
+                    value = value.model_copy(update={"images": tuple(case_images)})
                 generated_id = "case-" + safe_hash(
                     [dataset_id, source_hash, mapping_hash, source_row.row]
                 )
@@ -341,10 +404,30 @@ class ImportService:
                 )
                 if context.definition is not None:
                     select_input(context.definition, JsonDocument(case.input_source))
+                    if any(
+                        name not in {image.name for image in case.images}
+                        for name in context.definition.selected_images
+                    ):
+                        fail("selected_image_missing")
                 if any(option not in valid_options for option in expected):
                     fail("unknown_expected_option")
-                results.append(ImportRow(source_row.row, source_row.line, case, expected))
+                results.append(
+                    ImportRow(
+                        source_row.row,
+                        source_row.line,
+                        case,
+                        expected,
+                        assets=tuple(asset.identity() for asset in assets.values()),
+                    )
+                )
+                if prepared_assets is not None:
+                    prepared_assets.update(assets)
             except (ServiceFailure, JsonError, ValidationError) as error:
+                if (
+                    isinstance(error, ServiceFailure)
+                    and error.error.reason == "import_image_resource_limit"
+                ):
+                    raise
                 reason = (
                     error.error.reason
                     if isinstance(error, ServiceFailure)
@@ -380,7 +463,7 @@ class ImportService:
                     )
                 )
                 continue
-            input_hash = safe_hash(parse_json(row.case.input_source))
+            input_hash = case_input_hash(row.case)
             seen_inputs.setdefault(input_hash, []).append(row.case.id)
             identified.append(row)
         results = [
@@ -389,9 +472,7 @@ class ImportService:
                 duplicate_input_ids=tuple(
                     sorted(
                         other
-                        for other in seen_inputs.get(
-                            safe_hash(parse_json(row.case.input_source)), []
-                        )
+                        for other in seen_inputs.get(case_input_hash(row.case), [])
                         if other != row.case.id
                     )
                 ),
@@ -450,6 +531,7 @@ class ImportService:
             )
             if current_hash != preview.context_hash:
                 fail("import_context_changed", "conflict")
+            prepared_assets: dict[str, ImageAsset] = {}
             fresh = self._preview(
                 preview.dataset_id,
                 preview.source_text,
@@ -457,10 +539,26 @@ class ImportService:
                 preview.mapping,
                 preview.decision_id,
                 preview.decision_selector,
+                prepared_assets,
             )
             if fresh.preview_hash != preview.preview_hash:
                 fail("import_context_changed", "conflict")
             changes: list[SourceChange] = []
+            selected_assets = {
+                image.asset_id
+                for row in preview.valid_rows
+                if row.case is not None
+                for image in row.case.images
+            }
+            for asset_id in sorted(selected_assets):
+                asset = prepared_assets[asset_id]
+                key = ResourceKey("image_assets", asset_id)
+                existing = self.source.read(key)
+                body = dump_record(asset)
+                if existing is None:
+                    changes.append(SourceChange(key, body, None))
+                elif existing.body != body:
+                    fail("image_asset_changed", "conflict")
             for row in preview.valid_rows:
                 if row.case is None:
                     fail("invalid_import_preview")
@@ -481,7 +579,7 @@ class ImportService:
                         dataset_id=preview.dataset_id,
                         case_id=case.id,
                         question_id=preview.question_id,
-                        input_hash=safe_hash(parse_json(case.input_source)),
+                        input_hash=case_input_hash(case),
                         acceptable_option_ids=row.acceptable_option_ids,
                         provenance="imported_unknown",
                         updated_at=self.clock.utc_now(),

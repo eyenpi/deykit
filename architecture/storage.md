@@ -34,6 +34,20 @@ bounds, execution batching and control checks.
 
 ## Authoritative layout
 
+Managed image dependencies use immutable `image_assets` records, addressed by a
+hash of source/prepared descriptors and the explicit preparation policy. The
+record retains base64 source bytes and, only when different, prepared bytes.
+Each byte string has its own checked hash and length. Current cases and frozen
+dataset snapshots retain named references and original-image hashes. Project
+reference validation checks both dependencies and original identity; missing
+assets are errors. Assets participate in the existing atomic source/history
+commit with imported cases and labels, so partial writes and operation replay
+use the existing journal. They are not filesystem links to the import directory.
+Per-image bytes/pixels and normal record limits remain bounded; bulk asset bytes
+are separate dependencies rather than duplicated in each run's plan snapshots.
+Image-bearing project files require this client or newer; text-only serialized
+records and definition/evidence hashes retain their established representation.
+
 ```text
 deykit.project.json                  # sole project metadata and ancestor-discovery marker
 source/<collection>/<scope...>/<id>.json

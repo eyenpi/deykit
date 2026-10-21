@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue
 from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import ChoiceDefinition, DatasetSnapshot, LabelRecord, LabelSnapshot
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import label_applicability, select_input
 from deykit.metrics.summary import MetricsInvalid, Rate
 
@@ -122,7 +123,7 @@ def majority_baseline(
         label = fit_index.get(case.id)
         if case.split != "development" or label is None:
             continue
-        input_hash = JsonDocument(case.input_source).content_hash
+        input_hash = case_input_hash(case)
         if label_applicability(label, definition, input_hash):
             continue
         try:
@@ -142,7 +143,7 @@ def majority_baseline(
         label = evaluation_index.get(case_id)
         if label is None:
             raise MetricsInvalid("baseline_pairing_mismatch")
-        input_hash = JsonDocument(case.input_source).content_hash
+        input_hash = case_input_hash(case)
         if label_applicability(label, definition, input_hash):
             raise MetricsInvalid("baseline_pairing_mismatch")
         try:

@@ -1,5 +1,13 @@
 # Evidence reports
 
+Managed images selected by a decision appear in evaluation reports as named
+source/prepared identities, dimensions, formats and preparation settings. JSON,
+Markdown and classification CSV retain the same asset IDs without including image
+bytes or filesystem paths. Paired comparisons classify a changed selected image
+or preparation policy as `changed_input`, excluding it from identical-input quality
+counts even when the original image and labels are unchanged. Unselected dataset
+images are not presented as model inputs. See [managed imports](imports.md).
+
 The Python `ReportService` saves a fixed view of a run, evaluation, comparison,
 diagnostic group, or regression-check group. Later run resumes and edits to
 labels, regressions, or decision drafts do not replace saved evidence. Report

@@ -12,6 +12,7 @@ from deykit.application.dataset_support import (
     safe_hash,
     validated_model,
 )
+from deykit.application.images import ImageAssets
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
@@ -19,7 +20,13 @@ from deykit.contracts.evidence import evidence_hash as evidence_hash
 from deykit.contracts.execution_groups import RegressionRemoval
 from deykit.contracts.identities import ResourceId
 from deykit.contracts.json_value import JsonDocument, JsonError, JsonValue, bytes_hash
-from deykit.contracts.ports import CompilerIdentity, ResourceKey, SnapshotSource, StoredRecord
+from deykit.contracts.ports import (
+    CompilerIdentity,
+    ImageChoiceCompiler,
+    ResourceKey,
+    SnapshotSource,
+    StoredRecord,
+)
 from deykit.contracts.records import (
     CaseRecord,
     ChoiceDefinition,
@@ -33,6 +40,7 @@ from deykit.contracts.records import (
     ProviderProfile,
     RegressionRecord,
 )
+from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import definition_hash, select_input
 from deykit.domain.label_identity import label_id
 from deykit.regressions.evidence import frozen_case
@@ -218,6 +226,21 @@ class Planner:
                 if r.key.collection == "regression_removals"
                 and decoded(RegressionRemoval, r).regression_id in request.regression_ids
             )
+        # Assets remain separate from case JSON and are pinned by immutable IDs.
+        asset_cases = [
+            decoded(CaseRecord, record) for record in records if record.key.collection == "cases"
+        ]
+        asset_cases.extend(
+            frozen_case(decoded(RegressionRecord, record))
+            for record in records
+            if record.key.collection == "regressions"
+        )
+        asset_ids = {image.asset_id for case in asset_cases for image in case.images}
+        for asset_id in sorted(asset_ids):
+            key = ResourceKey("image_assets", asset_id)
+            if key not in index:
+                fail("image_asset_missing", "preflight_failed")
+            records.append(index[key])
         return tuple(records)
 
     def check_context(self, plan: RunPlan) -> None:
@@ -431,7 +454,13 @@ class Planner:
         if preflight_error is not None:
             fail(preflight_error.reason or "provider_preflight_failed", "preflight_failed")
         prepared: list[PlannedCase] = []
+        image_assets = ImageAssets({record.key: record for record in records})
         for case in cases:
+            assets = image_assets.for_case(case)
+            if any(name not in assets for name in definition.selected_images):
+                fail("selected_image_missing", "preflight_failed")
+            if definition.selected_images and not isinstance(compiler, ImageChoiceCompiler):
+                fail("image_compilation_unsupported", "preflight_failed")
             document = JsonDocument(case.input_source)
             try:
                 selected = select_input(definition, document)
@@ -439,7 +468,7 @@ class Planner:
                 prepared.append(
                     PlannedCase(
                         case.id,
-                        document.content_hash,
+                        case_input_hash(case),
                         None,
                         ServiceError(
                             code="validation_error", resource_id=case.id, reason=error.code
@@ -448,7 +477,16 @@ class Planner:
                 )
                 continue
             try:
-                compiled = compiler.compile(compile_definition, selected.value, profile)
+                if definition.selected_images:
+                    assert isinstance(compiler, ImageChoiceCompiler)
+                    compiled = compiler.compile_images(
+                        compile_definition,
+                        selected.value,
+                        profile,
+                        tuple((name, assets[name]) for name in definition.selected_images),
+                    )
+                else:
+                    compiled = compiler.compile(compile_definition, selected.value, profile)
             except ValueError:
                 fail("unsupported_request_configuration", "preflight_failed")
             compiled = trusted_request(compiled, profile)
@@ -457,11 +495,13 @@ class Planner:
                 compiler_identity.compiler_version,
             ):
                 fail("compiled_compiler_mismatch", "preflight_failed")
-            prepared.append(PlannedCase(case.id, document.content_hash, compiled, None))
+            prepared.append(PlannedCase(case.id, case_input_hash(case), compiled, None))
         if sum(item.request is not None for item in prepared) > request.settings.max_attempts:
             fail("initial_requests_exceed_cap", "preflight_failed")
         # Bound all copied evidence, including the separate fitting-source capture.
-        total = sum(len(item.body) for item in records)
+        # Assets are independently bounded immutable dependencies, never copied
+        # into run snapshots or charged to the JSON plan envelope limit.
+        total = sum(len(item.body) for item in records if item.key.collection != "image_assets")
         total += sum(len(dump_record(item.request)) for item in prepared if item.request)
         if total > MAX_PLAN_BYTES:
             fail("run_resource_limit", "preflight_failed")

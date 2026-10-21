@@ -3,9 +3,10 @@
 from typing import cast
 
 from deykit.application.dataset_support import fail, validated_model
-from deykit.contracts.json_value import JsonDocument, JsonValue, semantic_hash
+from deykit.contracts.json_value import JsonValue, semantic_hash
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import CaseRecord, RegressionRecord
+from deykit.domain.case_identity import case_input_hash
 
 
 def regression_hash(record: RegressionRecord) -> str:
@@ -30,7 +31,7 @@ def frozen_case(record: RegressionRecord) -> CaseRecord:
         or case.id != record.case_id
         or case.dataset_id != record.dataset_id
         or case.input_source != record.input_source
-        or JsonDocument(case.input_source).content_hash != record.input_hash
+        or case_input_hash(case) != record.input_hash
         or len(set(record.acceptable_option_ids)) != len(record.acceptable_option_ids)
     ):
         fail("regression_evidence_mismatch", "incompatible_data")

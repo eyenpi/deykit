@@ -15,7 +15,10 @@ def classify(
         return "right_only"
     if right is None:
         return "left_only"
-    if left.input_hash != right.input_hash:
+    if (
+        left.input_hash != right.input_hash
+        or left.image_treatment_hash != right.image_treatment_hash
+    ):
         return "changed_input"
     if not compatible_options:
         return "changed_question_options"

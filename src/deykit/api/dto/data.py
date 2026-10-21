@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import StringConstraints, field_validator, model_validator
 
 from deykit.contracts.identities import ContentHash, ResourceId
+from deykit.contracts.images import CaseImage, ImageIdentity
 from deykit.contracts.json_value import JsonSource
 from deykit.contracts.records import CaseRecord, DatasetRecord, DatasetSnapshot
 from deykit.domain.import_mapping import ImportMapping
@@ -73,10 +74,11 @@ class CaseInputRequest(Mutation):
     group_id: ResourceId | None = None
     derived_from: tuple[ResourceId, ...] = ()
     metadata_source: JsonSource = "{}"
+    images: tuple[CaseImage, ...] = ()
     expected_dataset_etag: ContentHash
     case_id: ResourceId | None = None
 
-    @field_validator("tags", "derived_from", mode="before")
+    @field_validator("tags", "derived_from", "images", mode="before")
     @classmethod
     def json_arrays(cls, value: object) -> object:
         return _array_tuple(value)
@@ -92,8 +94,9 @@ class CaseEditRequest(Mutation):
     group_id: ResourceId | None = None
     derived_from: tuple[ResourceId, ...] = ()
     metadata_source: JsonSource = "{}"
+    images: tuple[CaseImage, ...] = ()
 
-    @field_validator("tags", "derived_from", mode="before")
+    @field_validator("tags", "derived_from", "images", mode="before")
     @classmethod
     def json_arrays(cls, value: object) -> object:
         return _array_tuple(value)
@@ -134,6 +137,7 @@ class ImportRowDTO(ResponseRecord):
     acceptable_option_ids: tuple[ResourceId, ...]
     errors: tuple[ServiceErrorDTO, ...]
     duplicate_input_ids: tuple[ResourceId, ...]
+    assets: tuple[ImageIdentity, ...]
 
 
 class ImportPreviewRecordDTO(ResponseRecord):

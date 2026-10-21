@@ -13,13 +13,16 @@ from deykit.application.diagnostics import (
 )
 from deykit.application.errors import ServiceFailure
 from deykit.application.evaluations import FrozenEvaluation
+from deykit.application.images import ImageAssets
 from deykit.contracts.codec import dump_record
 from deykit.contracts.evidence import evidence_hash
+from deykit.contracts.images import SelectedImage
 from deykit.contracts.json_value import JsonValue, dump_json
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.redaction import Sanitizer
 from deykit.diagnostics.orders import ORDER_ALGORITHM, choice_orders
 from deykit.reports.models import (
+    CaseImageTreatment,
     CheckCaseDisplay,
     CheckReport,
     DiagnosticCaseDisplay,
@@ -82,6 +85,25 @@ def _member_context(
     )
     for identity in identities:
         _safe_identity(sanitizer, identity)
+    image_treatments = []
+    image_assets = ImageAssets({record.key: record for record in records})
+    for case in frozen.dataset.cases:
+        if not frozen.revision.definition.selected_images:
+            break
+        assets = image_assets.for_case(case)
+        images = tuple(
+            SelectedImage(name=name, asset=assets[name].identity())
+            for name in frozen.revision.definition.selected_images
+        )
+        for image in images:
+            for identity in (
+                image.name,
+                image.asset.id,
+                image.asset.source.content_hash,
+                image.asset.prepared.content_hash,
+            ):
+                _safe_identity(sanitizer, identity)
+        image_treatments.append(CaseImageTreatment(case_id=case.id, selected_images=images))
     return MemberEvidenceContext(
         run_id=manifest.id,
         manifest_hash=evidence_hash((dump_record(manifest),)),
@@ -109,6 +131,7 @@ def _member_context(
         option_ids=tuple(option.id for option in question.options),
         option_order=order,
         selected_case_ids=manifest.case_ids,
+        image_treatments=tuple(image_treatments),
         baseline_dataset_snapshot_id=frozen.baseline_dataset.id,
         baseline_dataset_hash=frozen.baseline_dataset.content_hash,
         baseline_label_snapshot_id=frozen.baseline_labels.id,

@@ -24,6 +24,7 @@ from deykit.contracts.json_value import JsonError, parse_json, semantic_hash
 from deykit.contracts.model_admission import ModelInvalid
 from deykit.contracts.ports import Clock, ResourceKey, SnapshotSource, SourceChange, StoredRecord
 from deykit.contracts.records import ComparisonRecord, PreparedCase
+from deykit.domain.case_identity import image_treatment_hash
 from deykit.metrics import assess_results
 from deykit.metrics.summary import MetricsInvalid
 
@@ -118,6 +119,7 @@ def _side(
         frozen.manifest.case_ids,
     )
     result_index = {result.case_id: result for result in frozen.results.results}
+    case_index = {case.id: case for case in frozen.dataset.cases}
     request_hashes = {
         item.case_id: item.request.body_hash if item.request is not None else None
         for item in prepared
@@ -125,6 +127,9 @@ def _side(
     cases = {
         assessment.case_id: ComparisonCaseSide(
             input_hash=result_index[assessment.case_id].input_hash,
+            image_treatment_hash=image_treatment_hash(
+                case_index[assessment.case_id], frozen.revision.definition
+            ),
             request_hash=request_hashes[assessment.case_id],
             status=cast(Status, assessment.status),
             answer_option_id=assessment.answer_option_id,

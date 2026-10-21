@@ -89,6 +89,7 @@ class ComparisonContext(FrozenModel):
 
 class ComparisonCaseSide(FrozenModel):
     input_hash: ContentHash
+    image_treatment_hash: ContentHash | None = Field(default=None, exclude_if=lambda v: v is None)
     request_hash: ContentHash | None = None
     status: Status
     answer_option_id: ResourceId | None

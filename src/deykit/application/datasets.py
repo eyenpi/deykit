@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from deykit.application.dataset_support import (
     CaseView,
@@ -17,7 +17,6 @@ from deykit.application.dataset_support import (
     intent,
     page,
     required,
-    safe_hash,
     validated_model,
 )
 from deykit.application.errors import ServiceFailure
@@ -25,7 +24,8 @@ from deykit.contracts.base import FrozenModel
 from deykit.contracts.codec import dump_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
-from deykit.contracts.json_value import JsonSource, JsonValue, parse_json
+from deykit.contracts.images import CaseImage
+from deykit.contracts.json_value import JsonSource, JsonValue
 from deykit.contracts.ports import (
     Clock,
     CommitReceipt,
@@ -35,6 +35,7 @@ from deykit.contracts.ports import (
     StoredRecord,
 )
 from deykit.contracts.records import CaseRecord, DatasetRecord, LabelChange, LabelRecord
+from deykit.domain.case_identity import case_input_hash
 
 
 class CaseInput(FrozenModel):
@@ -45,6 +46,7 @@ class CaseInput(FrozenModel):
     group_id: str | None = None
     derived_from: tuple[str, ...] = ()
     metadata_source: JsonSource = "{}"
+    images: tuple[CaseImage, ...] = Field(default=(), exclude_if=lambda v: not v)
 
 
 @dataclass(frozen=True)
@@ -282,6 +284,15 @@ class DatasetService:
             dataset = self.read(dataset_id)
             self.check_etag(dataset, dataset_etag)
             record = self.case_record(dataset_id, case_id or identifier(self.id_factory()), value)
+            from deykit.application.images import case_assets
+
+            asset_records = {
+                ResourceKey("image_assets", image.asset_id): required(
+                    self.source, ResourceKey("image_assets", image.asset_id)
+                )
+                for image in record.images
+            }
+            case_assets(record, asset_records)
             before = cases(self.source, dataset_id)
             existing = {item.key.resource_id: item for item in before}
             if creating and any(key.casefold() == record.id.casefold() for key in existing):
@@ -424,16 +435,12 @@ class DatasetService:
         for stored in records:
             record = decoded(CaseRecord, stored)
             views[record.id] = CaseView(record, stored.etag)
-            hashes.setdefault(safe_hash(parse_json(record.input_source)), []).append(record.id)
+            hashes.setdefault(case_input_hash(record), []).append(record.id)
         return {
             key: CaseView(
                 view.record,
                 view.etag,
-                tuple(
-                    other
-                    for other in hashes[safe_hash(parse_json(view.record.input_source))]
-                    if other != key
-                ),
+                tuple(other for other in hashes[case_input_hash(view.record)] if other != key),
             )
             for key, view in views.items()
         }

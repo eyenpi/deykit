@@ -10,6 +10,7 @@ from pydantic import AfterValidator, Field, ValidationInfo, model_validator
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
+from deykit.contracts.images import CaseImage
 from deykit.contracts.json_value import GENERATED_LIMITS, JsonSource, bytes_hash, parse_json
 from deykit.contracts.report_json import ReportContentSource
 from deykit.contracts.schema import compile_schema
@@ -86,10 +87,13 @@ class ChoiceDefinition(Record):
     input_kind: Literal["text", "json"]
     input_schema_source: JsonSource | None = None
     selected_fields: tuple[str, ...] = ()
+    selected_images: tuple[ResourceId, ...] = Field(default=(), exclude_if=lambda v: not v)
     questions: Annotated[tuple[ChoiceQuestion, ...], Field(min_length=1, max_length=1)]
 
     @model_validator(mode="after")
     def valid_input(self) -> Self:
+        if len(set(self.selected_images)) != len(self.selected_images):
+            raise ValueError("duplicate_selected_image")
         if len(set(self.selected_fields)) != len(self.selected_fields):
             raise ValueError("duplicate_selected_field")
         if self.input_kind == "text" and self.selected_fields:
@@ -136,9 +140,12 @@ class CaseRecord(HashedRecord):
     group_id: ResourceId | None = None
     derived_from: tuple[ResourceId, ...] = ()
     metadata_source: JsonSource = "{}"
+    images: tuple[CaseImage, ...] = Field(default=(), exclude_if=lambda v: not v)
 
     @model_validator(mode="after")
     def input_shape(self) -> Self:
+        if len({image.name for image in self.images}) != len(self.images):
+            raise ValueError("duplicate_case_image")
         value = parse_json(self.input_source)
         if not isinstance(value, str if self.input_kind == "text" else dict):
             raise ValueError("invalid_case_input_shape")

@@ -11,6 +11,7 @@ from deykit.contracts.execution_groups import (
     ExecutionGroupSegment,
     RegressionRemoval,
 )
+from deykit.contracts.images import ImageAsset
 from deykit.contracts.json_value import JsonError
 from deykit.contracts.ports import Collection, ResourceKey
 from deykit.contracts.records import (
@@ -49,6 +50,7 @@ TYPES: dict[Collection, type[Record]] = {
     "revisions": DecisionRevision,
     "datasets": DatasetRecord,
     "cases": CaseRecord,
+    "image_assets": ImageAsset,
     "labels": LabelRecord,
     "label_history": LabelChange,
     "dataset_snapshots": DatasetSnapshot,
@@ -90,6 +92,7 @@ SCOPES: dict[Collection, tuple[str, ...]] = {
 }
 IMMUTABLE = frozenset(
     {
+        "image_assets",
         "revisions",
         "label_history",
         "dataset_snapshots",

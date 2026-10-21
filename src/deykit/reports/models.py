@@ -14,6 +14,7 @@ from deykit.comparisons.models import ComparisonOutcomes
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
+from deykit.contracts.images import SelectedImage
 from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.records import NonnegativeInt, ReportRecord, UtcTimestamp
 
@@ -329,6 +330,7 @@ class RunEvidenceContext(FrozenModel):
 class ReportCase(FrozenModel):
     case_id: ResourceId
     input_hash: ContentHash
+    selected_images: tuple[SelectedImage, ...] = Field(default=(), exclude_if=lambda v: not v)
     split: Literal["development", "calibration", "test"]
     status: Literal["pending", "input_invalid", "response_error", "unknown", "valid"]
     attempt_id: ResourceId | None
@@ -450,6 +452,11 @@ class ClassificationReport(FrozenModel):
     )
 
 
+class CaseImageTreatment(FrozenModel):
+    case_id: ResourceId
+    selected_images: tuple[SelectedImage, ...]
+
+
 class MemberEvidenceContext(FrozenModel):
     """Pinned run context for a group member, with no P10 evaluation identity."""
 
@@ -479,6 +486,7 @@ class MemberEvidenceContext(FrozenModel):
     option_ids: tuple[ResourceId, ...]
     option_order: tuple[ResourceId, ...]
     selected_case_ids: tuple[ResourceId, ...]
+    image_treatments: tuple[CaseImageTreatment, ...] = Field(default=(), exclude_if=lambda v: not v)
     baseline_dataset_snapshot_id: ResourceId
     baseline_dataset_hash: ContentHash
     baseline_label_snapshot_id: ResourceId
