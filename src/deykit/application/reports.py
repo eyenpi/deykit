@@ -38,6 +38,7 @@ from deykit.contracts.ports import (
 )
 from deykit.contracts.records import ReportRecord, ResultSnapshot
 from deykit.contracts.redaction import Sanitizer
+from deykit.contracts.report_json import REPORT_ARTIFACT_MAX_BYTES, REPORT_CONTENT_LIMITS
 from deykit.reports.admission import (
     ReportAdmissionError,
     admit_report,
@@ -544,9 +545,14 @@ class ReportService:
                 content_fields = content.model_dump(mode="python")
                 content_fields["limitations"] = expected_group_limitations(group_report, content)
                 content = ReportContent.model_validate(content_fields)
-            content_source = dump_json(_json_tree(content.model_dump(mode="python")))
-            if len(content_source.encode("utf-8")) > 1_048_576:
-                fail("report_content_limit")
+            try:
+                content_source = dump_json(
+                    _json_tree(content.model_dump(mode="python")), limits=REPORT_CONTENT_LIMITS
+                )
+            except JsonError as error:
+                if error.code == "json_resource_limit":
+                    fail("report_content_limit")
+                raise
             provisional = ReportRecord(
                 id=identifier(self.id_factory()),
                 evaluation_ids=eval_ids,
@@ -570,7 +576,12 @@ class ReportService:
             validate_report_identity_context(
                 record.id, record.content_hash, content, self.sanitizer
             )
-            body = dump_record(record)
+            try:
+                body = dump_record(record)
+            except JsonError as error:
+                if error.code == "record_resource_limit":
+                    fail("report_content_limit")
+                raise
             validate_report_identity_value(bytes_hash(body), self.sanitizer)
             if cast(SnapshotSource, source).capture_snapshot() != records:
                 fail("report_source_changed", "conflict")
@@ -671,7 +682,7 @@ class ReportService:
             if error.args == ("csv_requires_classification",):
                 fail("csv_requires_classification")
             raise
-        if len(artifact.body) > 8 * 1024 * 1024:
+        if len(artifact.body) > REPORT_ARTIFACT_MAX_BYTES:
             fail("report_artifact_limit")
         validate_rendered_artifact_identities(
             artifact.report_id, artifact.bytes_hash, self.sanitizer

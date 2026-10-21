@@ -1,8 +1,8 @@
 """Transport records for saved immutable reports."""
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.identities import ContentHash, ResourceId
@@ -32,6 +32,11 @@ class CreateReportRequest(Mutation):
         if isinstance(value, dict) and isinstance(value.get("rates"), list):
             return {**value, "rates": tuple(value["rates"])}
         return value
+
+    @model_validator(mode="after")
+    def valid_application_request(self) -> Self:
+        self.to_application()
+        return self
 
     def to_application(self) -> ReportRequest:
         return ReportRequest(

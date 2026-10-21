@@ -9,9 +9,16 @@ from decimal import Decimal
 from pydantic import ValidationError
 
 from deykit.contracts.codec import load_record
-from deykit.contracts.json_value import JsonError, JsonValue, parse_json, semantic_hash
+from deykit.contracts.json_value import (
+    RECORD_LIMITS,
+    JsonError,
+    JsonValue,
+    parse_json,
+    semantic_hash,
+)
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import ReportRecord
+from deykit.contracts.report_json import REPORT_CONTENT_LIMITS
 from deykit.reports.models import RawChoices, ReportContent, ReportMetadata
 
 
@@ -96,8 +103,9 @@ def report_hash(record: ReportRecord, content: ReportContent) -> str:
             "includes_raw_input": record.includes_raw_input,
             "includes_raw_request": record.includes_raw_request,
             "includes_raw_response": record.includes_raw_response,
-            "content": parse_json(record.content_source),
-        }
+            "content": parse_json(record.content_source, REPORT_CONTENT_LIMITS),
+        },
+        limits=RECORD_LIMITS,
     )
 
 
@@ -111,7 +119,7 @@ def admit_report(stored: StoredRecord) -> AdmittedReport:
             or record.id != stored.key.resource_id
         ):
             raise ReportAdmissionError("report_record_identity_mismatch")
-        parsed = parse_json(record.content_source)
+        parsed = parse_json(record.content_source, REPORT_CONTENT_LIMITS)
         if not isinstance(parsed, dict) or parsed.get("profile") != "deykit-report-v1":
             raise ReportAdmissionError("unsupported_report_profile")
         if not _has_persisted_version(parsed):
@@ -181,7 +189,7 @@ def admit_report_metadata(stored: StoredRecord) -> ReportMetadata:
     ):
         raise ReportAdmissionError("report_record_identity_mismatch")
     try:
-        parsed = parse_json(record.content_source)
+        parsed = parse_json(record.content_source, REPORT_CONTENT_LIMITS)
     except JsonError:
         return ReportMetadata(
             report_id=record.id,

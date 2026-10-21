@@ -67,6 +67,7 @@ from deykit.contracts.records import (
     RunManifest,
 )
 from deykit.contracts.redaction import Sanitizer
+from deykit.contracts.report_json import REPORT_ARTIFACT_MAX_BYTES, REPORT_CONTENT_LIMITS
 from deykit.diagnostics.orders import choice_orders
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
@@ -1494,7 +1495,7 @@ def test_renderer_fences_raw_material_and_enforces_artifact_bound(
         b'"created_at":"2026-10-05T12:00:00Z","report_id":"report-golden","schema_version":1}\n'
     )
 
-    oversized = raw.model_copy(update={"source": "x" * (8 * 1024 * 1024)})
+    oversized = raw.model_copy(update={"source": "x" * REPORT_ARTIFACT_MAX_BYTES})
     oversized_content = report.content.model_copy(update={"raw_material": (oversized,)})
     with pytest.raises(ValueError, match="report_artifact_limit"):
         render_content(report.record, oversized_content, "markdown")
@@ -1522,8 +1523,9 @@ def test_service_render_maps_fixed_renderer_failures_to_safe_errors(
         assert failure.value.error.message == "The supplied data is invalid."
 
 
+@pytest.mark.parametrize("bound", ["content", "escaped_record"])
 def test_report_content_limit_fails_before_memory_source_write(
-    fixture_graph: FixtureGraph, monkeypatch: pytest.MonkeyPatch
+    fixture_graph: FixtureGraph, monkeypatch: pytest.MonkeyPatch, bound: str
 ) -> None:
     source = MemorySnapshotSource.from_records(snapshot(fixture_graph))
     original_project = reports_module.project_evaluation
@@ -1531,7 +1533,9 @@ def test_report_content_limit_fails_before_memory_source_write(
     def oversized_projection(*args, **kwargs):
         projected, materials = original_project(*args, **kwargs)
         case_id = projected.cases[0].case_id
-        large_source = "x" * 1_048_576
+        large_source = (
+            "x" * REPORT_CONTENT_LIMITS.max_bytes if bound == "content" else '"' * 4_300_000
+        )
         material = RawMaterial(
             category="input",
             run_id=fixture_graph.run_id,

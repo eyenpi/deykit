@@ -164,3 +164,24 @@ raw material is never included in CSV. Saved-report exports reject `--preset`
 and `--pricing`, just like other creation selectors. The Python request accepts
 `preset="classification"` and `ClassificationPricing`; the headless API exposes
 the same creation fields and CSV download.
+
+Aggregate report content is bounded at 12 MiB and 750,000 JSON value nodes;
+saved record envelopes and each exported artifact are bounded at 16 MiB.
+Escaping can make the saved envelope reach its bound before the content does.
+Oversized reports fail before being saved; exports never truncate case rows,
+probability vectors or attempt evidence. Individual user JSON sources retain
+their existing 1 MiB admission limit, and ordinary generated JSON retains its
+existing 2 MiB limit. These are separate from the owned report aggregate.
+
+The offline scale regression exercises 2,500 selected cases and 104 options
+through the normal runner with a controlled authored transport, then creates,
+replays and exports a saved evaluation through the real CLI. Its full vectors,
+attempts, failed/unknown outcomes and excluded expectations remain visible. This
+is bounded software verification, not evidence about live model quality or an
+unlimited cohort-size guarantee. Other saved-evidence types retain their own
+existing bounds.
+
+Older builds retain the earlier report bounds and may reject newly created large
+reports. Reverting the code alone is not a complete downgrade path for a project
+containing those reports; retain the project and use a compatible reader. No
+existing report needs migration to use the new reader.

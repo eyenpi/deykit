@@ -123,7 +123,7 @@ def test_m09_route_inventory_and_binary_report_policy(security_api_dependencies)
     assert download["x-deykit-report-download-v1"] == {
         "formatParameter": "format",
         "reportIdParameter": "report_id",
-        "maxBytes": 8388608,
+        "maxBytes": 16777216,
         "formats": {
             "json": {"contentType": "application/octet-stream", "extension": "json"},
             "markdown": {"contentType": "text/plain; charset=utf-8", "extension": "md"},

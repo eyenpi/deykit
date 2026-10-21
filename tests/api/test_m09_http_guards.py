@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import cast
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
 from deykit.api.app import create_app
@@ -117,6 +118,47 @@ async def _register_project(
     )
     assert response.status_code == 200, response.text
     return response.json()["data"]["registration_id"]
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        {"pricing": {"rates": []}},
+        {"preset": "classification", "target_kind": "check"},
+        {"preset": "classification", "target_kind": "diagnostic"},
+    ],
+)
+def test_report_invalid_preset_combinations_are_safe_client_errors(tmp_path, selection):
+    context = _app(tmp_path)
+
+    async def exercise():
+        async with context.api.router.lifespan_context(context.api):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=context.boundary, raise_app_exceptions=False),
+                base_url=context.origin,
+            ) as client:
+                headers = await _session(client, context.origin)
+                registration = await _register_project(
+                    client, headers, tmp_path / "invalid-report", "Invalid Report"
+                )
+                source = context.api.state.project_registry.require(registration).source
+                before = source.capture_snapshot()
+                response = await client.post(
+                    f"/api/v1/projects/{registration}/reports",
+                    headers=headers,
+                    json={
+                        "schema_version": 1,
+                        "operation_id": "invalid-report",
+                        "target_id": "private-sentinel",
+                        **selection,
+                    },
+                )
+                assert response.status_code == 422, response.text
+                assert response.json()["error"]["code"] == "validation_error"
+                assert "private-sentinel" not in response.text
+                assert source.capture_snapshot() == before
+
+    asyncio.run(exercise())
 
 
 def _seed_one_case(source: ApiProjectSource, dependencies: ApiDependencies) -> None:

@@ -11,6 +11,7 @@ from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
 from deykit.contracts.json_value import GENERATED_LIMITS, JsonSource, bytes_hash, parse_json
+from deykit.contracts.report_json import ReportContentSource
 from deykit.contracts.schema import compile_schema
 
 
@@ -564,6 +565,6 @@ class ReportRecord(HashedRecord):
     includes_raw_response: bool = False
     diagnostic_snapshot_id: ResourceId | None = None
     check_snapshot_id: ResourceId | None = None
-    content_source: JsonSource
+    content_source: ReportContentSource
     content_hash: ContentHash
     created_at: UtcTimestamp

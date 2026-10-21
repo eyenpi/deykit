@@ -15,6 +15,7 @@ from deykit.api.runtime import TrackedWorkers
 from deykit.application.errors import ServiceFailure
 from deykit.application.reports import ReportService
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.report_json import REPORT_ARTIFACT_MAX_BYTES
 from deykit.reports.models import ReportMetadata
 
 _DOWNLOAD_FORMATS = {
@@ -25,7 +26,7 @@ _DOWNLOAD_FORMATS = {
 _DOWNLOAD_POLICY = {
     "formatParameter": "format",
     "reportIdParameter": "report_id",
-    "maxBytes": 8388608,
+    "maxBytes": REPORT_ARTIFACT_MAX_BYTES,
     "formats": _DOWNLOAD_FORMATS,
 }
 
