@@ -17,7 +17,7 @@ from deykit.contracts.identities import ContentHash, ResourceId
 from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.records import NonnegativeInt, ReportRecord, UtcTimestamp
 
-ReportFormat = Literal["json", "markdown"]
+ReportFormat = Literal["json", "markdown", "csv"]
 ReportTargetKind = Literal["run", "evaluation", "comparison", "diagnostic", "check"]
 
 
@@ -27,6 +27,27 @@ class RawChoices(FrozenModel):
     responses: bool = False
 
 
+class TokenPrice(FrozenModel):
+    adapter: ResourceId
+    requested_model: str = Field(min_length=1, max_length=200)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    input_per_million: str = Field(pattern=r"^[0-9]{1,12}(\.[0-9]{1,12})?$")
+    output_per_million: str = Field(pattern=r"^[0-9]{1,12}(\.[0-9]{1,12})?$")
+    source: str = Field(min_length=1, max_length=500)
+    as_of: UtcTimestamp
+
+
+class ClassificationPricing(FrozenModel):
+    rates: tuple[TokenPrice, ...] = Field(default=(), max_length=100)
+
+    @model_validator(mode="after")
+    def unique_models(self) -> ClassificationPricing:
+        keys = tuple((rate.adapter, rate.requested_model) for rate in self.rates)
+        if len(set(keys)) != len(keys):
+            raise ValueError("duplicate_token_price")
+        return self
+
+
 class ReportRequest(FrozenModel):
     target_id: ResourceId
     target_kind: ReportTargetKind | None = None
@@ -34,9 +55,15 @@ class ReportRequest(FrozenModel):
     result_snapshot_id: ResourceId | None = None
     group_snapshot_id: ResourceId | None = None
     raw: RawChoices = Field(default_factory=RawChoices)
+    preset: Literal["classification"] | None = None
+    pricing: ClassificationPricing | None = None
 
     @model_validator(mode="after")
     def selector_matches_kind(self) -> ReportRequest:
+        if self.pricing is not None and self.preset is None:
+            raise ValueError("pricing_requires_classification")
+        if self.preset is not None and self.target_kind in ("diagnostic", "check"):
+            raise ValueError("invalid_classification_target")
         if self.target_kind in ("diagnostic", "check"):
             if self.evaluation_id is not None or self.result_snapshot_id is not None:
                 raise ValueError("invalid_report_selector")
@@ -368,6 +395,61 @@ class ReportEvaluation(FrozenModel):
         return self
 
 
+class ClassificationCase(FrozenModel):
+    case_id: ResourceId
+    applicable: bool
+    strict_correct: bool | None
+
+
+class TokenListCost(FrozenModel):
+    price: TokenPrice | None
+    reported_subtotal: str | None
+    total: str | None
+    unknown_attempt_count: NonnegativeInt
+    reason: str | None
+    interpretation: Literal["token_list_estimate_not_billed"] = "token_list_estimate_not_billed"
+
+
+class ClassificationEvaluation(FrozenModel):
+    evaluation_id: ResourceId
+    selected_count: NonnegativeInt
+    applicable_count: NonnegativeInt
+    excluded_count: NonnegativeInt
+    full_cohort_strict_accuracy: RateDisplay
+    valid_answer_accuracy: RateDisplay
+    applicable_status_counts: StatusCounts
+    failed_count: NonnegativeInt
+    missing_count: NonnegativeInt
+    refused_count: None = None
+    refusal_reason: Literal["distinct_refusal_status_not_recorded"] = (
+        "distinct_refusal_status_not_recorded"
+    )
+    class_population: Literal["applicable_single_labels_including_failures"] = (
+        "applicable_single_labels_including_failures"
+    )
+    class_count: NonnegativeInt
+    classes: tuple[ClassMetricDisplay, ...]
+    cases: tuple[ClassificationCase, ...]
+    cost: TokenListCost
+
+
+class ClassificationReport(FrozenModel):
+    policy: Literal["classification-strict-v1"] = "classification-strict-v1"
+    pricing: ClassificationPricing = Field(default_factory=ClassificationPricing)
+    evaluations: tuple[ClassificationEvaluation, ...]
+    comparison_policy: Literal["compatible_pairs_only"] = "compatible_pairs_only"
+    category_only_scoring: Literal["disabled"] = "disabled"
+    latency_population: Literal["all_recorded_live_dispatch_durations_including_retries"] = (
+        "all_recorded_live_dispatch_durations_including_retries"
+    )
+    treatment_limitations: tuple[str, ...] = (
+        "cohort_selection_does_not_establish_representativeness",
+        "input_hash_compares_selected_json_only",
+        "modality_and_preprocessing_not_independently_recorded",
+        "compatible_pairs_do_not_establish_model_only_causality",
+    )
+
+
 class MemberEvidenceContext(FrozenModel):
     """Pinned run context for a group member, with no P10 evaluation identity."""
 
@@ -494,9 +576,15 @@ class ReportContent(Record):
     check: CheckReport | None = None
     raw_material: tuple[RawMaterial, ...] = ()
     limitations: tuple[str, ...] = ()
+    classification: ClassificationReport | None = None
 
     @model_validator(mode="after")
     def branch_matches_target(self) -> ReportContent:
+        if self.classification is not None:
+            if self.target.kind not in ("run", "evaluation", "comparison") or tuple(
+                item.evaluation_id for item in self.classification.evaluations
+            ) != tuple(item.context.evaluation_id for item in self.evaluations):
+                raise ValueError("invalid_classification_target")
         if self.target.kind in ("run", "evaluation"):
             if len(self.evaluations) != 1 or self.comparison is not None:
                 raise ValueError("invalid_report_target_branch")

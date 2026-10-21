@@ -31,6 +31,7 @@ from deykit.metrics import assess_results
 from deykit.reports.admission import _require_integer_record_version, _validation_tree
 from deykit.reports.models import (
     AttemptEvidence,
+    ClassificationReport,
     EvaluationMetrics,
     GroupReportContext,
     RawChoices,
@@ -273,6 +274,10 @@ def validate_report_identity_context(
 ) -> None:
     """Reject sanitized authoritative IDs and hashes without rewriting evidence."""
     identities: list[str] = [report_id, content_hash]
+    if content.classification is not None:
+        for price in content.classification.pricing.rates:
+            for value in price.model_dump(mode="python").values():
+                _safe_identity(sanitizer, value)
     target = content.target
     identities.extend(
         (
@@ -534,7 +539,9 @@ def validate_report_identity_value(identity: str, sanitizer: Sanitizer) -> None:
 
 
 def expected_limitations(
-    evaluations: tuple[ReportEvaluation, ...], raw_material: tuple[RawMaterial, ...]
+    evaluations: tuple[ReportEvaluation, ...],
+    raw_material: tuple[RawMaterial, ...],
+    classification: ClassificationReport | None = None,
 ) -> tuple[str, ...]:
     limitations: list[str] = []
     if any(item.metrics.evidence_mode == "fixture" for item in evaluations):
@@ -547,7 +554,10 @@ def expected_limitations(
         limitations.append("partial_results")
     if any(item.metrics.summary.native_confidence_present_count for item in evaluations):
         limitations.append("native_confidence_not_calibrated")
-    limitations.append("pricing_source_unavailable")
+    if classification is None or any(
+        item.cost.price is None for item in classification.evaluations
+    ):
+        limitations.append("pricing_source_unavailable")
     if any(item.metrics.baseline.overlap_case_ids for item in evaluations):
         limitations.append("baseline_overlap")
     if any(item.changed_by_redaction for item in raw_material):

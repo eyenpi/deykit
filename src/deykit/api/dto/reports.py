@@ -1,10 +1,17 @@
 """Transport records for saved immutable reports."""
 
-from typing import Literal
+from typing import Literal, Self
+
+from pydantic import field_validator, model_validator
 
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.identities import ContentHash, ResourceId
-from deykit.reports.models import RawChoices, ReportRequest, ReportTargetKind
+from deykit.reports.models import (
+    ClassificationPricing,
+    RawChoices,
+    ReportRequest,
+    ReportTargetKind,
+)
 
 from .common import CountText, Mutation, ResponseRecord
 
@@ -16,6 +23,20 @@ class CreateReportRequest(Mutation):
     result_snapshot_id: ResourceId | None = None
     group_snapshot_id: ResourceId | None = None
     raw: RawChoices = RawChoices()
+    preset: Literal["classification"] | None = None
+    pricing: ClassificationPricing | None = None
+
+    @field_validator("pricing", mode="before")
+    @classmethod
+    def pricing_arrays(cls, value: object) -> object:
+        if isinstance(value, dict) and isinstance(value.get("rates"), list):
+            return {**value, "rates": tuple(value["rates"])}
+        return value
+
+    @model_validator(mode="after")
+    def valid_application_request(self) -> Self:
+        self.to_application()
+        return self
 
     def to_application(self) -> ReportRequest:
         return ReportRequest(
@@ -25,6 +46,8 @@ class CreateReportRequest(Mutation):
             result_snapshot_id=self.result_snapshot_id,
             group_snapshot_id=self.group_snapshot_id,
             raw=self.raw,
+            preset=self.preset,
+            pricing=self.pricing,
         )
 
 

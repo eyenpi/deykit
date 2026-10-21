@@ -6,16 +6,15 @@ import hashlib
 import re
 
 from deykit.comparisons.models import BUCKETS
-from deykit.contracts.json_value import JsonValue, dump_json, parse_json
+from deykit.contracts.json_value import RECORD_LIMITS, JsonValue, dump_json, parse_json
 from deykit.contracts.records import ReportRecord
+from deykit.contracts.report_json import REPORT_ARTIFACT_MAX_BYTES, REPORT_CONTENT_LIMITS
 from deykit.reports.models import (
     MemberEvidenceContext,
     RenderedArtifact,
     ReportContent,
     ReportFormat,
 )
-
-_MAX_MARKDOWN_BYTES = 8 * 1024 * 1024
 
 
 def _inline(value: object) -> str:
@@ -96,6 +95,9 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
         f"- Evidence modes: {_inline(modes)}",
         f"- Limitations: {_inline(', '.join(content.limitations) or 'none')}",
     ]
+    from deykit.reports.classification_render import classification_markdown
+
+    lines.extend(classification_markdown(content, _inline))
     if content.evaluations:
         lines += ["", "## Evaluation contexts", ""]
         for number, evaluation in enumerate(content.evaluations, 1):
@@ -437,10 +439,10 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
 def render_content(
     record: ReportRecord, content: ReportContent, format: ReportFormat
 ) -> RenderedArtifact:
-    if format not in ("json", "markdown"):
+    if format not in ("json", "markdown", "csv"):
         raise ValueError("invalid_report_format")
     if format == "json":
-        parsed = parse_json(record.content_source)
+        parsed = parse_json(record.content_source, REPORT_CONTENT_LIMITS)
         envelope: JsonValue = {
             "schema_version": 1,
             "report_id": record.id,
@@ -448,9 +450,15 @@ def render_content(
             "content_hash": record.content_hash,
             "content": parsed,
         }
-        body = (dump_json(envelope, sort_keys=True) + "\n").encode("utf-8", "strict")
+        body = (dump_json(envelope, sort_keys=True, limits=RECORD_LIMITS) + "\n").encode(
+            "utf-8", "strict"
+        )
+    elif format == "csv":
+        from deykit.reports.classification_render import classification_csv
+
+        body = classification_csv(record, content)
     else:
         body = _markdown(record, content).encode("utf-8", "strict")
-        if len(body) > _MAX_MARKDOWN_BYTES:
-            raise ValueError("report_artifact_limit")
+    if len(body) > REPORT_ARTIFACT_MAX_BYTES:
+        raise ValueError("report_artifact_limit")
     return RenderedArtifact(record.id, format, body, hashlib.sha256(body).hexdigest(), len(body))

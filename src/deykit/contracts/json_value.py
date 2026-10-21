@@ -209,9 +209,11 @@ def _dump_json(
     return source
 
 
-def dump_json(value: JsonValue, *, sort_keys: bool = False) -> str:
+def dump_json(
+    value: JsonValue, *, sort_keys: bool = False, limits: JsonLimits = GENERATED_LIMITS
+) -> str:
     """Minimal exact numeric tokens, insertion-ordered objects, bounded derived output."""
-    return _dump_json(value, sort_keys=sort_keys, canonical=False)
+    return _dump_json(value, sort_keys=sort_keys, canonical=False, limits=limits)
 
 
 def canonical_bytes(value: JsonValue, *, limits: JsonLimits = GENERATED_LIMITS) -> bytes:
