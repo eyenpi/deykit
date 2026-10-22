@@ -136,7 +136,12 @@ class JevProvider:
         sanitizer = Sanitizer([credential])
         try:
             reply = await self._http.send(
-                "POST", request.destination, request.body, credential, timeout_seconds
+                "POST",
+                request.destination,
+                request.body,
+                credential,
+                timeout_seconds,
+                semantic_headers_source=request.semantic_headers_source,
             )
         except HttpFailure as error:
             return DispatchOutcome(

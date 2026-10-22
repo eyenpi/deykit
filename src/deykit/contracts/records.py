@@ -10,8 +10,14 @@ from pydantic import AfterValidator, Field, ValidationInfo, model_validator
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
-from deykit.contracts.images import CaseImage
-from deykit.contracts.json_value import GENERATED_LIMITS, JsonSource, bytes_hash, parse_json
+from deykit.contracts.images import IMAGE_REQUEST_LIMITS, CaseImage
+from deykit.contracts.json_value import (
+    GENERATED_LIMITS,
+    JsonLimits,
+    JsonSource,
+    bytes_hash,
+    parse_json,
+)
 from deykit.contracts.report_json import ReportContentSource
 from deykit.contracts.schema import compile_schema
 
@@ -244,10 +250,15 @@ class CompiledRequest(Record):
     destination: Nonempty
     body: bytes
     body_hash: ContentHash
+    semantic_headers_source: JsonSource = Field(default="{}", exclude_if=lambda v: v == "{}")
+
+    @property
+    def body_limits(self) -> JsonLimits:
+        return IMAGE_REQUEST_LIMITS if self.semantic_headers_source != "{}" else GENERATED_LIMITS
 
     @model_validator(mode="after")
     def exact_body(self) -> Self:
-        parse_json(self.body, GENERATED_LIMITS)
+        parse_json(self.body, self.body_limits)
         if bytes_hash(self.body) != self.body_hash:
             raise ValueError("request_body_hash_mismatch")
         return self

@@ -78,3 +78,44 @@ again; a changed scope using that ID conflicts. A response or adapter failure is
 evidence of that specific attempt,
 not a quality verdict. This is a paid inference action; run it only with the
 intended case and available credential.
+
+## Jev images
+
+Import [managed local images](imports.md#managed-local-images), then select their
+names in the saved decision definition, for example `"selected_images":["product"]`.
+Selection opts into Jev's experimental image API. The compiler includes the
+prepared bytes and the required `TypeSafe-Danger-Zone-Images: true` header.
+`run --dry-run` shows this header in `semantic_headers_sources` and performs no
+inference. A text-only decision sends no image header or assets.
+
+For JSON input, selected image names become additional top-level state fields;
+existing selected JSON fields keep their values. For text input, the original
+string becomes `state.text`. Each image field contains a generated reference to
+the top-level `assets` map. For example, select `product` and refer to `product`
+in the question instructions. Names cannot replace an existing state field
+(`text` is reserved for text input). Generated references never match existing
+input, instructions, or option text. Labels and local paths stay outside the request.
+
+The [provider image contract](https://docs.typesafe.ai/images), checked on
+22 October 2026, supports still PNG/JPEG images with each side between 280 and
+1568 pixels. Jev 1.13 and 1.14 support images; aliases may change over time.
+Preview rejects missing images, WebP, incompatible dimensions, and invalid bytes
+before dispatch. Deykit does not resize or convert them during compilation.
+Use explicit import preparation for padding, or prepare a suitable source file.
+Metadata, including EXIF orientation, is preserved in the submitted bytes;
+the provider does not apply EXIF orientation, so prepare upright pixels yourself.
+
+Deykit retains its 4 MiB limit per managed image and bounds the compiled base64
+JSON request at 8 MiB, within its portable record envelope. The existing 32 MiB
+aggregate run-plan limit still applies, including embedded image requests; split
+larger cohorts into bounded runs. These local limits are below Jev's transport
+limits. Provider-side re-encoding and context limits can still reject a request.
+
+Use the normal bounded `run --mode live` workflow after reviewing the dry run.
+The frozen request retains exact prepared bytes and semantic headers, and the
+preview hash binds both. Unknown outcomes require explicit resume; resume uses
+the frozen transport without reading the original local files. Use
+`results show RUN_ID CASE_ID --request --attempts` to inspect the body and semantic
+headers. Authored fixture bindings also include header identity and remain
+authored evidence. Image requests use the same strict model, question, choice,
+probability, confidence, and usage validation as text requests.

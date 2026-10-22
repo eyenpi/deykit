@@ -9,7 +9,7 @@ from typing import Literal, cast
 from deykit.application.annotations import annotation_hash
 from deykit.application.dataset_support import fail, identifier, page
 from deykit.application.evaluations import EvaluationMode, FrozenEvaluation, _frozen, _typed, _view
-from deykit.contracts.json_value import JsonError, JsonValue, parse_json
+from deykit.contracts.json_value import DEFAULT_LIMITS, JsonError, JsonLimits, JsonValue, parse_json
 from deykit.contracts.ports import ResourceKey, SnapshotSource, StoredRecord
 from deykit.contracts.records import (
     AttemptEvent,
@@ -533,7 +533,12 @@ class ResultInspection:
                     "error_reason": outcome.error.reason if outcome and outcome.error else None,
                 }
                 if include_request:
-                    detail["request_body_source"] = _sanitized_source(attempt.request.body)
+                    detail["request_body_source"] = _sanitized_source(
+                        attempt.request.body, limits=attempt.request.body_limits
+                    )
+                    detail["request_semantic_headers_source"] = _sanitized_source(
+                        attempt.request.semantic_headers_source.encode()
+                    )
                 if include_response:
                     detail["response_source"] = (
                         _sanitized_source(
@@ -572,14 +577,16 @@ class ResultInspection:
         )
 
 
-def _sanitized_source(body: bytes, *, response: bool = False) -> str:
+def _sanitized_source(
+    body: bytes, *, response: bool = False, limits: JsonLimits = DEFAULT_LIMITS
+) -> str:
     # Raw bodies are explicit opt-ins. The provider adapter has already removed
     # credential values before persistence; inspection redacts common headers too.
-    from deykit.contracts.json_value import JsonError, dump_json, parse_json
+    from deykit.contracts.json_value import GENERATED_LIMITS, JsonError, dump_json, parse_json
 
     try:
-        value = parse_json(body.decode("utf-8"))
+        value = parse_json(body.decode("utf-8"), limits)
         safe = safe_choice_response(value, Sanitizer()) if response else Sanitizer().value(value)
-        return dump_json(safe)
+        return dump_json(safe, limits=GENERATED_LIMITS if response else limits)
     except (JsonError, UnicodeError):
         fail("invalid_raw_evidence", "incompatible_data")

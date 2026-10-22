@@ -11,6 +11,7 @@ from typing import Literal
 import httpx
 
 from deykit.providers.choice import JEV_DESTINATION, MODELS_DESTINATION
+from deykit.providers.jev_images import IMAGE_HEADERS_SOURCE
 from deykit.providers.safety import quiet_authenticated_transport
 
 
@@ -72,12 +73,22 @@ class OneShotHttp:
         body: bytes | None,
         credential: str,
         timeout_seconds: float,
+        *,
+        semantic_headers_source: str = "{}",
     ) -> HttpReply:
         allowed = (method == "POST" and destination == JEV_DESTINATION) or (
             method == "GET" and destination == MODELS_DESTINATION and body is None
         )
         if not allowed:
             raise ValueError("Provider destination or method is not permitted.")
+        if semantic_headers_source not in {"{}", IMAGE_HEADERS_SOURCE} or (
+            method != "POST" and semantic_headers_source != "{}"
+        ):
+            raise ValueError("Provider semantic headers are not permitted.")
+        from deykit.contracts.json_value import parse_json
+
+        semantic_headers = parse_json(semantic_headers_source)
+        assert isinstance(semantic_headers, dict)
         if not 0 < timeout_seconds <= 600:
             raise ValueError("Request timeout must be positive and at most 600 seconds.")
         if (
@@ -110,6 +121,7 @@ class OneShotHttp:
                             "Authorization": "Bearer " + credential,
                             "Content-Type": "application/json",
                             "Accept": "application/json",
+                            **{key: str(value) for key, value in semantic_headers.items()},
                         },
                     ) as response:
                         delay = retry_after(response.headers.get("retry-after"), self._now())

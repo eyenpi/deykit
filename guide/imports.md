@@ -132,6 +132,6 @@ Changed selected image treatments appear in `changed_input` exclusions while bot
 runs retain their original snapshots. Preserve both import previews and asset
 dependencies. Decisions select images separately using `selected_images`, for example
 `"selected_images":["product"]`; only those images reach an image-capable compiler.
-The existing Jev text/fixture compiler rejects selected images before dispatch.
-Provider image wire formats are separate follow-ups (#58/#59). Text-only decisions
-can use an image-bearing dataset while leaving `selected_images` empty.
+The Jev compiler supports selected PNG/JPEG images in live and authored fixture
+requests; see [provider image execution](providers.md#jev-images). Text-only
+decisions can use an image-bearing dataset while leaving `selected_images` empty.

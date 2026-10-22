@@ -173,6 +173,7 @@ class RunCaseReviewDTO(FrozenModel):
     input_error: ServiceError | None
     request_source: str | None
     request_source_redacted: bool | None
+    semantic_headers_source: str | None = None
 
 
 class RunPreviewSummaryDTO(ResponseRecord):
@@ -189,6 +190,7 @@ class RunPreviewSummaryDTO(ResponseRecord):
     development_case_count: CountText
     review_context_hash: ContentHash
     dry_run: bool
+    semantic_headers_sources: tuple[str, ...] = ()
 
 
 class RunPreviewDTO(RunPreviewSummaryDTO):
@@ -203,6 +205,7 @@ class RequestIdentityDTO(ResponseRecord):
     compiler: str | None
     compiler_version: str | None
     requested_model: str | None
+    semantic_headers_source: str | None = None
 
 
 class MemberIdentityDTO(ResponseRecord):

@@ -125,6 +125,7 @@ class RunPreview:
     development_case_count: int
     review_context_hash: str
     dry_run: bool = True
+    semantic_headers_sources: tuple[str, ...] = ()
 
 
 def preview_view(plan: RunPlan) -> RunPreview:
@@ -143,6 +144,15 @@ def preview_view(plan: RunPlan) -> RunPreview:
         plan.selection.settings,
         len(plan.development_cases),
         run_review_hash(plan),
+        semantic_headers_sources=tuple(
+            sorted(
+                {
+                    item.request.semantic_headers_source
+                    for item in plan.prepared
+                    if item.request is not None and item.request.semantic_headers_source != "{}"
+                }
+            )
+        ),
     )
 
 

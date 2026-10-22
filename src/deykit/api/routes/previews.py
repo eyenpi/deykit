@@ -47,6 +47,7 @@ def _run(value: RunPreview) -> RunPreviewSummaryDTO:
         development_case_count=str(value.development_case_count),
         review_context_hash=value.review_context_hash,
         dry_run=value.dry_run,
+        semantic_headers_sources=value.semantic_headers_sources,
     )
 
 
@@ -91,6 +92,7 @@ def _reviewed_run(value: ReviewedRunPreview) -> RunPreviewDTO:
                 input_error=item.input_error,
                 request_source=item.request_source,
                 request_source_redacted=item.request_source_redacted,
+                semantic_headers_source=item.semantic_headers_source,
             )
             for item in value.case_reviews
         ),
@@ -115,6 +117,7 @@ def _group(value: GroupPreview) -> GroupPreviewDTO:
                             compiler=item.compiler,
                             compiler_version=item.compiler_version,
                             requested_model=item.requested_model,
+                            semantic_headers_source=item.semantic_headers_source,
                         )
                         for item in identity.requests
                     ),
