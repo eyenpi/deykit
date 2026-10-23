@@ -1,6 +1,7 @@
 """One-shot HTTP boundary. Retry scheduling belongs exclusively to the runner."""
 
 import asyncio
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,8 +11,11 @@ from typing import Literal
 
 import httpx
 
+from deykit.contracts.errors import ServiceError
+from deykit.contracts.records import DispatchOutcome
 from deykit.providers.choice import JEV_DESTINATION, MODELS_DESTINATION
 from deykit.providers.jev_images import IMAGE_HEADERS_SOURCE
+from deykit.providers.openai_choice import DESTINATION as OPENAI_DESTINATION
 from deykit.providers.safety import quiet_authenticated_transport
 
 
@@ -76,13 +80,13 @@ class OneShotHttp:
         *,
         semantic_headers_source: str = "{}",
     ) -> HttpReply:
-        allowed = (method == "POST" and destination == JEV_DESTINATION) or (
+        allowed = (method == "POST" and destination in {JEV_DESTINATION, OPENAI_DESTINATION}) or (
             method == "GET" and destination == MODELS_DESTINATION and body is None
         )
         if not allowed:
             raise ValueError("Provider destination or method is not permitted.")
         if semantic_headers_source not in {"{}", IMAGE_HEADERS_SOURCE} or (
-            method != "POST" and semantic_headers_source != "{}"
+            (method != "POST" or destination != JEV_DESTINATION) and semantic_headers_source != "{}"
         ):
             raise ValueError("Provider semantic headers are not permitted.")
         from deykit.contracts.json_value import parse_json
@@ -149,3 +153,50 @@ class OneShotHttp:
             if reply is not None and reply.status != 200:
                 return reply
             raise HttpFailure("disconnect") from None
+
+
+def dispatch_failure(reply: HttpReply) -> DispatchOutcome | None:
+    status = reply.status
+    if status == 200:
+        return None
+    if status in {401, 403}:
+        return DispatchOutcome(
+            state="known", error=ServiceError(code="provider_auth"), provider_wide=True
+        )
+    if status in {400, 413}:
+        return DispatchOutcome(
+            state="known",
+            error=ServiceError(
+                code="provider_rejected",
+                reason="invalid_payload" if status == 400 else "payload_too_large",
+            ),
+        )
+    if status == 422:
+        return DispatchOutcome(
+            state="known",
+            error=ServiceError(code="provider_rejected", reason="invalid_payload"),
+            provider_wide=True,
+        )
+    if status in {429, 529}:
+        delay = float(reply.retry_after_seconds) if reply.retry_after_seconds is not None else None
+        # A finite Decimal can overflow float. An unrepresentable delay means stop
+        # scheduling rather than silently shorten the provider's backoff instruction.
+        if delay is not None and not math.isfinite(delay):
+            return DispatchOutcome(
+                state="known",
+                error=ServiceError(code="provider_rejected", reason="retry_delay_out_of_range"),
+                provider_wide=True,
+            )
+        return DispatchOutcome(
+            state="known",
+            error=ServiceError(
+                code="provider_rejected", reason="rate_limit" if status == 429 else "overloaded"
+            ),
+            retryable=True,
+            retry_after_seconds=delay,
+        )
+    return DispatchOutcome(
+        state="unknown",
+        error=ServiceError(code="provider_rejected", reason="unexpected_http_status"),
+        provider_wide=True,
+    )

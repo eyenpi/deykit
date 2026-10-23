@@ -82,8 +82,18 @@ async def _session(client: httpx.AsyncClient, origin: str) -> dict[str, str]:
     }
 
 
+@pytest.mark.parametrize(
+    "adapter,model,destination",
+    [
+        ("jev", "jev-latest", JEV_DESTINATION),
+        ("openai", "gpt-6-luna", "https://api.openai.com/v1/decisions"),
+    ],
+)
 def test_provider_routes_configure_without_exposing_or_resolving_credentials(
     tmp_path: Path,
+    adapter: str,
+    model: str,
+    destination: str,
 ) -> None:
     os_store_calls: list[bool] = []
     factory_calls: list[bool] = []
@@ -133,9 +143,9 @@ def test_provider_routes_configure_without_exposing_or_resolving_credentials(
                         "schema_version": 1,
                         "operation_id": "configure-provider",
                         "profile_id": "provider-1",
-                        "adapter": "jev",
-                        "requested_model": "jev-latest",
-                        "destination": JEV_DESTINATION,
+                        "adapter": adapter,
+                        "requested_model": model,
+                        "destination": destination,
                         "credential_ref": secret_reference,
                     },
                 )

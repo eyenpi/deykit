@@ -1,7 +1,5 @@
 """Jev provider implementation of the shared one-dispatch port."""
 
-import math
-
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import dump_json, parse_json
 from deykit.contracts.records import CompiledRequest, DispatchOutcome, ProviderProfile
@@ -10,12 +8,12 @@ from deykit.providers.choice import (
     JEV_DESTINATION,
     MODELS_DESTINATION,
     ResponseInvalid,
-    _object,
     validate_response,
     verify_compiled_request,
 )
 from deykit.providers.credentials import CredentialReference, Credentials, CredentialUnavailable
-from deykit.providers.http import HttpFailure, HttpReply, OneShotHttp
+from deykit.providers.http import HttpFailure, OneShotHttp, dispatch_failure
+from deykit.providers.response import object_value as _object
 from deykit.providers.safety import Sanitizer
 
 
@@ -33,53 +31,6 @@ def validate_profile(profile: ProviderProfile) -> ProviderProfile:
     if profile.credential_ref is not None:
         CredentialReference.parse(profile.credential_ref)
     return profile
-
-
-def _failure(reply: HttpReply) -> DispatchOutcome | None:
-    status = reply.status
-    if status == 200:
-        return None
-    if status in {401, 403}:
-        return DispatchOutcome(
-            state="known", error=ServiceError(code="provider_auth"), provider_wide=True
-        )
-    if status in {400, 413}:
-        return DispatchOutcome(
-            state="known",
-            error=ServiceError(
-                code="provider_rejected",
-                reason="invalid_payload" if status == 400 else "payload_too_large",
-            ),
-        )
-    if status == 422:
-        return DispatchOutcome(
-            state="known",
-            error=ServiceError(code="provider_rejected", reason="invalid_payload"),
-            provider_wide=True,
-        )
-    if status in {429, 529}:
-        delay = float(reply.retry_after_seconds) if reply.retry_after_seconds is not None else None
-        # A finite Decimal can overflow float. An unrepresentable delay means stop
-        # scheduling rather than silently shorten the provider's backoff instruction.
-        if delay is not None and not math.isfinite(delay):
-            return DispatchOutcome(
-                state="known",
-                error=ServiceError(code="provider_rejected", reason="retry_delay_out_of_range"),
-                provider_wide=True,
-            )
-        return DispatchOutcome(
-            state="known",
-            error=ServiceError(
-                code="provider_rejected", reason="rate_limit" if status == 429 else "overloaded"
-            ),
-            retryable=True,
-            retry_after_seconds=delay,
-        )
-    return DispatchOutcome(
-        state="unknown",
-        error=ServiceError(code="provider_rejected", reason="unexpected_http_status"),
-        provider_wide=True,
-    )
 
 
 class JevProvider:
@@ -155,7 +106,7 @@ class JevProvider:
             return DispatchOutcome(
                 state="unknown", error=ServiceError(code="provider_rejected", reason=error.kind)
             )
-        failure = _failure(reply)
+        failure = dispatch_failure(reply)
         if failure is not None:
             return failure
         safe_source = None

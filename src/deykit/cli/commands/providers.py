@@ -30,6 +30,7 @@ from deykit.providers.choice import JEV_DESTINATION
 from deykit.providers.configuration import create_provider_operations
 from deykit.providers.credentials import CredentialReference, os_secret_store
 from deykit.providers.fixtures import FIXTURE_DESTINATION
+from deykit.providers.openai_choice import DESTINATION as OPENAI_DESTINATION
 from deykit.providers.profiles import ProviderProfiles
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
@@ -111,7 +112,7 @@ def _configured_profile(
         if profile.id != profile_id:
             raise _failure("validation_error", "profile_id_mismatch")
         return profile
-    if adapter not in ("jev", "fixture") or model is None:
+    if adapter not in ("jev", "openai", "fixture") or model is None:
         raise _failure("validation_error", "profile_options_required")
     if adapter == "fixture":
         if credential_env is not None:
@@ -125,14 +126,15 @@ def _configured_profile(
             )
         except ValidationError:
             raise _failure("validation_error", "invalid_provider_profile") from None
-    reference = "env:" + (credential_env if credential_env is not None else DEFAULT_JEV_ENV)
+    default_env = "OPENAI_API_KEY" if adapter == "openai" else DEFAULT_JEV_ENV
+    reference = "env:" + (credential_env if credential_env is not None else default_env)
     try:
         CredentialReference.parse(reference)
         return ProviderProfile(
             id=profile_id,
-            adapter="jev",
+            adapter=adapter,
             requested_model=model,
-            destination=JEV_DESTINATION,
+            destination=OPENAI_DESTINATION if adapter == "openai" else JEV_DESTINATION,
             credential_ref=reference,
         )
     except (ValidationError, ValueError):

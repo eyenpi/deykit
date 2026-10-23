@@ -1,7 +1,6 @@
 """Pure choice compilation and strict Jev wire normalization."""
 
 import re
-from decimal import Decimal, localcontext
 
 from deykit.contracts.images import ImageAsset
 from deykit.contracts.json_value import (
@@ -18,46 +17,17 @@ from deykit.contracts.records import (
     ProviderProfile,
 )
 from deykit.providers.jev_images import attach_images, verify_images
+from deykit.providers.response import ResponseInvalid as ResponseInvalid
+from deykit.providers.response import object_value as _object
+from deykit.providers.response import probability as _probability
+from deykit.providers.response import usage_count as _usage
+from deykit.providers.response import validate_distribution
 
 COMPILER_ID = "jev-choice"
 COMPILER_VERSION = "1"
 JEV_DESTINATION = "https://api.typesafe.ai/v1/systemone"
 MODELS_DESTINATION = "https://api.typesafe.ai/v1/models"
-TOLERANCE = Decimal("0.000001")
 MODEL_VERSION = re.compile(r"jev-[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9]+)*\Z")
-
-
-class ResponseInvalid(ValueError):
-    def __init__(self, reason: str) -> None:
-        self.reason = reason
-        super().__init__(f"Jev response failed validation: {reason}.")
-
-
-def _object(value: JsonValue, reason: str) -> dict[str, JsonValue]:
-    if not isinstance(value, dict):
-        raise ResponseInvalid(reason)
-    return value
-
-
-def _probability(value: JsonValue, reason: str) -> Decimal:
-    if type(value) is int:
-        value = Decimal(value)
-    if not isinstance(value, Decimal) or not value.is_finite() or not 0 <= value <= 1:
-        raise ResponseInvalid(reason)
-    return value
-
-
-def _usage(value: JsonValue) -> int:
-    if type(value) is int:
-        value = Decimal(value)
-    if (
-        not isinstance(value, Decimal)
-        or not value.is_finite()
-        or value < 0
-        or value != value.to_integral_value()
-    ):
-        raise ResponseInvalid("invalid_usage")
-    return int(value)
 
 
 def compile_choice(
@@ -146,14 +116,7 @@ def validate_response(request: "CompiledRequest", source: str | bytes) -> "Norma
     numeric = {
         key: _probability(value, "invalid_probability") for key, value in probabilities.items()
     }
-    # Exact context is sized beyond codec bounds; ambient Decimal precision cannot
-    # round near-tolerance values into acceptance.
-    with localcontext() as context:
-        context.prec = 30_000
-        if abs(sum(numeric.values(), Decimal(0)) - 1) > TOLERANCE:
-            raise ResponseInvalid("invalid_probability_sum")
-        if max(numeric.values()) - numeric[choice] > TOLERANCE:
-            raise ResponseInvalid("choice_not_argmax")
+    validate_distribution(numeric, choice)
     confidence = _probability(answer.get("confidence"), "invalid_confidence")
     model = root.get("model")
     if not isinstance(model, str) or not MODEL_VERSION.fullmatch(model):

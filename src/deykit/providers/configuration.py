@@ -20,6 +20,8 @@ from deykit.contracts.provider_configuration import (
 from deykit.contracts.records import ProviderProfile
 from deykit.providers.choice import COMPILER_ID, COMPILER_VERSION
 from deykit.providers.credentials import Credentials, SecretStore, os_secret_store
+from deykit.providers.openai_choice import COMPILER_ID as OPENAI_COMPILER_ID
+from deykit.providers.openai_choice import COMPILER_VERSION as OPENAI_COMPILER_VERSION
 from deykit.providers.profiles import ProviderProfiles
 
 
@@ -48,7 +50,9 @@ class _CredentialReferences:
 class _ProviderDescriptor:
     def describe(self, profile: ProviderProfile) -> tuple[CompilerInfo, ProviderCapabilities]:
         return (
-            CompilerInfo(COMPILER_ID, COMPILER_VERSION),
+            CompilerInfo(OPENAI_COMPILER_ID, OPENAI_COMPILER_VERSION)
+            if profile.adapter == "openai"
+            else CompilerInfo(COMPILER_ID, COMPILER_VERSION),
             ProviderCapabilities(
                 input_kinds=("text", "json"),
                 question_kind="choice",

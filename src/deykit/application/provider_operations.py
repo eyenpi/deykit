@@ -129,7 +129,7 @@ class ProviderOperations:
         current = self._reader.view(profile_id)
         if current.etag != expected_etag:
             raise ServiceFailure(ServiceError(code="conflict", reason="provider_profile_changed"))
-        if current.profile.adapter != "jev":
+        if current.profile.adapter == "fixture":
             raise ServiceFailure(
                 ServiceError(code="validation_error", reason="fixture_has_no_credential")
             )
@@ -287,6 +287,10 @@ class ProviderOperations:
             or not 0 < timeout_seconds <= 600
         ):
             raise ServiceFailure(ServiceError(code="validation_error", reason="invalid_timeout"))
+        if profile.adapter == "openai":
+            raise ServiceFailure(
+                ServiceError(code="preflight_failed", reason="model_listing_unsupported")
+            )
         if profile.adapter != "jev":
             raise ServiceFailure(
                 ServiceError(code="preflight_failed", reason="models_require_live_provider")

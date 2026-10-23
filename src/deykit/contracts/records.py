@@ -252,9 +252,15 @@ class CompiledRequest(Record):
     body_hash: ContentHash
     semantic_headers_source: JsonSource = Field(default="{}", exclude_if=lambda v: v == "{}")
 
+    body_kind: Literal["json", "image_json"] = Field(
+        default="json", exclude_if=lambda v: v == "json"
+    )
+
     @property
     def body_limits(self) -> JsonLimits:
-        return IMAGE_REQUEST_LIMITS if self.semantic_headers_source != "{}" else GENERATED_LIMITS
+        if self.body_kind == "image_json" or self.semantic_headers_source != "{}":
+            return IMAGE_REQUEST_LIMITS
+        return GENERATED_LIMITS
 
     @model_validator(mode="after")
     def exact_body(self) -> Self:
