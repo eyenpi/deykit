@@ -47,7 +47,7 @@ class AuthoredImageCompiler(JevChoiceCompiler):
         return request.model_copy(update={"body": wire, "body_hash": bytes_hash(wire)})
 
 
-def seed_image(setup, tmp_path, *, select=True):
+def seed_image(setup, tmp_path, *, select=True, preparation=None):
     source, execution, factory, clock = setup(0)
     root = tmp_path / "images"
     root.mkdir()
@@ -64,7 +64,11 @@ def seed_image(setup, tmp_path, *, select=True):
             input_column="input",
             id_column="id",
             expected_column="expected",
-            images=(ImageField(source="image", name="product"),),
+            images=(
+                ImageField(
+                    source="image", name="product", preparation=preparation or ImagePreparation()
+                ),
+            ),
         ),
     )
     imports.commit(preview, operation_id="import-image")
@@ -87,6 +91,13 @@ def request():
 
 def test_selected_images_fail_before_dispatch_with_text_compiler(setup, tmp_path):
     source, execution, factory, _, _, _ = seed_image(setup, tmp_path)
+
+    class TextCompiler:
+        review_identity = JevChoiceCompiler().review_identity
+        compile = JevChoiceCompiler().compile
+        validate_response = JevChoiceCompiler().validate_response
+
+    factory.compiler = TextCompiler()
     with pytest.raises(ServiceFailure) as error:
         execution.preview(request())
     assert error.value.error.reason == "image_compilation_unsupported"

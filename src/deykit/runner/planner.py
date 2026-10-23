@@ -453,6 +453,12 @@ class Planner:
         preflight_error = backend.preflight(request.decision_id, request.dataset_id, definition)
         if preflight_error is not None:
             fail(preflight_error.reason or "provider_preflight_failed", "preflight_failed")
+        # Bound copied evidence and each compiled request as the plan grows. Managed
+        # assets are independent dependencies, not part of the JSON plan envelope.
+        total = sum(len(item.body) for item in records if item.key.collection != "image_assets")
+        if total > MAX_PLAN_BYTES:
+            fail("run_resource_limit", "preflight_failed")
+        initial_requests = 0
         prepared: list[PlannedCase] = []
         image_assets = ImageAssets({record.key: record for record in records})
         for case in cases:
@@ -476,6 +482,9 @@ class Planner:
                     )
                 )
                 continue
+            initial_requests += 1
+            if initial_requests > request.settings.max_attempts:
+                fail("initial_requests_exceed_cap", "preflight_failed")
             try:
                 if definition.selected_images:
                     assert isinstance(compiler, ImageChoiceCompiler)
@@ -495,16 +504,10 @@ class Planner:
                 compiler_identity.compiler_version,
             ):
                 fail("compiled_compiler_mismatch", "preflight_failed")
+            total += len(dump_record(compiled))
+            if total > MAX_PLAN_BYTES:
+                fail("run_resource_limit", "preflight_failed")
             prepared.append(PlannedCase(case.id, case_input_hash(case), compiled, None))
-        if sum(item.request is not None for item in prepared) > request.settings.max_attempts:
-            fail("initial_requests_exceed_cap", "preflight_failed")
-        # Bound all copied evidence, including the separate fitting-source capture.
-        # Assets are independently bounded immutable dependencies, never copied
-        # into run snapshots or charged to the JSON plan envelope limit.
-        total = sum(len(item.body) for item in records if item.key.collection != "image_assets")
-        total += sum(len(dump_record(item.request)) for item in prepared if item.request)
-        if total > MAX_PLAN_BYTES:
-            fail("run_resource_limit", "preflight_failed")
         return RunPlan(
             selection=request,
             definition=definition,

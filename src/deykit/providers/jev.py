@@ -43,6 +43,14 @@ def _failure(reply: HttpReply) -> DispatchOutcome | None:
         return DispatchOutcome(
             state="known", error=ServiceError(code="provider_auth"), provider_wide=True
         )
+    if status in {400, 413}:
+        return DispatchOutcome(
+            state="known",
+            error=ServiceError(
+                code="provider_rejected",
+                reason="invalid_payload" if status == 400 else "payload_too_large",
+            ),
+        )
     if status == 422:
         return DispatchOutcome(
             state="known",
@@ -136,7 +144,12 @@ class JevProvider:
         sanitizer = Sanitizer([credential])
         try:
             reply = await self._http.send(
-                "POST", request.destination, request.body, credential, timeout_seconds
+                "POST",
+                request.destination,
+                request.body,
+                credential,
+                timeout_seconds,
+                semantic_headers_source=request.semantic_headers_source,
             )
         except HttpFailure as error:
             return DispatchOutcome(

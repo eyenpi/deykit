@@ -9,10 +9,12 @@ from pydantic import Field, model_validator
 
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.identities import ContentHash, ResourceId
-from deykit.contracts.json_value import JsonValue, bytes_hash, semantic_hash
+from deykit.contracts.json_value import JsonLimits, JsonValue, bytes_hash, semantic_hash
 
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
 MAX_IMAGE_PIXELS = 16_000_000
+# Base64 image requests remain small enough to embed in the 16 MiB record envelope.
+IMAGE_REQUEST_LIMITS = JsonLimits(max_bytes=8 * 1024 * 1024, max_depth=128, max_nodes=200_000)
 Dimension = Annotated[int, Field(ge=1, le=8192)]
 Channel = Annotated[int, Field(ge=0, le=255)]
 

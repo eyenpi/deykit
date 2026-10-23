@@ -12,7 +12,8 @@ deykit --project ./sandbox run --decision DECISION --dataset DATASET \
 ```
 
 Preview shows selected case IDs, per-case input failures, initial request count, and
-limits without starting a run. Use repeated `--case ID` and `--split development`,
+limits without starting a run. `semantic_headers_sources` makes any provider image
+opt-in visible; it is empty for text-only runs. Use repeated `--case ID` and `--split development`,
 `calibration`, or `test` to narrow the scope. Their intersection is shown explicitly.
 Labels and case metadata never become model input.
 

@@ -9,7 +9,6 @@ from pydantic import ValidationError
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import validate_resource_id
 from deykit.contracts.json_value import (
-    GENERATED_LIMITS,
     JsonError,
     JsonValue,
     bytes_hash,
@@ -75,6 +74,7 @@ def _strict_request(request: CompiledRequest) -> CompiledRequest:
             destination=request.destination,
             body=request.body,
             body_hash=request.body_hash,
+            semantic_headers_source=request.semantic_headers_source,
         )
     except (AttributeError, TypeError, ValueError, ValidationError):
         raise FixtureInvalid("fixture_request_shape") from None
@@ -159,6 +159,11 @@ def fixture_set_hash(fixture_set: FixtureSet) -> str:
                 "destination": request.destination,
                 "body_hash": request.body_hash,
                 "body_bytes_hash": bytes_hash(request.body),
+                **(
+                    {"semantic_headers_source": request.semantic_headers_source}
+                    if request.semantic_headers_source != "{}"
+                    else {}
+                ),
                 "answer": {
                     "schema_version": answer.schema_version,
                     "question_id": answer.question_id,
@@ -202,7 +207,7 @@ def _request_options(request: CompiledRequest) -> tuple[str, set[str]]:
         raise FixtureInvalid("fixture_request_identity")
     try:
         verify_compiled_request(request)
-        root = parse_json(request.body, GENERATED_LIMITS)
+        root = parse_json(request.body, request.body_limits)
         if not isinstance(root, dict):
             raise FixtureInvalid("fixture_request_shape")
         questions = root["questions"]
@@ -314,6 +319,7 @@ class FixtureCaseTransport:
                 and bound.adapter == request.adapter
                 and bound.destination == request.destination
                 and bound.requested_model == request.requested_model
+                and bound.semantic_headers_source == request.semantic_headers_source
             ):
                 if binding.answer is not None:
                     return DispatchOutcome(state="known", answer=binding.answer)

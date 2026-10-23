@@ -11,6 +11,7 @@ from deykit.contracts.identities import ContentHash
 from deykit.contracts.json_value import (
     GENERATED_LIMITS,
     JsonError,
+    JsonLimits,
     JsonValue,
     bytes_hash,
     dump_json,
@@ -60,6 +61,7 @@ class ReviewedCase:
     input_error: ServiceError | None
     request_source: str | None
     request_source_redacted: bool | None
+    semantic_headers_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,14 +77,16 @@ def _safe_identity(sanitizer: Sanitizer, value: str) -> str:
     return value
 
 
-def _safe_request_source(source: bytes, sanitizer: Sanitizer) -> tuple[str, bool]:
+def _safe_request_source(
+    source: bytes, sanitizer: Sanitizer, limits: JsonLimits = GENERATED_LIMITS
+) -> tuple[str, bool]:
     try:
         text = source.decode("utf-8", "strict")
-        value = parse_json(text, GENERATED_LIMITS)
+        value = parse_json(text, limits)
         safe_value = cast(JsonValue, sanitizer.value(value))
         if safe_value == value:
             return text, False
-        return dump_json(safe_value), True
+        return dump_json(safe_value, limits=limits), True
     except (UnicodeDecodeError, JsonError):
         fail("invalid_compiled_request", "preflight_failed")
 
@@ -134,7 +138,7 @@ def reviewed_run_preview(
         request_source_redacted: bool | None = None
         if include_request_source and prepared.request is not None:
             request_source, request_source_redacted = _safe_request_source(
-                prepared.request.body, safe
+                prepared.request.body, safe, prepared.request.body_limits
             )
         return ReviewedCase(
             case_id=_safe_identity(safe, prepared.case_id),
@@ -160,6 +164,11 @@ def reviewed_run_preview(
             input_error=prepared.error,
             request_source=request_source,
             request_source_redacted=request_source_redacted,
+            semantic_headers_source=(
+                _safe_request_source(prepared.request.semantic_headers_source.encode(), safe)[0]
+                if prepared.request is not None
+                else None
+            ),
         )
 
     cases = tuple(review_case(prepared) for prepared in plan.prepared)

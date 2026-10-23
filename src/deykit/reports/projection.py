@@ -25,7 +25,16 @@ from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.images import SelectedImage
-from deykit.contracts.json_value import JsonError, JsonValue, bytes_hash, dump_json, parse_json
+from deykit.contracts.json_value import (
+    DEFAULT_LIMITS,
+    GENERATED_LIMITS,
+    JsonError,
+    JsonLimits,
+    JsonValue,
+    bytes_hash,
+    dump_json,
+    parse_json,
+)
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import PreparedCase
 from deykit.contracts.redaction import Sanitizer, safe_choice_response
@@ -90,13 +99,15 @@ def project_opaque_response_bytes(
     )
 
 
-def project_json_source(source: str, sanitizer: Sanitizer) -> tuple[str, bool]:
+def project_json_source(
+    source: str, sanitizer: Sanitizer, *, limits: JsonLimits | None = None
+) -> tuple[str, bool]:
     """Keep exact JSON text unless structured redaction changes its parsed value."""
-    value = parse_json(source)
+    value = parse_json(source, limits or DEFAULT_LIMITS)
     safe_value = sanitizer.value(value)
     if safe_value == value:
         return source, False
-    return dump_json(cast(JsonValue, safe_value)), True
+    return dump_json(cast(JsonValue, safe_value), limits=limits or GENERATED_LIMITS), True
 
 
 def _admit_evaluation_metrics(source: str) -> EvaluationMetrics:
@@ -705,7 +716,7 @@ def project_frozen_raw_material(
             else:
                 _safe_identity(sanitizer, request.body_hash)
                 source, changed = project_json_source(
-                    request.body.decode("utf-8", "strict"), sanitizer
+                    request.body.decode("utf-8", "strict"), sanitizer, limits=request.body_limits
                 )
                 material.append(
                     RawMaterial(

@@ -126,14 +126,25 @@ receipt; changed content conflicts. Listing is deterministic. P02 owns durable j
 short source locks, execution ownership, recovery and index invalidation, not P01.
 
 `CompiledRequest` freezes adapter/compiler/version/requested model/destination/exact
-UTF-8 JSON body bytes and checked SHA-256. There are no headers or credential fields.
-Provider credentials are injected privately by transport. A profile holds only an
+UTF-8 JSON body bytes and checked SHA-256. Optional `semantic_headers_source` freezes
+non-secret transport semantics; Jev admits only its exact image opt-in header.
+The empty value is omitted on serialization, preserving existing text records,
+fixture hashes and review identities. Nonempty headers participate in fixture and
+review hashes and exact request matching. Provider credentials are injected privately
+by transport and never persisted in requests. A profile holds only an
 external credential reference; P09 validates its syntax and endpoint constraints.
 The pure compiler takes a validated definition, already selected exact state, and
 profile. Response validation uses the frozen request. One async `dispatch` returns
 known/unknown/not_sent with one answer or safe error. Unknown is never retryable;
 retry-eligible known rejection remains a runner decision. Native probabilities,
 confidence, reported model, raw response and usage may be absent and remain distinct.
+
+`ImageChoiceCompiler` adds named, admitted image assets to compilation without local
+file access. Jev uses prepared PNG/JPEG bytes in base64 JSON with collision-checked
+references. Image requests have an 8 MiB JSON bound; text retains its 2 MiB generated
+bound and user JSON admission remains unchanged. Image format, dimensions and bytes
+are checked again before transport. Frozen case assets retain source and preparation
+identities independently of the wire body.
 
 `ServiceError` carries a stable code, safe identifier/row/reason, and fixed message;
 `safe_dict()` is the public error envelope projection. Never attach raw exceptions or

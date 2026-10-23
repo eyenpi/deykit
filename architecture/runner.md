@@ -18,7 +18,10 @@ The current validated draft is the default; an explicit revision selects saved
 content. Start captures a definition revision, selected cases and labels, and a
 separate **full development** dataset/label snapshot. Labels never enter compiled
 input. Each selected case has an immutable `PreparedCase`: exact compiler/version,
-provider destination/model, bytes and byte hash, or a safe zero-request input error.
+provider destination/model, bytes, byte hash and non-secret semantic headers, or a
+safe zero-request input error. Selected managed images compile into frozen prepared
+transport bytes; previews expose the required semantic headers and bind them into
+the review hash. Resume retains these bytes and headers without recompilation.
 The final capture fingerprint is checked before the atomic freeze transaction.
 
 An optional stable-ID `option_order` must be an exact permutation. It changes only

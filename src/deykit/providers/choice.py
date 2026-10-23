@@ -3,8 +3,8 @@
 import re
 from decimal import Decimal, localcontext
 
+from deykit.contracts.images import ImageAsset
 from deykit.contracts.json_value import (
-    GENERATED_LIMITS,
     JsonValue,
     bytes_hash,
     dump_json,
@@ -17,6 +17,7 @@ from deykit.contracts.records import (
     NormalizedAnswer,
     ProviderProfile,
 )
+from deykit.providers.jev_images import attach_images, verify_images
 
 COMPILER_ID = "jev-choice"
 COMPILER_VERSION = "1"
@@ -122,7 +123,7 @@ def validate_response(request: "CompiledRequest", source: str | bytes) -> "Norma
     except ValueError:
         raise ResponseInvalid("invalid_json") from None
     verify_compiled_request(request)
-    compiled = _object(parse_json(request.body, GENERATED_LIMITS), "invalid_request")
+    compiled = _object(parse_json(request.body, request.body_limits), "invalid_request")
     questions = _object(compiled.get("questions"), "invalid_request")
     if len(questions) != 1:
         raise ResponseInvalid("invalid_request")
@@ -193,13 +194,34 @@ class JevChoiceCompiler:
     def validate_response(self, request: CompiledRequest, response_source: str) -> NormalizedAnswer:
         return validate_response(request, response_source)
 
+    def compile_images(
+        self,
+        definition: ChoiceDefinition,
+        selected_state: JsonValue,
+        profile: ProviderProfile,
+        images: tuple[tuple[str, ImageAsset], ...],
+    ) -> CompiledRequest:
+        if not images or tuple(name for name, _ in images) != definition.selected_images:
+            raise ValueError("selected_image_mismatch")
+        request = self.compile(
+            definition.model_copy(update={"selected_images": ()}), selected_state, profile
+        )
+        return attach_images(request, images)
+
 
 def verify_compiled_request(request: CompiledRequest) -> None:
     """Check persisted or externally constructed records before credential resolution."""
     try:
         CompiledRequest.model_validate(request.model_dump())
-        root = _object(parse_json(request.body, GENERATED_LIMITS), "invalid_request")
-        if set(root) != {"state", "model", "questions"}:
+        root = _object(parse_json(request.body, request.body_limits), "invalid_request")
+        expected = {"state", "model", "questions"}
+        if "assets" in root:
+            expected.add("assets")
+        if set(root) != expected:
+            raise ValueError
+        if "assets" in root:
+            verify_images(root, request.semantic_headers_source)
+        elif request.semantic_headers_source != "{}":
             raise ValueError
         if root["model"] != request.requested_model or not isinstance(root["state"], (str, dict)):
             raise ValueError

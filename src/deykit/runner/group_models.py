@@ -67,6 +67,7 @@ class RequestIdentity:
     compiler: str | None
     compiler_version: str | None
     requested_model: str | None
+    semantic_headers_source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -149,4 +150,5 @@ def request_identity(
         request.compiler if request else None,
         request.compiler_version if request else None,
         request.requested_model if request else None,
+        request.semantic_headers_source if request else None,
     )

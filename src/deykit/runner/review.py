@@ -114,6 +114,8 @@ def run_review_payload(plan: RunPlan) -> JsonValue:
                 compiled.body_hash,
                 bytes_hash(compiled.body),
             ]
+            if compiled.semantic_headers_source != "{}":
+                request.append(compiled.semantic_headers_source)
         if item.error is not None:
             error = [
                 item.error.code,
