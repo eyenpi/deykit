@@ -227,7 +227,7 @@ def test_http_failures_are_bounded_and_do_not_leak_bodies(status, state, retry, 
 
 
 @pytest.mark.parametrize(
-    "body", [b'{"answers":', b'{"model":"gpt-6-luna","model":"gpt-6-luna"}', b"NaN"]
+    "body", [b'{"answers":', b'{"model":"gpt-6-luna","model":"gpt-6-luna"}', b"NaN", b"\xff"]
 )
 def test_invalid_json_never_becomes_an_answer(body):
     provider = OpenAIDecisionsProvider(
@@ -238,6 +238,9 @@ def test_invalid_json_never_becomes_an_answer(body):
     outcome = asyncio.run(provider.dispatch(request()))
     assert outcome.state == "known" and outcome.error.reason == "invalid_json"
     assert outcome.answer is None
+    evidence = parse_json(outcome.raw_response_source)["deykit_unparsed_response"]
+    assert evidence["encoding"] == "base64" and evidence["truncated"] is False
+    assert base64.b64decode(evidence["body"]) == body
 
 
 def test_disconnect_is_unknown_and_not_retryable():
@@ -322,3 +325,29 @@ def test_image_request_limit_rejects_before_decoding(tmp_path, monkeypatch):
             choice, "text", profile(), tuple((name, asset) for name in ("a", "b", "c"))
         )
     assert len(inspected) == 1
+
+
+def test_unparsed_evidence_is_sanitized_bounded_and_explicit_about_truncation():
+    for body in (b'{"broken":"OFFLINE_SENTINEL Bearer private', b"x" * 1_048_576):
+        provider = OpenAIDecisionsProvider(
+            profile(),
+            Credentials({"OFFLINE_KEY": "OFFLINE_SENTINEL"}),
+            OneShotHttp(
+                httpx.MockTransport(
+                    lambda req, response_body=body: httpx.Response(200, content=response_body)
+                )
+            ),
+        )
+        outcome = asyncio.run(provider.dispatch(request()))
+        assert outcome.error.reason == "invalid_json"
+        evidence = parse_json(outcome.raw_response_source)["deykit_unparsed_response"]
+        captured = base64.b64decode(evidence["body"])
+        assert b"OFFLINE_SENTINEL" not in captured and b"private" not in captured
+        assert evidence["captured_byte_count"] == len(captured)
+        assert evidence["truncated"] is (len(body) == 1_048_576)
+        if evidence["truncated"]:
+            assert evidence["sanitized_byte_count"] == len(body)
+            assert evidence["sanitized_body_hash"] == bytes_hash(body)
+            assert captured == body[: len(captured)]
+        else:
+            assert evidence["sanitized_body_hash"] == bytes_hash(captured)

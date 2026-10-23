@@ -135,10 +135,9 @@ def _admit_profile_revision(
     revision_id: str | None,
     members: tuple[tuple[RunManifest, DecisionRevision], ...],
 ) -> None:
-    expected_adapter = "fixture" if mode == "fixture" else "jev"
     for manifest, _frozen_revision in members:
         profile = manifest.provider
-        if profile is None or profile.adapter != expected_adapter:
+        if profile is None or (profile.adapter == "fixture") != (mode == "fixture"):
             fail("group_provider_selection_mismatch", "incompatible_data")
         if provider_id is not None and (
             provider_id != manifest.provider_profile_id or provider_id != profile.id

@@ -1,9 +1,10 @@
 """One-shot OpenAI Decisions transport using frozen, validated requests."""
 
+import base64
 from typing import cast
 
 from deykit.contracts.errors import ServiceError
-from deykit.contracts.json_value import JsonValue, dump_json, parse_json
+from deykit.contracts.json_value import JsonValue, bytes_hash, dump_json, parse_json
 from deykit.contracts.records import CompiledRequest, DispatchOutcome, ProviderProfile
 from deykit.providers.credentials import Credentials, CredentialUnavailable
 from deykit.providers.http import HttpFailure, OneShotHttp, dispatch_failure
@@ -15,6 +16,25 @@ from deykit.providers.openai_choice import (
 )
 from deykit.providers.response import ResponseInvalid, object_value
 from deykit.providers.safety import Sanitizer
+
+
+def _unparsed_evidence(body: bytes, sanitizer: Sanitizer) -> str:
+    sanitized = sanitizer.bytes(body)
+    # Base64 plus metadata fits the existing 1 MiB response-source contract.
+    captured = sanitized[:750_000]
+    return dump_json(
+        {
+            "deykit_unparsed_response": {
+                "encoding": "base64",
+                "body": base64.b64encode(captured).decode("ascii"),
+                "captured_byte_count": len(captured),
+                "sanitized_byte_count": len(sanitized),
+                "sanitized_body_hash": bytes_hash(sanitized),
+                "changed_by_redaction": sanitized != body,
+                "truncated": len(captured) != len(sanitized),
+            }
+        }
+    )
 
 
 class OpenAIDecisionsProvider:
@@ -86,10 +106,9 @@ class OpenAIDecisionsProvider:
         if failure is not None:
             return failure
         safe_source = usage_source = None
+        sanitizer = Sanitizer([credential])
         try:
-            candidate = dump_json(
-                cast(JsonValue, Sanitizer([credential]).value(parse_json(reply.body)))
-            )
+            candidate = dump_json(cast(JsonValue, sanitizer.value(parse_json(reply.body))))
             parsed = parse_json(candidate)
             safe_source = candidate
             root = object_value(parsed, "object_required")
@@ -101,6 +120,8 @@ class OpenAIDecisionsProvider:
             answer = validate_response(request, safe_source)
         except ValueError as error:
             reason = error.reason if isinstance(error, ResponseInvalid) else "invalid_json"
+            if safe_source is None:
+                safe_source = _unparsed_evidence(reply.body, sanitizer)
             return DispatchOutcome(
                 state="known",
                 error=ServiceError(code="response_invalid", reason=reason),

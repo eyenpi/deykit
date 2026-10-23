@@ -242,3 +242,167 @@ def test_openai_cancel_resume_and_retry_share_the_lifetime_attempt_limit(setup, 
     assert resumed.exit_code == 4
     replay = asyncio.run(service.resume(stopped.run_id, operation_id="resume-cancelled"))
     assert replay.replayed and len(calls) == 2
+
+
+def test_openai_diagnostic_and_regression_groups_are_readable_replayable_and_reportable(
+    setup,
+    tmp_path,
+    monkeypatch,
+):
+    source, *_ = setup(1)
+    configure(source, monkeypatch)
+    calls = []
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200, json=response())
+
+    monkeypatch.setattr(
+        "deykit.providers.openai_decisions.OneShotHttp",
+        lambda: OneShotHttp(httpx.MockTransport(handle)),
+    )
+    arguments = (
+        "diagnose",
+        "choice-order",
+        "--decision",
+        "decision",
+        "--dataset",
+        "data",
+        "--mode",
+        "live",
+        "--provider",
+        "openai-main",
+        "--orders",
+        "2",
+        "--attempt-limit",
+        "2",
+        "--concurrency",
+        "1",
+        "--rate-retries",
+        "0",
+    )
+    preview = invoke(source, *arguments, "--dry-run")
+    assert preview.exit_code == 0 and not calls, preview.output
+    first = invoke(source, *arguments, "--operation-id", "openai-diagnostic")
+    assert first.exit_code == 0, first.output
+    data = json.loads(first.stdout)["data"]
+    group_id = data["group"]["group_id"]
+    assert len(calls) == 2
+    assert [
+        choice["value"] for choice in json.loads(calls[0].content)["questions"][0]["choices"]
+    ] == ["yes", "no"]
+    assert [
+        choice["value"] for choice in json.loads(calls[1].content)["questions"][0]["choices"]
+    ] == ["no", "yes"]
+    assert invoke(source, "diagnose", "show", group_id).exit_code == 0
+    replay = invoke(source, *arguments, "--operation-id", "openai-diagnostic")
+    assert replay.exit_code == 0 and len(calls) == 2, replay.output
+    resumed = invoke(source, "diagnose", "resume", group_id, "--operation-id", "diagnostic-resume")
+    assert resumed.exit_code == 0 and len(calls) == 2, resumed.output
+    report = invoke(
+        source,
+        "report",
+        "export",
+        group_id,
+        "--target-kind",
+        "diagnostic",
+        "--format",
+        "json",
+        "--output",
+        str(tmp_path / "diagnostic.json"),
+    )
+    assert report.exit_code == 0 and len(calls) == 2, report.output
+    run_id = data["group"]["members"][0]["run_id"]
+    added = invoke(
+        source,
+        "regression",
+        "add",
+        run_id,
+        "case-00",
+        "--expected",
+        "yes",
+        "--reason",
+        "Authored expected result",
+        "--provenance",
+        "model_generated",
+        "--operation-id",
+        "openai-regression",
+    )
+    assert added.exit_code == 0, added.output
+    check_args = (
+        "check",
+        "--decision",
+        "decision",
+        "--mode",
+        "live",
+        "--provider",
+        "openai-main",
+        "--attempt-limit",
+        "1",
+        "--concurrency",
+        "1",
+        "--rate-retries",
+        "0",
+    )
+    checked = invoke(source, *check_args, "--operation-id", "openai-check")
+    assert checked.exit_code == 0 and len(calls) == 3, checked.output
+    check_id = json.loads(checked.stdout)["data"]["group"]["group_id"]
+    assert invoke(source, "checks", "show", check_id).exit_code == 0
+    replay = invoke(source, *check_args, "--operation-id", "openai-check")
+    assert replay.exit_code == 0 and len(calls) == 3, replay.output
+    exported = invoke(
+        source,
+        "report",
+        "export",
+        check_id,
+        "--target-kind",
+        "check",
+        "--output",
+        str(tmp_path / "check.json"),
+    )
+    assert exported.exit_code == 0 and len(calls) == 3, exported.output
+    assert invoke(source, "project", "validate").exit_code == 0
+
+
+def test_malformed_response_evidence_survives_inspection_and_report(setup, tmp_path, monkeypatch):
+    import base64
+
+    source, *_ = setup(1)
+    configure(source, monkeypatch)
+    calls = []
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200, content=b'{"answer":"OFFLINE_SENTINEL')
+
+    monkeypatch.setattr(
+        "deykit.providers.openai_decisions.OneShotHttp",
+        lambda: OneShotHttp(httpx.MockTransport(handle)),
+    )
+    completed = invoke(source, *run_args("--operation-id", "malformed-openai"))
+    assert completed.exit_code == 3, completed.output
+    run_id = json.loads(completed.stdout)["data"]["run"]["run_id"]
+    shown = invoke(source, "results", "show", run_id, "case-00", "--attempts", "--response")
+    assert shown.exit_code == 0, shown.output
+    raw = json.loads(shown.stdout)["data"]["attempts"][0]["response_source"]
+    evidence = json.loads(raw)["deykit_unparsed_response"]
+    assert base64.b64decode(evidence["body"]) == b'{"answer":"[REDACTED]'
+    destination = tmp_path / "malformed-report.json"
+    exported = invoke(
+        source,
+        "report",
+        "export",
+        run_id,
+        "--target-kind",
+        "run",
+        "--format",
+        "json",
+        "--include-raw-responses",
+        "--output",
+        str(destination),
+    )
+    assert exported.exit_code == 0, exported.output
+    material = json.loads(destination.read_text())["content"]["raw_material"]
+    assert len(material) == 1 and material[0]["category"] == "response"
+    assert json.loads(material[0]["source"]) == json.loads(raw)
+    assert len(calls) == 1 and "OFFLINE_SENTINEL" not in destination.read_text()

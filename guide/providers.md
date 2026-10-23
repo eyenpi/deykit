@@ -184,13 +184,24 @@ normalized. A refusal becomes a final `response_error` with reason
 Other cases can continue. Strict reports count refusals as failed answers; their
 existing aggregate refusal-count limitation remains explicit. Invalid answers,
 model mismatches and refusals retain sanitized response evidence and valid usage.
+Syntactically invalid JSON, duplicate keys and invalid UTF-8 retain a
+`deykit_unparsed_response` envelope in the response source: base64 of sanitized
+bytes, their count and hash, and explicit redaction/truncation flags. At most
+750,000 sanitized bytes are captured so the envelope fits the existing 1 MiB
+response-source bound; a truncated prefix is never presented as the complete
+body. This is diagnostic evidence, not a parsed provider answer. Known credentials
+and Bearer tokens are removed before encoding; arbitrary unknown secrets cannot
+be recognized in an unparsed body. Default reports still omit response content.
 Unknown or invalid usage stays unavailable. Cache counters stay within total
 input usage and are never added again; existing token-list estimates do not model
 cache discounts and are not billed cost.
 
 A known HTTP rejection is not retried except for the runner's bounded rate-limit
-policy. Authentication or unavailable-model failures stop further scheduling;
-timeouts, disconnections and ambiguous server failures remain unknown and need
-explicit resume. Transport redirects and ambient proxy settings are disabled.
+policy. Timeouts and disconnections remain unknown and require explicit
+`--retry-unknown` to resume. Authentication, unavailable-model and unexpected HTTP
+statuses (including 5xx and redirects) stop further scheduling and require a new
+run under the existing provider-wide failure policy. A 5xx or redirect outcome
+remains unknown; a new run can duplicate a remotely completed request and needs
+renewed scope review. Transport redirects and ambient proxy settings are disabled.
 Offline tests exercise the real CLI and runner with an authored HTTP transport;
 they do not establish live access, provider acceptance or model quality.
