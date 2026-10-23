@@ -1,7 +1,11 @@
 """Real CLI/runner integration with only the outbound HTTP exchange mocked."""
 
+import asyncio
+import base64
 import json
 import shutil
+import struct
+import zlib
 from dataclasses import replace
 
 import httpx
@@ -14,11 +18,13 @@ from deykit.application.errors import ServiceFailure
 from deykit.application.execution import ExecutionService
 from deykit.contracts.codec import dump_record
 from deykit.contracts.images import ImagePreparation
-from deykit.contracts.json_value import bytes_hash, parse_json
-from deykit.contracts.records import FixtureBinding, NormalizedAnswer
+from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
+from deykit.contracts.records import ExecutionSettings, FixtureBinding, NormalizedAnswer
 from deykit.contracts.redaction import Sanitizer
-from deykit.providers.choice import JevChoiceCompiler
+from deykit.providers.choice import JEV_DESTINATION, JevChoiceCompiler
+from deykit.providers.credentials import Credentials
 from deykit.providers.http import OneShotHttp
+from deykit.providers.jev import JevProvider
 from deykit.providers.jev_images import IMAGE_HEADERS_SOURCE
 from deykit.runner.backends import ProviderBackends
 from deykit.runner.planner import RunRequest
@@ -60,6 +66,35 @@ def run_args(*extra):
         "--rate-retries",
         "0",
         *extra,
+    )
+
+
+def create_fixture(source, tmp_path, request):
+    binding = FixtureBinding(
+        id="image-binding",
+        case_id="product",
+        request=request,
+        answer=NormalizedAnswer(question_id="q", option_id="yes", reported_model="authored-v1"),
+    )
+    path = tmp_path / "image-binding.jsonl"
+    path.write_bytes(dump_record(binding))
+    return invoke(
+        source,
+        "fixture",
+        "create",
+        "image-fixture",
+        "--decision",
+        "decision",
+        "--dataset",
+        "data",
+        "--name",
+        "Authored image",
+        "--model",
+        "authored-v1",
+        "--file",
+        str(path),
+        "--operation-id",
+        "image-fixture",
     )
 
 
@@ -193,32 +228,7 @@ def test_cli_large_image_fixture_inspection(setup, tmp_path, redact):
         body = request.body.replace(b'"red"', b'"Bearer authored-secret"')
         request = request.model_copy(update={"body": body, "body_hash": bytes_hash(body)})
     assert len(request.body) > 2 * 1024 * 1024
-    binding = FixtureBinding(
-        id="image-binding",
-        case_id="product",
-        request=request,
-        answer=NormalizedAnswer(question_id="q", option_id="yes", reported_model="authored-v1"),
-    )
-    path = tmp_path / "image-binding.jsonl"
-    path.write_bytes(dump_record(binding))
-    created = invoke(
-        source,
-        "fixture",
-        "create",
-        "image-fixture",
-        "--decision",
-        "decision",
-        "--dataset",
-        "data",
-        "--name",
-        "Authored image",
-        "--model",
-        "authored-v1",
-        "--file",
-        str(path),
-        "--operation-id",
-        "image-fixture",
-    )
+    created = create_fixture(source, tmp_path, request)
     assert created.exit_code == 0, created.output
     shown = invoke(source, "fixture", "show", "image-fixture", "--request")
     assert shown.exit_code == 0, shown.output
@@ -278,6 +288,106 @@ def test_cli_image_rejection_is_final_and_does_not_stop_other_cases(
     assert preview.exit_code == 0, preview.output
     assert json.loads(preview.stdout)["data"]["planned_case_ids"] == []
     assert len(calls) == 2 and "OFFLINE_SENTINEL" not in completed.stdout
+
+
+@pytest.mark.parametrize("entrypoint", ["fixture", "provider"])
+def test_malformed_png_metadata_is_rejected_safely(setup, tmp_path, entrypoint):
+    source, execution, factory, _, _, _ = seed_image(
+        setup, tmp_path, preparation=ImagePreparation(mode="pad", min_width=280, min_height=280)
+    )
+    plan = execution.planner.prepare(
+        RunRequest(decision_id="decision", dataset_id="data", mode="fixture", fixture_set_id="set")
+    )
+    request = plan.prepared[0].request
+    body = parse_json(request.body)
+    wire_asset = next(iter(body["assets"].values()))
+    png = base64.b64decode(wire_asset["data_base64"])
+    assert png[-8:-4] == b"IEND"
+    # A valid image followed by an invalid PNG text compression method fails at load(),
+    # after Image.open() has already accepted its format and dimensions.
+    payload = b"authored\0\x01invalid compressed text"
+    chunk = (
+        struct.pack(">I", len(payload))
+        + b"zTXt"
+        + payload
+        + struct.pack(">I", zlib.crc32(b"zTXt" + payload))
+    )
+    wire_asset["data_base64"] = base64.b64encode(png[:-12] + chunk + png[-12:]).decode("ascii")
+    if entrypoint == "provider":
+        body["model"] = "jev-1.14.0"
+    wire = dump_json(body).encode()
+    request = request.model_copy(update={"body": wire, "body_hash": bytes_hash(wire)})
+    if entrypoint == "fixture":
+        created = create_fixture(source, tmp_path, request)
+        assert created.exit_code == 2, created.output
+        assert json.loads(created.stdout)["error"]["reason"] == "fixture_request_shape"
+        assert source.list_ids("fixtures") == ("set",)
+    else:
+        identity = {
+            "adapter": "jev",
+            "requested_model": "jev-1.14.0",
+            "destination": JEV_DESTINATION,
+        }
+        request = request.model_copy(update=identity)
+        profile = factory.profile_value.model_copy(
+            update={**identity, "credential_ref": "env:OFFLINE_KEY"}
+        )
+
+        def forbidden(sent):
+            pytest.fail("Malformed image requests must never reach HTTP.")
+
+        provider = JevProvider(
+            profile,
+            Credentials({"OFFLINE_KEY": "OFFLINE_SENTINEL"}),
+            OneShotHttp(httpx.MockTransport(forbidden)),
+        )
+        outcome = asyncio.run(provider.dispatch(request))
+        assert outcome.state == "not_sent"
+        assert outcome.error.reason == "invalid_request_configuration"
+
+
+@pytest.mark.parametrize("limit", ["bytes", "attempts"])
+def test_image_preview_stops_compiling_when_plan_limit_is_exceeded(setup, tmp_path, limit):
+    dimension = 1024 if limit == "bytes" else 280
+    source, execution, factory, clock, _, _ = seed_image(
+        setup,
+        tmp_path,
+        preparation=ImagePreparation(mode="pad", min_width=dimension, min_height=dimension),
+    )
+    datasets = DatasetService(source, clock)
+    first = datasets.case("data", "product").record
+    for index in range(11):
+        datasets.add_case(
+            "data",
+            CaseInput(input_kind="json", input_source=first.input_source, images=first.images),
+            case_id=f"copy-{index}",
+            expected_dataset_etag=datasets.read("data").etag,
+            operation_id=f"add-copy-{index}",
+        )
+    compiled = []
+
+    class CountingCompiler(JevChoiceCompiler):
+        def compile_images(self, *args):
+            compiled.append(True)
+            return super().compile_images(*args)
+
+    factory.compiler = CountingCompiler()
+    request = RunRequest(
+        decision_id="decision",
+        dataset_id="data",
+        mode="fixture",
+        fixture_set_id="set",
+        settings=ExecutionSettings(max_attempts=100 if limit == "bytes" else 2),
+    )
+    with pytest.raises(ServiceFailure) as error:
+        execution.preview(request)
+    if limit == "bytes":
+        assert error.value.error.reason == "run_resource_limit"
+        assert 0 < len(compiled) < 12
+    else:
+        assert error.value.error.reason == "initial_requests_exceed_cap"
+        assert len(compiled) == 2
+    assert not factory.calls and not source.list_ids("runs")
 
 
 def test_provider_dimensions_block_preview(setup, tmp_path, monkeypatch):

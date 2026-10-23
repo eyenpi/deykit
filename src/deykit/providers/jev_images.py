@@ -40,7 +40,7 @@ def _inspect(body: bytes, format: str) -> tuple[int, int]:
                 raise ValueError("image_animation_unsupported")
             image.load()
             return image.size
-    except (OSError, UnidentifiedImageError, Image.DecompressionBombError):
+    except (OSError, SyntaxError, UnidentifiedImageError, Image.DecompressionBombError):
         raise ValueError("image_decode_failed") from None
 
 
