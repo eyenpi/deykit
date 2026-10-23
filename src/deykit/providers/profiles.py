@@ -24,6 +24,7 @@ from deykit.contracts.records import ProviderProfile
 from deykit.providers.credentials import CredentialReference
 from deykit.providers.fixtures import FixtureInvalid, validate_fixture_profile
 from deykit.providers.jev import validate_profile
+from deykit.providers.openai_choice import validate_profile as validate_openai_profile
 
 
 def _fail(code: ErrorCode, reason: str, resource_id: str | None = None) -> ServiceFailure:
@@ -46,6 +47,8 @@ def validate_provider_profile(profile: ProviderProfile) -> ProviderProfile:
         candidate = ProviderProfile.model_validate(profile.model_dump(mode="python"))
         if candidate.adapter == "jev":
             return validate_profile(candidate)
+        if candidate.adapter == "openai":
+            return validate_openai_profile(candidate)
         if candidate.adapter == "fixture":
             validate_fixture_profile(candidate)
             return candidate
@@ -180,7 +183,7 @@ class ProviderProfiles:
             current = _view(_required(source, _id(profile_id)))
             if current.etag != expected_etag:
                 raise _fail("conflict", "provider_profile_changed", profile_id)
-            if current.profile.adapter != "jev":
+            if current.profile.adapter == "fixture":
                 raise _fail("validation_error", "fixture_has_no_credential", profile_id)
             candidate = validate_provider_profile(
                 current.profile.model_copy(update={"credential_ref": reference})

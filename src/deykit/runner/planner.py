@@ -438,7 +438,7 @@ class Planner:
             else tuple(case for case in all_cases if case.split == "development")
         )
         development_ids = {case.id for case in development}
-        if profile.adapter != ("fixture" if request.mode == "fixture" else "jev"):
+        if (profile.adapter == "fixture") != (request.mode == "fixture"):
             fail("provider_mode_mismatch", "preflight_failed")
         compiler = backend.compiler
         compiler_identity = compiler.review_identity

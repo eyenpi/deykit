@@ -1,4 +1,4 @@
-"""Composition adapters for existing Jev and authored-fixture provider ports."""
+"""Composition adapters for live and authored-fixture provider ports."""
 
 from dataclasses import dataclass
 
@@ -21,17 +21,23 @@ from deykit.providers.choice import JevChoiceCompiler
 from deykit.providers.credentials import Credentials, credentials_for
 from deykit.providers.fixtures import FixtureInvalid, FixtureTransportFactory, validate_fixture_set
 from deykit.providers.jev import JevProvider
+from deykit.providers.openai_choice import OpenAIChoiceCompiler
+from deykit.providers.openai_decisions import OpenAIDecisionsProvider
 from deykit.providers.profiles import ProviderProfiles, validate_provider_profile
 from deykit.runner.ports import Backend
 
 
 @dataclass(frozen=True)
 class LiveBackend:
-    provider: JevProvider
+    provider: JevProvider | OpenAIDecisionsProvider
 
     @property
     def compiler(self) -> ChoiceCompiler:
-        return JevChoiceCompiler()
+        return (
+            OpenAIChoiceCompiler()
+            if isinstance(self.provider, OpenAIDecisionsProvider)
+            else JevChoiceCompiler()
+        )
 
     def preflight(
         self, decision_id: str, dataset_id: str, definition: ChoiceDefinition | None = None
@@ -152,12 +158,7 @@ class ProviderBackends:
                 return FixtureBackend(FixtureTransportFactory(fixture, profile))
             except FixtureInvalid as error:
                 fail(error.reason, "preflight_failed")
-        if profile.adapter != "jev":
-            fail("fixture_set_required", "preflight_failed")
-        try:
-            return LiveBackend(JevProvider(profile, self.credentials or credentials_for(profile)))
-        except ValueError:
-            fail("invalid_provider_profile", "preflight_failed")
+        return self._live(profile)
 
     def profile(self, provider_id: str | None, fixture_set_id: str | None) -> ProviderProfile:
         if fixture_set_id is not None:
@@ -186,9 +187,18 @@ class ProviderBackends:
                 )
             except FixtureInvalid as error:
                 fail(error.reason, "preflight_failed")
-        if profile.adapter != "jev":
+        return self._live(profile)
+
+    def _live(self, profile: ProviderProfile) -> LiveBackend:
+        if profile.adapter not in {"jev", "openai"}:
             fail("fixture_set_required", "preflight_failed")
         try:
-            return LiveBackend(JevProvider(profile, self.credentials or credentials_for(profile)))
+            credentials = self.credentials or credentials_for(profile)
+            provider = (
+                OpenAIDecisionsProvider(profile, credentials)
+                if profile.adapter == "openai"
+                else JevProvider(profile, credentials)
+            )
+            return LiveBackend(provider)
         except ValueError:
             fail("invalid_provider_profile", "preflight_failed")
