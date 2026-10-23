@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from PIL import Image, UnidentifiedImageError
 
 from deykit.contracts.images import IMAGE_REQUEST_LIMITS, MAX_IMAGE_BYTES, ImageAsset
-from deykit.contracts.json_value import JsonValue, bytes_hash, dump_json, parse_json
+from deykit.contracts.json_value import JsonError, JsonValue, bytes_hash, dump_json, parse_json
 from deykit.contracts.records import CompiledRequest
 
 IMAGE_HEADER = "TypeSafe-Danger-Zone-Images"
@@ -55,30 +55,46 @@ def attach_images(
     )
     existing = tuple(_strings(root))
     assets: dict[str, JsonValue] = {}
+    root["state"], root["assets"] = state, assets
+    request_bytes = len(dump_json(root, limits=IMAGE_REQUEST_LIMITS).encode("utf-8"))
+    reference_bytes = 0
     for index, (name, asset) in enumerate(images):
         if name in state:
             raise ValueError("image_state_name_collision")
         format = {"PNG": "png", "JPEG": "jpg"}.get(asset.prepared.format)
         if format is None:
             raise ValueError("image_format_unsupported")
-        body = asset.prepared_bytes()
-        if _inspect(body, format) != (asset.prepared.width, asset.prepared.height):
-            raise ValueError("image_dimensions_mismatch")
         nonce = 0
         while True:
-            reference = f"deykit-image-{index}-{bytes_hash(body)}-{nonce:08x}~"
+            reference = f"deykit-image-{index}-{asset.prepared.content_hash}-{nonce:08x}~"
             if not any(reference in text for text in existing):
                 break
             nonce += 1
+        reference_bytes += len(reference.encode("utf-8"))
+        if reference_bytes > 65_536:
+            raise ValueError("image_reference_limit")
+        entry: dict[str, JsonValue] = {"type": "image", "format": format, "data_base64": ""}
+        # Count each entry without its braces, plus its separator and base64 bytes,
+        # before decoding or encoding the admitted asset. Repeated selections count too.
+        request_bytes += (
+            len(dump_json({name: reference}).encode("utf-8"))
+            - 2
+            + bool(state)
+            + len(dump_json({reference: entry}).encode("utf-8"))
+            - 2
+            + bool(assets)
+            + 4 * ((asset.prepared.byte_count + 2) // 3)
+        )
+        if request_bytes > IMAGE_REQUEST_LIMITS.max_bytes:
+            raise JsonError("json_resource_limit")
+        body = asset.prepared_bytes()
+        if _inspect(body, format) != (asset.prepared.width, asset.prepared.height):
+            raise ValueError("image_dimensions_mismatch")
+        entry["data_base64"] = base64.b64encode(body).decode("ascii")
         state[name] = reference
-        assets[reference] = {
-            "type": "image",
-            "format": format,
-            "data_base64": base64.b64encode(body).decode("ascii"),
-        }
-    if not assets or sum(len(key.encode()) for key in assets) > 65_536:
+        assets[reference] = entry
+    if not assets:
         raise ValueError("image_reference_limit")
-    root["state"], root["assets"] = state, assets
     body = dump_json(root, limits=IMAGE_REQUEST_LIMITS).encode("utf-8")
     return CompiledRequest(
         adapter=request.adapter,

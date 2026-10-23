@@ -28,7 +28,7 @@ from deykit.contracts.ports import (
     SourceChange,
     StoredRecord,
 )
-from deykit.contracts.records import FixtureBinding, FixtureSet, ProviderProfile
+from deykit.contracts.records import CompiledRequest, FixtureBinding, FixtureSet, ProviderProfile
 from deykit.contracts.redaction import Sanitizer
 from deykit.providers.fixtures import (
     FIXTURE_DESTINATION,
@@ -296,8 +296,7 @@ class FixtureService:
         )
         requests = (
             tuple(
-                _project_request_source(binding.request.body.decode("utf-8"), safe)
-                for binding in fixture_set.bindings
+                _project_request_source(binding.request, safe) for binding in fixture_set.bindings
             )
             if include_requests
             else ()
@@ -386,10 +385,10 @@ class FixtureService:
             raise _fail("validation_error", error.reason, fixture_set_id) from None
 
 
-def _project_request_source(source: str, sanitizer: Sanitizer) -> str:
+def _project_request_source(request: CompiledRequest, sanitizer: Sanitizer) -> str:
     """Retain exact JSON text unless pure structured redaction changes its value."""
-    value = parse_json(source)
+    value = parse_json(request.body, request.body_limits)
     safe_value = sanitizer.value(value)
     if safe_value == value:
-        return source
-    return dump_json(cast(JsonValue, safe_value))
+        return request.body.decode("utf-8")
+    return dump_json(cast(JsonValue, safe_value), limits=request.body_limits)

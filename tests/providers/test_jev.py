@@ -46,6 +46,8 @@ def test_a18_a30_configure_status_and_missing_credential_send_no_inference():
 @pytest.mark.parametrize(
     "status,state,code,retryable,wide",
     [
+        (400, "known", "provider_rejected", False, False),
+        (413, "known", "provider_rejected", False, False),
         (401, "known", "provider_auth", False, True),
         (403, "known", "provider_auth", False, True),
         (422, "known", "provider_rejected", False, True),

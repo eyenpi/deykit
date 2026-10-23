@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -12,7 +13,7 @@ from test_fixtures import answer, fixture_set
 from test_jev import profile
 
 from deykit.contracts.codec import dump_record, load_record
-from deykit.contracts.images import ImagePreparation
+from deykit.contracts.images import ImageAsset, ImagePreparation
 from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
 from deykit.contracts.records import CompiledRequest, FixtureBinding
 from deykit.images.local import LocalImages
@@ -21,6 +22,7 @@ from deykit.providers.credentials import Credentials
 from deykit.providers.fixtures import FixtureTransportFactory, fixture_set_hash
 from deykit.providers.http import OneShotHttp
 from deykit.providers.jev import JevProvider
+from deykit.providers.jev_images import IMAGE_REQUEST_LIMITS
 
 HEADER = "TypeSafe-Danger-Zone-Images"
 
@@ -130,17 +132,68 @@ def test_multiple_names_for_one_asset_have_distinct_references(tmp_path):
         JevChoiceCompiler().compile_images(choice, "Why?", profile(), (("front", image),))
 
 
-def test_aggregate_image_request_is_bounded(tmp_path):
+def test_aggregate_image_request_is_bounded_before_decoding_next_image(tmp_path, monkeypatch):
     path = tmp_path / "small.png"
     Image.new("RGB", (2, 1)).save(path)
     image = LocalImages(tmp_path).prepare(
         path.name, ImagePreparation(mode="pad", min_width=1024, min_height=1024)
     )
     choice = definition().model_copy(update={"selected_images": ("front", "back", "side")})
+    decoded = []
+    original = ImageAsset.prepared_bytes
+
+    def prepared_bytes(self):
+        decoded.append(self.id)
+        return original(self)
+
+    monkeypatch.setattr(ImageAsset, "prepared_bytes", prepared_bytes)
     with pytest.raises(ValueError, match="json_resource_limit"):
         JevChoiceCompiler().compile_images(
             choice, "Why?", profile(), tuple((name, image) for name in choice.selected_images)
         )
+    # One padded 1024-square PNG fits; two exceed the 8 MiB wire budget.
+    assert decoded == [image.id]
+
+
+def test_reference_budget_stops_before_decoding_all_selected_images(tmp_path, monkeypatch):
+    image = asset(tmp_path)
+    names = tuple(f"image-{index}" for index in range(1000))
+    choice = definition().model_copy(update={"selected_images": names})
+    decoded = []
+    original = ImageAsset.prepared_bytes
+
+    def prepared_bytes(self):
+        decoded.append(self.id)
+        return original(self)
+
+    monkeypatch.setattr(ImageAsset, "prepared_bytes", prepared_bytes)
+    with pytest.raises(ValueError, match="image_reference_limit"):
+        JevChoiceCompiler().compile_images(
+            choice, "Why?", profile(), tuple((name, image) for name in names)
+        )
+    assert 0 < len(decoded) < len(names)
+
+
+def test_request_byte_budget_includes_json_overhead_and_utf8(tmp_path, monkeypatch):
+    image = asset(tmp_path)
+    choice = definition(kind="json", fields=("text",)).model_copy(
+        update={"selected_images": ("front", "back")}
+    )
+    args = (choice, {"text": 'é\\"\n'}, profile(), (("front", image), ("back", image)))
+    compiler = JevChoiceCompiler()
+    request = compiler.compile_images(*args)
+    size = len(request.body)
+    monkeypatch.setattr(
+        "deykit.providers.jev_images.IMAGE_REQUEST_LIMITS",
+        replace(IMAGE_REQUEST_LIMITS, max_bytes=size),
+    )
+    assert compiler.compile_images(*args).body == request.body
+    monkeypatch.setattr(
+        "deykit.providers.jev_images.IMAGE_REQUEST_LIMITS",
+        replace(IMAGE_REQUEST_LIMITS, max_bytes=size - 1),
+    )
+    with pytest.raises(ValueError, match="json_resource_limit"):
+        compiler.compile_images(*args)
 
 
 def test_transport_sends_frozen_header_and_body_and_keeps_strict_responses(tmp_path):

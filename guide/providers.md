@@ -110,6 +110,8 @@ JSON request at 8 MiB, within its portable record envelope. The existing 32 MiB
 aggregate run-plan limit still applies, including embedded image requests; split
 larger cohorts into bounded runs. These local limits are below Jev's transport
 limits. Provider-side re-encoding and context limits can still reject a request.
+Jev HTTP 400 and 413 responses are recorded as known, nonretryable rejections
+of that case. Other cases continue within the run's existing attempt budget.
 
 Use the normal bounded `run --mode live` workflow after reviewing the dry run.
 The frozen request retains exact prepared bytes and semantic headers, and the
