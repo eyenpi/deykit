@@ -291,7 +291,13 @@ def test_cli_image_rejection_is_final_and_does_not_stop_other_cases(
 
 
 @pytest.mark.parametrize("entrypoint", ["fixture", "provider"])
-def test_malformed_png_metadata_is_rejected_safely(setup, tmp_path, entrypoint):
+@pytest.mark.parametrize(
+    "chunk_type,payload",
+    [(b"zTXt", b"authored\0\x01invalid compressed text"), (b"cHRM", b"\0"), (b"iCCP", b"")],
+)
+def test_malformed_png_metadata_is_rejected_safely(
+    setup, tmp_path, entrypoint, chunk_type, payload
+):
     source, execution, factory, _, _, _ = seed_image(
         setup, tmp_path, preparation=ImagePreparation(mode="pad", min_width=280, min_height=280)
     )
@@ -303,14 +309,13 @@ def test_malformed_png_metadata_is_rejected_safely(setup, tmp_path, entrypoint):
     wire_asset = next(iter(body["assets"].values()))
     png = base64.b64decode(wire_asset["data_base64"])
     assert png[-8:-4] == b"IEND"
-    # A valid image followed by an invalid PNG text compression method fails at load(),
+    # A valid image followed by malformed PNG metadata fails at load(),
     # after Image.open() has already accepted its format and dimensions.
-    payload = b"authored\0\x01invalid compressed text"
     chunk = (
         struct.pack(">I", len(payload))
-        + b"zTXt"
+        + chunk_type
         + payload
-        + struct.pack(">I", zlib.crc32(b"zTXt" + payload))
+        + struct.pack(">I", zlib.crc32(chunk_type + payload))
     )
     wire_asset["data_base64"] = base64.b64encode(png[:-12] + chunk + png[-12:]).decode("ascii")
     if entrypoint == "provider":

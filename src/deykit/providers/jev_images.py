@@ -2,9 +2,10 @@
 
 import base64
 import io
+import struct
 from collections.abc import Iterator
 
-from PIL import Image, UnidentifiedImageError
+from PIL import Image
 
 from deykit.contracts.images import IMAGE_REQUEST_LIMITS, MAX_IMAGE_BYTES, ImageAsset
 from deykit.contracts.json_value import JsonError, JsonValue, bytes_hash, dump_json, parse_json
@@ -40,7 +41,7 @@ def _inspect(body: bytes, format: str) -> tuple[int, int]:
                 raise ValueError("image_animation_unsupported")
             image.load()
             return image.size
-    except (OSError, SyntaxError, UnidentifiedImageError, Image.DecompressionBombError):
+    except (OSError, SyntaxError, IndexError, struct.error, Image.DecompressionBombError):
         raise ValueError("image_decode_failed") from None
 
 
