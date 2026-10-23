@@ -1,6 +1,7 @@
 """One-shot OpenAI Decisions transport using frozen, validated requests."""
 
-import base64
+import json
+import re
 from typing import cast
 
 from deykit.contracts.errors import ServiceError
@@ -17,21 +18,34 @@ from deykit.providers.openai_choice import (
 from deykit.providers.response import ResponseInvalid, object_value
 from deykit.providers.safety import Sanitizer
 
+_JSON_ESCAPES = re.compile(r'(?:\\(?:u[0-9a-fA-F]{4}|["\\/bfnrt]))+')
+
 
 def _unparsed_evidence(body: bytes, sanitizer: Sanitizer) -> str:
-    sanitized = sanitizer.bytes(body)
-    # Base64 plus metadata fits the existing 1 MiB response-source contract.
-    captured = sanitized[:750_000]
+    text = body.decode("utf-8", "replace")
+    # Decode only escape runs, never JSON numbers or a permissive response object.
+    # This exposes escaped credentials even in duplicate-key or incomplete JSON.
+    decoded = _JSON_ESCAPES.sub(lambda match: json.loads('"' + match[0] + '"'), text)
+    replaced = decoded.encode("utf-8", "replace").decode("utf-8")
+    lone_surrogates_replaced = replaced != decoded
+    decoded = replaced
+    sanitized = sanitizer.text(decoded)
+    encoded = sanitized.encode("utf-8")
+    # Even six-byte JSON escapes per captured byte fit the 1 MiB source bound.
+    captured = encoded[:150_000].decode("utf-8", "ignore")
     return dump_json(
         {
             "deykit_unparsed_response": {
-                "encoding": "base64",
-                "body": base64.b64encode(captured).decode("ascii"),
-                "captured_byte_count": len(captured),
-                "sanitized_byte_count": len(sanitized),
-                "sanitized_body_hash": bytes_hash(sanitized),
-                "changed_by_redaction": sanitized != body,
-                "truncated": len(captured) != len(sanitized),
+                "encoding": "utf8_text",
+                "body": captured,
+                "normalized_json_escapes": decoded != text,
+                "invalid_utf8_replaced": text.encode("utf-8") != body,
+                "lone_surrogates_replaced": lone_surrogates_replaced,
+                "capture_byte_count": len(captured.encode("utf-8")),
+                "capture_source_byte_count": len(encoded),
+                "capture_source_hash": bytes_hash(encoded),
+                "changed_by_redaction": sanitized != decoded,
+                "truncated": captured != sanitized,
             }
         }
     )

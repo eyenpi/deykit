@@ -239,8 +239,9 @@ def test_invalid_json_never_becomes_an_answer(body):
     assert outcome.state == "known" and outcome.error.reason == "invalid_json"
     assert outcome.answer is None
     evidence = parse_json(outcome.raw_response_source)["deykit_unparsed_response"]
-    assert evidence["encoding"] == "base64" and evidence["truncated"] is False
-    assert base64.b64decode(evidence["body"]) == body
+    assert evidence["encoding"] == "utf8_text" and evidence["truncated"] is False
+    assert evidence["body"] == body.decode("utf-8", "replace")
+    assert evidence["invalid_utf8_replaced"] is (body == b"\xff")
 
 
 def test_disconnect_is_unknown_and_not_retryable():
@@ -328,7 +329,11 @@ def test_image_request_limit_rejects_before_decoding(tmp_path, monkeypatch):
 
 
 def test_unparsed_evidence_is_sanitized_bounded_and_explicit_about_truncation():
-    for body in (b'{"broken":"OFFLINE_SENTINEL Bearer private', b"x" * 1_048_576):
+    for body in (
+        b'{"broken":"OFFLINE_SENTINEL Bearer private',
+        b"x" * 1_048_576,
+        b"\x00" * 1_048_576,
+    ):
         provider = OpenAIDecisionsProvider(
             profile(),
             Credentials({"OFFLINE_KEY": "OFFLINE_SENTINEL"}),
@@ -341,13 +346,46 @@ def test_unparsed_evidence_is_sanitized_bounded_and_explicit_about_truncation():
         outcome = asyncio.run(provider.dispatch(request()))
         assert outcome.error.reason == "invalid_json"
         evidence = parse_json(outcome.raw_response_source)["deykit_unparsed_response"]
-        captured = base64.b64decode(evidence["body"])
+        captured = evidence["body"].encode("utf-8")
         assert b"OFFLINE_SENTINEL" not in captured and b"private" not in captured
-        assert evidence["captured_byte_count"] == len(captured)
+        assert evidence["capture_byte_count"] == len(captured)
         assert evidence["truncated"] is (len(body) == 1_048_576)
         if evidence["truncated"]:
-            assert evidence["sanitized_byte_count"] == len(body)
-            assert evidence["sanitized_body_hash"] == bytes_hash(body)
+            assert evidence["capture_source_byte_count"] == len(body)
+            assert evidence["capture_source_hash"] == bytes_hash(body)
             assert captured == body[: len(captured)]
         else:
-            assert evidence["sanitized_body_hash"] == bytes_hash(captured)
+            assert evidence["capture_source_hash"] == bytes_hash(captured)
+
+
+def test_malformed_unicode_replacement_is_explicit_without_losing_valid_pairs():
+    from deykit.providers.openai_decisions import _unparsed_evidence
+    from deykit.providers.safety import Sanitizer
+
+    raw = _unparsed_evidence(rb'{"broken":"\ud83d\ude00 \ud800', Sanitizer())
+    evidence = parse_json(raw)["deykit_unparsed_response"]
+    assert evidence["body"] == '{"broken":"😀 ?'
+    assert evidence["normalized_json_escapes"] and evidence["lone_surrogates_replaced"]
+    assert not evidence["invalid_utf8_replaced"] and not evidence["changed_by_redaction"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        rb'{"message":"\u004fFFLINE_SENTINEL","message":"duplicate"}',
+        rb'{"message":"\u004fFFLINE_SENTINEL',
+        rb'{"message":"OFFLINE_\u0053ENTINEL',
+        rb'{"message":"\u0042earer private',
+    ],
+)
+def test_malformed_evidence_redacts_json_escaped_credentials(body):
+    provider = OpenAIDecisionsProvider(
+        profile(),
+        Credentials({"OFFLINE_KEY": "OFFLINE_SENTINEL"}),
+        OneShotHttp(httpx.MockTransport(lambda req: httpx.Response(200, content=body))),
+    )
+    outcome = asyncio.run(provider.dispatch(request()))
+    evidence = parse_json(outcome.raw_response_source)["deykit_unparsed_response"]
+    captured = evidence["body"]
+    assert "[REDACTED]" in captured
+    assert "SENTINEL" not in captured and "private" not in captured

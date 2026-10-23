@@ -185,13 +185,16 @@ Other cases can continue. Strict reports count refusals as failed answers; their
 existing aggregate refusal-count limitation remains explicit. Invalid answers,
 model mismatches and refusals retain sanitized response evidence and valid usage.
 Syntactically invalid JSON, duplicate keys and invalid UTF-8 retain a
-`deykit_unparsed_response` envelope in the response source: base64 of sanitized
-bytes, their count and hash, and explicit redaction/truncation flags. At most
-750,000 sanitized bytes are captured so the envelope fits the existing 1 MiB
-response-source bound; a truncated prefix is never presented as the complete
-body. This is diagnostic evidence, not a parsed provider answer. Known credentials
-and Bearer tokens are removed before encoding; arbitrary unknown secrets cannot
-be recognized in an unparsed body. Default reports still omit response content.
+`deykit_unparsed_response` envelope containing a diagnostic text excerpt, not
+exact wire bytes or a parsed answer. JSON escapes are decoded before removing
+known credentials and Bearer tokens; invalid UTF-8 and lone surrogates are
+replaced. Normalization, replacement and truncation are explicit. At most 150,000
+UTF-8 bytes are captured, leaving room for JSON escaping under the existing 1 MiB
+response-source bound. Capture counts and hash describe the sanitized text at
+capture time; later report redaction uses the report's outer identity metadata.
+The text remains visible to additional inspection/report sanitizers. Arbitrary
+unknown secrets cannot be recognized in an unparsed body. Default reports still
+omit response content.
 Unknown or invalid usage stays unavailable. Cache counters stay within total
 input usage and are never added again; existing token-list estimates do not model
 cache discounts and are not billed cost.

@@ -365,8 +365,6 @@ def test_openai_diagnostic_and_regression_groups_are_readable_replayable_and_rep
 
 
 def test_malformed_response_evidence_survives_inspection_and_report(setup, tmp_path, monkeypatch):
-    import base64
-
     source, *_ = setup(1)
     configure(source, monkeypatch)
     calls = []
@@ -386,7 +384,7 @@ def test_malformed_response_evidence_survives_inspection_and_report(setup, tmp_p
     assert shown.exit_code == 0, shown.output
     raw = json.loads(shown.stdout)["data"]["attempts"][0]["response_source"]
     evidence = json.loads(raw)["deykit_unparsed_response"]
-    assert base64.b64decode(evidence["body"]) == b'{"answer":"[REDACTED]'
+    assert evidence["body"] == '{"answer":"[REDACTED]'
     destination = tmp_path / "malformed-report.json"
     exported = invoke(
         source,
@@ -406,3 +404,43 @@ def test_malformed_response_evidence_survives_inspection_and_report(setup, tmp_p
     assert len(material) == 1 and material[0]["category"] == "response"
     assert json.loads(material[0]["source"]) == json.loads(raw)
     assert len(calls) == 1 and "OFFLINE_SENTINEL" not in destination.read_text()
+
+
+def test_malformed_response_obeys_additional_report_redaction(setup, monkeypatch):
+    from deykit.application.errors import ServiceFailure
+    from deykit.application.reports import ReportService
+    from deykit.cli.context import SystemClock
+    from deykit.contracts.redaction import Sanitizer
+    from deykit.reports.models import RawChoices, ReportRequest
+
+    source, *_ = setup(1)
+    configure(source, monkeypatch)
+    monkeypatch.setattr(
+        "deykit.providers.openai_decisions.OneShotHttp",
+        lambda: OneShotHttp(
+            httpx.MockTransport(
+                lambda req: httpx.Response(
+                    200, content=rb'{"broken":"additional-\u0070rivate-value'
+                )
+            )
+        ),
+    )
+    completed = invoke(source, *run_args("--operation-id", "malformed-report-redaction"))
+    assert completed.exit_code == 3, completed.output
+    run_id = json.loads(completed.stdout)["data"]["run"]["run_id"]
+    request = ReportRequest(target_id=run_id, target_kind="run", raw=RawChoices(responses=True))
+    saved = ReportService(source, SystemClock()).create(request, operation_id="before-redaction")
+    strict = ReportService(
+        source, SystemClock(), sanitizer=Sanitizer(("additional-private-value",))
+    )
+    with pytest.raises(ServiceFailure) as failure:
+        strict.read(saved.record.id)
+    assert failure.value.error.reason == "report_redaction_context_mismatch"
+    with pytest.raises(ServiceFailure) as failure:
+        strict.create(request, operation_id="before-redaction")
+    assert failure.value.error.reason == "report_redaction_context_mismatch"
+    redacted = strict.create(request, operation_id="after-redaction")
+    raw = redacted.content.raw_material[0]
+    assert raw.changed_by_redaction
+    assert "[REDACTED]" in json.loads(raw.source)["deykit_unparsed_response"]["body"]
+    assert "additional-private-value" not in raw.source
