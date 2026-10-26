@@ -22,6 +22,7 @@ from deykit.comparisons.models import (
     ComparisonOutcomes,
 )
 from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.comparison_json import COMPARISON_OUTCOMES_LIMITS
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.images import SelectedImage
@@ -230,7 +231,13 @@ def safe_comparison_outcomes(
     try:
         from deykit.contracts.model_admission import admit_model
 
-        return admit_model(ComparisonOutcomes, safe, "report_comparison_mismatch")
+        # Model admission also counts field names and model wrappers, unlike JSON values.
+        return admit_model(
+            ComparisonOutcomes,
+            safe,
+            "report_comparison_mismatch",
+            max_nodes=3 * COMPARISON_OUTCOMES_LIMITS.max_nodes,
+        )
     except ValueError:
         fail("report_comparison_mismatch", "incompatible_data")
 

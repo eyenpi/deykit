@@ -17,7 +17,7 @@ from typing import cast
 from uuid import uuid4
 
 from deykit.application.errors import ServiceFailure
-from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.codec import dump_record, load_record, record_limits
 from deykit.contracts.identities import validate_resource_id
 from deykit.contracts.json_value import JsonError, bytes_hash
 from deykit.contracts.ports import (
@@ -65,6 +65,7 @@ from deykit.storage.journal import (
 from deykit.storage.locks import acquire
 from deykit.storage.records import (
     IMMUTABLE,
+    MAX_RECORD_BYTES,
     SCOPES,
     TYPES,
     key_path,
@@ -328,7 +329,7 @@ class FileProjectSource:
                 self._admission_condition.notify_all()
 
     def _read(self, key: ResourceKey) -> StoredRecord | None:
-        body = self.files.read(key_path(key))
+        body = self.files.read(key_path(key), limit=record_limits(TYPES[key.collection]).max_bytes)
         if body is None:
             return None
         self._validate_source_body(key, body)
@@ -361,7 +362,7 @@ class FileProjectSource:
                 )
             )
         visitor = _SourceTreeVisitor(records, self._validate_source_body)
-        self.files.read_tree(("source",), visitor)
+        self.files.read_tree(("source",), visitor, limit=MAX_RECORD_BYTES)
         history = HistoryCapture(self.files)
         evidence = self._completed_operations(history)
         self._validate_chunk_references(visitor.references, evidence)
@@ -611,7 +612,9 @@ class FileProjectSource:
                 else {record.key: record for record in current}
             )
             entries: list[JournalEntry] = []
-            self.files.read_many(tuple(key_path(change.key) for change in ordered))
+            self.files.read_many(
+                tuple(key_path(change.key) for change in ordered), limit=MAX_RECORD_BYTES
+            )
             for change in ordered:
                 if change.key.collection == "project" and change.body is None:
                     fail("project_identity_immutable", "conflict")
@@ -775,7 +778,7 @@ class FileProjectSource:
         captured = getattr(self._local, "history_capture", None)
         if captured is not None and parts[:2] == ("history", "operations"):
             return cast(HistoryCapture, captured).read(parts)
-        return self.files.read(parts)
+        return self.files.read(parts, limit=MAX_RECORD_BYTES)
 
     def _manifest(self, folder: Parts) -> JournalManifest:
         body = self._history_read((*folder, "manifest.json"))
@@ -858,7 +861,7 @@ class FileProjectSource:
         paths = tuple(key_path(e.key) for e in manifest.entries)
         if reference is not None:
             paths = (*paths, reference_path(manifest.operation_id))
-        targets = self.files.read_many(paths)
+        targets = self.files.read_many(paths, limit=MAX_RECORD_BYTES)
         if reference is not None and targets.get(reference_path(manifest.operation_id)) not in (
             None,
             reference,

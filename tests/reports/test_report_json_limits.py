@@ -38,6 +38,20 @@ def test_aggregate_source_and_record_roundtrip_above_default_limits():
         NormalizedAnswer(question_id="q", option_id="a", probabilities_source=source)
 
 
+def test_report_envelope_above_ordinary_record_limit():
+    source = '"' + "x" * (17 * 1024 * 1024) + '"'
+    record = report(source)
+    assert load_record(ReportRecord, dump_record(record)) == record
+
+
+def test_report_budget_covers_dense_pair_before_comparison_metadata():
+    # Measured size of two complete evaluations with 2,500 cases, 104 options
+    # and 16-digit probabilities. Comparison and classification add more bytes.
+    source = '"' + "x" * 24_072_486 + '"'
+    record = report(source)
+    assert load_record(ReportRecord, dump_record(record)) == record
+
+
 def test_aggregate_source_still_has_an_explicit_byte_bound():
     source = json.dumps({"payload": "x" * REPORT_CONTENT_LIMITS.max_bytes})
     with pytest.raises(ValidationError):

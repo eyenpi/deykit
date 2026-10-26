@@ -3,7 +3,7 @@
 from typing import cast
 
 from deykit.contracts.base import Record
-from deykit.contracts.codec import load_record
+from deykit.contracts.codec import load_record, record_limits
 from deykit.contracts.execution_groups import (
     CheckSnapshot,
     DiagnosticSnapshot,
@@ -76,6 +76,7 @@ TYPES: dict[Collection, type[Record]] = {
     "regression_removals": RegressionRemoval,
     "reports": ReportRecord,
 }
+MAX_RECORD_BYTES = max(record_limits(kind).max_bytes for kind in TYPES.values())
 SCOPES: dict[Collection, tuple[str, ...]] = {
     "group_segments": ("group_id",),
     "regression_removals": ("decision_id",),

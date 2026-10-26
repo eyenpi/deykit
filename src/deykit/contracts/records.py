@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 from pydantic import AfterValidator, Field, ValidationInfo, model_validator
 
 from deykit.contracts.base import FrozenModel, Record
+from deykit.contracts.comparison_json import ComparisonOutcomesSource
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import ContentHash, ResourceId
 from deykit.contracts.images import IMAGE_REQUEST_LIMITS, CaseImage
@@ -550,7 +551,7 @@ class ComparisonRecord(HashedRecord):
     right_evaluation_id: ResourceId
     left_result_snapshot_id: ResourceId
     right_result_snapshot_id: ResourceId
-    outcomes_source: JsonSource
+    outcomes_source: ComparisonOutcomesSource
     content_hash: ContentHash
     created_at: UtcTimestamp
 

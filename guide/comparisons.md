@@ -28,6 +28,17 @@ have their own agreement/disagreement denominator. They establish no accuracy.
 Side-specific status and label-exclusion counts can overlap; the primary bucket
 counts always sum to the union size.
 
+Saved comparison outcomes have a separate 4 MiB, 200,000-value, 64-level JSON
+budget. Individual user inputs keep their 1 MiB limit. Oversized comparisons
+fail before persistence; no case rows are dropped. The classification report
+preset can export two 2,500-case, 104-option cohorts with complete vectors and
+attempt evidence. This is an offline authored regression, not an unlimited
+cohort-size guarantee. See [report limits](reports.md).
+
+Existing comparisons retain their hashes and replay behavior. Older builds
+may reject outcomes above their former 1 MiB limit. Keep a compatible reader
+for projects containing larger comparisons or reports.
+
 Fixture comparisons remain authored software-verification evidence. A live
 comparison describes only its preserved inputs, results and expectations; it
 does not establish quality on a wider population.

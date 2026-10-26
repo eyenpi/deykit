@@ -188,13 +188,14 @@ and `--pricing`, just like other creation selectors. The Python request accepts
 `preset="classification"` and `ClassificationPricing`; the headless API exposes
 the same creation fields and CSV download.
 
-Aggregate report content is bounded at 12 MiB and 750,000 JSON value nodes;
-saved record envelopes and each exported artifact are bounded at 16 MiB.
+Aggregate report content is bounded at 32 MiB and 750,000 JSON value nodes;
+saved report envelopes and each exported artifact are bounded at 40 MiB.
 Escaping can make the saved envelope reach its bound before the content does.
 Oversized reports fail before being saved; exports never truncate case rows,
 probability vectors or attempt evidence. Individual user JSON sources retain
 their existing 1 MiB admission limit, and ordinary generated JSON retains its
-existing 2 MiB limit. These are separate from the owned report aggregate.
+existing 2 MiB limit. Other record envelopes keep their 16 MiB limit.
+These are separate from the owned report aggregate.
 
 The offline scale regression exercises 2,500 selected cases and 104 options
 through the normal runner with a controlled authored transport, then creates,
@@ -203,6 +204,17 @@ attempts, failed/unknown outcomes and excluded expectations remain visible. This
 is bounded software verification, not evidence about live model quality or an
 unlimited cohort-size guarantee. Other saved-evidence types retain their own
 existing bounds.
+
+A paired regression prepares two authored 2,500-case cohorts with 104 options
+through the runner's in-memory source port, then persists their frozen records
+to a file project. Comparison, replay and exports use the real CLI and file
+store. It retains all 5,000 case rows, complete 16-digit probability vectors and
+attempts. The expected comparison has 2,496 compatible labelled pairs, one
+improvement, one regression and one both-wrong pair. Two unavailable answers,
+one disputed expectation and one unlabelled agreement remain outside that
+quality denominator. Each side's
+full-cohort strict accuracy is 2,494 / 2,498 applicable expectations. Comparison
+and report creation make no inference calls.
 
 Older builds retain the earlier report bounds and may reject newly created large
 reports. Reverting the code alone is not a complete downgrade path for a project

@@ -84,6 +84,10 @@ Owned record envelopes have a separate 16 MiB, 256-level, 1,000,000-node budget
 inside records. Every user `JsonSource` still independently has the 1 MiB admission
 limit. Aggregate dataset/result snapshots that exceed the envelope budget fail with
 `record_resource_limit`; the storage/run owner must preflight persistence before inference.
+Report envelopes alone allow 40 MiB, with the same depth and node bounds.
+Their owned content allows 32 MiB and 750,000 values. Comparison outcome sources
+allow 4 MiB and 200,000 values. These budgets do not change exact numeric
+encoding, hashes, ordinary record admission or individual user-source limits.
 Duplicates (including escaped equivalent keys), nonfinite numbers, malformed UTF-8,
 unpaired surrogates and unsupported Python types such as float are rejected.
 The immutable source wrapper and `JsonSource` fields prevent default Pydantic Decimal

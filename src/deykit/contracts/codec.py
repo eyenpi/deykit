@@ -5,15 +5,21 @@ from typing import TypeVar
 from pydantic import ValidationError
 
 from deykit.contracts.base import Record
-from deykit.contracts.json_value import RECORD_LIMITS, JsonError, parse_json
+from deykit.contracts.json_value import RECORD_LIMITS, JsonError, JsonLimits, parse_json
+from deykit.contracts.records import ReportRecord
+from deykit.contracts.report_json import REPORT_RECORD_LIMITS
 
 R = TypeVar("R", bound=Record)
+
+
+def record_limits(record_type: type[Record]) -> JsonLimits:
+    return REPORT_RECORD_LIMITS if record_type is ReportRecord else RECORD_LIMITS
 
 
 def load_record(record_type: type[R], source: str | bytes) -> R:
     # stdlib/Pydantic alone accept duplicate keys; exact preflight is mandatory.
     try:
-        value = parse_json(source, RECORD_LIMITS)
+        value = parse_json(source, record_limits(record_type))
     except JsonError as error:
         if error.code == "json_resource_limit":
             raise JsonError("record_resource_limit") from None
@@ -33,7 +39,7 @@ def dump_record(record: Record) -> bytes:
     # Arbitrary user JSON is always a source STRING inside own records.
     source = record.model_dump_json().encode("utf-8")
     try:
-        parse_json(source, RECORD_LIMITS)
+        parse_json(source, record_limits(type(record)))
     except JsonError as error:
         if error.code == "json_resource_limit":
             raise JsonError("record_resource_limit") from None

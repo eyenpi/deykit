@@ -69,10 +69,11 @@ history files; there is no shared writable JSONL tail.
 New operations containing at least 16 changes, or any attempts, attempt-events,
 run-events or prepared-cases, use the private `chunks-v1` manifest variant. Exact
 old/new record bytes are framed into `chunk-N.pack` files, normally at most 4 MiB
-each. A single record can exceed that target within its existing 16 MiB limit;
-physical pack reads are bounded at 32 MiB. Every frame identifies its manifest entry
-and old/new role. Lengths, identities, complete membership and both pack and record
-hashes are checked. No input JSON is parsed and reserialized to create a pack.
+each. A single record can exceed that target within its 16 MiB limit, or 40 MiB
+for a report. Physical pack reads are bounded at 48 MiB. Every frame identifies
+its manifest entry and old/new role. Lengths, identities, complete membership
+and both pack and record hashes are checked. No input JSON is parsed and
+reserialized to create a pack.
 
 Those four high-volume immutable collections live in the operation packs and are
 exposed as ordinary logical `StoredRecord` values. Mutable records and other resource

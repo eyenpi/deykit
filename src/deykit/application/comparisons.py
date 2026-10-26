@@ -19,8 +19,9 @@ from deykit.comparisons.models import (
 )
 from deykit.comparisons.pairing import pair_cases
 from deykit.contracts.codec import dump_record, load_record
+from deykit.contracts.comparison_json import COMPARISON_OUTCOMES_LIMITS
 from deykit.contracts.identities import new_id
-from deykit.contracts.json_value import JsonError, parse_json, semantic_hash
+from deykit.contracts.json_value import RECORD_LIMITS, JsonError, parse_json, semantic_hash
 from deykit.contracts.model_admission import ModelInvalid
 from deykit.contracts.ports import Clock, ResourceKey, SnapshotSource, SourceChange, StoredRecord
 from deykit.contracts.records import ComparisonRecord, PreparedCase
@@ -52,8 +53,9 @@ def comparison_hash(record: ComparisonRecord) -> str:
             "right_evaluation_id": record.right_evaluation_id,
             "left_result_snapshot_id": record.left_result_snapshot_id,
             "right_result_snapshot_id": record.right_result_snapshot_id,
-            "outcomes": parse_json(record.outcomes_source),
-        }
+            "outcomes": parse_json(record.outcomes_source, COMPARISON_OUTCOMES_LIMITS),
+        },
+        limits=RECORD_LIMITS,
     )
 
 
