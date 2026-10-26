@@ -6,12 +6,13 @@ from typing import Literal
 from pydantic import Field
 
 from deykit.contracts.base import Record
-from deykit.contracts.codec import dump_record
+from deykit.contracts.codec import dump_record, record_limits
 from deykit.contracts.identities import ContentHash, ResourceId
 from deykit.contracts.json_value import RECORD_LIMITS, JsonError, bytes_hash, parse_json
 from deykit.contracts.ports import Collection
 from deykit.storage.errors import fail
 from deykit.storage.journal import JournalEntry, JournalManifest
+from deykit.storage.records import TYPES
 
 COMPACT_COLLECTIONS: frozenset[Collection] = frozenset(
     {"attempts", "attempt_events", "run_events", "prepared_cases"}
@@ -19,7 +20,7 @@ COMPACT_COLLECTIONS: frozenset[Collection] = frozenset(
 _MAGIC = b"DEYKIT-BLOBS\x00\x01"
 _FRAME = struct.Struct(">IBI")
 _TARGET_BYTES = 4 * 1024 * 1024
-CHUNK_LIMIT = 32 * 1024 * 1024
+CHUNK_LIMIT = 48 * 1024 * 1024
 
 
 class ChunkManifest(JournalManifest):
@@ -102,7 +103,7 @@ def decode_chunks(
             if (
                 kind not in (0, 1)
                 or index >= len(manifest.entries)
-                or length > RECORD_LIMITS.max_bytes
+                or length > record_limits(TYPES[manifest.entries[index].collection]).max_bytes
                 or offset + length > len(chunk)
             ):
                 fail("journal_integrity_error", "conflict")

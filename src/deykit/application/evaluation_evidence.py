@@ -1,5 +1,6 @@
 """Project validated attempt evidence at an immutable result snapshot boundary."""
 
+from collections import defaultdict
 from dataclasses import replace
 
 from deykit.application.dataset_support import fail
@@ -39,8 +40,11 @@ def snapshot_attempts(
     visible_attempts: list[AttemptRecord] = []
     visible_events: list[AttemptEvent] = []
     dispatched: list[tuple[AttemptRecord, AttemptEvent]] = []
+    events_by_attempt: dict[str, list[AttemptEvent]] = defaultdict(list)
+    for attempt_event in history.attempt_events:
+        events_by_attempt[attempt_event.attempt_id].append(attempt_event)
     for attempt in history.attempts:
-        events = tuple(item for item in history.attempt_events if item.attempt_id == attempt.id)
+        events = tuple(events_by_attempt.get(attempt.id, ()))
         expected = tuple(
             "attempt_reserved"
             if item.state == "reserved"

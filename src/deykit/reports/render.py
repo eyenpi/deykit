@@ -6,9 +6,13 @@ import hashlib
 import re
 
 from deykit.comparisons.models import BUCKETS
-from deykit.contracts.json_value import RECORD_LIMITS, JsonValue, dump_json, parse_json
+from deykit.contracts.json_value import JsonValue, dump_json, parse_json
 from deykit.contracts.records import ReportRecord
-from deykit.contracts.report_json import REPORT_ARTIFACT_MAX_BYTES, REPORT_CONTENT_LIMITS
+from deykit.contracts.report_json import (
+    REPORT_ARTIFACT_MAX_BYTES,
+    REPORT_CONTENT_LIMITS,
+    REPORT_RECORD_LIMITS,
+)
 from deykit.reports.models import (
     MemberEvidenceContext,
     RenderedArtifact,
@@ -490,7 +494,7 @@ def render_content(
             "content_hash": record.content_hash,
             "content": parsed,
         }
-        body = (dump_json(envelope, sort_keys=True, limits=RECORD_LIMITS) + "\n").encode(
+        body = (dump_json(envelope, sort_keys=True, limits=REPORT_RECORD_LIMITS) + "\n").encode(
             "utf-8", "strict"
         )
     elif format == "csv":

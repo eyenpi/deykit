@@ -10,7 +10,6 @@ from pydantic import ValidationError
 
 from deykit.contracts.codec import load_record
 from deykit.contracts.json_value import (
-    RECORD_LIMITS,
     JsonError,
     JsonValue,
     parse_json,
@@ -18,7 +17,7 @@ from deykit.contracts.json_value import (
 )
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import ReportRecord
-from deykit.contracts.report_json import REPORT_CONTENT_LIMITS
+from deykit.contracts.report_json import REPORT_CONTENT_LIMITS, REPORT_RECORD_LIMITS
 from deykit.reports.models import RawChoices, ReportContent, ReportMetadata
 
 
@@ -105,7 +104,7 @@ def report_hash(record: ReportRecord, content: ReportContent) -> str:
             "includes_raw_response": record.includes_raw_response,
             "content": parse_json(record.content_source, REPORT_CONTENT_LIMITS),
         },
-        limits=RECORD_LIMITS,
+        limits=REPORT_RECORD_LIMITS,
     )
 
 

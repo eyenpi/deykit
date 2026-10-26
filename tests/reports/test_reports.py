@@ -1534,7 +1534,7 @@ def test_report_content_limit_fails_before_memory_source_write(
         projected, materials = original_project(*args, **kwargs)
         case_id = projected.cases[0].case_id
         large_source = (
-            "x" * REPORT_CONTENT_LIMITS.max_bytes if bound == "content" else '"' * 4_300_000
+            "x" * REPORT_CONTENT_LIMITS.max_bytes if bound == "content" else '"' * 10_600_000
         )
         material = RawMaterial(
             category="input",

@@ -537,3 +537,32 @@ def test_cli_explicit_and_default_evaluation_selection_is_zero_call(sandbox, mon
         wrong.exit_code == 2
         and json.loads(wrong.stdout)["error"]["reason"] == "evaluation_run_mismatch"
     )
+
+
+def test_oversized_comparison_fails_before_commit(sandbox, monkeypatch):
+    import deykit.application.comparisons as comparisons
+
+    source, info, clock, left, right, run = sandbox
+    original = comparisons.pair_cases
+
+    def oversized_outcomes(*args, **kwargs):
+        outcomes = original(*args, **kwargs)
+        return outcomes.model_copy(
+            update={
+                "left": outcomes.left.model_copy(
+                    update={"requested_model": "x" * (4 * 1024 * 1024)}
+                )
+            }
+        )
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Oversized comparisons must fail before persistence.")
+
+    monkeypatch.setattr(comparisons, "pair_cases", oversized_outcomes)
+    monkeypatch.setattr(source, "commit", forbidden)
+    with pytest.raises(ServiceFailure) as rejected:
+        ComparisonService(source, clock).create(
+            left.record.id, right.record.id, operation_id="too-large"
+        )
+    assert rejected.value.error.reason == "incompatible_comparison"
+    assert rejected.value.error.code == "incompatible_data"

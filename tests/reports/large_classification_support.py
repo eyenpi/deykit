@@ -1,8 +1,12 @@
-"""Authored 2,500-case evidence through the normal runner and file source."""
+"""Authored 2,500-case runner evidence persisted for report CLI regressions."""
 
 import asyncio
 import json
+from contextlib import ExitStack, contextmanager
+from decimal import Decimal
 from pathlib import Path
+
+from test_reports import MemorySnapshotSource
 
 from deykit.application.evaluations import EvaluationService
 from deykit.application.execution import ExecutionService
@@ -39,11 +43,56 @@ COUNT = 2500
 OPTIONS = tuple(f"category-{i:03}" for i in range(104))
 
 
+class AuthoredExecutionSource(MemorySnapshotSource):
+    """Prepare report evidence without repeating filesystem execution benchmarks."""
+
+    active = False
+
+    def read(self, key):
+        return self.records.get(key)
+
+    def read_records(self):
+        return self.capture_snapshot()
+
+    @contextmanager
+    def execution_owner(self):
+        assert not self.active
+        self.active = True
+        try:
+            yield
+        finally:
+            self.active = False
+
+    def execution_active(self):
+        return self.active
+
+    def cancellation_requested(self, run_id):
+        return False
+
+    def acknowledge_cancel(self, run_id, segment_id):
+        raise AssertionError("Fixture setup does not request cancellation.")
+
+
+def probabilities(chosen, *, dense=False):
+    return dump_json(
+        {
+            option: (
+                Decimal("0.9872839507317331") if option == chosen else Decimal("0.0001234567890123")
+            )
+            if dense
+            else int(option == chosen)
+            for option in OPTIONS
+        }
+    )
+
+
 class AuthoredBackends:
     compiler = JevChoiceCompiler()
 
-    def __init__(self):
+    def __init__(self, mistakes=frozenset(), *, dense=False):
         self.calls = 0
+        self.mistakes = mistakes
+        self.dense = dense
         self.profile_value = ProviderProfile(
             id="authored",
             adapter="fixture",
@@ -81,32 +130,31 @@ class AuthoredBackends:
                             reason="authored_unknown" if index == 0 else "authored_invalid",
                         ),
                     )
-                chosen = OPTIONS[index % len(OPTIONS)]
+                chosen = OPTIONS[(index + (index in parent.mistakes)) % len(OPTIONS)]
                 return DispatchOutcome(
                     state="known",
                     answer=NormalizedAnswer(
                         question_id="category",
                         option_id=chosen,
                         reported_model=parent.profile_value.requested_model,
-                        probabilities_source=dump_json(
-                            {option: int(option == chosen) for option in OPTIONS}
-                        ),
+                        probabilities_source=probabilities(chosen, dense=parent.dense),
                     ),
                 )
 
         return Transport()
 
 
-def build_large_evidence(root: Path):
-    receipt_path = root.parent / "large-evidence.json"
+def build_large_evidence(root: Path, *, paired=False):
+    receipt_path = root.parent / f"{root.name}-evidence.json"
     if receipt_path.exists():
         receipt = json.loads(receipt_path.read_text())
         assert receipt["count"] == COUNT and receipt["option_count"] == len(OPTIONS)
+        assert receipt.get("paired", False) == paired
         return receipt
     assert not root.exists(), "Interrupted fixture setup: choose a new project directory."
     stamp = "2026-10-21T00:00:00Z"
     clock = SystemClock()
-    backend = AuthoredBackends()
+    backend = AuthoredBackends(frozenset({2, 4}) if paired else frozenset(), dense=paired)
     definition = ChoiceDefinition(
         input_kind="json",
         selected_fields=("text",),
@@ -201,7 +249,12 @@ def build_large_evidence(root: Path):
     )
     fixture = fixture.model_copy(update={"content_hash": fixture_set_hash(fixture)})
     records.append((ResourceKey("fixtures", "fixture"), fixture))
-    with FileProjectSource(root, create=True) as source:
+    with ExitStack() as stack:
+        source = (
+            AuthoredExecutionSource({})
+            if paired
+            else stack.enter_context(FileProjectSource(root, create=True))
+        )
         source.commit(
             "large-seed",
             tuple(SourceChange(key, dump_record(record), None) for key, record in records),
@@ -229,6 +282,29 @@ def build_large_evidence(root: Path):
             "run_id": result.run_id,
             "evaluation_id": evaluation.record.id,
             "evidence_mode": "controlled_authored_transport",
+            "paired": paired,
         }
+        if paired:
+            backend.mistakes = frozenset({3, 4})
+            right = asyncio.run(runner.start(request, operation_id="large-run-right"))
+            assert right.attempts_used == COUNT and backend.calls == 2 * COUNT
+            right_evaluation = EvaluationService(source, clock).evaluate_saved(
+                right.run_id,
+                right.latest_result_snapshot_id,
+                operation_id="large-evaluate-right",
+            )
+            receipt.update(
+                right_run_id=right.run_id,
+                right_evaluation_id=right_evaluation.record.id,
+                calls=backend.calls,
+            )
+            with FileProjectSource(root, create=True) as target:
+                target.commit(
+                    "authored-paired-evidence",
+                    tuple(
+                        SourceChange(record.key, record.body, None)
+                        for record in source.capture_snapshot()
+                    ),
+                )
     receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt
