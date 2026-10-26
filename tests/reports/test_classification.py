@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import shutil
+from dataclasses import replace
 
 import pytest
 from pydantic import ValidationError
@@ -15,6 +16,7 @@ from deykit.application.reports import ReportService
 from deykit.cli.context import SystemClock
 from deykit.cli.main import app
 from deykit.contracts.codec import dump_record
+from deykit.contracts.errors import ServiceError
 from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
 from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.contracts.redaction import Sanitizer
@@ -115,7 +117,7 @@ def test_full_cohort_denominators_and_class_failures(fixture_graph):
     assert summary.valid_answer_accuracy.denominator == 3
     assert summary.failed_count == 2 and summary.missing_count == 1
     assert summary.applicable_status_counts.unknown == 1
-    assert summary.refused_count is None
+    assert summary.refused_count == 0
     assert summary.class_count == 6
     first, second = summary.classes[:2]
     assert (first.support, first.predicted, first.true_positive) == (4, 1, 1)
@@ -146,6 +148,81 @@ def test_no_applicable_labels_is_unavailable_not_zero(fixture_graph):
     assert summary.applicable_count == 0
     assert summary.full_cohort_strict_accuracy.value is None
     assert summary.full_cohort_strict_accuracy.reason == "no_applicable_expectations"
+
+
+def test_explicit_refusals_count_only_applicable_response_failures(fixture_graph):
+    evaluation = _evaluation(fixture_graph)
+    base = evaluation.cases[0]
+    refusal = ServiceError(code="response_invalid", reason="provider_refusal")
+    cases = tuple(
+        base.model_copy(
+            update={
+                "case_id": f"refusal-{n}",
+                "status": status,
+                "error": error,
+                "expected_option_ids": expected,
+                "exclusion_reasons": reasons,
+                "correct": None,
+                "answer_option_id": None,
+            }
+        )
+        for n, (status, error, expected, reasons) in enumerate(
+            (
+                ("response_error", refusal, ("yes",), ("no_valid_answer",)),
+                ("response_error", None, ("yes",), ("no_valid_answer",)),
+                (
+                    "response_error",
+                    ServiceError(code="provider_rejected", reason="provider_refusal"),
+                    ("yes",),
+                    ("no_valid_answer",),
+                ),
+                ("unknown", refusal, ("yes",), ("no_valid_answer",)),
+                ("input_invalid", refusal, ("yes",), ("no_valid_answer",)),
+                ("response_error", refusal, (), ("unlabelled", "no_valid_answer")),
+                ("response_error", refusal, ("yes",), ("disputed", "no_valid_answer")),
+                ("response_error", refusal, ("yes",), ("stale", "no_valid_answer")),
+                ("response_error", refusal, ("yes",), ("incompatible", "no_valid_answer")),
+            )
+        )
+    )
+    summary = classify_evaluation(
+        evaluation.model_copy(update={"cases": cases}), ClassificationPricing()
+    )
+    assert summary.refused_count == 1
+    assert summary.refusal_reason == "explicit_provider_refusals_only"
+    assert summary.failed_count == 4
+    assert summary.full_cohort_strict_accuracy.numerator == 0
+    assert summary.full_cohort_strict_accuracy.denominator == 5
+
+
+def test_saved_v1_refusal_policy_remains_readable_and_replayable(fixture_graph):
+    source = MemorySnapshotSource.from_records(fixture_graph.records)
+    service = ReportService(source, SystemClock())
+    request = ReportRequest(target_id=fixture_graph.evaluation_id, preset="classification")
+    saved = service.create(request, operation_id="legacy-refusals")
+    parsed = parse_json(saved.record.content_source)
+    classification = parsed["classification"]
+    classification["policy"] = "classification-strict-v1"
+    for evaluation in classification["evaluations"]:
+        evaluation["refused_count"] = None
+        evaluation["refusal_reason"] = "distinct_refusal_status_not_recorded"
+    record = saved.record.model_copy(update={"content_source": dump_json(parsed)})
+    record = record.model_copy(update={"content_hash": report_hash(record, saved.content)})
+    body = dump_record(record)
+    key = ResourceKey("reports", record.id)
+    legacy = StoredRecord(key, body, bytes_hash(body))
+    source.records[key] = legacy
+    # Preserve the original operation's durable receipt as an old writer would.
+    intent, receipt = source.operations["legacy-refusals"]
+    source.operations["legacy-refusals"] = (intent, replace(receipt, changes=(legacy,)))
+    read = service.read(record.id)
+    assert read.content.classification.policy == "classification-strict-v1"
+    assert read.content.classification.evaluations[0].refused_count is None
+    assert service.create(request, operation_id="legacy-refusals").replayed
+    assert source.records[key].body == body
+    assert "refused unavailable" in service.render(record.id, format="markdown").body.decode()
+    csv_body = service.render(record.id, format="csv").body.decode()
+    assert "explicit_refusal" not in next(csv.reader(io.StringIO(csv_body)))
 
 
 def _price(evaluation, **overrides):
@@ -199,7 +276,17 @@ def test_token_prices_require_bounded_exact_decimal_strings(fixture_graph, value
         _price(_evaluation(fixture_graph), input_per_million=value)
 
 
-def test_classification_is_recomputed_on_admission_and_prices_pin_replay(fixture_graph):
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("applicable_count", 99),
+        ("refused_count", 99),
+        ("refusal_reason", "distinct_refusal_status_not_recorded"),
+    ],
+)
+def test_classification_is_recomputed_on_admission_and_prices_pin_replay(
+    fixture_graph, field, value
+):
     source = MemorySnapshotSource.from_records(fixture_graph.records)
     service = ReportService(source, SystemClock())
     pricing = ClassificationPricing(rates=(_price(_evaluation(fixture_graph)),))
@@ -213,7 +300,7 @@ def test_classification_is_recomputed_on_admission_and_prices_pin_replay(fixture
             operation_id="pin-prices",
         )
     classification = saved.content.classification
-    bad = classification.evaluations[0].model_copy(update={"applicable_count": 99})
+    bad = classification.evaluations[0].model_copy(update={field: value})
     content = saved.content.model_copy(
         update={"classification": classification.model_copy(update={"evaluations": (bad,)})}
     )

@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from deykit.contracts.json_value import dump_json
 from deykit.contracts.records import ReportRecord
+from deykit.reports.classification import explicit_refusal
 from deykit.reports.models import RateDisplay, ReportContent
 
 
@@ -37,11 +38,22 @@ def classification_markdown(content: ReportContent, inline: Callable[[object], s
         f"- Latency population: {report.latency_population}; p50/p95 use nearest rank, "
         "not case totals or wall-clock experiment time. Fixture latency is unavailable.",
         "- Treatment limitations: " + "; ".join(report.treatment_limitations),
-        "- Refusals: unavailable (distinct_refusal_status_not_recorded); response errors "
-        "may include refusals. No refusal is inferred from raw response text.",
+        (
+            "- Refusals: explicit provider_refusal response errors among applicable expectations; "
+            "a subset of failed answers, already included in strict accuracy. Zero means no "
+            "explicit markers. Other response errors may include unmarked refusals."
+            if report.policy == "classification-strict-v2"
+            else "- Refusals: unavailable (distinct_refusal_status_not_recorded); response errors "
+            "may include refusals. No refusal is inferred from raw response text."
+        ),
     ]
     for summary in report.evaluations:
         counts = summary.applicable_status_counts
+        refusals = (
+            f"explicit refusals {summary.refused_count}."
+            if summary.refused_count is not None
+            else "refused unavailable."
+        )
         lines += [
             "",
             f"### Classification evaluation `{summary.evaluation_id}`",
@@ -52,7 +64,7 @@ def classification_markdown(content: ReportContent, inline: Callable[[object], s
             "- Valid-answer accuracy: " + _rate(summary.valid_answer_accuracy),
             f"- Applicable outcomes: valid {counts.valid}; failed {summary.failed_count} "
             f"(input invalid {counts.input_invalid}, response error {counts.response_error}); "
-            f"missing {summary.missing_count}; unknown {counts.unknown}; refused unavailable.",
+            f"missing {summary.missing_count}; unknown {counts.unknown}; {refusals}",
             f"- Strict class population: {summary.class_count}",
             "",
             "| Option | Support | Predicted | True positive | Precision | Recall | F1 |",
@@ -89,7 +101,7 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
     if report is None:
         raise ValueError("csv_requires_classification")
     output = io.StringIO(newline="")
-    columns = (
+    columns: tuple[str, ...] = (
         "report_id",
         "content_hash",
         "evaluation_id",
@@ -119,6 +131,8 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
         "token_list_currency",
         "cost_reason",
     )
+    if report.policy == "classification-strict-v2":
+        columns += ("explicit_refusal", "refused_count", "refusal_reason")
     writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\r\n")
     writer.writeheader()
     buckets = (
@@ -163,6 +177,12 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
                 "token_list_currency": summary.cost.price.currency if summary.cost.price else "",
                 "cost_reason": summary.cost.reason or "",
             }
+            if report.policy == "classification-strict-v2":
+                row.update(
+                    explicit_refusal=str(explicit_refusal(case)).lower(),
+                    refused_count=str(summary.refused_count),
+                    refusal_reason=summary.refusal_reason,
+                )
             writer.writerow(
                 {
                     key: "'" + value

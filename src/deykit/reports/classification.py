@@ -6,10 +6,12 @@ from deykit.metrics.summary import Rate
 from deykit.reports.models import (
     ClassificationCase,
     ClassificationEvaluation,
+    ClassificationPolicy,
     ClassificationPricing,
     ClassificationReport,
     ClassMetricDisplay,
     RateDisplay,
+    ReportCase,
     ReportEvaluation,
     StatusCounts,
     TokenListCost,
@@ -18,6 +20,15 @@ from deykit.reports.models import (
 
 def rate(numerator: int, denominator: int, reason: str) -> RateDisplay:
     return RateDisplay.model_validate(Rate.counts(numerator, denominator, reason).source())
+
+
+def explicit_refusal(case: ReportCase) -> bool:
+    return (
+        case.status == "response_error"
+        and case.error is not None
+        and case.error.code == "response_invalid"
+        and case.error.reason == "provider_refusal"
+    )
 
 
 def _cost(evaluation: ReportEvaluation, pricing: ClassificationPricing) -> TokenListCost:
@@ -66,7 +77,10 @@ def _cost(evaluation: ReportEvaluation, pricing: ClassificationPricing) -> Token
 
 
 def classify_evaluation(
-    evaluation: ReportEvaluation, pricing: ClassificationPricing
+    evaluation: ReportEvaluation,
+    pricing: ClassificationPricing,
+    *,
+    policy: ClassificationPolicy = "classification-strict-v2",
 ) -> ClassificationEvaluation:
     # These exclusions concern answers or single-label metrics, not whether a
     # frozen expectation applies. All label exclusions continue to exclude it.
@@ -132,6 +146,12 @@ def classify_evaluation(
         applicable_status_counts=statuses,
         failed_count=statuses.input_invalid + statuses.response_error,
         missing_count=statuses.pending,
+        refused_count=sum(explicit_refusal(case) for case in applicable)
+        if policy == "classification-strict-v2"
+        else None,
+        refusal_reason="explicit_provider_refusals_only"
+        if policy == "classification-strict-v2"
+        else "distinct_refusal_status_not_recorded",
         class_count=len(singles),
         classes=tuple(classes),
         cases=cases,
@@ -140,7 +160,10 @@ def classify_evaluation(
 
 
 def classification_report(
-    evaluations: tuple[ReportEvaluation, ...], pricing: ClassificationPricing
+    evaluations: tuple[ReportEvaluation, ...],
+    pricing: ClassificationPricing,
+    *,
+    policy: ClassificationPolicy = "classification-strict-v2",
 ) -> ClassificationReport:
     limitations = ClassificationReport.model_fields["treatment_limitations"].default
     if any(case.selected_images for evaluation in evaluations for case in evaluation.cases):
@@ -150,7 +173,10 @@ def classification_report(
             "compatible_pairs_do_not_establish_model_only_causality",
         )
     return ClassificationReport(
+        policy=policy,
         pricing=pricing,
-        evaluations=tuple(classify_evaluation(item, pricing) for item in evaluations),
+        evaluations=tuple(
+            classify_evaluation(item, pricing, policy=policy) for item in evaluations
+        ),
         treatment_limitations=limitations,
     )

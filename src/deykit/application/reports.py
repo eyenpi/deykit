@@ -255,7 +255,7 @@ def admit_report_from_records(
         fail("report_link_mismatch", "incompatible_data")
     classification = admitted.content.classification
     if classification is not None and classification != classification_report(
-        admitted.content.evaluations, classification.pricing
+        admitted.content.evaluations, classification.pricing, policy=classification.policy
     ):
         fail("report_classification_mismatch", "incompatible_data")
     return ReportView(admitted.record, admitted.etag, admitted.content, replayed)
