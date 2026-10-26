@@ -6,11 +6,13 @@ from dataclasses import replace
 import pytest
 
 from deykit.application.errors import ServiceFailure
+from deykit.application.evaluation_evidence import snapshot_attempts
 from deykit.application.evaluations import EvaluationService
-from deykit.contracts.codec import dump_record
+from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.json_value import bytes_hash
 from deykit.contracts.ports import ResourceKey, SourceChange
-from deykit.contracts.records import CaseResult, ResultSnapshot
+from deykit.contracts.records import AttemptEvent, CaseResult, ResultSnapshot, RunEvent
 from deykit.runner.history import read_history
 from deykit.runner.planner import RunRequest, evidence_hash
 
@@ -207,3 +209,51 @@ def test_captured_history_has_same_validation_and_no_source_reads(setup):
     with pytest.raises(ServiceFailure) as raised:
         history_from_records(bad, run.run_id)
     assert raised.value.error.reason == "invalid_run_sequence"
+
+
+@pytest.mark.parametrize("mutation", ["foreign_attempt_event", "future_marker"])
+def test_historical_snapshot_rejects_malformed_future_evidence(setup, mutation):
+    source, runner, _, _ = setup(2)
+    run = asyncio.run(
+        runner.start(
+            RunRequest(
+                decision_id="decision", dataset_id="data", mode="fixture", fixture_set_id="set"
+            ),
+            operation_id="start",
+        )
+    )
+    history = read_history(source, run.run_id)
+    snapshot = save_snapshot(
+        source,
+        history,
+        tuple(
+            CaseResult(case_id=item.case_id, input_hash=item.input_hash, status="pending")
+            for item in history.prepared
+        ),
+        0,
+        "before-dispatch",
+    )
+    records = source.capture_snapshot()
+    assert snapshot_attempts(records, snapshot) == ()
+    if mutation == "foreign_attempt_event":
+        selected = next(item for item in records if item.key.collection == "attempt_events")
+        event = load_record(AttemptEvent, selected.body)
+        changed = event.model_copy(update={"attempt_id": "foreign-attempt"})
+    else:
+        selected = next(
+            item
+            for item in records
+            if item.key.collection == "run_events"
+            and load_record(RunEvent, item.body).state == "attempt_settled"
+        )
+        event = load_record(RunEvent, selected.body)
+        assert event.sequence > snapshot.through_event_sequence
+        changed = event.model_copy(update={"state": "attempt_dispatched"})
+    body = dump_record(changed)
+    malformed = tuple(
+        replace(item, body=body, etag=bytes_hash(body)) if item.key == selected.key else item
+        for item in records
+    )
+    with pytest.raises(ServiceFailure) as rejected:
+        snapshot_attempts(malformed, snapshot)
+    assert rejected.value.error.reason == "attempt_marker_mismatch"

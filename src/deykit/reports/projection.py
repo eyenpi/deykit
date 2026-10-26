@@ -8,7 +8,6 @@ from decimal import Decimal
 from typing import Literal, cast
 
 from deykit.application.dataset_support import fail
-from deykit.application.evaluation_evidence import snapshot_attempts
 from deykit.application.evaluations import (
     EvaluationView,
     FrozenEvaluation,
@@ -679,7 +678,7 @@ def project_frozen_raw_material(
     }
     results_by_id = {item.case_id: item for item in frozen.results.results}
     cases_by_id = {case.id: case for case in frozen.dataset.cases}
-    admitted_attempts = snapshot_attempts(records, frozen.results)
+    admitted_attempts = frozen.dispatched_attempts
     attempt_events = {event.attempt_id: event for _, event in admitted_attempts}
     material: list[RawMaterial] = []
     for case_id in frozen.manifest.case_ids:
@@ -803,7 +802,7 @@ def project_evaluation(
     report_cases: list[JsonValue] = []
     image_assets = ImageAssets({record.key: record for record in records})
     raw_material = list(project_frozen_raw_material(records, frozen, sanitizer, raw, prepared))
-    admitted_attempts = snapshot_attempts(records, frozen.results)
+    admitted_attempts = frozen.dispatched_attempts
     for attempt, _event in admitted_attempts:
         for identity in (
             attempt.id,
