@@ -81,7 +81,7 @@ source line endings in the rendered copy while JSON preserves the saved source.
 ## Classification experiment preset
 
 Use `--preset classification` on a run, evaluation or saved comparison. This
-adds `classification-strict-v1` analysis to the existing frozen report; it does
+adds `classification-strict-v2` analysis to the existing frozen report; it does
 not coordinate runs or call a provider. Export one saved identity in all three
 formats:
 
@@ -110,11 +110,22 @@ including failed/missing/unknown answers as false negatives. Acceptable sets
 contribute to accuracy, but not class metrics. Existing evaluation metrics below
 the preset retain their original valid-answer population. Empty denominators
 are unavailable with reasons. Applicable outcomes show valid, failed (input
-invalid plus response error), missing (pending) and unknown counts. Refusal count
-is unavailable: current saved provider evidence has no distinct refusal status;
-response errors may include refusals. The preset does not guess from response
-text or salvage category choices from malformed probability vectors. Strict
-failures stay failed and category-only scoring is disabled.
+invalid plus response error), missing (pending) and unknown counts.
+
+The refusal count includes applicable response errors with the saved error code
+`response_invalid` and reason `provider_refusal`. The OpenAI adapter records this
+marker for explicit refusal answers. Refusals remain a subset of failed answers,
+so they stay in the strict accuracy denominator and must not be added to failures
+again. `refusal_reason=explicit_provider_refusals_only` describes the count's
+scope. Zero means no explicit markers, not proof that no refusal occurred.
+Other response errors may include unmarked refusals. Reports do not infer
+refusals from raw response text or salvage choices from malformed probability
+vectors. Category-only scoring stays disabled.
+
+Saved `classification-strict-v1` reports keep their unavailable refusal counts
+and original interpretation when read, replayed or exported. A new report and
+operation ID select v2 analysis. Older builds cannot read v2 reports; retain
+the project and use a compatible reader when those reports are present.
 
 Comparison reports retain the existing `compatible_pairs_only` policy, paired
 improvements/regressions, denominator and every exclusion bucket, including
@@ -165,7 +176,11 @@ cases, frozen report/evaluation/run/result/label IDs, evidence mode, status,
 expectations, provenance, applicability, strict correctness, denominator and
 comparison bucket. Evaluation cost totals repeat on case rows and must not be
 summed across rows. Empty correctness means excluded; `false` means an applicable
-case failed strict scoring. To prevent spreadsheet formula execution, cells
+case failed strict scoring. V2 CSV adds `explicit_refusal` for each selected
+case, including cases with excluded labels. The repeated `refused_count` totals
+count only applicable cases and must not be summed across rows. `refusal_reason`
+retains the count's scope. V1 CSV keeps its original columns.
+To prevent spreadsheet formula execution, cells
 starting with formula/control characters are prefixed with an apostrophe; JSON
 retains the exact saved display strings. CSV requires a classification preset;
 raw material is never included in CSV. Saved-report exports reject `--preset`

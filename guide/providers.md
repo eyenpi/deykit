@@ -181,9 +181,13 @@ choice identity, complete probability vector, finite values in [0, 1], sum and
 argmax within 0.000001, and separate native confidence. Probabilities are never
 normalized. A refusal becomes a final `response_error` with reason
 `provider_refusal`; it is neither an unknown outcome nor automatically retried.
-Other cases can continue. Strict reports count refusals as failed answers; their
-existing aggregate refusal-count limitation remains explicit. Invalid answers,
-model mismatches and refusals retain sanitized response evidence and valid usage.
+Other cases can continue. Strict reports count refusals as failed answers.
+New classification reports also count explicit refusal markers among applicable
+expectations. Other response errors may include unmarked refusals, so the count
+does not establish their absence. Saved v1 reports retain unavailable refusal
+counts. See [classification reports](reports.md#classification-experiment-preset).
+Invalid answers, model mismatches and refusals retain sanitized response evidence
+and valid usage.
 Syntactically invalid JSON, duplicate keys and invalid UTF-8 retain a
 `deykit_unparsed_response` envelope containing a diagnostic text excerpt, not
 exact wire bytes or a parsed answer. JSON escapes are decoded before removing

@@ -20,6 +20,7 @@ from deykit.contracts.records import NonnegativeInt, ReportRecord, UtcTimestamp
 
 ReportFormat = Literal["json", "markdown", "csv"]
 ReportTargetKind = Literal["run", "evaluation", "comparison", "diagnostic", "check"]
+ClassificationPolicy = Literal["classification-strict-v1", "classification-strict-v2"]
 
 
 class RawChoices(FrozenModel):
@@ -422,10 +423,10 @@ class ClassificationEvaluation(FrozenModel):
     applicable_status_counts: StatusCounts
     failed_count: NonnegativeInt
     missing_count: NonnegativeInt
-    refused_count: None = None
-    refusal_reason: Literal["distinct_refusal_status_not_recorded"] = (
-        "distinct_refusal_status_not_recorded"
-    )
+    refused_count: NonnegativeInt | None = None
+    refusal_reason: Literal[
+        "distinct_refusal_status_not_recorded", "explicit_provider_refusals_only"
+    ] = "distinct_refusal_status_not_recorded"
     class_population: Literal["applicable_single_labels_including_failures"] = (
         "applicable_single_labels_including_failures"
     )
@@ -436,7 +437,7 @@ class ClassificationEvaluation(FrozenModel):
 
 
 class ClassificationReport(FrozenModel):
-    policy: Literal["classification-strict-v1"] = "classification-strict-v1"
+    policy: ClassificationPolicy = "classification-strict-v1"
     pricing: ClassificationPricing = Field(default_factory=ClassificationPricing)
     evaluations: tuple[ClassificationEvaluation, ...]
     comparison_policy: Literal["compatible_pairs_only"] = "compatible_pairs_only"

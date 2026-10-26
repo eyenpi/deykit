@@ -1,5 +1,6 @@
 """Standard CLI/runner behavior with an authored OpenAI HTTP exchange."""
 
+import csv
 import json
 import shutil
 
@@ -9,6 +10,7 @@ from test_cli_execution import invoke
 from test_image_execution import seed_image
 
 from deykit.application.evaluations import EvaluationService
+from deykit.application.labels import LabelService
 from deykit.contracts.images import ImagePreparation
 from deykit.providers.http import OneShotHttp
 
@@ -169,9 +171,17 @@ def test_openai_preview_unknown_resume_replay_and_report(setup, tmp_path, monkey
     assert invoke(source, "project", "validate").exit_code == 0
 
 
-def test_refusal_is_final_retains_usage_and_does_not_stop_other_cases(setup, monkeypatch):
+def test_refusal_is_final_retains_usage_and_does_not_stop_other_cases(setup, monkeypatch, tmp_path):
     source, _, _, clock = setup(2)
     configure(source, monkeypatch)
+    labels = LabelService(source, clock)
+    for case_id in ("case-00", "case-01"):
+        labels.set(
+            labels.read("decision", "data", case_id).review,
+            ("yes",),
+            provenance="model_generated",
+            operation_id=f"label-{case_id}",
+        )
     calls = []
 
     def handle(request):
@@ -195,6 +205,56 @@ def test_refusal_is_final_retains_usage_and_does_not_stop_other_cases(setup, mon
     )
     assert evaluation.metrics["usage"]["total_input_tokens"] == 200
     assert evaluation.metrics["usage"]["reported_attempt_count"] == 2
+    assert len(calls) == 2
+    destination = tmp_path / "refusals.json"
+    exported = invoke(
+        source,
+        "report",
+        "export",
+        run["run_id"],
+        "--target-kind",
+        "run",
+        "--preset",
+        "classification",
+        "--output",
+        str(destination),
+        "--format",
+        "json",
+        "--operation-id",
+        "refusal-report",
+    )
+    assert exported.exit_code == 0, exported.output
+    saved = json.loads(destination.read_text())
+    classification = saved["content"]["classification"]
+    assert classification["policy"] == "classification-strict-v2"
+    summary = classification["evaluations"][0]
+    assert summary["refused_count"] == summary["failed_count"] == 1
+    assert summary["full_cohort_strict_accuracy"]["numerator"] == 1
+    assert summary["full_cohort_strict_accuracy"]["denominator"] == 2
+    report_id = saved["report_id"]
+    for format_name in ("markdown", "csv"):
+        path = tmp_path / f"refusals.{format_name}"
+        result = invoke(
+            source,
+            "report",
+            "export",
+            "--report-id",
+            report_id,
+            "--format",
+            format_name,
+            "--output",
+            str(path),
+        )
+        assert result.exit_code == 0, result.output
+        if format_name == "markdown":
+            assert "explicit refusals 1" in path.read_text()
+        else:
+            with path.open(newline="") as stream:
+                rows = list(csv.DictReader(stream))
+            assert [row["explicit_refusal"] for row in rows] == ["true", "false"]
+            assert {row["refused_count"] for row in rows} == {"1"}
+            assert {row["refusal_reason"] for row in rows} == {"explicit_provider_refusals_only"}
+    assert invoke(source, "project", "validate").exit_code == 0
     assert len(calls) == 2
 
 
