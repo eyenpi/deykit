@@ -14,6 +14,7 @@ from deykit.contracts.identities import ContentHash, ResourceId
 from deykit.contracts.images import IMAGE_REQUEST_LIMITS, CaseImage
 from deykit.contracts.json_value import (
     GENERATED_LIMITS,
+    GroupSelectionSource,
     JsonLimits,
     JsonSource,
     bytes_hash,
@@ -165,7 +166,7 @@ class DatasetSnapshot(HashedRecord):
     cases: tuple[CaseRecord, ...]
     content_hash: ContentHash
     created_at: UtcTimestamp
-    selection_source: JsonSource = "{}"
+    selection_source: GroupSelectionSource = "{}"
 
     @model_validator(mode="after")
     def matching_cases(self) -> Self:

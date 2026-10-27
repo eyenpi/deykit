@@ -72,6 +72,7 @@ components; the quickstart resolves its output directory before passing paths.
 | Exercise authored answers | [Fixtures](fixtures.md): `fixture create`, `run --mode fixture --dry-run` | Exact request bindings and explicit authored evidence |
 | Evaluate a provider | [Providers](providers.md) and [runs](runs.md): configure, preview, bounded `run --mode live` | Authorized scope, limits, frozen run/result IDs |
 | Compare versions or label changes | [Comparisons](comparisons.md) and [evaluations](evaluations.md) | Paired evidence, actual denominators and exclusions |
+| Run several classification variants under shared limits | [Experiments](experiments.md) | Reviewed configuration, group snapshots, reservation totals and evidence mode |
 | Diagnose order effects or guard failures | [Diagnostics/regressions](diagnostics-regressions.md) | Group snapshots, frozen regressions and check outcomes |
 | Deliver findings | [Reports](reports.md): `report export` | Report ID, selected snapshots, export path and evidence mode |
 

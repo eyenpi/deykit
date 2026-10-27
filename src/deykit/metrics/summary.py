@@ -7,7 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal, localcontext
 from fractions import Fraction
 from typing import Literal
 
-from deykit.contracts.json_value import JsonValue
+from deykit.contracts.json_value import RECORD_LIMITS, JsonValue
 from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import (
     ChoiceDefinition,
@@ -18,6 +18,8 @@ from deykit.contracts.records import (
 )
 from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import label_applicability
+
+RECORD_MODEL_MAX_NODES = 3 * RECORD_LIMITS.max_nodes
 
 
 class MetricsInvalid(ValueError):
@@ -221,9 +223,17 @@ def assess_results(
     """Use only supplied immutable records; no current labels or provider calls."""
     try:
         definition = admit_model(ChoiceDefinition, definition, "invalid_definition")
-        dataset = admit_model(DatasetSnapshot, dataset, "invalid_dataset_snapshot")
-        labels = admit_model(LabelSnapshot, labels, "invalid_label_snapshot")
-        results = admit_model(ResultSnapshot, results, "invalid_result_snapshot")
+        # Reconstructing models also visits field names and model wrappers, which
+        # are not counted as JSON value nodes by the persisted-record limit.
+        dataset = admit_model(
+            DatasetSnapshot, dataset, "invalid_dataset_snapshot", max_nodes=RECORD_MODEL_MAX_NODES
+        )
+        labels = admit_model(
+            LabelSnapshot, labels, "invalid_label_snapshot", max_nodes=RECORD_MODEL_MAX_NODES
+        )
+        results = admit_model(
+            ResultSnapshot, results, "invalid_result_snapshot", max_nodes=RECORD_MODEL_MAX_NODES
+        )
     except ModelInvalid as error:
         raise MetricsInvalid(str(error)) from None
     if labels.dataset_snapshot_id != dataset.id:

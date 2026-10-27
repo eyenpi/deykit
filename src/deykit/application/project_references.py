@@ -20,6 +20,8 @@ from deykit.contracts.execution_groups import (
     DiagnosticSnapshot,
     ExecutionGroup,
     ExecutionGroupSegment,
+    ExperimentReuse,
+    ExperimentSnapshot,
     RegressionRemoval,
 )
 from deykit.contracts.images import ImageAsset
@@ -93,6 +95,8 @@ _MODELS: dict[Collection, type[Record]] = {
     "group_segments": ExecutionGroupSegment,
     "diagnostic_snapshots": DiagnosticSnapshot,
     "check_snapshots": CheckSnapshot,
+    "experiment_snapshots": ExperimentSnapshot,
+    "experiment_reuses": ExperimentReuse,
     "regression_removals": RegressionRemoval,
     "regressions": RegressionRecord,
     "reports": ReportRecord,
@@ -580,6 +584,31 @@ def _validate_hard_references(captured: _CapturedProject) -> None:
                     result_value.run_id != check_member.run_id
                 ):
                     _failure("project_reference_wrong_owner", result_stored)
+    for stored, value in captured.all("experiment_snapshots"):
+        if isinstance(value, ExperimentSnapshot):
+            captured.get(stored, "execution_groups", value.group_id)
+            for member in value.results:
+                captured.get(stored, "runs", member.run_id)
+                result_stored, result_value = captured.get(
+                    stored, "result_snapshots", member.result_snapshot_id
+                )
+                if (
+                    not isinstance(result_value, ResultSnapshot)
+                    or result_value.run_id != member.run_id
+                ):
+                    _failure("project_reference_wrong_owner", result_stored)
+    for stored, value in captured.all("experiment_reuses"):
+        if isinstance(value, ExperimentReuse):
+            captured.get(stored, "execution_groups", value.source_group_id)
+            snapshot_stored, snapshot = captured.get(
+                stored, "experiment_snapshots", value.source_snapshot_id
+            )
+            if (
+                not isinstance(snapshot, ExperimentSnapshot)
+                or snapshot.group_id != value.source_group_id
+                or snapshot.results != value.results
+            ):
+                _failure("project_reference_wrong_owner", snapshot_stored)
     for stored, value in captured.all("regressions"):
         if not isinstance(value, RegressionRecord):
             continue
@@ -857,6 +886,7 @@ def _validate_evaluations_and_comparisons(captured: _CapturedProject) -> None:
 def _validate_groups(captured: _CapturedProject) -> None:
     from deykit.application.checks import check_snapshot_from_records
     from deykit.application.diagnostics import diagnostic_snapshot_from_records
+    from deykit.application.experiment_reuse import admit_reuse
     from deykit.runner.group_evidence import admit_group_snapshots
 
     group_ids = tuple(
@@ -873,6 +903,9 @@ def _validate_groups(captured: _CapturedProject) -> None:
     for _stored, value in captured.all("check_snapshots"):
         if isinstance(value, CheckSnapshot):
             check_snapshot_from_records(captured.records, value.id)
+    for _stored, value in captured.all("experiment_reuses"):
+        if isinstance(value, ExperimentReuse):
+            admit_reuse(captured.records, value)
 
 
 def _validate_regressions_reports(

@@ -112,6 +112,28 @@
     }
   ],
   "commands": {
+    "capabilities": {
+      "guide": "guide/agents.md",
+      "parameters": [
+        {
+          "name": "command",
+          "options": [
+            "command"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": -1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
     "case add": {
       "guide": "guide/cli-authoring.md",
       "parameters": [
@@ -2669,28 +2691,6 @@
         }
       ]
     },
-    "serve": {
-      "guide": "guide/local-api.md",
-      "parameters": [
-        {
-          "name": "port",
-          "options": [
-            "--port"
-          ],
-          "secondary_options": [],
-          "type": "int range",
-          "default": 8765,
-          "required": false,
-          "multiple": false,
-          "nargs": 1,
-          "is_flag": false,
-          "minimum": 0,
-          "maximum": 65535,
-          "choices": [],
-          "hidden": false
-        }
-      ]
-    },
     "diagnose choice-order": {
       "guide": "guide/diagnostics-regressions.md",
       "parameters": [
@@ -3194,6 +3194,257 @@
           "type": "str",
           "default": null,
           "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "experiments cancel": {
+      "guide": "guide/experiments.md",
+      "parameters": [
+        {
+          "name": "experiment_id",
+          "options": [
+            "experiment_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "experiments preview": {
+      "guide": "guide/experiments.md",
+      "parameters": [
+        {
+          "name": "config",
+          "options": [
+            "config"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "experiments report": {
+      "guide": "guide/experiments.md",
+      "parameters": [
+        {
+          "name": "experiment_id",
+          "options": [
+            "experiment_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "snapshot",
+          "options": [
+            "--snapshot"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "experiments resume": {
+      "guide": "guide/experiments.md",
+      "parameters": [
+        {
+          "name": "experiment_id",
+          "options": [
+            "experiment_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "dry_run",
+          "options": [
+            "--dry-run"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "retry_unknown",
+          "options": [
+            "--retry-unknown"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "experiments run": {
+      "guide": "guide/experiments.md",
+      "parameters": [
+        {
+          "name": "config",
+          "options": [
+            "config"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "preview",
+          "options": [
+            "--preview"
+          ],
+          "secondary_options": [],
+          "type": "path",
+          "default": null,
+          "required": true,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
+          "name": "operation_id",
+          "options": [
+            "--operation-id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": false,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        }
+      ]
+    },
+    "experiments show": {
+      "guide": "guide/experiments.md",
+      "parameters": [
+        {
+          "name": "experiment_id",
+          "options": [
+            "experiment_id"
+          ],
+          "secondary_options": [],
+          "type": "str",
+          "default": null,
+          "required": true,
           "multiple": false,
           "nargs": 1,
           "is_flag": false,
@@ -5833,23 +6084,23 @@
         }
       ]
     },
-    "capabilities": {
-      "guide": "guide/agents.md",
+    "serve": {
+      "guide": "guide/local-api.md",
       "parameters": [
         {
-          "name": "command",
+          "name": "port",
           "options": [
-            "command"
+            "--port"
           ],
           "secondary_options": [],
-          "type": "str",
-          "default": null,
+          "type": "int range",
+          "default": 8765,
           "required": false,
           "multiple": false,
-          "nargs": -1,
+          "nargs": 1,
           "is_flag": false,
-          "minimum": null,
-          "maximum": null,
+          "minimum": 0,
+          "maximum": 65535,
           "choices": [],
           "hidden": false
         }

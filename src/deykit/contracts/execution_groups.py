@@ -6,7 +6,7 @@ from pydantic import Field, model_validator
 
 from deykit.contracts.base import FrozenModel, Record
 from deykit.contracts.identities import ContentHash, ResourceId
-from deykit.contracts.json_value import JsonSource
+from deykit.contracts.json_value import GroupSelectionSource, parse_json
 from deykit.contracts.records import HashedRecord, NonnegativeInt, PositiveInt, UtcTimestamp
 
 
@@ -19,23 +19,28 @@ class ExecutionMember(FrozenModel):
 
 class ExecutionGroup(HashedRecord):
     id: ResourceId
-    kind: Literal["choice_order", "regression_check"]
+    kind: Literal["choice_order", "regression_check", "experiment"]
     members: Annotated[tuple[ExecutionMember, ...], Field(min_length=1, max_length=10_000)]
     max_attempts: PositiveInt
     deadline_seconds: Annotated[int, Field(ge=1, le=86_400)]
     operation_id: ResourceId
     intent_hash: ContentHash
-    selection_source: JsonSource
+    selection_source: GroupSelectionSource
     content_hash: ContentHash
     created_at: UtcTimestamp
 
     @model_validator(mode="after")
     def bounded_members(self) -> Self:
+        if self.kind != "experiment":
+            parse_json(self.selection_source)
         if len({member.run_id for member in self.members}) != len(self.members):
             raise ValueError("duplicate_execution_member")
         if self.kind == "choice_order" and len(self.members) > 4:
             raise ValueError("too_many_diagnostic_orders")
-        if sum(member.initial_requests for member in self.members) > self.max_attempts:
+        if (
+            self.kind != "experiment"
+            and sum(member.initial_requests for member in self.members) > self.max_attempts
+        ):
             raise ValueError("group_initial_requests_exceed_cap")
         return self
 
@@ -78,6 +83,30 @@ class CheckSnapshot(HashedRecord):
     segment_id: ResourceId | None = None
     results: tuple[MemberResult, ...]
     baseline_unavailable: Literal["frozen_regression_selection"] = "frozen_regression_selection"
+    content_hash: ContentHash
+    created_at: UtcTimestamp
+
+
+class ExperimentSnapshot(HashedRecord):
+    id: ResourceId
+    sequence: PositiveInt
+    group_id: ResourceId
+    segment_id: ResourceId | None = None
+    results: tuple[MemberResult, ...]
+    content_hash: ContentHash
+    created_at: UtcTimestamp
+
+
+class ExperimentReuse(HashedRecord):
+    id: ResourceId
+    source_group_id: ResourceId
+    source_snapshot_id: ResourceId
+    operation_id: ResourceId
+    intent_hash: ContentHash
+    selection_source: GroupSelectionSource
+    review_context_hash: ContentHash
+    expected_review_context_hash: ContentHash | None = None
+    results: tuple[MemberResult, ...]
     content_hash: ContentHash
     created_at: UtcTimestamp
 

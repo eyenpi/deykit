@@ -7,7 +7,7 @@ from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import ChoiceDefinition, DatasetSnapshot, LabelRecord, LabelSnapshot
 from deykit.domain.case_identity import case_input_hash
 from deykit.domain.definitions import label_applicability, select_input
-from deykit.metrics.summary import MetricsInvalid, Rate
+from deykit.metrics.summary import RECORD_MODEL_MAX_NODES, MetricsInvalid, Rate
 
 
 @dataclass(frozen=True)
@@ -78,12 +78,27 @@ def majority_baseline(
     """Fit only the separately frozen full development source, never current mutable data."""
     try:
         definition = admit_model(ChoiceDefinition, definition, "invalid_definition")
-        fit_dataset = admit_model(DatasetSnapshot, fit_dataset, "invalid_dataset_snapshot")
-        fit_labels = admit_model(LabelSnapshot, fit_labels, "invalid_label_snapshot")
-        evaluation_dataset = admit_model(
-            DatasetSnapshot, evaluation_dataset, "invalid_dataset_snapshot"
+        fit_dataset = admit_model(
+            DatasetSnapshot,
+            fit_dataset,
+            "invalid_dataset_snapshot",
+            max_nodes=RECORD_MODEL_MAX_NODES,
         )
-        evaluation_labels = admit_model(LabelSnapshot, evaluation_labels, "invalid_label_snapshot")
+        fit_labels = admit_model(
+            LabelSnapshot, fit_labels, "invalid_label_snapshot", max_nodes=RECORD_MODEL_MAX_NODES
+        )
+        evaluation_dataset = admit_model(
+            DatasetSnapshot,
+            evaluation_dataset,
+            "invalid_dataset_snapshot",
+            max_nodes=RECORD_MODEL_MAX_NODES,
+        )
+        evaluation_labels = admit_model(
+            LabelSnapshot,
+            evaluation_labels,
+            "invalid_label_snapshot",
+            max_nodes=RECORD_MODEL_MAX_NODES,
+        )
     except ModelInvalid as error:
         raise MetricsInvalid(str(error)) from None
     if fit_labels.decision_id != evaluation_labels.decision_id:

@@ -7,14 +7,17 @@ from typing import Literal, NoReturn
 from deykit.application.dataset_support import fail
 from deykit.contracts.errors import ErrorCode
 from deykit.contracts.json_value import (
-    JsonDocument,
+    GENERATED_LIMITS,
+    GROUP_SELECTION_HASH_LIMITS,
+    GROUP_SELECTION_LIMITS,
     JsonError,
     JsonValue,
     dump_json,
+    parse_json,
     semantic_hash,
 )
 
-GroupKind = Literal["choice_order", "regression_check"]
+GroupKind = Literal["choice_order", "regression_check", "experiment"]
 
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _REVIEW_VERSION = "group-start-review-v1"
@@ -44,7 +47,7 @@ def _selection(
     kind, request = value["kind"], value["request"]
     if (
         not isinstance(kind, str)
-        or kind not in ("choice_order", "regression_check")
+        or kind not in ("choice_order", "regression_check", "experiment")
         or not isinstance(request, dict)
     ):
         _invalid(code=code)
@@ -59,10 +62,15 @@ def encode_group_start_selection(
     if type(original_source) is not str:
         _invalid(code="validation_error")
     try:
-        value = JsonDocument(original_source).value
+        value = parse_json(original_source, GROUP_SELECTION_LIMITS)
     except JsonError:
         _invalid(code="validation_error")
     original = _selection(value, None, code="validation_error")
+    if original["kind"] != "experiment":
+        try:
+            parse_json(original_source)
+        except JsonError:
+            _invalid(code="validation_error")
     if expected_review_context_hash is None:
         return GroupStartSelection(original_source, original, None)
     if (
@@ -78,7 +86,8 @@ def encode_group_start_selection(
                 "version": _REVIEW_VERSION,
                 "expected_review_context_hash": expected_review_context_hash,
             },
-        }
+        },
+        limits=GROUP_SELECTION_LIMITS if original["kind"] == "experiment" else GENERATED_LIMITS,
     )
     return GroupStartSelection(stored, original, expected_review_context_hash)
 
@@ -89,11 +98,16 @@ def decode_group_start_selection(
     if type(stored_source) is not str:
         _invalid()
     try:
-        value = JsonDocument(stored_source).value
+        value = parse_json(stored_source, GROUP_SELECTION_LIMITS)
     except JsonError:
         _invalid()
     if not isinstance(value, dict):
         _invalid()
+    if value.get("kind") != "experiment":
+        try:
+            parse_json(stored_source)
+        except JsonError:
+            _invalid()
     if set(value) == {"kind", "request"}:
         original = _selection(value, expected_kind)
         return GroupStartSelection(stored_source, original, None)
@@ -127,4 +141,12 @@ def group_start_intent(selection: GroupStartSelection) -> str:
             "selection": selection.original_selection,
             "expected_review_context_hash": selection.expected_review_context_hash,
         }
-    return semantic_hash(payload)
+    return semantic_hash(
+        payload,
+        limits=(
+            GROUP_SELECTION_HASH_LIMITS
+            if isinstance(selection.original_selection, dict)
+            and selection.original_selection.get("kind") == "experiment"
+            else GENERATED_LIMITS
+        ),
+    )

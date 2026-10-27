@@ -9,6 +9,8 @@ from deykit.contracts.execution_groups import (
     DiagnosticSnapshot,
     ExecutionGroup,
     ExecutionGroupSegment,
+    ExperimentReuse,
+    ExperimentSnapshot,
     RegressionRemoval,
 )
 from deykit.contracts.images import ImageAsset
@@ -73,6 +75,8 @@ TYPES: dict[Collection, type[Record]] = {
     "group_segments": ExecutionGroupSegment,
     "diagnostic_snapshots": DiagnosticSnapshot,
     "check_snapshots": CheckSnapshot,
+    "experiment_snapshots": ExperimentSnapshot,
+    "experiment_reuses": ExperimentReuse,
     "regression_removals": RegressionRemoval,
     "reports": ReportRecord,
 }
@@ -116,6 +120,8 @@ IMMUTABLE = frozenset(
         "group_segments",
         "diagnostic_snapshots",
         "check_snapshots",
+        "experiment_snapshots",
+        "experiment_reuses",
         "regression_removals",
     }
 )

@@ -121,3 +121,100 @@ def test_cancel_from_created_callback_is_not_acknowledged_as_old_request(setup):
     assert resumed.state == "completed" and resumed.attempts_used == 3
     service.cancel(result.run_id, operation_id="cancel")
     assert len(factory.calls) == 3
+
+
+def test_priority_inspection_after_freeze_waits_for_first_segment(setup, monkeypatch):
+    from deykit.storage import FileProjectSource
+
+    source, service, factory, _ = setup(1)
+    original = service.repository.freeze
+    acknowledgements = []
+
+    async def exercise(reader):
+        priority = reader.priority_read()
+
+        def freeze_then_inspect(*args, **kwargs):
+            run_id = original(*args, **kwargs)
+            priority.__enter__()
+
+            async def release():
+                await asyncio.sleep(0.1)
+                priority.__exit__(None, None, None)
+
+            asyncio.create_task(release())
+            return run_id
+
+        monkeypatch.setattr(service.repository, "freeze", freeze_then_inspect)
+        return await service.start(
+            request(), operation_id="priority-start", on_created=acknowledgements.append
+        )
+
+    with FileProjectSource(source.root) as reader:
+        result = asyncio.run(exercise(reader))
+    assert len(acknowledgements) == 1 and result.attempts_used == 1
+    assert len(factory.calls) == 1
+
+
+def test_priority_inspection_from_created_callback_waits_for_dispatch(setup):
+    from deykit.storage import FileProjectSource
+
+    source, service, factory, _ = setup(1)
+
+    async def exercise(reader):
+        priority = reader.priority_read()
+
+        def created(_):
+            priority.__enter__()
+
+            async def release():
+                await asyncio.sleep(0.1)
+                priority.__exit__(None, None, None)
+
+            asyncio.create_task(release())
+
+        return await service.start(request(), operation_id="priority-callback", on_created=created)
+
+    with FileProjectSource(source.root) as reader:
+        result = asyncio.run(exercise(reader))
+    assert result.attempts_used == 1 and len(factory.calls) == 1
+
+
+def test_priority_inspection_after_resume_segment_waits_for_acknowledgement(setup, monkeypatch):
+    from deykit.storage import FileProjectSource
+
+    source, service, factory, _ = setup(1)
+    factory.responses["case-00"] = [
+        DispatchOutcome(
+            state="unknown", error=ServiceError(code="provider_rejected", reason="timeout")
+        )
+    ]
+    original = service.repository.segment
+    acknowledgements = []
+
+    async def exercise(reader):
+        first = await service.start(request(), operation_id="start-before-resume")
+
+        def segment_then_inspect(*args, **kwargs):
+            segment = original(*args, **kwargs)
+            priority = reader.priority_read()
+            priority.__enter__()
+
+            async def release():
+                await asyncio.sleep(0.1)
+                priority.__exit__(None, None, None)
+
+            asyncio.create_task(release())
+            return segment
+
+        monkeypatch.setattr(service.repository, "segment", segment_then_inspect)
+        return await service.resume(
+            first.run_id,
+            operation_id="priority-resume",
+            retry_unknown=True,
+            on_resumed=acknowledgements.append,
+        )
+
+    with FileProjectSource(source.root) as reader:
+        result = asyncio.run(exercise(reader))
+    assert len(acknowledgements) == 1 and result.attempts_used == 2
+    assert result.cases[0].status == "valid" and len(factory.calls) == 2

@@ -9,6 +9,8 @@ from deykit.storage._chunks import CHUNK_LIMIT
 from deykit.storage.errors import fail
 from deykit.storage.filesystem import Parts, SafeFiles
 
+_MAX_RETAINED_BYTES = 256 * 1024 * 1024
+
 
 class HistoryCapture:
     def __init__(self, files: SafeFiles) -> None:
@@ -69,11 +71,11 @@ class OperationValidationMemo:
         if previous is not None:
             self.bytes -= self._weight(*previous)
         weight = self._weight(bodies, value)
-        if weight > 128 * 1024 * 1024:
+        if weight > _MAX_RETAINED_BYTES:
             return
         self.entries[operation_id] = (bodies, value)
         self.bytes += weight
-        while len(self.entries) > 65_536 or self.bytes > 128 * 1024 * 1024:
+        while len(self.entries) > 65_536 or self.bytes > _MAX_RETAINED_BYTES:
             _, (removed, evidence) = self.entries.popitem(last=False)
             self.bytes -= self._weight(removed, evidence)
 

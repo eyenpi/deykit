@@ -92,6 +92,8 @@ Collection = Literal[
     "group_segments",
     "diagnostic_snapshots",
     "check_snapshots",
+    "experiment_snapshots",
+    "experiment_reuses",
     "regression_removals",
     "regressions",
     "reports",
@@ -160,6 +162,13 @@ class SnapshotSource(ProjectSource, Protocol):
     def capture_snapshot(
         self, keys: tuple[ResourceKey, ...] | None = None
     ) -> tuple[StoredRecord, ...]: ...
+
+
+@runtime_checkable
+class CreateTransactionPreviewSource(Protocol):
+    """Check storage-specific limits for a create-only transaction without writing."""
+
+    def preview_create_transaction(self, changes: tuple[SourceChange, ...]) -> None: ...
 
 
 class RecordViewSource(Protocol):

@@ -11,7 +11,7 @@ from deykit.contracts.records import CompiledRequest
 from deykit.runner.planner import RunPlan
 from deykit.runner.views import RunPreview, RunProgress
 
-GroupKind = Literal["choice_order", "regression_check"]
+GroupKind = Literal["choice_order", "regression_check", "experiment"]
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class GroupPlan:
     review_membership_records: tuple[StoredRecord, ...] = field(kw_only=True)
 
     def validate(self) -> None:
-        if self.kind not in ("choice_order", "regression_check") or not self.plans:
+        if self.kind not in ("choice_order", "regression_check", "experiment") or not self.plans:
             fail("invalid_execution_group", "preflight_failed")
         if self.kind == "choice_order":
             if len(self.plans) > 4:
@@ -41,9 +41,9 @@ class GroupPlan:
                 for p in self.plans
             ):
                 fail("diagnostic_source_mismatch", "preflight_failed")
-        if (
-            len(self.plans) > 10_000
-            or sum(p.initial_requests for p in self.plans) > self.max_attempts
+        if len(self.plans) > 10_000 or (
+            self.kind != "experiment"
+            and sum(p.initial_requests for p in self.plans) > self.max_attempts
         ):
             fail("group_initial_requests_exceed_cap", "preflight_failed")
         if not 1 <= self.deadline_seconds <= 86_400:

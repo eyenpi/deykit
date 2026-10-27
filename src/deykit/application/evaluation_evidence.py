@@ -2,15 +2,23 @@
 
 from collections import defaultdict
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from deykit.application.dataset_support import fail
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.records import AttemptEvent, AttemptRecord, ResultSnapshot
-from deykit.runner.history import history_from_records
+from deykit.runner.history import RunHistory, history_from_records
+
+if TYPE_CHECKING:
+    from deykit.runner.decoding import HistoryDecoder
 
 
 def snapshot_attempts(
-    records: tuple[StoredRecord, ...], snapshot: ResultSnapshot
+    records: tuple[StoredRecord, ...],
+    snapshot: ResultSnapshot,
+    *,
+    decoder: "HistoryDecoder | None" = None,
+    history: RunHistory | None = None,
 ) -> tuple[tuple[AttemptRecord, AttemptEvent], ...]:
     """Verify results against saved outcomes; include unsettled dispatched usage.
 
@@ -18,7 +26,22 @@ def snapshot_attempts(
     is therefore visible only if its corresponding marker precedes this boundary.
     No current result or later attempt can replace the snapshot's evidence.
     """
-    history = history_from_records(records, snapshot.run_id)
+    _, dispatched = snapshot_history(records, snapshot, decoder=decoder, history=history)
+    return dispatched
+
+
+def snapshot_history(
+    records: tuple[StoredRecord, ...],
+    snapshot: ResultSnapshot,
+    *,
+    decoder: "HistoryDecoder | None" = None,
+    history: RunHistory | None = None,
+) -> tuple[RunHistory, tuple[tuple[AttemptRecord, AttemptEvent], ...]]:
+    """Reconstruct the visible run evidence at a validated result boundary."""
+    if history is None:
+        history = history_from_records(records, snapshot.run_id, decoder=decoder)
+    elif history.manifest.id != snapshot.run_id:
+        fail("run_evidence_identity_mismatch", "incompatible_data")
     if any(item.run_id != snapshot.run_id for item in history.prepared) or any(
         item.run_id != snapshot.run_id for item in history.segments
     ):
@@ -78,4 +101,13 @@ def snapshot_attempts(
         and historical.results(legacy_deadline_errors=True) != snapshot.results
     ):
         fail("result_attempt_evidence_mismatch", "incompatible_data")
-    return tuple(dispatched)
+    visible_segment_ids = {event.segment_id for event in historical.events}
+    snapshots = tuple(item for item in history.snapshots if item.through_event_sequence <= boundary)
+    historical = replace(
+        historical,
+        segments=tuple(item for item in history.segments if item.id in visible_segment_ids),
+        controls=(),
+        snapshots=tuple(item for item in snapshots if item.id != snapshot.id) + (snapshot,),
+        group=None,
+    )
+    return historical, tuple(dispatched)

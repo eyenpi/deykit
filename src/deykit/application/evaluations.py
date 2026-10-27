@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
 from deykit.application.dataset_support import fail, identifier, page
 from deykit.application.evaluation_evidence import snapshot_attempts
@@ -39,6 +39,10 @@ from deykit.domain.label_identity import label_id
 from deykit.metrics import assess_results, live_latency, majority_baseline, reported_usage
 from deykit.metrics.baseline import unavailable_regression_baseline
 from deykit.metrics.summary import MetricsInvalid
+
+if TYPE_CHECKING:
+    from deykit.runner.decoding import HistoryDecoder
+    from deykit.runner.history import RunHistory
 
 R = TypeVar("R", bound=Record)
 EvaluationMode = Literal["original", "saved_answer_reevaluation"]
@@ -147,10 +151,15 @@ def frozen_evaluation_from_records(
     result_snapshot_id: str,
     label_snapshot_id: str | None,
     mode: EvaluationMode,
+    *,
+    decoder: HistoryDecoder | None = None,
+    history: RunHistory | None = None,
 ) -> FrozenEvaluation:
     """Admit original immutable context from one already captured source batch."""
     index = {record.key: record for record in records}
     manifest = _required(index, RunManifest, "runs", run_id)
+    if history is not None and history.manifest != manifest:
+        fail("run_evidence_identity_mismatch", "incompatible_data")
     if (
         manifest.id != run_id
         or manifest.decision_id is None
@@ -207,13 +216,15 @@ def frozen_evaluation_from_records(
         results,
         baseline_dataset,
         baseline_labels,
-        snapshot_attempts(records, results),
+        snapshot_attempts(records, results, decoder=decoder, history=history),
     )
     _verify_hashes(frozen)
     return frozen
 
 
-def _metrics(frozen: FrozenEvaluation, evaluation_mode: EvaluationMode) -> dict[str, JsonValue]:
+def metrics_from_frozen(
+    frozen: FrozenEvaluation, evaluation_mode: EvaluationMode
+) -> dict[str, JsonValue]:
     try:
         summary = assess_results(
             frozen.revision.definition,
@@ -440,7 +451,7 @@ class EvaluationService:
                 before, run_id, result_snapshot_id, label_snapshot_id, mode
             )
             try:
-                metrics_source = dump_json(_metrics(frozen, mode))
+                metrics_source = dump_json(metrics_from_frozen(frozen, mode))
                 content_hash = _evaluation_hash(
                     run_id,
                     result_snapshot_id,
@@ -543,7 +554,7 @@ class EvaluationService:
                     label_snapshot.id,
                     "saved_answer_reevaluation",
                 )
-                metrics_source = dump_json(_metrics(frozen, "saved_answer_reevaluation"))
+                metrics_source = dump_json(metrics_from_frozen(frozen, "saved_answer_reevaluation"))
                 evaluation = EvaluationRecord(
                     id=identifier(self.id_factory()),
                     run_id=run_id,

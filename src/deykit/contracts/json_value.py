@@ -35,6 +35,10 @@ DEFAULT_LIMITS = JsonLimits()
 # Derived output adds wrapper/escaping overhead without relaxing user-source admission.
 GENERATED_LIMITS = JsonLimits(max_bytes=2_097_152, max_depth=128, max_nodes=200_000)
 RECORD_LIMITS = JsonLimits(max_bytes=16_777_216, max_depth=256, max_nodes=1_000_000)
+GROUP_SELECTION_LIMITS = JsonLimits(max_bytes=4 * 1024 * 1024, max_depth=128, max_nodes=1_000_000)
+GROUP_SELECTION_HASH_LIMITS = JsonLimits(
+    max_bytes=8 * 1024 * 1024, max_depth=128, max_nodes=1_000_000
+)
 
 
 def _valid_string(value: str) -> bytes:
@@ -237,6 +241,16 @@ def validate_source(source: str) -> str:
 
 
 JsonSource = Annotated[str, StringConstraints(strict=True), AfterValidator(validate_source)]
+
+
+def validate_group_selection_source(source: str) -> str:
+    parse_json(source, GROUP_SELECTION_LIMITS)
+    return source
+
+
+GroupSelectionSource = Annotated[
+    str, StringConstraints(strict=True), AfterValidator(validate_group_selection_source)
+]
 
 
 @dataclass(frozen=True)

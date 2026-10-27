@@ -10,7 +10,7 @@ from deykit.contracts.ports import StoredRecord
 
 R = TypeVar("R", bound=Record)
 _MAX_ENTRIES = 131_072
-_MAX_BYTES = 64 * 1024 * 1024
+_MAX_BYTES = 128 * 1024 * 1024
 
 
 class HistoryDecoder:

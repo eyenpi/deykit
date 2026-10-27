@@ -68,6 +68,19 @@ def chunk_name(index: int) -> str:
     return f"chunk-{index}.pack"
 
 
+def create_chunk_count(bodies: tuple[bytes, ...]) -> int:
+    """Count the packs for create-only bodies without copying their contents."""
+    count = 0
+    size = len(_MAGIC)
+    for body in bodies:
+        frame_size = _FRAME.size + len(body)
+        if size > len(_MAGIC) and size + frame_size > _TARGET_BYTES:
+            count += 1
+            size = len(_MAGIC)
+        size += frame_size
+    return count + (size > len(_MAGIC))
+
+
 def encode_chunks(blobs: tuple[tuple[int, bool, bytes], ...]) -> tuple[bytes, ...]:
     chunks: list[bytes] = []
     current = bytearray(_MAGIC)
