@@ -21,7 +21,10 @@ from deykit.contracts.records import NonnegativeInt, ReportRecord, UtcTimestamp
 ReportFormat = Literal["json", "markdown", "csv"]
 ReportTargetKind = Literal["run", "evaluation", "comparison", "diagnostic", "check"]
 ClassificationPolicy = Literal[
-    "classification-strict-v1", "classification-strict-v2", "classification-strict-v3"
+    "classification-strict-v1",
+    "classification-strict-v2",
+    "classification-strict-v3",
+    "classification-strict-v4",
 ]
 
 
@@ -61,11 +64,14 @@ class ReportRequest(FrozenModel):
     raw: RawChoices = Field(default_factory=RawChoices)
     preset: Literal["classification"] | None = None
     pricing: ClassificationPricing | None = None
+    category_only: bool = False
 
     @model_validator(mode="after")
     def selector_matches_kind(self) -> ReportRequest:
         if self.pricing is not None and self.preset is None:
             raise ValueError("pricing_requires_classification")
+        if self.category_only and self.preset is None:
+            raise ValueError("category_only_requires_classification")
         if self.preset is not None and self.target_kind in ("diagnostic", "check"):
             raise ValueError("invalid_classification_target")
         if self.target_kind in ("diagnostic", "check"):
@@ -279,6 +285,13 @@ class EvaluationMetrics(Record):
     usage: UsageDisplay
 
 
+class CohortSelection(FrozenModel):
+    split: Literal["all", "development", "calibration", "test"] | None
+    explicit_case_ids: bool | None
+    requested_case_count: NonnegativeInt | None
+    regression_selected: bool
+
+
 class RunEvidenceContext(FrozenModel):
     run_id: ResourceId
     manifest_hash: ContentHash
@@ -309,6 +322,9 @@ class RunEvidenceContext(FrozenModel):
     option_ids: tuple[ResourceId, ...]
     option_order: tuple[ResourceId, ...]
     selected_case_ids: tuple[ResourceId, ...]
+    cohort_selection: CohortSelection | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     baseline_dataset_snapshot_id: ResourceId
     baseline_dataset_hash: ContentHash
     baseline_label_snapshot_id: ResourceId
@@ -334,6 +350,9 @@ class ReportCase(FrozenModel):
     case_id: ResourceId
     input_hash: ContentHash
     selected_images: tuple[SelectedImage, ...] = Field(default=(), exclude_if=lambda v: not v)
+    category_only_option_id: ResourceId | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     split: Literal["development", "calibration", "test"]
     status: Literal["pending", "input_invalid", "response_error", "unknown", "valid"]
     attempt_id: ResourceId | None
@@ -350,6 +369,9 @@ class ReportCase(FrozenModel):
     exclusion_reasons: tuple[str, ...]
     legacy_question_ids: tuple[ResourceId, ...]
     legacy_expected_option_ids: tuple[tuple[ResourceId, ...], ...]
+    legacy_label_provenances: tuple[str, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
     legacy_exclusion_reasons: tuple[tuple[str, ...], ...]
     error: ServiceError | None
 
@@ -400,10 +422,19 @@ class ReportEvaluation(FrozenModel):
         return self
 
 
+class CategoryOnlyCase(FrozenModel):
+    source: Literal["valid", "salvaged", "unavailable"]
+    option_id: ResourceId | None
+    correct: bool | None
+
+
 class ClassificationCase(FrozenModel):
     case_id: ResourceId
     applicable: bool
     strict_correct: bool | None
+    category_only: CategoryOnlyCase | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class TokenListCost(FrozenModel):
@@ -413,6 +444,13 @@ class TokenListCost(FrozenModel):
     unknown_attempt_count: NonnegativeInt
     reason: str | None
     interpretation: Literal["token_list_estimate_not_billed"] = "token_list_estimate_not_billed"
+
+
+class CategoryOnlySummary(FrozenModel):
+    salvaged_count: NonnegativeInt
+    usable_count: NonnegativeInt
+    full_cohort_accuracy: RateDisplay
+    usable_accuracy: RateDisplay
 
 
 class ClassificationEvaluation(FrozenModel):
@@ -436,6 +474,9 @@ class ClassificationEvaluation(FrozenModel):
     classes: tuple[ClassMetricDisplay, ...]
     cases: tuple[ClassificationCase, ...]
     cost: TokenListCost
+    category_only: CategoryOnlySummary | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 ExperimentalPairBucket = Literal[
@@ -452,6 +493,11 @@ ExperimentalPairBucket = Literal[
 ]
 
 
+class SelectedInputDifference(FrozenModel):
+    changed: bool | None
+    unavailable_reason: Literal["case_missing", "input_not_prepared"] | None
+
+
 class ExperimentalPairCase(FrozenModel):
     case_id: ResourceId
     bucket: ExperimentalPairBucket
@@ -462,11 +508,14 @@ class ExperimentalPairCase(FrozenModel):
     image_source_changed: bool | None
     prepared_image_changed: bool | None
     preparation_changed: bool | None
+    selected_input: SelectedInputDifference | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class ExperimentalComparison(FrozenModel):
     policy: Literal["matching_labels_allow_changed_inputs_v1"]
-    selected_input_comparison: Literal["not_recorded"]
+    selected_input_comparison: Literal["not_recorded", "reconstructed_selection_v1"]
     counts: dict[ExperimentalPairBucket, NonnegativeInt]
     quality_denominator: NonnegativeInt
     left_correct_count: NonnegativeInt
@@ -480,6 +529,12 @@ class ExperimentalComparison(FrozenModel):
     image_source_changed_count: NonnegativeInt
     prepared_image_changed_count: NonnegativeInt
     preparation_changed_count: NonnegativeInt
+    selected_input_changed_count: NonnegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    selected_input_unavailable_count: NonnegativeInt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     definition_changed: bool
     adapter_changed: bool
     requested_model_changed: bool | None
@@ -492,7 +547,7 @@ class ClassificationReport(FrozenModel):
     pricing: ClassificationPricing = Field(default_factory=ClassificationPricing)
     evaluations: tuple[ClassificationEvaluation, ...]
     comparison_policy: Literal["compatible_pairs_only"] = "compatible_pairs_only"
-    category_only_scoring: Literal["disabled"] = "disabled"
+    category_only_scoring: Literal["disabled", "jev_probability_only_v1"] = "disabled"
     experimental_comparison: ExperimentalComparison | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -668,18 +723,53 @@ class ReportContent(Record):
     @model_validator(mode="after")
     def branch_matches_target(self) -> ReportContent:
         if self.classification is not None:
+            classification = self.classification
             if self.target.kind not in ("run", "evaluation", "comparison") or tuple(
-                item.evaluation_id for item in self.classification.evaluations
+                item.evaluation_id for item in classification.evaluations
             ) != tuple(item.context.evaluation_id for item in self.evaluations):
                 raise ValueError("invalid_classification_target")
-            if self.classification.policy == "classification-strict-v3":
+            if classification.policy == "classification-strict-v3":
                 if (
                     self.target.kind != "comparison"
-                    or self.classification.experimental_comparison is None
+                    or classification.experimental_comparison is None
                 ):
                     raise ValueError("invalid_experimental_comparison")
-            elif self.classification.experimental_comparison is not None:
+            elif classification.policy == "classification-strict-v4":
+                if (self.target.kind == "comparison") != (
+                    classification.experimental_comparison is not None
+                ):
+                    raise ValueError("invalid_experimental_comparison")
+            elif classification.experimental_comparison is not None:
                 raise ValueError("invalid_experimental_comparison")
+            is_v4 = classification.policy == "classification-strict-v4"
+            category_only = classification.category_only_scoring != "disabled"
+            if category_only and not is_v4:
+                raise ValueError("invalid_category_only_policy")
+            for evaluation, summary in zip(
+                self.evaluations, classification.evaluations, strict=True
+            ):
+                if (evaluation.context.cohort_selection is not None) != is_v4:
+                    raise ValueError("invalid_cohort_selection_projection")
+                if any(
+                    len(case.legacy_label_provenances)
+                    != (len(case.legacy_question_ids) if is_v4 else 0)
+                    for case in evaluation.cases
+                ):
+                    raise ValueError("invalid_legacy_provenance_projection")
+                if not category_only and any(
+                    case.category_only_option_id is not None for case in evaluation.cases
+                ):
+                    raise ValueError("invalid_category_only_projection")
+                if (summary.category_only is not None) != category_only or any(
+                    (case.category_only is not None) != category_only for case in summary.cases
+                ):
+                    raise ValueError("invalid_category_only_projection")
+            experimental = classification.experimental_comparison
+            if experimental is not None and (
+                (experimental.selected_input_comparison == "reconstructed_selection_v1") != is_v4
+                or any((case.selected_input is not None) != is_v4 for case in experimental.cases)
+            ):
+                raise ValueError("invalid_selected_input_projection")
         if self.target.kind in ("run", "evaluation"):
             if len(self.evaluations) != 1 or self.comparison is not None:
                 raise ValueError("invalid_report_target_branch")

@@ -176,6 +176,13 @@ def admit_report_from_records(
         admitted.content,
         active_sanitizer,
     )
+    classification = admitted.content.classification
+    is_v4 = classification is not None and classification.policy == "classification-strict-v4"
+    category_only = (
+        classification is not None and classification.category_only_scoring != "disabled"
+    )
+    compare_selected_inputs = is_v4 and admitted.content.comparison is not None
+    selected_inputs: list[dict[str, str | None]] = []
     expected_raw: list[RawMaterial] = []
     if admitted.content.target.kind in ("diagnostic", "check"):
         frozen_group: FrozenDiagnosticSnapshot | FrozenCheckSnapshot
@@ -225,10 +232,17 @@ def admit_report_from_records(
             if linked is None:
                 fail("report_link_mismatch", "incompatible_data")
             view = admit_evaluation_record(linked)
-            projected, raw_items = project_evaluation(
-                records, view, active_sanitizer, admitted.content.raw
+            projected, raw_items, input_identities = project_evaluation(
+                records,
+                view,
+                active_sanitizer,
+                admitted.content.raw,
+                include_selected_input=compare_selected_inputs,
+                category_only=category_only,
+                include_classification_context=is_v4,
             )
             expected_raw.extend(raw_items)
+            selected_inputs.append(input_identities)
             if projected != saved_evaluation:
                 if sanitizer_would_change(admitted.content, active_sanitizer):
                     fail("report_redaction_context_mismatch", "incompatible_data")
@@ -262,12 +276,15 @@ def admit_report_from_records(
         if sanitizer_would_change(admitted.content, active_sanitizer):
             fail("report_redaction_context_mismatch", "incompatible_data")
         fail("report_link_mismatch", "incompatible_data")
-    classification = admitted.content.classification
     if classification is not None and classification != classification_report(
         admitted.content.evaluations,
         classification.pricing,
         policy=classification.policy,
         comparison=admitted.content.comparison,
+        category_only=category_only,
+        selected_inputs=(selected_inputs[0], selected_inputs[1])
+        if compare_selected_inputs
+        else None,
     ):
         fail("report_classification_mismatch", "incompatible_data")
     return ReportView(admitted.record, admitted.etag, admitted.content, replayed)
@@ -318,6 +335,7 @@ class ReportService:
                     if request.preset is not None
                     else {}
                 ),
+                **({"category_only": True} if request.category_only else {}),
             }
         )
         with self.source.consistent_read() as source:
@@ -504,23 +522,33 @@ class ReportService:
             else:
                 fail("report_target_missing", "not_found")
 
+            is_v4 = request.preset == "classification"
+            compare_selected_inputs = is_v4 and comparison_source is not None
+            selected_inputs: list[dict[str, str | None]] = []
             for view in eval_views:
-                projected, raw_items = project_evaluation(
-                    records, view, self.sanitizer, request.raw
+                projected, raw_items, input_identities = project_evaluation(
+                    records,
+                    view,
+                    self.sanitizer,
+                    request.raw,
+                    include_selected_input=compare_selected_inputs,
+                    category_only=request.category_only,
+                    include_classification_context=is_v4,
                 )
                 evaluations.append(projected)
                 material.extend(raw_items)
+                selected_inputs.append(input_identities)
             eval_ids = tuple(dict.fromkeys(view.record.id for view in eval_views))
             classification = (
                 classification_report(
                     tuple(evaluations),
                     request.pricing or ClassificationPricing(),
-                    policy=(
-                        "classification-strict-v3"
-                        if comparison_source is not None
-                        else "classification-strict-v2"
-                    ),
+                    policy=("classification-strict-v4" if is_v4 else "classification-strict-v2"),
                     comparison=comparison_source,
+                    category_only=request.category_only,
+                    selected_inputs=(selected_inputs[0], selected_inputs[1])
+                    if compare_selected_inputs
+                    else None,
                 )
                 if request.preset == "classification"
                 else None

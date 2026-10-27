@@ -106,6 +106,7 @@ def export(
     group_snapshot: Annotated[str | None, typer.Option("--group-snapshot")] = None,
     preset: Annotated[str | None, typer.Option("--preset")] = None,
     pricing: Annotated[str | None, typer.Option("--pricing")] = None,
+    category_only: Annotated[bool, typer.Option("--category-only")] = False,
     include_raw_inputs: Annotated[bool, typer.Option("--include-raw-inputs")] = False,
     include_raw_requests: Annotated[bool, typer.Option("--include-raw-requests")] = False,
     include_raw_responses: Annotated[bool, typer.Option("--include-raw-responses")] = False,
@@ -119,7 +120,7 @@ def export(
         nonlocal captured
         selected_format = _format(format_name)
         raw_requested = include_raw_inputs or include_raw_requests or include_raw_responses
-        creation_selector = any(
+        creation_selector = category_only or any(
             item is not None
             for item in (
                 target_kind,
@@ -171,6 +172,7 @@ def export(
                     group_snapshot_id=group_snapshot,
                     preset="classification" if preset == "classification" else None,
                     pricing=prices,
+                    category_only=category_only,
                     raw=RawChoices(
                         inputs=include_raw_inputs,
                         requests=include_raw_requests,

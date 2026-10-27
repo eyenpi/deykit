@@ -24,10 +24,12 @@ from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.comparison_json import COMPARISON_OUTCOMES_LIMITS
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.evidence import evidence_hash
+from deykit.contracts.identities import validate_resource_id
 from deykit.contracts.images import SelectedImage
 from deykit.contracts.json_value import (
     DEFAULT_LIMITS,
     GENERATED_LIMITS,
+    JsonDocument,
     JsonError,
     JsonLimits,
     JsonValue,
@@ -36,8 +38,9 @@ from deykit.contracts.json_value import (
     parse_json,
 )
 from deykit.contracts.ports import StoredRecord
-from deykit.contracts.records import PreparedCase
+from deykit.contracts.records import DatasetSnapshot, PreparedCase, RunManifest
 from deykit.contracts.redaction import Sanitizer, safe_choice_response
+from deykit.domain.jev_response_v1 import category_only_choice
 from deykit.metrics import assess_results
 from deykit.reports.admission import _require_integer_record_version, _validation_tree
 from deykit.reports.models import (
@@ -60,6 +63,45 @@ def _safe_text(sanitizer: Sanitizer, value: str | None) -> str | None:
         return None
     safe = sanitizer.text(value)
     return safe
+
+
+def _cohort_selection(dataset: DatasetSnapshot, manifest: RunManifest) -> dict[str, JsonValue]:
+    """Disclose recorded filters without assuming an old snapshot recorded them."""
+    result: dict[str, JsonValue] = {
+        "split": None,
+        "explicit_case_ids": None,
+        "requested_case_count": None,
+        "regression_selected": bool(manifest.regression_ids),
+    }
+    selection = JsonDocument(dataset.selection_source).value
+    if not isinstance(selection, dict) or set(selection) != {"split", "case_ids"}:
+        return result
+    split = selection["split"]
+    case_ids = selection["case_ids"]
+    if (
+        split not in ("all", "development", "calibration", "test")
+        or not isinstance(case_ids, list)
+        or any(not isinstance(case_id, str) for case_id in case_ids)
+    ):
+        return result
+    try:
+        requested_ids = {validate_resource_id(case_id) for case_id in cast(list[str], case_ids)}
+    except ValueError:
+        return result
+    if (
+        len(requested_ids) != len(case_ids)
+        or any(split != "all" and case.split != split for case in dataset.cases)
+        or any(requested_ids and case.id not in requested_ids for case in dataset.cases)
+        or (
+            split == "all"
+            and bool(requested_ids)
+            and requested_ids != {case.id for case in dataset.cases}
+        )
+        or (manifest.regression_ids and (case_ids or split != "all"))
+    ):
+        return result
+    result.update(split=split, explicit_case_ids=bool(case_ids), requested_case_count=len(case_ids))
+    return result
 
 
 def _safe_identity(sanitizer: Sanitizer, value: str) -> str:
@@ -256,6 +298,7 @@ def sanitizer_would_change(content: ReportContent, sanitizer: Sanitizer) -> bool
                 case.native_confidence_semantics,
                 case.reported_model,
                 case.label_provenance,
+                *case.legacy_label_provenances,
             ):
                 if value is not None and sanitizer.text(value) != value:
                     return True
@@ -370,6 +413,8 @@ def validate_report_identity_context(
         for case in evaluation.cases:
             identities.append(case.case_id)
             identities.append(case.input_hash)
+            if case.category_only_option_id is not None:
+                identities.append(case.category_only_option_id)
             for image in case.selected_images:
                 identities.extend(
                     (
@@ -782,8 +827,15 @@ def project_frozen_raw_material(
 
 
 def project_evaluation(
-    records: tuple[StoredRecord, ...], view: EvaluationView, sanitizer: Sanitizer, raw: RawChoices
-) -> tuple[ReportEvaluation, tuple[RawMaterial, ...]]:
+    records: tuple[StoredRecord, ...],
+    view: EvaluationView,
+    sanitizer: Sanitizer,
+    raw: RawChoices,
+    *,
+    include_selected_input: bool = False,
+    category_only: bool = False,
+    include_classification_context: bool = False,
+) -> tuple[ReportEvaluation, tuple[RawMaterial, ...], dict[str, str | None]]:
     frozen = frozen_evaluation_from_records(
         records,
         view.record.run_id,
@@ -799,10 +851,16 @@ def project_evaluation(
     cases_by_id = {case.id: case for case in frozen.dataset.cases}
     results_by_id = {item.case_id: item for item in frozen.results.results}
     assessment_by_id = {item.case_id: item for item in summary.cases}
+    legacy_provenance = {
+        (label.case_id, label.question_id): label.provenance for label in frozen.labels.labels
+    }
     report_cases: list[JsonValue] = []
+    selected_inputs: dict[str, str | None] = {}
     image_assets = ImageAssets({record.key: record for record in records})
     raw_material = list(project_frozen_raw_material(records, frozen, sanitizer, raw, prepared))
     admitted_attempts = frozen.dispatched_attempts
+    prepared_by_case = {item.case_id: item for item in prepared}
+    attempts_by_id = {attempt.id: (attempt, event) for attempt, event in admitted_attempts}
     for attempt, _event in admitted_attempts:
         for identity in (
             attempt.id,
@@ -865,10 +923,65 @@ def project_evaluation(
             for identity in group:
                 _safe_identity(sanitizer, identity)
         safe_error = _safe_error(result.error, sanitizer)
+        candidate_category = (
+            category_only
+            and result.status == "response_error"
+            and result.error is not None
+            and result.error.code == "response_invalid"
+            and result.attempt_id in attempts_by_id
+        )
+        prepared_request = prepared_by_case[case_id].request
+        selected_value: JsonValue = None
+        if (include_selected_input or candidate_category) and prepared_request is not None:
+            selected_value = JsonDocument(case.input_source).value
+            if not isinstance(selected_value, str if definition.input_kind == "text" else dict):
+                fail("report_selected_input_mismatch", "incompatible_data")
+            if definition.input_kind == "json" and definition.selected_fields:
+                if not isinstance(selected_value, dict) or any(
+                    field not in selected_value for field in definition.selected_fields
+                ):
+                    fail("report_selected_input_mismatch", "incompatible_data")
+                selected_value = {
+                    field: selected_value[field] for field in definition.selected_fields
+                }
+        if include_selected_input:
+            # A digest of the selected value is kept only in memory for pair
+            # comparison, so reports do not expose guessable input hashes.
+            selected_inputs[case_id] = (
+                bytes_hash(dump_json(selected_value).encode("utf-8"))
+                if prepared_request is not None
+                else None
+            )
+        category_option = None
+        if candidate_category and result.error is not None and result.attempt_id is not None:
+            attempt, event = attempts_by_id[result.attempt_id]
+            outcome = event.outcome
+            if (
+                attempt.case_id == case_id
+                and event.state == "known"
+                and outcome is not None
+                and outcome.state == "known"
+                and outcome.error == result.error
+                and outcome.raw_response_source is not None
+                and prepared_request is not None
+            ):
+                category_option = category_only_choice(
+                    attempt.request,
+                    outcome.raw_response_source,
+                    result.error.reason,
+                    expected_question=definition.questions[0],
+                    expected_order=frozen.manifest.option_order
+                    or tuple(option.id for option in definition.questions[0].options),
+                    expected_input=selected_value,
+                    has_selected_images=bool(definition.selected_images),
+                )
+                if category_option is not None:
+                    _safe_identity(sanitizer, category_option)
         report_cases.append(
             {
                 "case_id": case_id,
                 "input_hash": result.input_hash,
+                "category_only_option_id": category_option,
                 "selected_images": [
                     cast(JsonValue, image.model_dump(mode="json")) for image in selected_images
                 ],
@@ -896,6 +1009,12 @@ def project_evaluation(
                 "legacy_expected_option_ids": [
                     list(ids) for ids in assessment.legacy_expected_option_ids
                 ],
+                "legacy_label_provenances": [
+                    sanitizer.text(legacy_provenance[(case_id, question_id)])
+                    for question_id in assessment.legacy_question_ids
+                ]
+                if include_classification_context
+                else [],
                 "legacy_exclusion_reasons": [
                     list(reasons) for reasons in assessment.legacy_exclusion_reasons
                 ],
@@ -953,6 +1072,9 @@ def project_evaluation(
             frozen.manifest.option_order or tuple(option.id for option in question.options)
         ),
         "selected_case_ids": list(frozen.manifest.case_ids),
+        "cohort_selection": _cohort_selection(frozen.dataset, frozen.manifest)
+        if include_classification_context
+        else None,
         "baseline_dataset_snapshot_id": frozen.baseline_dataset.id,
         "baseline_dataset_hash": frozen.baseline_dataset.content_hash,
         "baseline_label_snapshot_id": frozen.baseline_labels.id,
@@ -1002,7 +1124,7 @@ def project_evaluation(
             for attempt, event in admitted_attempts
         ],
     }
-    return _typed_evaluation(projected, metrics), tuple(raw_material)
+    return _typed_evaluation(projected, metrics), tuple(raw_material), selected_inputs
 
 
 def _typed_evaluation(
@@ -1029,6 +1151,7 @@ def _typed_evaluation(
                     {
                         "case_id": case.get("case_id"),
                         "input_hash": case.get("input_hash"),
+                        "category_only_option_id": case.get("category_only_option_id"),
                         "selected_images": case.get("selected_images", []),
                         "split": case.get("split"),
                         "status": case.get("status"),
@@ -1048,6 +1171,7 @@ def _typed_evaluation(
                         "exclusion_reasons": case.get("exclusion_reasons", []),
                         "legacy_question_ids": case.get("legacy_question_ids", []),
                         "legacy_expected_option_ids": case.get("legacy_expected_option_ids", []),
+                        "legacy_label_provenances": case.get("legacy_label_provenances", []),
                         "legacy_exclusion_reasons": case.get("legacy_exclusion_reasons", []),
                         "error": case.get("error"),
                     }

@@ -1,11 +1,14 @@
 """Pure classification preset over admitted, frozen report evaluations."""
 
 from decimal import Decimal, localcontext
+from typing import Literal
 
 from deykit.comparisons.models import ComparisonOutcomes
 from deykit.metrics.summary import Rate
 from deykit.reports.experimental_pairs import experimental_comparison
 from deykit.reports.models import (
+    CategoryOnlyCase,
+    CategoryOnlySummary,
     ClassificationCase,
     ClassificationEvaluation,
     ClassificationPolicy,
@@ -83,6 +86,7 @@ def classify_evaluation(
     pricing: ClassificationPricing,
     *,
     policy: ClassificationPolicy = "classification-strict-v2",
+    category_only: bool = False,
 ) -> ClassificationEvaluation:
     # These exclusions concern answers or single-label metrics, not whether a
     # frozen expectation applies. All label exclusions continue to exclude it.
@@ -91,17 +95,40 @@ def classify_evaluation(
         "incompatible_answer",
         "acceptable_set_excluded_from_class_metrics",
     }
-    cases = tuple(
-        ClassificationCase(
-            case_id=case.case_id,
-            applicable=bool(case.expected_option_ids)
-            and not (set(case.exclusion_reasons) - answer_reasons),
-            strict_correct=(case.status == "valid" and case.correct is True)
-            if case.expected_option_ids and not (set(case.exclusion_reasons) - answer_reasons)
-            else None,
+    cases_list: list[ClassificationCase] = []
+    for case in evaluation.cases:
+        label_applies = bool(case.expected_option_ids) and not (
+            set(case.exclusion_reasons) - answer_reasons
         )
-        for case in evaluation.cases
-    )
+        category = None
+        if category_only:
+            option = None
+            source: Literal["valid", "salvaged", "unavailable"] = "unavailable"
+            if (
+                case.status == "valid"
+                and case.answer_question_id == evaluation.context.question_id
+                and case.answer_option_id in evaluation.context.option_ids
+                and "incompatible_answer" not in case.exclusion_reasons
+            ):
+                option, source = case.answer_option_id, "valid"
+            elif case.category_only_option_id is not None:
+                option, source = case.category_only_option_id, "salvaged"
+            category = CategoryOnlyCase(
+                source=source,
+                option_id=option,
+                correct=option in case.expected_option_ids if label_applies and option else None,
+            )
+        cases_list.append(
+            ClassificationCase(
+                case_id=case.case_id,
+                applicable=label_applies,
+                strict_correct=(case.status == "valid" and case.correct is True)
+                if label_applies
+                else None,
+                category_only=category,
+            )
+        )
+    cases = tuple(cases_list)
     applicable_ids = {case.case_id for case in cases if case.applicable}
     applicable = tuple(case for case in evaluation.cases if case.case_id in applicable_ids)
     statuses = StatusCounts(
@@ -138,6 +165,33 @@ def classify_evaluation(
         )
     correct = sum(case.strict_correct is True for case in cases)
     valid_count = sum(case.correct is not None for case in applicable)
+    category_summary = None
+    if category_only:
+        usable = sum(
+            item.applicable
+            and item.category_only is not None
+            and item.category_only.source != "unavailable"
+            for item in cases
+        )
+        category_correct = sum(
+            item.applicable
+            and item.category_only is not None
+            and item.category_only.correct is True
+            for item in cases
+        )
+        category_summary = CategoryOnlySummary(
+            salvaged_count=sum(
+                item.applicable
+                and item.category_only is not None
+                and item.category_only.source == "salvaged"
+                for item in cases
+            ),
+            usable_count=usable,
+            full_cohort_accuracy=rate(
+                category_correct, len(applicable), "no_applicable_expectations"
+            ),
+            usable_accuracy=rate(category_correct, usable, "no_usable_category_answers"),
+        )
     return ClassificationEvaluation(
         evaluation_id=evaluation.context.evaluation_id,
         selected_count=len(cases),
@@ -158,6 +212,7 @@ def classify_evaluation(
         classes=tuple(classes),
         cases=cases,
         cost=_cost(evaluation, pricing),
+        category_only=category_summary,
     )
 
 
@@ -167,9 +222,17 @@ def classification_report(
     *,
     policy: ClassificationPolicy = "classification-strict-v2",
     comparison: ComparisonOutcomes | None = None,
+    category_only: bool = False,
+    selected_inputs: tuple[dict[str, str | None], dict[str, str | None]] | None = None,
 ) -> ClassificationReport:
     if policy == "classification-strict-v3" and comparison is None:
         raise ValueError("experimental_comparison_required")
+    if category_only and policy != "classification-strict-v4":
+        raise ValueError("category_only_policy_mismatch")
+    if (selected_inputs is not None) != (
+        policy == "classification-strict-v4" and comparison is not None
+    ):
+        raise ValueError("selected_input_policy_mismatch")
     limitations = ClassificationReport.model_fields["treatment_limitations"].default
     if policy == "classification-strict-v3":
         limitations = (
@@ -179,6 +242,20 @@ def classification_report(
             "request_bytes_do_not_identify_change_cause",
             "experimental_pairs_do_not_establish_model_only_causality",
         )
+    elif policy == "classification-strict-v4" and comparison is not None:
+        limitations = (
+            "cohort_selection_does_not_establish_representativeness",
+            "selected_input_reconstructed_from_frozen_case_and_definition",
+            "request_bytes_do_not_identify_change_cause",
+            "experimental_pairs_do_not_establish_model_only_causality",
+        )
+    elif policy == "classification-strict-v4":
+        limitations = (
+            "cohort_selection_does_not_establish_representativeness",
+            "case_input_hash_covers_original_input_and_source_images",
+        )
+        if any(case.selected_images for evaluation in evaluations for case in evaluation.cases):
+            limitations += ("managed_images_record_source_and_prepared_identities",)
     elif any(case.selected_images for evaluation in evaluations for case in evaluation.cases):
         limitations = (
             "cohort_selection_does_not_establish_representativeness",
@@ -189,11 +266,14 @@ def classification_report(
         policy=policy,
         pricing=pricing,
         evaluations=tuple(
-            classify_evaluation(item, pricing, policy=policy) for item in evaluations
+            classify_evaluation(item, pricing, policy=policy, category_only=category_only)
+            for item in evaluations
         ),
+        category_only_scoring="jev_probability_only_v1" if category_only else "disabled",
         experimental_comparison=(
-            experimental_comparison(comparison, evaluations)
-            if policy == "classification-strict-v3" and comparison is not None
+            experimental_comparison(comparison, evaluations, selected_inputs=selected_inputs)
+            if policy in ("classification-strict-v3", "classification-strict-v4")
+            and comparison is not None
             else None
         ),
         treatment_limitations=limitations,

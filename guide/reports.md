@@ -81,11 +81,10 @@ source line endings in the rendered copy while JSON preserves the saved source.
 
 ## Classification experiment preset
 
-Use `--preset classification` on a run, evaluation or saved comparison. A run
-or evaluation uses `classification-strict-v2`; a comparison uses
-`classification-strict-v3` and adds the experimental paired analysis described
-below. Neither report coordinates runs or calls a provider. Export one saved
-identity in all three formats:
+Use `--preset classification` on a run, evaluation or saved comparison. New
+reports use `classification-strict-v4`; a comparison adds the experimental
+paired analysis described below. Reports do not coordinate runs or call a
+provider. Export one saved identity in all three formats:
 
 ```sh
 deykit --project /absolute/project --json report export EVALUATION_ID \
@@ -103,9 +102,18 @@ label is present and neither disputed, stale nor incompatible. Legacy question
 labels do not become labels for the current question. Full-cohort strict
 accuracy is correct valid answers divided by **all applicable expectations**,
 including input-invalid, response-error, pending and unknown cases. Valid-answer
-accuracy has its own denominator. Unlabelled and excluded expectations are
-never silently counted as wrong. Provenance and individual exclusion reasons
-remain in the saved evaluation and CSV.
+accuracy divides correct valid answers by applicable expectations with valid,
+compatible answers, including acceptable sets. Unlabelled and excluded
+expectations are never silently counted as wrong. Provenance and individual
+exclusion reasons remain in the saved evaluation and CSV. Legacy question
+labels retain their question, expected options, provenance and exclusion reasons
+separately, even when a current-question label also exists.
+
+The report discloses the recorded split filter, whether case IDs were explicitly
+requested, the requested count before the split filter, and whether the run used
+frozen regressions. A missing or inconsistent historical selection is marked
+unavailable. These recorded filters describe how the saved cohort was selected;
+they do not establish that it represents a wider population.
 
 Strict per-category precision/recall/F1 use applicable single-label expectations,
 including failed/missing/unknown answers as false negatives. Acceptable sets
@@ -121,13 +129,41 @@ so they stay in the strict accuracy denominator and must not be added to failure
 again. `refusal_reason=explicit_provider_refusals_only` describes the count's
 scope. Zero means no explicit markers, not proof that no refusal occurred.
 Other response errors may include unmarked refusals. Reports do not infer
-refusals from raw response text or salvage choices from malformed probability
-vectors. Category-only scoring stays disabled.
+refusals from raw response text.
 
-Saved v1 and v2 reports keep their original interpretation, hashes, replay and
-export columns. A new comparison report and operation ID select v3. Older builds
-cannot read v3 reports; retain the project and use a compatible reader when
-those reports are present.
+### Optional category-only scoring
+
+Add `--category-only` when creating a classification report, or set
+`category_only=True` in its `ReportRequest`. This selects the frozen
+`jev_probability_only_v1` policy; it cannot be added when re-exporting a saved
+report. A new policy choice requires a new operation ID. Without the option,
+category-only scoring is disabled.
+
+The policy uses valid answers and, separately, declared choices from saved Jev
+`jev-choice` version 1 responses that failed strictly because their probability
+vector was missing, mismatched, invalid, did not sum to one, or did not put the
+chosen option at its maximum. The saved error reason must match the strict
+failure; the saved response must be known and the request must match the frozen
+question, option order and meanings, and selected input. Jev requests must use a
+supported v1 model and the official destination. Other response fields must
+validate. Recovery is limited to text or JSON requests without selected images;
+a case may have unselected images. A valid image answer remains usable, but a
+probability-invalid image response is unavailable to this policy. A refusal,
+unknown outcome, missing response, different adapter or other response error is
+also unavailable. The original response remains a strict failure, and its
+probabilities are neither normalized nor replaced in saved evidence.
+
+The category-only summary names its salvaged and usable counts. Full-cohort
+category accuracy divides correct choices by all applicable expectations,
+including failures without a usable category. Usable-answer accuracy divides
+the same numerator by applicable valid or salvaged choices. Excluded labels do
+not enter either denominator. The original strict accuracy and class metrics
+remain unchanged. These rates describe the named alternate policy; they do not
+make malformed responses valid or estimate model quality from fixture data.
+
+Saved v1, v2 and v3 reports keep their original interpretation, hashes, replay
+and export columns. Older builds cannot read v4 reports; retain the project and
+use a compatible reader when those reports are present.
 
 ### Experimental paired comparisons
 
@@ -157,13 +193,21 @@ marked row comes from the first evaluation when that case is present, otherwise
 from the second.
 
 A case input identity covers the original case input and source images, including
-images a decision did not select. Equality of the selected model input is marked
-unavailable because its identity is not recorded. Request byte differences can
-include model identity, instructions and provider formatting as well as input
-changes. Neither equality nor inequality identifies a cause. Paired results do
-not establish a model-only causal effect, and cohort selection does not establish
-representativeness. Fixture evidence remains authored software evidence, not
-model-quality evidence.
+images a decision did not select. For v4 reports, the selected text or JSON input
+identity is reconstructed from each frozen case and decision field selection.
+The report compares the exact serialized selections when both inputs were
+prepared, including JSON object order; it marks the comparison unavailable when
+either input could not be prepared. It stores only the change flag, not a
+standalone hash of the selected input. The selected-input change and unavailable
+counts cover paired case IDs, including excluded pairs. Individual one-sided
+cases carry a `case_missing` reason and do not enter those paired counts. Image
+identities remain separate.
+The reconstructed identity does not independently prove which bytes a provider
+received. Request byte differences can include model identity, instructions and
+provider formatting as well as input changes. Neither equality nor inequality
+identifies a cause. Paired results do not establish a model-only causal effect,
+and cohort selection does not establish representativeness. Fixture evidence
+remains authored software evidence, not model-quality evidence.
 
 The report also compares definition, adapter, requested model and provider
 configuration identities. If either requested model name is redacted, the
@@ -199,6 +243,8 @@ frozen into the report and operation intent. There is no network price lookup.
 The token-list estimate sums reported input/output usage across dispatched
 attempts, including retries. Partial usage shows a reported subtotal and unknown
 attempt count; the total stays unavailable. Missing prices never mean zero.
+Usage is unknown when an attempt did not retain a separate usage record, even
+if an invalid saved response contains usage fields.
 Fixture tokens are not priced. This estimate is not billed cost and excludes
 discounts or charges not represented by those two token counters. No sum across
 currencies or variants is implied. Re-export uses frozen rates; changing the
@@ -217,10 +263,12 @@ retains the count's scope. V1 CSV keeps its original columns.
 To prevent spreadsheet formula execution, cells
 starting with formula/control characters are prefixed with an apostrophe; JSON
 retains the exact saved display strings. CSV requires a classification preset;
-raw material is never included in CSV. Saved-report exports reject `--preset`
-and `--pricing`, just like other creation selectors. The Python request accepts
-`preset="classification"` and `ClassificationPricing`; the headless API exposes
-the same creation fields and CSV download.
+raw material is never included in CSV. V4 adds selected-input pair flags, and the
+opt-in policy adds separate category-only case and denominator
+columns. Saved-report exports reject `--preset`, `--pricing` and
+`--category-only`, just like other creation selectors. The Python request accepts
+`preset="classification"`, `ClassificationPricing`, and `category_only`; the
+headless API exposes the same creation fields and CSV download.
 
 Aggregate report content is bounded at 32 MiB and 750,000 JSON value nodes;
 saved report envelopes and each exported artifact are bounded at 40 MiB.

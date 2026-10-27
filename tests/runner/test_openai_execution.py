@@ -226,7 +226,7 @@ def test_refusal_is_final_retains_usage_and_does_not_stop_other_cases(setup, mon
     assert exported.exit_code == 0, exported.output
     saved = json.loads(destination.read_text())
     classification = saved["content"]["classification"]
-    assert classification["policy"] == "classification-strict-v2"
+    assert classification["policy"] == "classification-strict-v4"
     summary = classification["evaluations"][0]
     assert summary["refused_count"] == summary["failed_count"] == 1
     assert summary["full_cohort_strict_accuracy"]["numerator"] == 1

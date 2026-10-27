@@ -220,6 +220,12 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
         ]
         latency = metrics.latency
         usage = metrics.usage
+        classification = content.classification
+        v4_summary = (
+            classification.evaluations[number - 1]
+            if classification is not None and classification.policy == "classification-strict-v4"
+            else None
+        )
         lines += [
             f"- Latency p50: {_inline(latency.p50_seconds)} s",
             f"- Latency p95: {_inline(latency.p95_seconds)} s",
@@ -234,14 +240,29 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             f"- Usage source: {_inline(usage.source_kind or 'unavailable')}; reported at: "
             f"{_inline(usage.reported_at or 'unavailable')}",
             f"- Usage status: {_inline(usage.reason or usage.mode)}",
-            f"- Cost: unavailable ({_inline(usage.cost_reason)})",
+            (
+                f"- Original evaluation cost: unavailable ({_inline(usage.cost_reason)}). "
+                "See the token-list estimate in the classification section."
+                if v4_summary is not None
+                else f"- Cost: unavailable ({_inline(usage.cost_reason)})"
+            ),
         ]
+        case_columns = ["Case", "Status", "Answer", "Expected"]
+        if v4_summary is not None:
+            case_columns += ["Label provenance", "Legacy labels"]
+        case_columns += ["Evaluation correct", "Strict correct"] if v4_summary else ["Correct"]
+        if v4_summary is not None and v4_summary.category_only is not None:
+            case_columns += ["Category source", "Category answer", "Category correct"]
+        case_columns.append("Exclusions or error")
+        classifications = (
+            {case.case_id: case for case in v4_summary.cases} if v4_summary is not None else {}
+        )
         lines += [
             "",
             "### Case outcomes",
             "",
-            "| Case | Status | Answer | Expected | Correct | Exclusions or error |",
-            "| --- | --- | --- | --- | --- | --- |",
+            "| " + " | ".join(case_columns) + " |",
+            "| " + " | ".join("---" for _ in case_columns) + " |",
         ]
         for evaluation_case in evaluation.cases:
             error = evaluation_case.error.reason if evaluation_case.error else None
@@ -249,24 +270,51 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 "; ".join((*evaluation_case.exclusion_reasons, *((error,) if error else ())))
                 or "none"
             )
-            lines.append(
-                "| "
-                + " | ".join(
-                    (
-                        _inline(evaluation_case.case_id),
-                        _inline(evaluation_case.status),
-                        _inline(evaluation_case.answer_option_id or "unavailable"),
-                        _inline(evaluation_case.expected_option_ids or "unlabelled"),
-                        _inline(
-                            evaluation_case.correct
-                            if evaluation_case.correct is not None
-                            else "not scored"
-                        ),
-                        _inline(detail),
+            expected: object = evaluation_case.expected_option_ids or "unlabelled"
+            if v4_summary is not None and not evaluation_case.expected_option_ids:
+                if evaluation_case.legacy_question_ids:
+                    expected = "incompatible question"
+            values: list[object] = [
+                evaluation_case.case_id,
+                evaluation_case.status,
+                evaluation_case.answer_option_id or "unavailable",
+                expected,
+            ]
+            if v4_summary is not None:
+                values.append(evaluation_case.label_provenance or "unavailable")
+                legacy_labels = [
+                    f"{question}: {ids} ({provenance}; {', '.join(reasons)})"
+                    for question, ids, provenance, reasons in zip(
+                        evaluation_case.legacy_question_ids,
+                        evaluation_case.legacy_expected_option_ids,
+                        evaluation_case.legacy_label_provenances,
+                        evaluation_case.legacy_exclusion_reasons,
+                        strict=True,
                     )
-                )
-                + " |"
+                ]
+                values.append("; ".join(legacy_labels) or "none")
+            values.append(
+                evaluation_case.correct if evaluation_case.correct is not None else "not scored"
             )
+            if v4_summary is not None:
+                classification_case = classifications[evaluation_case.case_id]
+                values.append(
+                    classification_case.strict_correct
+                    if classification_case.strict_correct is not None
+                    else "excluded"
+                )
+                if v4_summary.category_only is not None:
+                    assert classification_case.category_only is not None
+                    category = classification_case.category_only
+                    values.extend(
+                        (
+                            category.source,
+                            category.option_id or "unavailable",
+                            category.correct if category.correct is not None else "not scored",
+                        )
+                    )
+            values.append(detail)
+            lines.append("| " + " | ".join(_inline(value) for value in values) + " |")
         image_cases = tuple(case for case in evaluation.cases if case.selected_images)
         if image_cases:
             lines += [
