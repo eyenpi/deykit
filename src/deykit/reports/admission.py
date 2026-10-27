@@ -121,6 +121,13 @@ def admit_report(stored: StoredRecord) -> AdmittedReport:
         parsed = parse_json(record.content_source, REPORT_CONTENT_LIMITS)
         if not isinstance(parsed, dict) or parsed.get("profile") != "deykit-report-v1":
             raise ReportAdmissionError("unsupported_report_profile")
+        classification = parsed.get("classification")
+        if (
+            isinstance(classification, dict)
+            and classification.get("policy") == "classification-strict-v4"
+            and "category_only_scoring" not in classification
+        ):
+            raise ReportAdmissionError("invalid_report_content")
         if not _has_persisted_version(parsed):
             raise ReportAdmissionError("missing_schema_version")
         evaluations = parsed.get("evaluations")
