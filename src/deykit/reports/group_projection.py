@@ -20,12 +20,14 @@ from deykit.contracts.images import SelectedImage
 from deykit.contracts.json_value import JsonValue, dump_json
 from deykit.contracts.ports import StoredRecord
 from deykit.contracts.redaction import Sanitizer
+from deykit.contracts.report_json import REPORT_CONTENT_LIMITS
 from deykit.diagnostics.orders import ORDER_ALGORITHM, choice_orders
 from deykit.reports.models import (
     CaseImageTreatment,
     CheckCaseDisplay,
     CheckReport,
     DiagnosticCaseDisplay,
+    DiagnosticOrderAnalysisDisplay,
     DiagnosticReport,
     DiagnosticSummaryDisplay,
     GroupReportContext,
@@ -220,7 +222,11 @@ def _exact_bounded_integer(value: JsonValue, *, minimum: int, maximum: int) -> i
 
 
 def project_diagnostic(
-    records: tuple[StoredRecord, ...], frozen: FrozenDiagnosticSnapshot, sanitizer: Sanitizer
+    records: tuple[StoredRecord, ...],
+    frozen: FrozenDiagnosticSnapshot,
+    sanitizer: Sanitizer,
+    *,
+    include_order_analysis: bool = True,
 ) -> DiagnosticReport:
     context = _group_context(records, frozen, sanitizer)
     seed, algorithm, orders = _selection(frozen)
@@ -236,6 +242,9 @@ def project_diagnostic(
     disagreement_source = summary_source.get("disagreement")
     if not isinstance(disagreement_source, dict):
         fail("report_diagnostic_mismatch", "incompatible_data")
+    analysis_source = summary_source.get("order_analysis")
+    if include_order_analysis and not isinstance(analysis_source, dict):
+        fail("report_diagnostic_mismatch", "incompatible_data")
     summary = DiagnosticSummaryDisplay(
         independent_case_count=frozen.summary.independent_case_count,
         order_count=frozen.summary.order_count,
@@ -244,6 +253,13 @@ def project_diagnostic(
         disagreement=RateDisplay.model_validate(disagreement_source),
         cases=tuple(cases),
         interpretation="observed_request_order_sensitivity",
+        order_analysis=(
+            DiagnosticOrderAnalysisDisplay.model_validate_json(
+                dump_json(analysis_source, limits=REPORT_CONTENT_LIMITS)
+            )
+            if include_order_analysis and isinstance(analysis_source, dict)
+            else None
+        ),
     )
     return DiagnosticReport(
         **context.model_dump(mode="python", exclude={"group_kind"}),

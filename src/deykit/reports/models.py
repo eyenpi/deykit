@@ -571,6 +571,27 @@ class DiagnosticCaseDisplay(FrozenModel):
     fully_observed: bool
 
 
+class DiagnosticOrderAccuracyDisplay(FrozenModel):
+    accuracy: RateDisplay
+    accuracy_exclusions: dict[str, NonnegativeInt]
+    accuracy_label_provenance: dict[str, NonnegativeInt]
+    common_accuracy: RateDisplay
+    flips_from_original: RateDisplay
+
+
+class DiagnosticCaseFlipsDisplay(FrozenModel):
+    case_id: ResourceId
+    flipped_from_original: tuple[bool | None, ...]
+    flip_rate: RateDisplay
+
+
+class DiagnosticOrderAnalysisDisplay(FrozenModel):
+    orders: tuple[DiagnosticOrderAccuracyDisplay, ...]
+    accuracy_gap: RateDisplay
+    common_accuracy_gap: RateDisplay
+    cases: tuple[DiagnosticCaseFlipsDisplay, ...]
+
+
 class DiagnosticSummaryDisplay(FrozenModel):
     independent_case_count: NonnegativeInt
     order_count: NonnegativeInt
@@ -579,6 +600,9 @@ class DiagnosticSummaryDisplay(FrozenModel):
     disagreement: RateDisplay
     cases: tuple[DiagnosticCaseDisplay, ...]
     interpretation: Literal["observed_request_order_sensitivity"]
+    order_analysis: DiagnosticOrderAnalysisDisplay | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class GroupReportContext(FrozenModel):

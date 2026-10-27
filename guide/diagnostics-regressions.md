@@ -24,6 +24,29 @@ deykit --json --project "$PROJECT" diagnose show "$GROUP_ID"
 deykit --json --project "$PROJECT" diagnose resume "$GROUP_ID" --operation-id "$RESUME_ID"
 ```
 
+The summary uses the labels frozen when the group started. For each order,
+`order_analysis.orders` gives set accuracy for valid answers with applicable labels
+and counts the exclusion reasons. A case can have more than one exclusion reason.
+An answer is correct when it matches any acceptable option. Unlabelled, disputed,
+stale and incompatible labels, and unavailable answers do not count as wrong.
+The provenance counts describe the labels included in each order's accuracy.
+
+`accuracy_gap` is the difference between the best and worst per-order accuracy. It
+is unavailable if any order lacks an accuracy or fewer than two orders exist. The
+per-order denominators may differ, so this gap can reflect missing answers as well
+as answer changes. Its numerator and denominator express the exact difference as a
+fraction, rather than a separate case count. `common_accuracy` uses only cases eligible
+in every order.
+`common_accuracy_gap` compares those rates on the shared cohort. It is unavailable
+when fewer than two orders exist or no case is eligible in every order. Each order
+also gives its answer-flip rate against
+the original order. Each case lists whether its answer flipped for each order and a
+rate over its comparable alternative orders. A missing answer makes that comparison
+unavailable. The original order's entry is null because it is not an alternative.
+New diagnostic reports include the same analysis; previously saved reports retain
+their original content. Showing a diagnostic or creating its report makes no model
+calls.
+
 All members share the attempt cap you supplied and one scheduling deadline per segment.
 Retries and unknown outcomes consume capacity. Resume retains the cap and uses the
 original duration for a new segment. Add `--retry-unknown` only when deliberately choosing
