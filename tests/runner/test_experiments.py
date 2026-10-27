@@ -1515,6 +1515,71 @@ def test_diagnostics_have_explicit_scopes_and_share_the_budget(setup):
     assert order.planned_fresh_requests == 2 and order.valid_fresh_answers == 0
 
 
+def test_completed_order_diagnostic_scores_frozen_labels(setup):
+    from deykit.application.experiment_reports import experiment_report
+    from deykit.application.labels import LabelService
+    from deykit.contracts.json_value import parse_json
+    from deykit.contracts.records import NormalizedAnswer
+
+    source, runner, factory, clock = setup(count=2)
+    label_ids = itertools.count()
+    labels = LabelService(source, clock, lambda: f"label-operation-{next(label_ids)}")
+    for case_id, expected in (("case-00", "yes"), ("case-01", "no")):
+        review = labels.read("decision", "data", case_id).review
+        labels.set(
+            review, (expected,), provenance="authored_fixture", operation_id=f"label-{case_id}"
+        )
+
+    async def answer_first_option(_case_id, compiled):
+        criteria = parse_json(compiled.body)["questions"]["q"]["criteria"]
+        return DispatchOutcome(
+            state="known",
+            answer=NormalizedAnswer(question_id="q", option_id=next(iter(criteria))),
+        )
+
+    factory.callback = answer_first_option
+    request = experiment(source, budget="0.40").model_copy(
+        update={
+            "variants": (
+                ExperimentVariant(name="first", fixture_set_id="set", reservation_usd="0.10"),
+            ),
+            "settings": ExecutionSettings(max_attempts=4, concurrency=1),
+            "diagnostics": (
+                ExperimentOrder(
+                    name="order",
+                    decision_index=0,
+                    cohort_index=0,
+                    variant="first",
+                    case_ids=("case-00",),
+                    orders=2,
+                    seed=42,
+                ),
+            ),
+        }
+    )
+    result = asyncio.run(ExperimentService(runner).start(request, operation_id="labeled-orders"))
+    assert len(factory.calls) == result.attempts_used == 4
+    review = labels.read("decision", "data", "case-00").review
+    labels.set(review, ("no",), provenance="authored_fixture", operation_id="change-label")
+    report = experiment_report(source.capture_snapshot(), result.group_id)
+    assert len(factory.calls) == 4
+    assert [
+        (
+            member.full_cohort_strict_accuracy["numerator"],
+            member.full_cohort_strict_accuracy["denominator"],
+        )
+        for member in report.members
+    ] == [(1, 2), (1, 1), (0, 1)]
+    assert all(
+        member.applicable_label_provenance == {"authored_fixture": member.selected_cases}
+        for member in report.members
+    )
+    order = report.diagnostics[0]
+    assert order.planned_fresh_requests == order.valid_fresh_answers == 2
+    assert order.fully_observed_cases == 1 and order.excluded_cases == 0
+    assert order.disagreement["numerator"] == order.disagreement["denominator"] == 1
+
+
 def test_explicit_reuse_records_matching_complete_experiment_without_new_calls(setup):
     source, runner, factory, _ = setup(count=2)
     request = experiment(source, budget="0.40")
