@@ -21,9 +21,15 @@ from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
 from deykit.contracts.ports import ResourceKey, StoredRecord
 from deykit.contracts.redaction import Sanitizer
 from deykit.reports.admission import report_hash
-from deykit.reports.classification import classify_evaluation
+from deykit.reports.classification import classification_report, classify_evaluation
 from deykit.reports.classification_render import classification_csv
-from deykit.reports.models import ClassificationPricing, ReportRequest, TokenPrice
+from deykit.reports.models import (
+    ClassificationPricing,
+    ClassificationReport,
+    ReportRequest,
+    TokenPrice,
+)
+from deykit.reports.render import render_content
 
 
 def test_classification_preset_freezes_and_exports_same_case_identities(fixture_graph):
@@ -139,6 +145,146 @@ def test_full_cohort_denominators_and_class_failures(fixture_graph):
     ]
 
 
+def test_category_only_scoring_has_explicit_cohorts_and_preserves_strict_results(fixture_graph):
+    evaluation = _evaluation(fixture_graph)
+    a, b = evaluation.context.option_ids[:2]
+    base = evaluation.cases[0]
+
+    def case(n, status, expected, answer=None, salvage=None, reasons=(), correct=None):
+        return base.model_copy(
+            update={
+                "case_id": f"category-{n}",
+                "status": status,
+                "expected_option_ids": expected,
+                "answer_question_id": evaluation.context.question_id if answer else None,
+                "answer_option_id": answer,
+                "category_only_option_id": salvage,
+                "exclusion_reasons": reasons,
+                "correct": correct,
+            }
+        )
+
+    cases = (
+        case(0, "valid", (a,), answer=a, correct=True),
+        case(1, "valid", (a,), answer=b, correct=False),
+        case(2, "response_error", (a,), salvage=a, reasons=("no_valid_answer",)),
+        case(3, "response_error", (a,), salvage=b, reasons=("no_valid_answer",)),
+        case(4, "response_error", (a,), reasons=("no_valid_answer",)),
+        case(5, "unknown", (b,), reasons=("no_valid_answer",)),
+        case(6, "response_error", (), salvage=a, reasons=("unlabelled", "no_valid_answer")),
+        case(7, "response_error", (a,), salvage=a, reasons=("disputed", "no_valid_answer")),
+    )
+    selected = evaluation.model_copy(update={"cases": cases})
+    strict = classify_evaluation(
+        selected, ClassificationPricing(), policy="classification-strict-v4"
+    )
+    scored = classify_evaluation(
+        selected, ClassificationPricing(), policy="classification-strict-v4", category_only=True
+    )
+    assert scored.full_cohort_strict_accuracy == strict.full_cohort_strict_accuracy
+    assert scored.valid_answer_accuracy == strict.valid_answer_accuracy
+    assert scored.classes == strict.classes
+    assert (scored.full_cohort_strict_accuracy.numerator, scored.applicable_count) == (1, 6)
+    assert (scored.category_only.salvaged_count, scored.category_only.usable_count) == (2, 4)
+    assert (
+        scored.category_only.full_cohort_accuracy.numerator,
+        scored.category_only.full_cohort_accuracy.denominator,
+    ) == (2, 6)
+    assert (
+        scored.category_only.usable_accuracy.numerator,
+        scored.category_only.usable_accuracy.denominator,
+    ) == (2, 4)
+    assert [case.category_only.correct for case in scored.cases] == [
+        True,
+        False,
+        True,
+        False,
+        None,
+        None,
+        None,
+        None,
+    ]
+    assert strict.category_only is None
+
+    no_usable = classify_evaluation(
+        selected.model_copy(update={"cases": (cases[4], cases[6])}),
+        ClassificationPricing(),
+        policy="classification-strict-v4",
+        category_only=True,
+    )
+    assert no_usable.category_only.full_cohort_accuracy.denominator == 1
+    assert no_usable.category_only.usable_accuracy.reason == "no_usable_category_answers"
+    no_labels = classify_evaluation(
+        selected.model_copy(update={"cases": (cases[6],)}),
+        ClassificationPricing(),
+        policy="classification-strict-v4",
+        category_only=True,
+    )
+    assert no_labels.category_only.full_cohort_accuracy.reason == "no_applicable_expectations"
+
+
+def test_category_only_policy_is_frozen_in_operation_intent(fixture_graph):
+    source = MemorySnapshotSource.from_records(fixture_graph.records)
+    service = ReportService(source, SystemClock())
+    request = ReportRequest(
+        target_id=fixture_graph.evaluation_id, preset="classification", category_only=True
+    )
+    saved = service.create(request, operation_id="pin-category-policy")
+    assert saved.content.classification.policy == "classification-strict-v4"
+    assert saved.content.classification.category_only_scoring == "jev_probability_only_v1"
+    assert (
+        "selected_input_reconstructed_from_frozen_case_and_definition"
+        not in saved.content.classification.treatment_limitations
+    )
+    assert (
+        "input_hash_compares_selected_json_only"
+        not in saved.content.classification.treatment_limitations
+    )
+    assert (
+        "case_input_hash_covers_original_input_and_source_images"
+        in saved.content.classification.treatment_limitations
+    )
+    assert not any(
+        "experimental_pairs" in item for item in saved.content.classification.treatment_limitations
+    )
+    assert service.create(request, operation_id="pin-category-policy").replayed
+    with pytest.raises(ServiceFailure) as error:
+        service.create(
+            request.model_copy(update={"category_only": False}), operation_id="pin-category-policy"
+        )
+    assert error.value.error.code == "conflict"
+
+
+def test_legacy_v2_single_report_replays_and_keeps_its_original_markdown(fixture_graph):
+    source = MemorySnapshotSource.from_records(fixture_graph.records)
+    service = ReportService(source, SystemClock())
+    request = ReportRequest(target_id=fixture_graph.evaluation_id, preset="classification")
+    saved = service.create(request, operation_id="legacy-v2-single")
+    parsed = parse_json(saved.record.content_source)
+    for evaluation in parsed["evaluations"]:
+        evaluation["context"].pop("cohort_selection", None)
+        for case in evaluation["cases"]:
+            case.pop("legacy_label_provenances", None)
+    parsed["classification"]["policy"] = "classification-strict-v2"
+    parsed["classification"]["treatment_limitations"] = list(
+        ClassificationReport.model_fields["treatment_limitations"].default
+    )
+    record = saved.record.model_copy(update={"content_source": dump_json(parsed)})
+    record = record.model_copy(update={"content_hash": report_hash(record, saved.content)})
+    body = dump_record(record)
+    key = ResourceKey("reports", record.id)
+    legacy = StoredRecord(key, body, bytes_hash(body))
+    source.records[key] = legacy
+    intent, receipt = source.operations["legacy-v2-single"]
+    source.operations["legacy-v2-single"] = (intent, replace(receipt, changes=(legacy,)))
+    assert service.read(record.id).content.classification.policy == "classification-strict-v2"
+    assert service.create(request, operation_id="legacy-v2-single").replayed
+    markdown = service.render(record.id, format="markdown").body.decode()
+    assert "| Case | Status | Answer | Expected | Correct | Exclusions or error |" in markdown
+    assert "Original evaluation cost:" not in markdown
+    assert source.records[key].body == body
+
+
 def test_no_applicable_labels_is_unavailable_not_zero(fixture_graph):
     evaluation = _evaluation(fixture_graph)
     cases = tuple(case.model_copy(update={"expected_option_ids": ()}) for case in evaluation.cases)
@@ -201,8 +347,15 @@ def test_saved_v1_refusal_policy_remains_readable_and_replayable(fixture_graph):
     request = ReportRequest(target_id=fixture_graph.evaluation_id, preset="classification")
     saved = service.create(request, operation_id="legacy-refusals")
     parsed = parse_json(saved.record.content_source)
+    for evaluation in parsed["evaluations"]:
+        evaluation["context"].pop("cohort_selection", None)
+        for case in evaluation["cases"]:
+            case.pop("legacy_label_provenances", None)
     classification = parsed["classification"]
     classification["policy"] = "classification-strict-v1"
+    classification["treatment_limitations"] = list(
+        ClassificationReport.model_fields["treatment_limitations"].default
+    )
     for evaluation in classification["evaluations"]:
         evaluation["refused_count"] = None
         evaluation["refusal_reason"] = "distinct_refusal_status_not_recorded"
@@ -268,6 +421,41 @@ def test_frozen_token_list_cost_preserves_partial_usage_and_retries(fixture_grap
     assert cost.reason == (None if complete else "partial_reported_usage")
     assert classify_evaluation(live, ClassificationPricing()).cost.total is None
     assert classify_evaluation(evaluation, pricing).cost.reason == "fixture_no_usage"
+
+
+def test_markdown_distinguishes_original_evaluation_cost_from_frozen_estimate(fixture_graph):
+    service = ReportService(MemorySnapshotSource.from_records(fixture_graph.records), SystemClock())
+    report = service.create(
+        ReportRequest(target_id=fixture_graph.evaluation_id, preset="classification"),
+        operation_id="priced-markdown",
+    )
+    evaluation = report.content.evaluations[0]
+    usage = evaluation.metrics.usage.model_copy(
+        update={
+            "mode": "live",
+            "dispatched_attempt_count": 1,
+            "reported_attempt_count": 1,
+            "reported_input_tokens": 1000,
+            "reported_output_tokens": 200,
+            "total_input_tokens": 1000,
+            "total_output_tokens": 200,
+        }
+    )
+    live = evaluation.model_copy(
+        update={
+            "context": evaluation.context.model_copy(update={"evidence_mode": "live"}),
+            "metrics": evaluation.metrics.model_copy(update={"usage": usage}),
+        }
+    )
+    summary = classification_report(
+        (live,), ClassificationPricing(rates=(_price(live),)), policy="classification-strict-v4"
+    )
+    content = report.content.model_copy(update={"evaluations": (live,), "classification": summary})
+    markdown = render_content(report.record, content, "markdown").body.decode()
+    assert "total: 0.00225" in markdown
+    assert "Original evaluation cost: unavailable" in markdown
+    assert "See the token-list estimate" in markdown
+    assert "\n- Cost: unavailable (pricing_source_unavailable)" not in markdown
 
 
 @pytest.mark.parametrize("value", [1.25, "NaN", "-1", "1e2", "0.0000000000001"])
@@ -410,6 +598,14 @@ def test_invalid_answer_is_a_class_false_negative(fixture_graph):
         summary.classes[0].predicted,
         summary.classes[0].true_positive,
     ) == (1, 0, 0)
+    scored = classify_evaluation(
+        evaluation.model_copy(update={"cases": (case,)}),
+        ClassificationPricing(),
+        policy="classification-strict-v4",
+        category_only=True,
+    )
+    assert scored.cases[0].category_only.source == "unavailable"
+    assert scored.category_only.usable_count == 0
 
 
 def test_cost_does_not_round_large_exact_token_counts(fixture_graph):
@@ -479,6 +675,7 @@ def test_csv_escapes_formula_cells_and_omits_raw_data(fixture_graph):
     [
         ["--preset", "other"],
         ["--pricing", "missing.json"],
+        ["--category-only"],
         ["--preset", "classification", "--target-kind", "diagnostic"],
         ["--report-id", "saved-report", "--preset", "classification"],
     ],

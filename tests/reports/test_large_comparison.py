@@ -120,6 +120,9 @@ def test_2500_pair_104_option_classification_report(tmp_path):
     experimental = content["classification"]["experimental_comparison"]
     assert experimental["quality_denominator"] == 2496
     assert experimental["paired_case_count"] == 2500
+    assert experimental["selected_input_comparison"] == "reconstructed_selection_v1"
+    assert experimental["selected_input_changed_count"] == 0
+    assert experimental["selected_input_unavailable_count"] == 0
     assert experimental["counts"]["improved"] == experimental["counts"]["regressed"] == 1
     assert experimental["counts"]["unavailable_answer"] == 2
     assert experimental["counts"]["excluded_expectation"] == 2
@@ -142,6 +145,7 @@ def test_2500_pair_104_option_classification_report(tmp_path):
         assert summary["cost"]["reason"] == "fixture_no_usage"
     for evaluation in content["evaluations"]:
         assert len(evaluation["cases"]) == len(evaluation["attempts"]) == COUNT
+        assert all("selected_input" not in case for case in evaluation["cases"])
         expected_vectors = saved_vectors[evaluation["context"]["result_snapshot_id"]]
         for case in evaluation["cases"]:
             if case["status"] != "valid":
@@ -156,6 +160,7 @@ def test_2500_pair_104_option_classification_report(tmp_path):
     assert len(rows) == 5000
     assert {row["experimental_quality_denominator"] for row in rows} == {"2496"}
     assert sum(row["experimental_pair_row"] == "true" for row in rows) == 2500
+    assert {row["selected_input_changed"] for row in rows} == {"false"}
     assert len({(row["evaluation_id"], row["case_id"]) for row in rows}) == 5000
     assert sum(row["strict_correct"] == "true" for row in rows) == 4988
     assert sum(row["strict_correct"] == "false" for row in rows) == 8

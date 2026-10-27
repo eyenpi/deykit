@@ -124,6 +124,7 @@ async def _register_project(
     "selection",
     [
         {"pricing": {"rates": []}},
+        {"category_only": True},
         {"preset": "classification", "target_kind": "check"},
         {"preset": "classification", "target_kind": "diagnostic"},
     ],
@@ -507,6 +508,7 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                         "target_kind": "evaluation",
                         "preset": "classification",
                         "pricing": {"rates": []},
+                        "category_only": True,
                     },
                 )
                 assert report.status_code == 200, report.text
@@ -531,6 +533,9 @@ def test_http_results_evaluation_pin_and_report_download_are_protected(tmp_path:
                 )
                 assert download.status_code == 200
                 assert download.content == expected_json
+                assert download.json()["content"]["classification"]["category_only_scoring"] == (
+                    "jev_probability_only_v1"
+                )
                 assert download.headers["content-type"] == "application/octet-stream"
                 assert download.headers["cache-control"] == "no-store"
                 assert download.headers["x-content-type-options"] == "nosniff"

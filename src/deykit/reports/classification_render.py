@@ -31,6 +31,14 @@ def classification_markdown(content: ReportContent, inline: Callable[[object], s
         "disputed, stale and incompatible expectations are excluded, regardless of answer status.",
         "- Full-cohort strict accuracy: correct valid answers / all applicable expectations; "
         "failed, missing and unknown answers remain in the denominator.",
+        *(
+            [
+                "- Valid-answer accuracy: correct answers / applicable expectations with valid, "
+                "compatible answers, including acceptable sets."
+            ]
+            if report.policy == "classification-strict-v4"
+            else []
+        ),
         f"- Comparison policy: {report.comparison_policy}; existing paired improvements, "
         "regressions and all exclusion buckets appear below.",
         "- Strict class metrics: applicable single labels including failures as false negatives; "
@@ -94,13 +102,19 @@ def classification_markdown(content: ReportContent, inline: Callable[[object], s
             "Case input identity includes the original case input and source images, including "
             "images a decision did not select. Prepared request bytes also reflect provider "
             "formatting, model and instructions; their differences cannot identify the cause.",
-            "- Selected model input comparison: unavailable (not recorded).",
+            (
+                "- Selected model input comparison: unavailable (not recorded)."
+                if experimental.selected_input_comparison == "not_recorded"
+                else "- Selected input reconstructed from frozen case and definition: "
+                f"changed {experimental.selected_input_changed_count}; "
+                f"unavailable {experimental.selected_input_unavailable_count}."
+            ),
             f"- Definition changed: {str(experimental.definition_changed).lower()}; "
             f"adapter changed: {str(experimental.adapter_changed).lower()}; "
             f"requested model changed: {model_changed}; "
             f"provider configuration changed: {str(experimental.provider_config_changed).lower()}",
         ]
-    for summary in report.evaluations:
+    for evaluation, summary in zip(content.evaluations, report.evaluations, strict=True):
         counts = summary.applicable_status_counts
         refusals = (
             f"explicit refusals {summary.refused_count}."
@@ -119,6 +133,26 @@ def classification_markdown(content: ReportContent, inline: Callable[[object], s
             f"(input invalid {counts.input_invalid}, response error {counts.response_error}); "
             f"missing {summary.missing_count}; unknown {counts.unknown}; {refusals}",
             f"- Strict class population: {summary.class_count}",
+        ]
+        if report.policy == "classification-strict-v4":
+            selection = evaluation.context.cohort_selection
+            assert selection is not None
+            explicit = (
+                "unavailable"
+                if selection.explicit_case_ids is None
+                else str(selection.explicit_case_ids).lower()
+            )
+            requested = (
+                "unavailable"
+                if selection.requested_case_count is None
+                else str(selection.requested_case_count)
+            )
+            lines.append(
+                f"- Recorded cohort filters: split {selection.split or 'unavailable'}; "
+                f"explicit case IDs {explicit}; requested case count {requested}; "
+                f"frozen regression selection {str(selection.regression_selected).lower()}."
+            )
+        lines += [
             "",
             "| Option | Support | Predicted | True positive | Precision | Recall | F1 |",
             "| --- | ---: | ---: | ---: | --- | --- | --- |",
@@ -129,6 +163,21 @@ def classification_markdown(content: ReportContent, inline: Callable[[object], s
                 f"{item.true_positive} | "
                 f"{_rate(item.precision)} | {_rate(item.recall)} | {_rate(item.f1)} |"
             )
+        if summary.category_only is not None:
+            category = summary.category_only
+            lines += [
+                "",
+                "#### Category-only scoring",
+                "",
+                "- Jev probability-only failures may supply a separately scored declared choice "
+                "only for requests without selected images. Valid image answers remain usable; "
+                "malformed image responses are unavailable. Strict failures and strict metrics "
+                "are unchanged; probabilities are not normalized.",
+                f"- Applicable salvaged choices: {category.salvaged_count}; "
+                f"usable applicable choices: {category.usable_count}",
+                "- Full-cohort category accuracy: " + _rate(category.full_cohort_accuracy),
+                "- Usable-category accuracy: " + _rate(category.usable_accuracy),
+            ]
         cost = summary.cost
         lines += [
             "",
@@ -186,6 +235,27 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
     )
     if report.policy != "classification-strict-v1":
         columns += ("explicit_refusal", "refused_count", "refusal_reason")
+    if report.policy == "classification-strict-v4":
+        columns += (
+            "legacy_question_ids",
+            "legacy_expected_option_ids",
+            "legacy_label_provenances",
+            "legacy_exclusion_reasons",
+            "cohort_split",
+            "cohort_explicit_case_ids",
+            "cohort_requested_case_count",
+            "cohort_regression_selected",
+        )
+    if report.category_only_scoring != "disabled":
+        columns += (
+            "category_only_source",
+            "category_only_option_id",
+            "category_only_correct",
+            "category_only_salvaged_count",
+            "category_only_usable_count",
+            "category_only_full_cohort_denominator",
+            "category_only_usable_denominator",
+        )
     if report.experimental_comparison is not None:
         columns += (
             "experimental_pair_bucket",
@@ -204,6 +274,13 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
             "prepared_image_changed",
             "preparation_changed",
         )
+        if report.policy == "classification-strict-v4":
+            columns += (
+                "selected_input_changed",
+                "selected_input_change_unavailable_reason",
+                "selected_input_changed_count",
+                "selected_input_unavailable_count",
+            )
     writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\r\n")
     writer.writeheader()
     buckets = (
@@ -261,6 +338,49 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
                     refused_count=str(summary.refused_count),
                     refusal_reason=summary.refusal_reason,
                 )
+            if report.policy == "classification-strict-v4":
+                selection = context.cohort_selection
+                assert selection is not None
+                row.update(
+                    legacy_question_ids=dump_json(list(case.legacy_question_ids)),
+                    legacy_expected_option_ids=dump_json(
+                        [list(ids) for ids in case.legacy_expected_option_ids]
+                    ),
+                    legacy_label_provenances=dump_json(list(case.legacy_label_provenances)),
+                    legacy_exclusion_reasons=dump_json(
+                        [list(reasons) for reasons in case.legacy_exclusion_reasons]
+                    ),
+                    cohort_split=selection.split or "unavailable",
+                    cohort_explicit_case_ids=(
+                        "unavailable"
+                        if selection.explicit_case_ids is None
+                        else str(selection.explicit_case_ids).lower()
+                    ),
+                    cohort_requested_case_count=(
+                        "unavailable"
+                        if selection.requested_case_count is None
+                        else str(selection.requested_case_count)
+                    ),
+                    cohort_regression_selected=str(selection.regression_selected).lower(),
+                )
+            if summary.category_only is not None:
+                assert assessment.category_only is not None
+                category = assessment.category_only
+                row.update(
+                    category_only_source=category.source,
+                    category_only_option_id=category.option_id or "",
+                    category_only_correct=(
+                        "" if category.correct is None else str(category.correct).lower()
+                    ),
+                    category_only_salvaged_count=str(summary.category_only.salvaged_count),
+                    category_only_usable_count=str(summary.category_only.usable_count),
+                    category_only_full_cohort_denominator=str(
+                        summary.category_only.full_cohort_accuracy.denominator
+                    ),
+                    category_only_usable_denominator=str(
+                        summary.category_only.usable_accuracy.denominator
+                    ),
+                )
             if experimental is not None:
                 pair = experimental_cases[case.case_id]
                 row.update(
@@ -290,6 +410,19 @@ def classification_csv(record: ReportRecord, content: ReportContent) -> bytes:
                 ):
                     value = getattr(pair, field)
                     row[field] = "" if value is None else str(value).lower()
+                if report.policy == "classification-strict-v4":
+                    assert pair.selected_input is not None
+                    changed = pair.selected_input.changed
+                    row.update(
+                        selected_input_changed="" if changed is None else str(changed).lower(),
+                        selected_input_change_unavailable_reason=(
+                            pair.selected_input.unavailable_reason or ""
+                        ),
+                        selected_input_changed_count=str(experimental.selected_input_changed_count),
+                        selected_input_unavailable_count=str(
+                            experimental.selected_input_unavailable_count
+                        ),
+                    )
             writer.writerow(
                 {
                     key: "'" + value

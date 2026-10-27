@@ -1531,7 +1531,7 @@ def test_report_content_limit_fails_before_memory_source_write(
     original_project = reports_module.project_evaluation
 
     def oversized_projection(*args, **kwargs):
-        projected, materials = original_project(*args, **kwargs)
+        projected, materials, selected_inputs = original_project(*args, **kwargs)
         case_id = projected.cases[0].case_id
         large_source = (
             "x" * REPORT_CONTENT_LIMITS.max_bytes if bound == "content" else '"' * 10_600_000
@@ -1546,7 +1546,7 @@ def test_report_content_limit_fails_before_memory_source_write(
             original_hash="0" * 64,
             sanitized_hash=bytes_hash(large_source.encode()),
         )
-        return projected, (*materials, material)
+        return projected, (*materials, material), selected_inputs
 
     monkeypatch.setattr(reports_module, "project_evaluation", oversized_projection)
     with pytest.raises(ServiceFailure) as failure:

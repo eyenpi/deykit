@@ -43,10 +43,10 @@ def test_classification_comparison_includes_auditable_experimental_pairs(fixture
     )
     report = service.create(request, operation_id="experimental-pairs")
     classification = report.content.classification
-    assert classification.policy == "classification-strict-v3"
+    assert classification.policy == "classification-strict-v4"
     experimental = classification.experimental_comparison
     assert experimental.policy == "matching_labels_allow_changed_inputs_v1"
-    assert experimental.selected_input_comparison == "not_recorded"
+    assert experimental.selected_input_comparison == "reconstructed_selection_v1"
     assert "input_hash_compares_selected_json_only" not in classification.treatment_limitations
     assert experimental.quality_denominator == 8
     assert experimental.counts["improved"] == 1
@@ -65,7 +65,7 @@ def test_classification_comparison_includes_auditable_experimental_pairs(fixture
     assert len(rows) == 24
     assert all(row["experimental_pair_bucket"] for row in rows)
     assert {row["experimental_quality_denominator"] for row in rows} == {"8"}
-    assert {row["selected_input_comparison"] for row in rows} == {"not_recorded"}
+    assert {row["selected_input_comparison"] for row in rows} == {"reconstructed_selection_v1"}
     assert {row["definition_changed"] for row in rows} == {"false"}
     assert sum(row["experimental_pair_row"] == "true" for row in rows) == 12
     assert (
@@ -341,6 +341,10 @@ def test_v2_comparison_replays_without_new_columns(fixture_graph):
     request = ReportRequest(target_id=fixture_graph.comparison_id, preset="classification")
     saved = service.create(request, operation_id="old-comparison")
     parsed = parse_json(saved.record.content_source)
+    for evaluation in parsed["evaluations"]:
+        evaluation["context"].pop("cohort_selection", None)
+        for case in evaluation["cases"]:
+            case.pop("legacy_label_provenances", None)
     parsed["classification"]["policy"] = "classification-strict-v2"
     del parsed["classification"]["experimental_comparison"]
     parsed["classification"]["treatment_limitations"] = list(
@@ -366,7 +370,53 @@ def test_v2_comparison_replays_without_new_columns(fixture_graph):
     assert "explicit_refusal" in columns
 
 
-@pytest.mark.parametrize("damage", ["count", "missing_policy"])
+def test_v3_comparison_replays_and_exports_without_selected_input_fields(fixture_graph):
+    source = MemorySnapshotSource.from_records(fixture_graph.records)
+    service = ReportService(source, SystemClock())
+    request = ReportRequest(target_id=fixture_graph.comparison_id, preset="classification")
+    saved = service.create(request, operation_id="v3-comparison")
+    parsed = parse_json(saved.record.content_source)
+    for evaluation in parsed["evaluations"]:
+        evaluation["context"].pop("cohort_selection", None)
+        for case in evaluation["cases"]:
+            case.pop("legacy_label_provenances", None)
+    classification = parsed["classification"]
+    classification["policy"] = "classification-strict-v3"
+    classification["treatment_limitations"] = [
+        "cohort_selection_does_not_establish_representativeness",
+        "case_input_hash_covers_original_input_and_source_images",
+        "selected_model_input_identity_not_recorded",
+        "request_bytes_do_not_identify_change_cause",
+        "experimental_pairs_do_not_establish_model_only_causality",
+    ]
+    experimental = classification["experimental_comparison"]
+    experimental["selected_input_comparison"] = "not_recorded"
+    del experimental["selected_input_changed_count"]
+    del experimental["selected_input_unavailable_count"]
+    for case in experimental["cases"]:
+        del case["selected_input"]
+    record = saved.record.model_copy(update={"content_source": dump_json(parsed)})
+    record = record.model_copy(update={"content_hash": report_hash(record, saved.content)})
+    body = dump_record(record)
+    key = ResourceKey("reports", record.id)
+    legacy = StoredRecord(key, body, bytes_hash(body))
+    source.records[key] = legacy
+    intent, receipt = source.operations["v3-comparison"]
+    source.operations["v3-comparison"] = (intent, replace(receipt, changes=(legacy,)))
+    assert service.read(record.id).content.classification.policy == "classification-strict-v3"
+    assert service.create(request, operation_id="v3-comparison").replayed
+    assert source.records[key].body == body
+    assert (
+        "Selected model input comparison: unavailable (not recorded)."
+        in service.render(record.id, format="markdown").body.decode()
+    )
+    columns = next(csv.reader(io.StringIO(service.render(record.id, format="csv").body.decode())))
+    assert "selected_input_changed" not in columns
+
+
+@pytest.mark.parametrize(
+    "damage", ["count", "missing_policy", "missing_category_policy", "input_change"]
+)
 def test_tampered_experimental_content_is_rejected(fixture_graph, damage):
     source = MemorySnapshotSource.from_records(fixture_graph.records)
     service = ReportService(source, SystemClock())
@@ -377,8 +427,14 @@ def test_tampered_experimental_content_is_rejected(fixture_graph, damage):
     parsed = parse_json(saved.record.content_source)
     if damage == "count":
         parsed["classification"]["experimental_comparison"]["quality_denominator"] = 99
-    else:
+    elif damage == "missing_policy":
         del parsed["classification"]["experimental_comparison"]["policy"]
+    elif damage == "missing_category_policy":
+        del parsed["classification"]["category_only_scoring"]
+    else:
+        parsed["classification"]["experimental_comparison"]["cases"][0]["selected_input"][
+            "changed"
+        ] = True
     record = saved.record.model_copy(update={"content_source": dump_json(parsed)})
     record = record.model_copy(update={"content_hash": report_hash(record, saved.content)})
     body = dump_record(record)
@@ -386,8 +442,14 @@ def test_tampered_experimental_content_is_rejected(fixture_graph, damage):
     source.records[key] = StoredRecord(key, body, bytes_hash(body))
     with pytest.raises(ServiceFailure) as error:
         service.read(record.id)
-    assert error.value.error.reason == (
-        "report_classification_mismatch" if damage == "count" else "invalid_report_content"
+    assert (
+        error.value.error.reason
+        == {
+            "count": "report_classification_mismatch",
+            "missing_policy": "invalid_report_content",
+            "missing_category_policy": "invalid_report_content",
+            "input_change": "report_classification_mismatch",
+        }[damage]
     )
 
 

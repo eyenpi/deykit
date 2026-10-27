@@ -2,6 +2,8 @@
 
 import asyncio
 import base64
+import csv
+import io
 import json
 import shutil
 import struct
@@ -10,6 +12,7 @@ from dataclasses import replace
 
 import httpx
 import pytest
+from PIL import Image, ImageFile
 from test_cli_execution import invoke
 from test_image_execution import seed_image
 
@@ -96,6 +99,127 @@ def create_fixture(source, tmp_path, request):
         "--operation-id",
         "image-fixture",
     )
+
+
+@pytest.mark.parametrize("select_image", [False, True])
+def test_opt_in_category_only_scoring_keeps_invalid_jev_response_failed(
+    tmp_path, setup, monkeypatch, select_image
+):
+    source, _, _, _, _, _ = seed_image(
+        setup,
+        tmp_path,
+        select=select_image,
+        preparation=ImagePreparation(mode="pad", min_width=280, min_height=280),
+    )
+    configure(source, monkeypatch)
+    calls = []
+
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(
+            200,
+            content=b'{"model":"jev-1.14.0","answers":{"q":'
+            b'{"type":"choice","choice":"yes","probabilities":{"yes":0.8,"no":0.8},'
+            b'"confidence":1}},"usage":{"input_tokens":100,"output_tokens":10}}',
+        )
+
+    monkeypatch.setattr(
+        "deykit.providers.jev.OneShotHttp", lambda: OneShotHttp(httpx.MockTransport(handle))
+    )
+    run = invoke(source, *run_args("--operation-id", "category-only-run"))
+    assert run.exit_code == 3, run.output
+    run_id = json.loads(run.stdout)["data"]["run"]["run_id"]
+    report_path = tmp_path / "category-only.json"
+    report_args = (
+        "report",
+        "export",
+        run_id,
+        "--target-kind",
+        "run",
+        "--preset",
+        "classification",
+        "--category-only",
+        "--format",
+        "json",
+        "--operation-id",
+        "category-only-report",
+        "--output",
+        str(report_path),
+    )
+    exported = invoke(source, *report_args)
+    assert exported.exit_code == 0, exported.output
+    report_id = json.loads(exported.stdout)["data"]["report"]["report_id"]
+    original_json = report_path.read_bytes()
+    report = json.loads(report_path.read_text())["content"]
+    classification = report["classification"]
+    assert classification["category_only_scoring"] == "jev_probability_only_v1"
+    summary = classification["evaluations"][0]
+    assert summary["full_cohort_strict_accuracy"]["numerator"] == 0
+    assert summary["full_cohort_strict_accuracy"]["denominator"] == 1
+    assert summary["category_only"]["salvaged_count"] == (0 if select_image else 1)
+    assert summary["category_only"]["full_cohort_accuracy"]["numerator"] == (
+        0 if select_image else 1
+    )
+    assert summary["category_only"]["full_cohort_accuracy"]["denominator"] == 1
+    assert report["evaluations"][0]["cases"][0]["status"] == "response_error"
+    assert report["evaluations"][0]["cases"][0]["answer_option_id"] is None
+    assert report["raw_material"] == []
+    assert "OFFLINE_SENTINEL" not in report_path.read_text()
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 30_000)
+    monkeypatch.setattr(ImageFile, "LOAD_TRUNCATED_IMAGES", True)
+    replayed = invoke(source, *report_args)
+    assert replayed.exit_code == 0, replayed.output
+    assert json.loads(replayed.stdout)["data"]["report"]["report_id"] == report_id
+    assert report_path.read_bytes() == original_json
+    for format_name in ("markdown", "csv"):
+        destination = tmp_path / f"category-only.{format_name}"
+        rendered = invoke(
+            source,
+            "report",
+            "export",
+            "--report-id",
+            report_id,
+            "--format",
+            format_name,
+            "--output",
+            str(destination),
+        )
+        assert rendered.exit_code == 0, rendered.output
+        if format_name == "markdown":
+            markdown = destination.read_text()
+            assert "Category-only" in markdown
+            lines = markdown.splitlines()
+            header = next(line for line in lines if line.startswith("| Case | Status | Answer |"))
+            row = next(line for line in lines if line.startswith("| product |"))
+            columns = [item.strip() for item in header.strip("|").split("|")]
+            values = [item.strip() for item in row.strip("|").split("|")]
+            case = dict(zip(columns, values, strict=True))
+            assert case["Evaluation correct"] == "not scored"
+            assert case["Label provenance"] == r"imported\_unknown"
+            assert case["Strict correct"] == "False"
+            assert case["Category source"] == ("unavailable" if select_image else "salvaged")
+            assert case["Category answer"] == ("unavailable" if select_image else "yes")
+            assert case["Category correct"] == ("not scored" if select_image else "True")
+        else:
+            rows = list(csv.DictReader(io.StringIO(destination.read_text())))
+            assert len(rows) == 1
+            assert rows[0]["report_id"] == report_id
+            assert rows[0]["category_only_source"] == (
+                "unavailable" if select_image else "salvaged"
+            )
+            assert rows[0]["category_only_correct"] == ("" if select_image else "true")
+    invalid = invoke(
+        source,
+        "report",
+        "export",
+        "--report-id",
+        report_id,
+        "--category-only",
+        "--output",
+        str(tmp_path / "invalid.md"),
+    )
+    assert invalid.exit_code == 2
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("dimension", [280, 1024])

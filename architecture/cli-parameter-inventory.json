@@ -5132,6 +5132,23 @@
           "hidden": false
         },
         {
+          "name": "category_only",
+          "options": [
+            "--category-only"
+          ],
+          "secondary_options": [],
+          "type": "boolean",
+          "default": false,
+          "required": false,
+          "multiple": false,
+          "nargs": 1,
+          "is_flag": true,
+          "minimum": null,
+          "maximum": null,
+          "choices": [],
+          "hidden": false
+        },
+        {
           "name": "include_raw_inputs",
           "options": [
             "--include-raw-inputs"
