@@ -417,6 +417,44 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
             "- Interpretation: observed request order sensitivity",
             "",
         ]
+        analysis = diagnostic_summary.order_analysis
+        if analysis is not None:
+            lines += [
+                "### Accuracy by order",
+                "",
+                "Accuracy uses valid answers with applicable frozen labels. Common-case accuracy "
+                "uses cases eligible in every order. Exclusion reasons can overlap.",
+                "The gap across orders compares rates that can use different cases.",
+                "Its fraction expresses the exact difference, not a separate case denominator.",
+                "",
+                "| Order | Options | Accuracy | Common-case accuracy | Flips from original | "
+                "Exclusions | Label provenance |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
+            ]
+            for number, order in enumerate(analysis.orders, 1):
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        (
+                            str(number),
+                            _inline(order.option_order),
+                            _rate(order.accuracy.model_dump(mode="json")),
+                            _rate(order.common_accuracy.model_dump(mode="json")),
+                            _rate(order.flips_from_original.model_dump(mode="json")),
+                            _inline(order.accuracy_exclusions),
+                            _inline(order.accuracy_label_provenance),
+                        )
+                    )
+                    + " |"
+                )
+            lines += [
+                "",
+                "- Accuracy gap across orders: "
+                f"{_rate(analysis.accuracy_gap.model_dump(mode='json'))}",
+                "- Accuracy gap on common cases: "
+                f"{_rate(analysis.common_accuracy_gap.model_dump(mode='json'))}",
+                "",
+            ]
         for number, member in enumerate(diagnostic.members, 1):
             lines.extend(_group_member_context(number, member))
         lines += [
@@ -440,6 +478,28 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 )
                 + " |"
             )
+        if analysis is not None:
+            lines += [
+                "",
+                "### Case flips from original",
+                "",
+                "The first entry is the original order. Unavailable comparisons are shown as None.",
+                "",
+                "| Case | Flips by order | Flip rate |",
+                "| --- | --- | --- |",
+            ]
+            for case_flip in analysis.cases:
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        (
+                            _inline(case_flip.case_id),
+                            _inline(case_flip.flipped_from_original),
+                            _rate(case_flip.flip_rate.model_dump(mode="json")),
+                        )
+                    )
+                    + " |"
+                )
     if content.check is not None:
         check = content.check
         lines += [

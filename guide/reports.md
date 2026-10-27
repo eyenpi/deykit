@@ -12,7 +12,8 @@ The Python `ReportService` saves a fixed view of a run, evaluation, comparison,
 diagnostic group, or regression-check group. Later run resumes and edits to
 labels, regressions, or decision drafts do not replace saved evidence. Report
 creation and rendering make no provider calls. Diagnostic and check reports use
-the group's pinned snapshot and create no P10 evaluations or aggregate metrics.
+the group's pinned snapshot and do not create P10 evaluations. Diagnostic reports
+include per-order accuracy and answer-flip rates from the frozen results and labels.
 When a selected run result has no original evaluation, the service evaluates
 the saved answers against their original labels.
 Selecting an evaluation explicitly always uses its saved metrics. If evidence

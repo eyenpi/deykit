@@ -34,6 +34,7 @@ from deykit.cli.context import SystemClock
 from deykit.contracts.artifacts import ArtifactWriteOutcome
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.errors import ServiceError
+from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.execution_groups import (
     CheckSnapshot,
     DiagnosticSnapshot,
@@ -72,7 +73,7 @@ from deykit.diagnostics.orders import choice_orders
 from deykit.providers.choice import JevChoiceCompiler
 from deykit.regressions.evidence import regression_hash
 from deykit.reports.admission import ReportAdmissionError, admit_report, report_hash
-from deykit.reports.group_projection import _selection
+from deykit.reports.group_projection import _selection, project_diagnostic
 from deykit.reports.models import (
     RawChoices,
     RawMaterial,
@@ -1822,6 +1823,86 @@ def test_group_reports_bind_historical_partial_and_latest_resumed_snapshots(
         ReportService(source, clock).render(replay.record.id, format="markdown").body
         == first_markdown
     )
+
+
+def test_diagnostic_reports_include_analysis_and_preserve_legacy_reports(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    source = MemorySnapshotSource.from_records(graph.records)
+    service = ReportService(source, SystemClock(), lambda: "diagnostic-analysis-report")
+    view = service.create(
+        _group_report_request(graph, "diagnostic", graph.diagnostic_complete_snapshot_id),
+        operation_id="diagnostic-analysis-report-create",
+    )
+    assert view.content.diagnostic is not None
+    analysis = view.content.diagnostic.summary.order_analysis
+    assert analysis is not None
+    assert len(analysis.orders) == 2
+    assert len(analysis.cases) == 2
+    rendered = service.render(view.record.id, format="markdown").body.decode()
+    assert "Accuracy by order" in rendered
+    assert "Accuracy gap across orders" in rendered
+    assert "Accuracy gap on common cases" in rendered
+    assert "Flips from original" in rendered
+    assert "Label provenance" in rendered
+
+    tree = parse_json(view.record.content_source)
+    assert isinstance(tree, dict) and isinstance(tree["diagnostic"], dict)
+    summary = tree["diagnostic"]["summary"]
+    assert isinstance(summary, dict)
+    del summary["order_analysis"]
+    legacy = view.record.model_copy(update={"content_source": dump_json(tree)})
+    legacy = legacy.model_copy(update={"content_hash": report_hash(legacy, view.content)})
+    stored = StoredRecord(ResourceKey("reports", legacy.id), dump_record(legacy), "legacy-etag")
+    admitted = admit_report_from_records(stored, source.capture_snapshot())
+    assert admitted.content.diagnostic is not None
+    assert admitted.content.diagnostic.summary.order_analysis is None
+
+
+def test_diagnostic_analysis_projection_uses_aggregate_report_limits(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    frozen = diagnostic_snapshot_from_records(graph.records, graph.diagnostic_complete_snapshot_id)
+    analysis = frozen.summary.order_analysis
+    assert analysis is not None
+    template = analysis.cases[0]
+    large_cases = tuple(
+        replace(template, case_id=f"case-{i:05d}" + "x" * 118) for i in range(10_000)
+    )
+    large_analysis = replace(analysis, cases=large_cases)
+    large_frozen = replace(frozen, summary=replace(frozen.summary, order_analysis=large_analysis))
+    projected = project_diagnostic(graph.records, large_frozen, Sanitizer())
+    assert projected.summary.order_analysis is not None
+    assert len(projected.summary.order_analysis.cases) == 10_000
+
+
+def test_diagnostic_reports_reject_wrong_frozen_label_context_safely(
+    group_report_graph: GroupReportGraph,
+) -> None:
+    graph = group_report_graph
+    frozen = diagnostic_snapshot_from_records(graph.records, graph.diagnostic_complete_snapshot_id)
+    changed = {item.key: item for item in graph.records}
+    for member in frozen.members:
+        assert member.labels.labels
+        bad_labels = tuple(
+            label.model_copy(update={"decision_id": "other"}) for label in member.labels.labels
+        )
+        bad_snapshot = member.labels.model_copy(
+            update={
+                "labels": bad_labels,
+                "content_hash": evidence_hash(tuple(dump_record(label) for label in bad_labels)),
+            }
+        )
+        key = ResourceKey("label_snapshots", member.labels.id)
+        changed[key] = StoredRecord(key, dump_record(bad_snapshot), changed[key].etag)
+    with pytest.raises(ServiceFailure) as error:
+        diagnostic_snapshot_from_records(
+            tuple(changed.values()), graph.diagnostic_complete_snapshot_id
+        )
+    assert error.value.error.code == "incompatible_data"
+    assert error.value.error.reason == "frozen_label_context_mismatch"
 
 
 def test_group_report_admission_normalizes_only_exact_owned_integers(

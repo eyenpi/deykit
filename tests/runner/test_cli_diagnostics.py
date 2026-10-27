@@ -2,6 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
+from deykit.application.labels import LabelService
 from deykit.cli.commands import diagnostics, regressions
 from deykit.cli.main import app
 from deykit.contracts.errors import ServiceError
@@ -53,6 +54,39 @@ def test_diagnostic_cli_dry_run_exact_group_and_safe_output(setup, monkeypatch):
     replay = invoke(source, *diagnose("--operation-id", "start"))
     assert replay.exit_code == 0 and len(factory.calls) == 2
     assert json.loads(replay.stdout)["data"]["group"]["replayed"]
+
+
+def test_diagnostic_cli_keeps_frozen_labels_and_uses_no_extra_calls(setup, monkeypatch):
+    source, runner, factory, clock = setup(count=1)
+    labels = LabelService(source, clock)
+    labels.set(
+        labels.read("decision", "data", "case-00").review,
+        ("yes",),
+        provenance="authored_fixture",
+        operation_id="first-label",
+    )
+    monkeypatch.setattr(diagnostics, "service", lambda _: runner)
+    first = invoke(source, *diagnose("--operation-id", "start-analysis"))
+    assert first.exit_code == 0, first.output
+    data = json.loads(first.stdout)["data"]
+    assert data["summary"]["evidence_mode"] == "fixture"
+    analysis = data["summary"]["order_analysis"]
+    assert [item["option_order"] for item in analysis["orders"]] == [["yes", "no"], ["no", "yes"]]
+    assert [item["accuracy"]["value"] for item in analysis["orders"]] == ["1.000000", "1.000000"]
+    assert analysis["accuracy_gap"]["value"] == "0.000000"
+    assert analysis["orders"][1]["flips_from_original"]["numerator"] == 0
+    assert analysis["orders"][1]["flips_from_original"]["denominator"] == 1
+    assert analysis["cases"][0]["flipped_from_original"] == [None, False]
+    labels.set(
+        labels.read("decision", "data", "case-00").review,
+        ("no",),
+        provenance="authored_fixture",
+        operation_id="second-label",
+    )
+    later = invoke(source, "diagnose", "show", data["group"]["group_id"])
+    assert later.exit_code == 0, later.output
+    assert json.loads(later.stdout)["data"]["summary"]["order_analysis"] == analysis
+    assert len(factory.calls) == 2
 
 
 def test_regression_cli_save_expected_sets_mixed_exits_and_remove(setup, monkeypatch):

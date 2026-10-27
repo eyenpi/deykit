@@ -10,6 +10,7 @@ from typing import Literal
 from deykit.contracts.json_value import RECORD_LIMITS, JsonValue
 from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import (
+    CaseResult,
     ChoiceDefinition,
     DatasetSnapshot,
     LabelRecord,
@@ -213,6 +214,102 @@ def _label_index(
     }
 
 
+def _assess_case(
+    definition: ChoiceDefinition,
+    options: set[str],
+    result: CaseResult,
+    label: LabelRecord | None,
+    legacy_labels: tuple[LabelRecord, ...],
+) -> CaseAssessment:
+    question = definition.questions[0]
+    legacy_reasons = tuple(
+        ("incompatible_question_label", *label_applicability(old, definition, result.input_hash))
+        for old in legacy_labels
+    )
+    answer = result.answer if result.status == "valid" else None
+    answer_id = answer.option_id if answer is not None else None
+    expected = label.acceptable_option_ids if label is not None else ()
+    exclusion: list[str] = []
+    if answer is None:
+        exclusion.append("no_valid_answer")
+    if label is None:
+        exclusion.append("incompatible_question_label" if legacy_labels else "unlabelled")
+        for old_reasons in legacy_reasons:
+            for old_reason in old_reasons:
+                if old_reason not in exclusion:
+                    exclusion.append(old_reason)
+    else:
+        exclusion.extend(label_applicability(label, definition, result.input_hash))
+    if answer is not None and (answer.question_id != question.id or answer_id not in options):
+        exclusion.append("incompatible_answer")
+    set_correct: bool | None = None
+    single = False
+    if not exclusion:
+        if answer is None:
+            raise MetricsInvalid("missing_eligible_answer")
+        set_correct = answer_id in expected
+        if len(expected) == 1:
+            single = True
+        else:
+            exclusion.append("acceptable_set_excluded_from_class_metrics")
+    return CaseAssessment(
+        case_id=result.case_id,
+        status=result.status,
+        answer_option_id=answer_id,
+        expected_option_ids=expected,
+        label_provenance=label.provenance if label is not None else None,
+        legacy_question_ids=tuple(item.question_id for item in legacy_labels),
+        legacy_expected_option_ids=tuple(item.acceptable_option_ids for item in legacy_labels),
+        legacy_exclusion_reasons=legacy_reasons,
+        exclusion_reasons=tuple(exclusion),
+        set_correct=set_correct,
+        single_label_class=single,
+    )
+
+
+def assess_admitted_cases(
+    definition: ChoiceDefinition,
+    dataset: DatasetSnapshot,
+    labels: LabelSnapshot,
+    results: ResultSnapshot,
+    selected_case_ids: tuple[str, ...],
+) -> tuple[CaseAssessment, ...]:
+    """Assess records already admitted at a frozen-evidence boundary."""
+    if labels.dataset_snapshot_id != dataset.id:
+        raise MetricsInvalid("label_dataset_snapshot_mismatch")
+    question = definition.questions[0]
+    options = {option.id for option in question.options}
+    cases = {case.id: case for case in dataset.cases}
+    if len(cases) != len(dataset.cases):
+        raise MetricsInvalid("duplicate_frozen_case")
+    if (
+        type(selected_case_ids) is not tuple
+        or len(set(selected_case_ids)) != len(selected_case_ids)
+        or tuple(result.case_id for result in results.results) != selected_case_ids
+    ):
+        raise MetricsInvalid("selected_results_mismatch")
+    if len({result.case_id for result in results.results}) != len(results.results):
+        raise MetricsInvalid("duplicate_result_case")
+    indexed, legacy = _label_index(labels, dataset, question.id)
+    if any(label.case_id not in cases for label in labels.labels):
+        raise MetricsInvalid("frozen_label_case_mismatch")
+    assessments: list[CaseAssessment] = []
+    for result in results.results:
+        case = cases.get(result.case_id)
+        if case is None or case_input_hash(case) != result.input_hash:
+            raise MetricsInvalid("result_input_mismatch")
+        assessments.append(
+            _assess_case(
+                definition,
+                options,
+                result,
+                indexed.get(result.case_id),
+                legacy.get(result.case_id, ()),
+            )
+        )
+    return tuple(assessments)
+
+
 def assess_results(
     definition: ChoiceDefinition,
     dataset: DatasetSnapshot,
@@ -236,100 +333,31 @@ def assess_results(
         )
     except ModelInvalid as error:
         raise MetricsInvalid(str(error)) from None
-    if labels.dataset_snapshot_id != dataset.id:
-        raise MetricsInvalid("label_dataset_snapshot_mismatch")
-    question = definition.questions[0]
-    option_ids = tuple(option.id for option in question.options)
-    options = set(option_ids)
-    cases = {case.id: case for case in dataset.cases}
-    if len(cases) != len(dataset.cases):
-        raise MetricsInvalid("duplicate_frozen_case")
-    if (
-        type(selected_case_ids) is not tuple
-        or len(set(selected_case_ids)) != len(selected_case_ids)
-        or tuple(result.case_id for result in results.results) != selected_case_ids
-    ):
-        raise MetricsInvalid("selected_results_mismatch")
-    if len({result.case_id for result in results.results}) != len(results.results):
-        raise MetricsInvalid("duplicate_result_case")
-    indexed, legacy = _label_index(labels, dataset, question.id)
-    if any(label.case_id not in cases for label in labels.labels):
-        raise MetricsInvalid("frozen_label_case_mismatch")
+    assessments = assess_admitted_cases(definition, dataset, labels, results, selected_case_ids)
+    option_ids = tuple(option.id for option in definition.questions[0].options)
     status_counts = {status: 0 for status in STATUSES}
     reasons: dict[str, int] = {}
-    assessments: list[CaseAssessment] = []
     matrix = [[0 for _ in option_ids] for _ in option_ids]
     positions = {option_id: index for index, option_id in enumerate(option_ids)}
     eligible = correct = singles = unlabelled_valid = native_confidence = 0
 
-    for result in results.results:
-        case = cases.get(result.case_id)
-        if case is None or case_input_hash(case) != result.input_hash:
-            raise MetricsInvalid("result_input_mismatch")
+    for result, assessed in zip(results.results, assessments, strict=True):
         status_counts[result.status] += 1
-        label = indexed.get(result.case_id)
-        legacy_labels = legacy.get(result.case_id, ())
-        legacy_reasons = tuple(
-            (
-                "incompatible_question_label",
-                *label_applicability(old, definition, result.input_hash),
-            )
-            for old in legacy_labels
-        )
         answer = result.answer if result.status == "valid" else None
-        answer_id = answer.option_id if answer is not None else None
-        expected = label.acceptable_option_ids if label is not None else ()
-        exclusion: list[str] = []
-        if answer is None:
-            exclusion.append("no_valid_answer")
-        if label is None:
-            exclusion.append("incompatible_question_label" if legacy_labels else "unlabelled")
-            if legacy_labels:
-                for old_reasons in legacy_reasons:
-                    for old_reason in old_reasons:
-                        if old_reason not in exclusion:
-                            exclusion.append(old_reason)
-            if answer is not None and not legacy_labels:
-                unlabelled_valid += 1
-        else:
-            exclusion.extend(label_applicability(label, definition, result.input_hash))
-        if answer is not None and (answer.question_id != question.id or answer_id not in options):
-            exclusion.append("incompatible_answer")
+        if answer is not None and "unlabelled" in assessed.exclusion_reasons:
+            unlabelled_valid += 1
         if answer is not None and answer.native_confidence_source is not None:
             native_confidence += 1
-        set_correct: bool | None = None
-        single = False
-        if not exclusion:
-            if answer is None:
-                raise MetricsInvalid("missing_eligible_answer")
+        if assessed.set_correct is not None:
             eligible += 1
-            set_correct = answer_id in expected
-            correct += int(set_correct)
-            if len(expected) == 1:
-                single = True
+            correct += int(assessed.set_correct)
+            if assessed.single_label_class:
+                if answer is None:
+                    raise MetricsInvalid("missing_eligible_answer")
                 singles += 1
-                matrix[positions[expected[0]]][positions[answer.option_id]] += 1
-            else:
-                exclusion.append("acceptable_set_excluded_from_class_metrics")
-        for reason in exclusion:
+                matrix[positions[assessed.expected_option_ids[0]]][positions[answer.option_id]] += 1
+        for reason in assessed.exclusion_reasons:
             reasons[reason] = reasons.get(reason, 0) + 1
-        assessments.append(
-            CaseAssessment(
-                case_id=result.case_id,
-                status=result.status,
-                answer_option_id=answer_id,
-                expected_option_ids=expected,
-                label_provenance=label.provenance if label is not None else None,
-                legacy_question_ids=tuple(item.question_id for item in legacy_labels),
-                legacy_expected_option_ids=tuple(
-                    item.acceptable_option_ids for item in legacy_labels
-                ),
-                legacy_exclusion_reasons=legacy_reasons,
-                exclusion_reasons=tuple(exclusion),
-                set_correct=set_correct,
-                single_label_class=single,
-            )
-        )
 
     classes: list[ClassMetric] = []
     defined_f1: list[Fraction] = []
