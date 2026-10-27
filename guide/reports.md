@@ -80,10 +80,11 @@ source line endings in the rendered copy while JSON preserves the saved source.
 
 ## Classification experiment preset
 
-Use `--preset classification` on a run, evaluation or saved comparison. This
-adds `classification-strict-v2` analysis to the existing frozen report; it does
-not coordinate runs or call a provider. Export one saved identity in all three
-formats:
+Use `--preset classification` on a run, evaluation or saved comparison. A run
+or evaluation uses `classification-strict-v2`; a comparison uses
+`classification-strict-v3` and adds the experimental paired analysis described
+below. Neither report coordinates runs or calls a provider. Export one saved
+identity in all three formats:
 
 ```sh
 deykit --project /absolute/project --json report export EVALUATION_ID \
@@ -122,19 +123,51 @@ Other response errors may include unmarked refusals. Reports do not infer
 refusals from raw response text or salvage choices from malformed probability
 vectors. Category-only scoring stays disabled.
 
-Saved `classification-strict-v1` reports keep their unavailable refusal counts
-and original interpretation when read, replayed or exported. A new report and
-operation ID select v2 analysis. Older builds cannot read v2 reports; retain
-the project and use a compatible reader when those reports are present.
+Saved v1 and v2 reports keep their original interpretation, hashes, replay and
+export columns. A new comparison report and operation ID select v3. Older builds
+cannot read v3 reports; retain the project and use a compatible reader when
+those reports are present.
 
-Comparison reports retain the existing `compatible_pairs_only` policy, paired
-improvements/regressions, denominator and every exclusion bucket, including
-changed inputs, question/options and expectations. Input hashes compare selected
-JSON, not independently verified modality or preprocessing. Prepared-image
-identities are not independently recorded by the current report contract. The
-report explicitly discloses this limit; compatible cases are not evidence of a
-model-only causal effect. Cohort selection does not establish representativeness.
-Fixture evidence remains authored software evidence, not model-quality evidence.
+### Experimental paired comparisons
+
+The existing `compatible_pairs_only` results and their exclusion buckets remain
+unchanged. The separate `matching_labels_allow_changed_inputs_v1` section can
+pair cases even when inputs or selected images differ. It requires the same case
+ID, question ID and set of option IDs, the same applicable expected option IDs,
+and a valid answer on each side. It excludes missing cases, changed question or
+option IDs, changed expectations, invalid, incompatible or missing answers and
+inapplicable expectations. Its improvements, regressions and correct counts use
+only those paired valid answers. They do not use the full-cohort strict accuracy
+denominator.
+Different instructions or option descriptions may share IDs, so the report also
+states whether the frozen definition changed.
+
+Treatment counts cover every case ID present on both sides, including excluded
+pairs, and can overlap. The report compares case input identities, prepared
+request byte hashes, image presence, and selected image names and order. For
+image names selected on both sides, it also compares source hashes, prepared
+hashes and preparation settings. Added or removed image names appear in the
+selection count rather than the shared-image counts. Unavailable request hashes
+have their own count. The JSON and CSV include each case's pair bucket and
+treatment flags; the Markdown report shows aggregate counts. CSV has one row
+per case per evaluation, so shared cases appear twice. Filter to
+`experimental_pair_row=true` to count each pair or one-sided case once. The
+marked row comes from the first evaluation when that case is present, otherwise
+from the second.
+
+A case input identity covers the original case input and source images, including
+images a decision did not select. Equality of the selected model input is marked
+unavailable because its identity is not recorded. Request byte differences can
+include model identity, instructions and provider formatting as well as input
+changes. Neither equality nor inequality identifies a cause. Paired results do
+not establish a model-only causal effect, and cohort selection does not establish
+representativeness. Fixture evidence remains authored software evidence, not
+model-quality evidence.
+
+The report also compares definition, adapter, requested model and provider
+configuration identities. If either requested model name is redacted, the
+model-change flag is unavailable. The CSV repeats these comparison-wide flags
+on each case row.
 
 Latency reuses saved nearest-rank p50/p95 over **all recorded live dispatch
 durations, including retries**. Its sample count is attempts with durations, not

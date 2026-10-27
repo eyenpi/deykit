@@ -20,7 +20,9 @@ from deykit.contracts.records import NonnegativeInt, ReportRecord, UtcTimestamp
 
 ReportFormat = Literal["json", "markdown", "csv"]
 ReportTargetKind = Literal["run", "evaluation", "comparison", "diagnostic", "check"]
-ClassificationPolicy = Literal["classification-strict-v1", "classification-strict-v2"]
+ClassificationPolicy = Literal[
+    "classification-strict-v1", "classification-strict-v2", "classification-strict-v3"
+]
 
 
 class RawChoices(FrozenModel):
@@ -436,12 +438,64 @@ class ClassificationEvaluation(FrozenModel):
     cost: TokenListCost
 
 
+ExperimentalPairBucket = Literal[
+    "left_only",
+    "right_only",
+    "changed_question_options",
+    "changed_expectations",
+    "unavailable_answer",
+    "excluded_expectation",
+    "both_correct",
+    "improved",
+    "regressed",
+    "both_wrong",
+]
+
+
+class ExperimentalPairCase(FrozenModel):
+    case_id: ResourceId
+    bucket: ExperimentalPairBucket
+    input_identity_changed: bool | None
+    request_bytes_changed: bool | None
+    image_presence_changed: bool | None
+    selected_image_names_changed: bool | None
+    image_source_changed: bool | None
+    prepared_image_changed: bool | None
+    preparation_changed: bool | None
+
+
+class ExperimentalComparison(FrozenModel):
+    policy: Literal["matching_labels_allow_changed_inputs_v1"]
+    selected_input_comparison: Literal["not_recorded"]
+    counts: dict[ExperimentalPairBucket, NonnegativeInt]
+    quality_denominator: NonnegativeInt
+    left_correct_count: NonnegativeInt
+    right_correct_count: NonnegativeInt
+    paired_case_count: NonnegativeInt
+    input_identity_changed_count: NonnegativeInt
+    request_bytes_changed_count: NonnegativeInt
+    request_bytes_unavailable_count: NonnegativeInt
+    image_presence_changed_count: NonnegativeInt
+    selected_image_names_changed_count: NonnegativeInt
+    image_source_changed_count: NonnegativeInt
+    prepared_image_changed_count: NonnegativeInt
+    preparation_changed_count: NonnegativeInt
+    definition_changed: bool
+    adapter_changed: bool
+    requested_model_changed: bool | None
+    provider_config_changed: bool
+    cases: tuple[ExperimentalPairCase, ...]
+
+
 class ClassificationReport(FrozenModel):
     policy: ClassificationPolicy = "classification-strict-v1"
     pricing: ClassificationPricing = Field(default_factory=ClassificationPricing)
     evaluations: tuple[ClassificationEvaluation, ...]
     comparison_policy: Literal["compatible_pairs_only"] = "compatible_pairs_only"
     category_only_scoring: Literal["disabled"] = "disabled"
+    experimental_comparison: ExperimentalComparison | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     latency_population: Literal["all_recorded_live_dispatch_durations_including_retries"] = (
         "all_recorded_live_dispatch_durations_including_retries"
     )
@@ -594,6 +648,14 @@ class ReportContent(Record):
                 item.evaluation_id for item in self.classification.evaluations
             ) != tuple(item.context.evaluation_id for item in self.evaluations):
                 raise ValueError("invalid_classification_target")
+            if self.classification.policy == "classification-strict-v3":
+                if (
+                    self.target.kind != "comparison"
+                    or self.classification.experimental_comparison is None
+                ):
+                    raise ValueError("invalid_experimental_comparison")
+            elif self.classification.experimental_comparison is not None:
+                raise ValueError("invalid_experimental_comparison")
         if self.target.kind in ("run", "evaluation"):
             if len(self.evaluations) != 1 or self.comparison is not None:
                 raise ValueError("invalid_report_target_branch")

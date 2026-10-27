@@ -9,6 +9,7 @@ import shutil
 
 import pytest
 from PIL import Image
+from typer.testing import CliRunner
 
 from deykit.application.comparisons import ComparisonService
 from deykit.application.datasets import CaseInput, DatasetService
@@ -20,6 +21,7 @@ from deykit.application.labels import LabelService
 from deykit.application.projects import ProjectService
 from deykit.application.regressions import RegressionAdd, RegressionService
 from deykit.application.reports import ReportService
+from deykit.cli.main import app
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.images import CaseImage, ImagePreparation
 from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
@@ -202,6 +204,13 @@ def test_frozen_images_reports_and_changed_preparation_exclusions(setup, tmp_pat
         evaluation.metrics.summary.set_accuracy.denominator == 1
         for evaluation in report.content.evaluations
     )
+    experimental = report.content.classification.experimental_comparison
+    assert experimental.quality_denominator == 1
+    assert experimental.counts["both_correct"] == 1
+    assert experimental.input_identity_changed_count == 0
+    assert experimental.prepared_image_changed_count == 1
+    assert experimental.preparation_changed_count == 1
+    assert experimental.image_source_changed_count == 0
     calls = len(factory.calls)
     markdown = reports.render(report.record.id, format="markdown").body.decode()
     assert "Prepared image treatments" in markdown and asset.prepared.content_hash in markdown
@@ -209,7 +218,34 @@ def test_frozen_images_reports_and_changed_preparation_exclusions(setup, tmp_pat
         csv.DictReader(io.StringIO(reports.render(report.record.id, format="csv").body.decode()))
     )
     assert json.loads(rows[1]["selected_images"])[0]["asset"]["id"] == asset.id
+    assert {row["experimental_pair_bucket"] for row in rows} == {"both_correct"}
+    assert {row["preparation_changed"] for row in rows} == {"true"}
     assert asset.id in reports.render(report.record.id, format="json").body.decode()
+    output = tmp_path / "image-report.json"
+    cli = CliRunner().invoke(
+        app,
+        [
+            "--project",
+            str(source.root),
+            "--json",
+            "report",
+            "export",
+            "--report-id",
+            report.record.id,
+            "--format",
+            "json",
+            "--output",
+            str(output),
+        ],
+    )
+    assert cli.exit_code == 0, cli.output
+    exported = json.loads(output.read_text())
+    assert (
+        exported["content"]["classification"]["experimental_comparison"][
+            "preparation_changed_count"
+        ]
+        == 1
+    )
     assert len(factory.calls) == calls == 2
     ProjectService.validate_opened(source)
     copy = tmp_path / "copied"

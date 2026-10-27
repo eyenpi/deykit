@@ -255,7 +255,10 @@ def admit_report_from_records(
         fail("report_link_mismatch", "incompatible_data")
     classification = admitted.content.classification
     if classification is not None and classification != classification_report(
-        admitted.content.evaluations, classification.pricing, policy=classification.policy
+        admitted.content.evaluations,
+        classification.pricing,
+        policy=classification.policy,
+        comparison=admitted.content.comparison,
     ):
         fail("report_classification_mismatch", "incompatible_data")
     return ReportView(admitted.record, admitted.etag, admitted.content, replayed)
@@ -501,7 +504,14 @@ class ReportService:
             eval_ids = tuple(dict.fromkeys(view.record.id for view in eval_views))
             classification = (
                 classification_report(
-                    tuple(evaluations), request.pricing or ClassificationPricing()
+                    tuple(evaluations),
+                    request.pricing or ClassificationPricing(),
+                    policy=(
+                        "classification-strict-v3"
+                        if comparison_source is not None
+                        else "classification-strict-v2"
+                    ),
+                    comparison=comparison_source,
                 )
                 if request.preset == "classification"
                 else None

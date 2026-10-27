@@ -117,6 +117,13 @@ def test_2500_pair_104_option_classification_report(tmp_path):
     exported = json.loads((tmp_path / "comparison.json").read_text())
     content = exported["content"]
     assert content["comparison"] == outcomes
+    experimental = content["classification"]["experimental_comparison"]
+    assert experimental["quality_denominator"] == 2496
+    assert experimental["paired_case_count"] == 2500
+    assert experimental["counts"]["improved"] == experimental["counts"]["regressed"] == 1
+    assert experimental["counts"]["unavailable_answer"] == 2
+    assert experimental["counts"]["excluded_expectation"] == 2
+    assert len(experimental["cases"]) == 2500
     for summary in content["classification"]["evaluations"]:
         assert (
             summary["selected_count"],
@@ -147,6 +154,8 @@ def test_2500_pair_104_option_classification_report(tmp_path):
     with (tmp_path / "comparison.csv").open(newline="") as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == 5000
+    assert {row["experimental_quality_denominator"] for row in rows} == {"2496"}
+    assert sum(row["experimental_pair_row"] == "true" for row in rows) == 2500
     assert len({(row["evaluation_id"], row["case_id"]) for row in rows}) == 5000
     assert sum(row["strict_correct"] == "true" for row in rows) == 4988
     assert sum(row["strict_correct"] == "false" for row in rows) == 8

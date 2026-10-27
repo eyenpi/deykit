@@ -2,7 +2,9 @@
 
 from decimal import Decimal, localcontext
 
+from deykit.comparisons.models import ComparisonOutcomes
 from deykit.metrics.summary import Rate
+from deykit.reports.experimental_pairs import experimental_comparison
 from deykit.reports.models import (
     ClassificationCase,
     ClassificationEvaluation,
@@ -147,10 +149,10 @@ def classify_evaluation(
         failed_count=statuses.input_invalid + statuses.response_error,
         missing_count=statuses.pending,
         refused_count=sum(explicit_refusal(case) for case in applicable)
-        if policy == "classification-strict-v2"
+        if policy != "classification-strict-v1"
         else None,
         refusal_reason="explicit_provider_refusals_only"
-        if policy == "classification-strict-v2"
+        if policy != "classification-strict-v1"
         else "distinct_refusal_status_not_recorded",
         class_count=len(singles),
         classes=tuple(classes),
@@ -164,9 +166,20 @@ def classification_report(
     pricing: ClassificationPricing,
     *,
     policy: ClassificationPolicy = "classification-strict-v2",
+    comparison: ComparisonOutcomes | None = None,
 ) -> ClassificationReport:
+    if policy == "classification-strict-v3" and comparison is None:
+        raise ValueError("experimental_comparison_required")
     limitations = ClassificationReport.model_fields["treatment_limitations"].default
-    if any(case.selected_images for evaluation in evaluations for case in evaluation.cases):
+    if policy == "classification-strict-v3":
+        limitations = (
+            "cohort_selection_does_not_establish_representativeness",
+            "case_input_hash_covers_original_input_and_source_images",
+            "selected_model_input_identity_not_recorded",
+            "request_bytes_do_not_identify_change_cause",
+            "experimental_pairs_do_not_establish_model_only_causality",
+        )
+    elif any(case.selected_images for evaluation in evaluations for case in evaluation.cases):
         limitations = (
             "cohort_selection_does_not_establish_representativeness",
             "managed_images_record_source_and_prepared_identities",
@@ -177,6 +190,11 @@ def classification_report(
         pricing=pricing,
         evaluations=tuple(
             classify_evaluation(item, pricing, policy=policy) for item in evaluations
+        ),
+        experimental_comparison=(
+            experimental_comparison(comparison, evaluations)
+            if policy == "classification-strict-v3" and comparison is not None
+            else None
         ),
         treatment_limitations=limitations,
     )
