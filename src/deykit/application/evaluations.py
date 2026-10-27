@@ -13,6 +13,7 @@ from deykit.application.evaluation_evidence import snapshot_attempts
 from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.evidence import evidence_hash
+from deykit.contracts.execution_groups import ExecutionGroup
 from deykit.contracts.identities import new_id
 from deykit.contracts.json_value import JsonError, JsonValue, dump_json, parse_json, semantic_hash
 from deykit.contracts.ports import (
@@ -58,6 +59,7 @@ class FrozenEvaluation:
     baseline_dataset: DatasetSnapshot
     baseline_labels: LabelSnapshot
     dispatched_attempts: tuple[tuple[AttemptRecord, AttemptEvent], ...]
+    group_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -217,6 +219,9 @@ def frozen_evaluation_from_records(
         baseline_dataset,
         baseline_labels,
         snapshot_attempts(records, results, decoder=decoder, history=history),
+        _required(index, ExecutionGroup, "execution_groups", manifest.execution_group_id).kind
+        if manifest.execution_group_id
+        else None,
     )
     _verify_hashes(frozen)
     return frozen
@@ -253,22 +258,30 @@ def metrics_from_frozen(
                 frozen.manifest.case_ids,
                 paired,
             )
+        dispatched = (
+            tuple(
+                (attempt, event)
+                for attempt, event in frozen.dispatched_attempts
+                if event.state != "not_sent"
+            )
+            if frozen.group_kind == "experiment"
+            else frozen.dispatched_attempts
+        )
         latency = live_latency(
             frozen.manifest.mode,
             tuple(
                 event.duration_seconds
-                for _, event in frozen.dispatched_attempts
+                for _, event in dispatched
                 if event.duration_seconds is not None
             ),
         )
         usage_sources = tuple(
-            event.outcome.usage_source if event.outcome else None
-            for _, event in frozen.dispatched_attempts
+            event.outcome.usage_source if event.outcome else None for _, event in dispatched
         )
         reported_at = max(
             (
                 event.created_at
-                for _, event in frozen.dispatched_attempts
+                for _, event in dispatched
                 if event.outcome and event.outcome.usage_source is not None
             ),
             default=None,

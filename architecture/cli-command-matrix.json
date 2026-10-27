@@ -740,7 +740,7 @@
     },
     {
       "path": "experiments run",
-      "service": "ExperimentService.run",
+      "service": "ExperimentService.start",
       "owner": "CLI",
       "status": "implemented",
       "verification": {
@@ -750,7 +750,7 @@
     },
     {
       "path": "experiments show",
-      "service": "ExperimentService.show",
+      "service": "ExperimentService.read",
       "owner": "CLI",
       "status": "implemented",
       "verification": {
@@ -770,7 +770,7 @@
     },
     {
       "path": "experiments cancel",
-      "service": "ExperimentService.cancel",
+      "service": "GroupExecutionService.cancel",
       "owner": "CLI",
       "status": "implemented",
       "verification": {
@@ -780,7 +780,7 @@
     },
     {
       "path": "experiments report",
-      "service": "ExperimentService.report",
+      "service": "experiment_report",
       "owner": "CLI",
       "status": "implemented",
       "verification": {

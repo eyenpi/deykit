@@ -1273,12 +1273,18 @@ def test_priority_inspection_waits_for_group_start_and_resume_acknowledgement(se
     assert len(factory.calls) == 2 and result.members[0].cases[0].status == "valid"
 
 
-def test_experiment_report_excludes_proven_unsent_provider_usage(setup):
+def test_experiment_report_excludes_proven_unsent_provider_usage(setup, monkeypatch):
+    from dataclasses import replace
+
+    import deykit.application.evaluations as evaluation_module
+    from deykit.application.evaluations import EvaluationService
     from deykit.application.experiment_reports import experiment_report
+    from deykit.application.reports import ReportService
     from deykit.contracts.records import ProviderProfile
     from deykit.providers.choice import JEV_DESTINATION
+    from deykit.reports.models import ClassificationPricing, ReportRequest, TokenPrice
 
-    source, runner, factory, _ = setup(count=64)
+    source, runner, factory, clock = setup(count=64)
     factory.profile_value = ProviderProfile(
         id="live",
         adapter="jev",
@@ -1322,6 +1328,79 @@ def test_experiment_report_excludes_proven_unsent_provider_usage(setup):
         report.members[0].provider_config_hash
         == runner.repository.history(result.members[0].run_id).manifest.provider_config_hash
     )
+    run = result.members[0]
+    reports = ReportService(source, clock)
+    pricing = ClassificationPricing(
+        rates=(
+            TokenPrice(
+                adapter="jev",
+                requested_model="jev-1.13.0",
+                currency="USD",
+                input_per_million="1",
+                output_per_million="1",
+                source="test",
+                as_of="2026-10-05T00:00:00Z",
+            ),
+        )
+    )
+    current_metrics = evaluation_module.metrics_from_frozen
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            evaluation_module,
+            "metrics_from_frozen",
+            lambda frozen, mode: current_metrics(replace(frozen, group_kind=None), mode),
+        )
+        legacy = EvaluationService(source, clock).evaluate_saved(
+            run.run_id, run.latest_result_snapshot_id, operation_id="legacy-evaluation"
+        )
+        old_report = reports.create(
+            ReportRequest(target_id=legacy.record.id, target_kind="evaluation"),
+            operation_id="legacy-report",
+        )
+    legacy_body = source.read(ResourceKey("evaluations", legacy.record.id)).body
+    assert old_report.content.evaluations[0].metrics.usage.dispatched_attempt_count == 8
+    implicit = reports.create(
+        ReportRequest(target_id=run.run_id, target_kind="run"),
+        operation_id="implicit-legacy-report",
+    )
+    assert implicit.content.target.evaluation_ids == (legacy.record.id,)
+    assert implicit.content.evaluations[0].metrics.usage.dispatched_attempt_count == 8
+    assert reports.read(old_report.record.id).content == old_report.content
+    assert (
+        reports.create(
+            ReportRequest(target_id=legacy.record.id, target_kind="evaluation"),
+            operation_id="legacy-report",
+        ).content
+        == old_report.content
+    )
+    assert source.read(ResourceKey("evaluations", legacy.record.id)).body == legacy_body
+    explicit_legacy = reports.create(
+        ReportRequest(target_id=run.run_id, target_kind="run", evaluation_id=legacy.record.id),
+        operation_id="explicit-legacy-report",
+    )
+    assert explicit_legacy.content.evaluations[0].metrics.usage.dispatched_attempt_count == 8
+
+    evaluation = EvaluationService(source, clock).evaluate_saved(
+        run.run_id, run.latest_result_snapshot_id, operation_id="saved-evaluation"
+    )
+    original_evaluation = source.read(ResourceKey("evaluations", evaluation.record.id)).body
+    detailed = reports.create(
+        ReportRequest(
+            target_id=evaluation.record.id,
+            target_kind="evaluation",
+            preset="classification",
+            pricing=pricing,
+        ),
+        operation_id="detailed-report",
+    )
+    projected = detailed.content.evaluations[0]
+    assert projected.metrics.usage.dispatched_attempt_count == 1
+    assert projected.metrics.usage.total_input_tokens == 3
+    assert len(projected.attempts) == 8  # The audit still includes the seven proven non-calls.
+    assert detailed.content.classification.evaluations[0].cost.total == "0.000004"
+    assert reports.read(detailed.record.id).content == detailed.content
+    assert reports.read(old_report.record.id).content == old_report.content
+    assert source.read(ResourceKey("evaluations", evaluation.record.id)).body == original_evaluation
 
 
 def test_experiment_report_discloses_actual_answering_models(setup):

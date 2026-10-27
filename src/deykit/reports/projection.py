@@ -29,6 +29,7 @@ from deykit.contracts.images import SelectedImage
 from deykit.contracts.json_value import (
     DEFAULT_LIMITS,
     GENERATED_LIMITS,
+    GROUP_SELECTION_LIMITS,
     JsonDocument,
     JsonError,
     JsonLimits,
@@ -73,7 +74,7 @@ def _cohort_selection(dataset: DatasetSnapshot, manifest: RunManifest) -> dict[s
         "requested_case_count": None,
         "regression_selected": bool(manifest.regression_ids),
     }
-    selection = JsonDocument(dataset.selection_source).value
+    selection = parse_json(dataset.selection_source, GROUP_SELECTION_LIMITS)
     if not isinstance(selection, dict) or set(selection) != {"split", "case_ids"}:
         return result
     split = selection["split"]

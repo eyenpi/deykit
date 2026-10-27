@@ -1,7 +1,7 @@
 """Aggregate one pinned experiment snapshot without writing or calling providers."""
 
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from deykit.application.dataset_support import decoded, fail, identifier
 from deykit.application.evaluations import (
@@ -152,17 +152,7 @@ def experiment_report(
         )
         correct = sum(case.set_correct is True for case in applicable)
         valid = sum(case.set_correct is not None for case in applicable)
-        metrics = metrics_from_frozen(
-            replace(
-                frozen,
-                dispatched_attempts=tuple(
-                    (attempt, event)
-                    for attempt, event in frozen.dispatched_attempts
-                    if event.state != "not_sent"
-                ),
-            ),
-            "original",
-        )
+        metrics = metrics_from_frozen(frozen, "original")
         planned_members.append(sum(item.request is not None for item in history.prepared))
         applicable_ids = {case.case_id for case in applicable}
         applicable_provenance = dict(

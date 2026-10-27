@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from deykit.contracts.json_value import GROUP_SELECTION_LIMITS, dump_json
 from deykit.contracts.records import DatasetSnapshot, RunManifest
 from deykit.reports.projection import _cohort_selection
 
@@ -45,4 +46,21 @@ def test_frozen_regression_selection_is_disclosed_separately():
         "explicit_case_ids": False,
         "requested_case_count": 0,
         "regression_selected": True,
+    }
+
+
+def test_large_frozen_experiment_selection_is_disclosed():
+    ids = tuple(f"case-{index:05}-" + "x" * 100 for index in range(10_000))
+    selection = dump_json({"split": "all", "case_ids": list(ids)}, limits=GROUP_SELECTION_LIMITS)
+    assert len(selection.encode()) > 1_048_576
+    dataset = DatasetSnapshot.model_construct(
+        selection_source=selection,
+        cases=tuple(SimpleNamespace(id=case_id, split="test") for case_id in ids),
+    )
+    manifest = RunManifest.model_construct(regression_ids=())
+    assert _cohort_selection(dataset, manifest) == {
+        "split": "all",
+        "explicit_case_ids": True,
+        "requested_case_count": 10_000,
+        "regression_selected": False,
     }

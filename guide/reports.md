@@ -15,6 +15,13 @@ creation and rendering make no provider calls. Diagnostic and check reports use
 the group's pinned snapshot and create no P10 evaluations or aggregate metrics.
 When a selected run result has no original evaluation, the service evaluates
 the saved answers against their original labels.
+Selecting an evaluation explicitly always uses its saved metrics. If evidence
+from a pre-release experiment build counted attempts later proven not sent as
+provider calls, use the Python `EvaluationService.evaluate_saved(run_id,
+result_snapshot_id, operation_id=...)` with a new operation ID to score the saved
+result against its original labels. Select the new evaluation explicitly for
+reports or comparisons. The previous evaluation and its reports remain unchanged.
+The CLI `reevaluate` command instead snapshots current labels, which may differ.
 
 Create with `ReportService.create(ReportRequest(...), operation_id=...)`. Read
 the complete saved report with `read(report_id)`. Use `metadata(report_id)` or
@@ -224,7 +231,7 @@ Optionally pass `--pricing /absolute/prices.json` when creating the preset:
 {
   "rates": [{
     "adapter": "jev",
-    "requested_model": "jev-1.14",
+    "requested_model": "jev-1.14.0",
     "currency": "USD",
     "input_per_million": "1.25",
     "output_per_million": "5",
