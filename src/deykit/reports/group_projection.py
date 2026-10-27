@@ -146,6 +146,8 @@ def _group_context(
     frozen: FrozenDiagnosticSnapshot | FrozenCheckSnapshot,
     sanitizer: Sanitizer,
 ) -> GroupReportContext:
+    if frozen.group.kind == "experiment":
+        fail("report_context_mismatch", "incompatible_data")
     segment_id = frozen.segment.id if frozen.segment is not None else None
     for identity in (
         frozen.group.id,

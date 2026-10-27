@@ -100,6 +100,8 @@ def _reviewed_run(value: ReviewedRunPreview) -> RunPreviewDTO:
 
 
 def _group(value: GroupPreview) -> GroupPreviewDTO:
+    if value.kind == "experiment":
+        raise RuntimeError("unsupported_group_kind")
     if len(value.members) != len(value.identities):
         raise RuntimeError("preview_identity_count_mismatch")
     return GroupPreviewDTO(

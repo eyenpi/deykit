@@ -1086,6 +1086,39 @@ def test_source_busy_cancellation_retries_asynchronously_with_same_operation_id(
     asyncio.run(scenario())
 
 
+def test_shutdown_waits_for_priority_inspection_beyond_busy_budget(monkeypatch):
+    async def scenario() -> None:
+        monkeypatch.setattr(supervisor_module, "_CANCEL_RETRY_BUDGET_SECONDS", 0.025)
+        monkeypatch.setattr(supervisor_module, "_CANCEL_RETRY_DELAYS_SECONDS", (0.02,))
+        supervisor = ExecutionSupervisor()
+        service = _RunService()
+        await supervisor.start_run(
+            _registration(),
+            service,
+            object(),
+            operation_id="priority-start",
+            expected_review_context_hash="d" * 64,
+            evaluation_service=_EvaluationService(),  # type: ignore[arg-type]
+        )
+        original = service.cancel
+        attempts = 0
+
+        def priority_then_cancel(run_id, *, operation_id):
+            nonlocal attempts
+            attempts += 1
+            if attempts <= 3:
+                raise ServiceFailure(ServiceError(code="conflict", reason="source_priority"))
+            original(run_id, operation_id=operation_id)
+
+        monkeypatch.setattr(service, "cancel", priority_then_cancel)
+        asyncio.get_running_loop().call_later(0.3, service.wait_forever.set)
+        await asyncio.wait_for(supervisor.shutdown(), timeout=1)
+        assert attempts == 4
+        assert service.durable_cancelled_ids == ["run-1"]
+
+    asyncio.run(scenario())
+
+
 def test_native_source_lock_retry_keeps_loop_responsive_and_persists_after_release(tmp_path):
     async def scenario() -> None:
         source = FileProjectSource(tmp_path / "native-source", create=True)

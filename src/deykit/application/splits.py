@@ -22,7 +22,14 @@ from deykit.application.datasets import DatasetService
 from deykit.contracts.codec import dump_record
 from deykit.contracts.evidence import evidence_hash
 from deykit.contracts.identities import new_id
-from deykit.contracts.json_value import JsonError, JsonValue, bytes_hash, dump_json, parse_json
+from deykit.contracts.json_value import (
+    GROUP_SELECTION_LIMITS,
+    JsonError,
+    JsonValue,
+    bytes_hash,
+    dump_json,
+    parse_json,
+)
 from deykit.contracts.ports import Clock, CommitReceipt, ProjectSource, ResourceKey, SourceChange
 from deykit.contracts.records import CaseRecord, DatasetSnapshot
 from deykit.domain.splits import (
@@ -128,7 +135,7 @@ def split_snapshot_hash(cases: tuple[CaseRecord, ...], selection_source: str) ->
 def admit_dataset_snapshot(snapshot: DatasetSnapshot) -> DatasetSnapshot:
     """Admit the frozen bytes using the hash profile declared in the snapshot."""
     try:
-        source = parse_json(snapshot.selection_source)
+        source = parse_json(snapshot.selection_source, GROUP_SELECTION_LIMITS)
     except JsonError as error:
         fail(error.code)
     if not isinstance(source, dict):

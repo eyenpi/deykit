@@ -355,10 +355,12 @@ class ExecutionSupervisor:
             raise
         try:
             event = await asyncio.shield(acknowledged)
+            if event.kind != kind:
+                raise RuntimeError("group_kind_mismatch")
             return GroupAccepted(
                 operation_id,
                 event.group_id,
-                event.kind,
+                kind,
                 event.mode,
                 event.replayed,
                 event.segment_id,
@@ -513,7 +515,7 @@ class ExecutionSupervisor:
             _category, _registration_id, resource_id, _registration, service, _task = target
             service.cancel(resource_id, operation_id=f"shutdown-{resource_id[:32]}")
 
-        pending: list[tuple[_SupervisorTarget, int]] = []
+        pending: list[tuple[_SupervisorTarget, int, bool]] = []
         cancellation_failures = False
         for target in targets:
             if not is_current(target):
@@ -521,41 +523,51 @@ class ExecutionSupervisor:
             try:
                 await asyncio.to_thread(cancel_target, target)
             except ServiceFailure as error:
-                if error.error.code == "conflict" and error.error.reason == "source_busy":
+                if error.error.code == "conflict" and error.error.reason in {
+                    "source_busy",
+                    "source_priority",
+                }:
                     if is_current(target):
-                        pending.append((target, 0))
+                        pending.append((target, 0, error.error.reason == "source_priority"))
                 else:
                     cancellation_failures = True
             except Exception:
                 cancellation_failures = True
 
         while pending:
-            target, delay_index = pending.pop(0)
+            target, delay_index, priority = pending.pop(0)
             if not is_current(target):
                 continue
             remaining = retry_deadline - loop.time()
-            if remaining <= 0:
+            if remaining <= 0 and not priority:
                 cancellation_failures = True
                 continue
-            delay = min(
-                _CANCEL_RETRY_DELAYS_SECONDS[
-                    min(delay_index, len(_CANCEL_RETRY_DELAYS_SECONDS) - 1)
-                ],
-                remaining,
-            )
+            delay = _CANCEL_RETRY_DELAYS_SECONDS[
+                min(delay_index, len(_CANCEL_RETRY_DELAYS_SECONDS) - 1)
+            ]
+            if not priority:
+                delay = min(delay, remaining)
             owner = target[-1]
+            wait_started = loop.time()
             done, _ = await asyncio.wait((owner,), timeout=delay)
+            if priority:
+                retry_deadline += max(0.0, loop.time() - wait_started)
             if done or not is_current(target):
                 continue
-            if loop.time() >= retry_deadline:
+            if loop.time() >= retry_deadline and not priority:
                 cancellation_failures = True
                 continue
             try:
                 await asyncio.to_thread(cancel_target, target)
             except ServiceFailure as error:
-                if error.error.code == "conflict" and error.error.reason == "source_busy":
+                if error.error.code == "conflict" and error.error.reason in {
+                    "source_busy",
+                    "source_priority",
+                }:
                     if is_current(target):
-                        pending.append((target, delay_index + 1))
+                        pending.append(
+                            (target, delay_index + 1, error.error.reason == "source_priority")
+                        )
                 else:
                     cancellation_failures = True
             except Exception:

@@ -12,6 +12,7 @@ from deykit.application.dataset_support import (
     safe_hash,
     validated_model,
 )
+from deykit.application.errors import ServiceFailure
 from deykit.application.images import ImageAssets
 from deykit.contracts.base import FrozenModel
 from deykit.contracts.codec import dump_record, load_record
@@ -48,6 +49,7 @@ from deykit.runner.ports import Backend, BackendFactory
 
 MAX_CASES = 10_000
 MAX_PLAN_BYTES = 32 * 1024 * 1024
+MAX_EXPERIMENT_PLAN_BYTES = 512 * 1024 * 1024
 
 
 class RunRequest(FrozenModel):
@@ -141,6 +143,7 @@ class RunPlan:
     context_hash: str
     review_records: tuple[StoredRecord, ...]
     review_compiler: CompilerIdentity
+    plan_bytes: int = 0
 
     @property
     def initial_requests(self) -> int:
@@ -267,31 +270,51 @@ class Planner:
         return self._prepare(request, records, profile, backend)
 
     def prepare_many(
-        self, requests: tuple[RunRequest, ...], *, captured: tuple[StoredRecord, ...] | None = None
+        self,
+        requests: tuple[RunRequest, ...],
+        *,
+        captured: tuple[StoredRecord, ...] | None = None,
+        allow_partial: bool = False,
+        max_plan_bytes: int | None = None,
+        max_total_plan_bytes: int | None = None,
+        allow_missing_credentials: bool = False,
     ) -> tuple[RunPlan, ...]:
         """All member plans read a single source epoch before any compilation or writes."""
         requests = tuple(validate_request(request) for request in requests)
         with self.source.consistent_read():
             if captured is None:
                 captured = self.source.capture_snapshot()
-            inputs = tuple(
-                (
+        plans: list[RunPlan] = []
+        total = 0
+        for request in requests:
+            records = self._capture(request, captured)
+            profile = self.backends.profile_captured(
+                request.provider_id, request.fixture_set_id, captured
+            )
+            backend = self.backends.resolve_captured(profile, request.fixture_set_id, captured)
+            limit = max_plan_bytes
+            if max_total_plan_bytes is not None:
+                remaining = max_total_plan_bytes - total
+                if remaining <= 0:
+                    fail("execution_group_resource_limit", "preflight_failed")
+                limit = remaining if limit is None else min(limit, remaining)
+            try:
+                plan = self._prepare(
                     request,
-                    self._capture(request, captured),
-                    self.backends.profile_captured(
-                        request.provider_id, request.fixture_set_id, captured
-                    ),
+                    records,
+                    profile,
+                    backend,
+                    allow_partial=allow_partial,
+                    max_plan_bytes=limit,
+                    allow_missing_credentials=allow_missing_credentials,
                 )
-                for request in requests
-            )
-        prepared_inputs = tuple(
-            (
-                *values,
-                self.backends.resolve_captured(values[2], values[0].fixture_set_id, captured),
-            )
-            for values in inputs
-        )
-        return tuple(self._prepare(*values) for values in prepared_inputs)
+            except ServiceFailure as error:
+                if max_total_plan_bytes is not None and error.error.reason == "run_resource_limit":
+                    fail("execution_group_resource_limit", "preflight_failed")
+                raise
+            plans.append(plan)
+            total += plan.plan_bytes
+        return tuple(plans)
 
     def prepare_orders(self, request: RunRequest, *, orders: int, seed: int) -> tuple[RunPlan, ...]:
         from deykit.diagnostics.orders import DiagnosticInvalid, choice_orders
@@ -345,7 +368,12 @@ class Planner:
         records: tuple[StoredRecord, ...],
         profile: ProviderProfile,
         backend: Backend,
+        *,
+        allow_partial: bool = False,
+        max_plan_bytes: int | None = None,
+        allow_missing_credentials: bool = False,
     ) -> RunPlan:
+        plan_limit = MAX_PLAN_BYTES if max_plan_bytes is None else max_plan_bytes
         profile = validated_model(ProviderProfile, profile, "invalid_provider_profile")
         decision = decoded(DecisionRecord, records[0])
         dataset = decoded(DatasetRecord, records[1])
@@ -451,12 +479,14 @@ class Planner:
         ):
             fail("invalid_compiler_identity", "preflight_failed")
         preflight_error = backend.preflight(request.decision_id, request.dataset_id, definition)
-        if preflight_error is not None:
+        if preflight_error is not None and not (
+            allow_missing_credentials and preflight_error.reason == "credential_unavailable"
+        ):
             fail(preflight_error.reason or "provider_preflight_failed", "preflight_failed")
         # Bound copied evidence and each compiled request as the plan grows. Managed
         # assets are independent dependencies, not part of the JSON plan envelope.
         total = sum(len(item.body) for item in records if item.key.collection != "image_assets")
-        if total > MAX_PLAN_BYTES:
+        if total > plan_limit:
             fail("run_resource_limit", "preflight_failed")
         initial_requests = 0
         prepared: list[PlannedCase] = []
@@ -483,7 +513,7 @@ class Planner:
                 )
                 continue
             initial_requests += 1
-            if initial_requests > request.settings.max_attempts:
+            if initial_requests > request.settings.max_attempts and not allow_partial:
                 fail("initial_requests_exceed_cap", "preflight_failed")
             try:
                 if definition.selected_images:
@@ -505,7 +535,7 @@ class Planner:
             ):
                 fail("compiled_compiler_mismatch", "preflight_failed")
             total += len(dump_record(compiled))
-            if total > MAX_PLAN_BYTES:
+            if total > plan_limit:
                 fail("run_resource_limit", "preflight_failed")
             prepared.append(PlannedCase(case.id, case_input_hash(case), compiled, None))
         return RunPlan(
@@ -523,4 +553,5 @@ class Planner:
             context_hash=fingerprint(records),
             review_records=records,
             review_compiler=compiler_identity,
+            plan_bytes=total,
         )

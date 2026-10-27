@@ -54,7 +54,10 @@ def _cancel_epoch(source: FileProjectSource) -> Iterator[None]:
             try:
                 stack.enter_context(source.consistent_read())
             except ServiceFailure as error:
-                if error.error.code != "conflict" or error.error.reason != "source_busy":
+                if error.error.code != "conflict" or error.error.reason not in {
+                    "source_busy",
+                    "source_priority",
+                }:
                     raise
                 if first_busy is None:
                     first_busy = error

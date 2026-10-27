@@ -10,7 +10,7 @@ from deykit.contracts.base import Record
 from deykit.contracts.codec import dump_record
 from deykit.contracts.errors import ServiceError
 from deykit.contracts.identities import new_id
-from deykit.contracts.json_value import JsonError, bytes_hash, dump_json
+from deykit.contracts.json_value import GROUP_SELECTION_LIMITS, JsonError, bytes_hash, dump_json
 from deykit.contracts.ports import (
     Clock,
     Collection,
@@ -24,6 +24,7 @@ from deykit.contracts.ports import (
 from deykit.contracts.records import (
     AttemptEvent,
     AttemptRecord,
+    CaseResult,
     DatasetSnapshot,
     DecisionRevision,
     DispatchOutcome,
@@ -40,6 +41,11 @@ from deykit.runner.decoding import HistoryDecoder
 from deykit.runner.history import RunHistory, WorkItem, history_from_records, read_history
 from deykit.runner.planner import MAX_PLAN_BYTES, RunPlan, evidence_hash
 from deykit.runner.ports import ExecutionProject
+from deykit.runner.result_limits import (
+    experiment_case_result_limit,
+    experiment_nonanswer_result_limit,
+    result_size,
+)
 
 RunState = Literal[
     "preparing",
@@ -106,6 +112,10 @@ class RunRepository:
         self._decoder = HistoryDecoder()
         self._history_index = HistoryIndex(self._decoder)
 
+    @property
+    def decoder(self) -> HistoryDecoder:
+        return self._decoder
+
     def identity(self) -> str:
         return identifier(self.id_factory())
 
@@ -169,7 +179,13 @@ class RunRepository:
         return run_id
 
     def stage_freeze(
-        self, plan: RunPlan, operation_id: str, *, run_id: str, group_id: str | None = None
+        self,
+        plan: RunPlan,
+        operation_id: str,
+        *,
+        run_id: str,
+        group_id: str | None = None,
+        max_plan_bytes: int | None = None,
     ) -> tuple[SourceChange, ...]:
         """Build immutable evidence without writing, for an atomic multi-plan freeze."""
         revision_id, dataset_id, label_id, dev_id, dev_label_id = (
@@ -191,7 +207,8 @@ class RunRepository:
             content_hash=evidence_hash(tuple(dump_record(case) for case in plan.cases)),
             created_at=stamp,
             selection_source=dump_json(
-                {"split": plan.selection.split, "case_ids": list(plan.selection.case_ids)}
+                {"split": plan.selection.split, "case_ids": list(plan.selection.case_ids)},
+                limits=GROUP_SELECTION_LIMITS,
             ),
         )
         labels = LabelSnapshot(
@@ -267,20 +284,29 @@ class RunRepository:
         )
         history = RunHistory(manifest, prepared, (), (event,), (), (), (), ())
         initial_snapshot = self.snapshot_record(history)
-        changes = (
-            change("revisions", revision, (plan.selection.decision_id,)),
-            change("dataset_snapshots", dataset),
-            change("label_snapshots", labels),
-            change("dataset_snapshots", development),
-            change("label_snapshots", dev_labels),
-            change("runs", manifest),
-            *(change("prepared_cases", item, (run_id,)) for item in prepared),
-            change("run_events", event, (run_id,)),
-            change("result_snapshots", initial_snapshot),
-        )
-        if sum(len(item.body or b"") for item in changes) > MAX_PLAN_BYTES:
-            fail("run_resource_limit", "preflight_failed")
-        return changes
+        limit = MAX_PLAN_BYTES if max_plan_bytes is None else max_plan_bytes
+        changes: list[SourceChange] = []
+        size = 0
+
+        def append(collection: Collection, record: Record, scope: tuple[str, ...] = ()) -> None:
+            nonlocal size
+            staged = change(collection, record, scope)
+            size += len(staged.body or b"")
+            if size > limit:
+                fail("run_resource_limit", "preflight_failed")
+            changes.append(staged)
+
+        append("revisions", revision, (plan.selection.decision_id,))
+        append("dataset_snapshots", dataset)
+        append("label_snapshots", labels)
+        append("dataset_snapshots", development)
+        append("label_snapshots", dev_labels)
+        append("runs", manifest)
+        for item in prepared:
+            append("prepared_cases", item, (run_id,))
+        append("run_events", event, (run_id,))
+        append("result_snapshots", initial_snapshot)
+        return tuple(changes)
 
     def segment(
         self,
@@ -364,7 +390,9 @@ class RunRepository:
                 if group_segment is None:
                     fail("unowned_group_child_segment", "incompatible_data")
                 for linked in group_segment.member_segments:
-                    member = history_from_records(records, linked.run_id, verify_group=False)
+                    member = history_from_records(
+                        records, linked.run_id, verify_group=False, decoder=self.decoder
+                    )
                     cutoff = next(s for s in member.segments if s.id == linked.segment_id)
                     if requested(member, cutoff):
                         return True
@@ -567,6 +595,22 @@ class RunRepository:
             history = self.history(run_id)
             changes: list[SourceChange] = []
             settled: set[str] = set()
+            prepared = {item.case_id: item for item in history.prepared}
+            experiment = history.group is not None and history.group.group.kind == "experiment"
+            answer_limit = (
+                experiment_case_result_limit(
+                    len(history.prepared),
+                    min(
+                        history.manifest.settings.max_attempts,
+                        sum(item.request is not None for item in history.prepared),
+                    ),
+                )
+                if experiment
+                else 0
+            )
+            nonanswer_limit = (
+                experiment_nonanswer_result_limit(len(history.prepared)) if experiment else 0
+            )
             for index, (attempt, outcome, duration) in enumerate(received, 1):
                 prior = history.final_event(attempt.id)
                 if (
@@ -577,6 +621,37 @@ class RunRepository:
                 ):
                     fail("invalid_attempt_transition", "conflict")
                 settled.add(attempt.id)
+                if experiment:
+                    if outcome.answer is not None:
+                        result = CaseResult(
+                            case_id=attempt.case_id,
+                            input_hash=prepared[attempt.case_id].input_hash,
+                            status="valid",
+                            attempt_id=attempt.id,
+                            answer=outcome.answer,
+                        )
+                        limit = answer_limit
+                    else:
+                        result = CaseResult(
+                            case_id=attempt.case_id,
+                            input_hash=prepared[attempt.case_id].input_hash,
+                            status="unknown" if outcome.state == "unknown" else "response_error",
+                            attempt_id=attempt.id,
+                            error=outcome.error,
+                        )
+                        limit = nonanswer_limit
+                    if result_size(result) > limit:
+                        outcome = outcome.model_copy(
+                            update={
+                                "answer": None,
+                                "retryable": False,
+                                "retry_after_seconds": None,
+                                "error": ServiceError(
+                                    code="response_invalid",
+                                    reason="experiment_result_resource_limit",
+                                ),
+                            }
+                        )
                 event = AttemptEvent(
                     id=self.identity(),
                     attempt_id=attempt.id,

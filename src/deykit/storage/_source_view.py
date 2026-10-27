@@ -9,6 +9,7 @@ from deykit.storage.records import key_path
 
 _MAX_OPERATIONS = 65_536
 _MAX_HISTORY_ENTRIES = 262_144
+_MAX_RETAINED_BYTES = 256 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,7 @@ class SourceViewMemo:
             if operation.reference is not None:
                 body = operation.reference[1]
                 bodies[id(body)] = len(body)
-        self.view = view if sum(bodies.values()) <= 128 * 1024 * 1024 else None
+        self.view = view if sum(bodies.values()) <= _MAX_RETAINED_BYTES else None
 
     def clear(self) -> None:
         self.view = None

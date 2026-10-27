@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from pydantic import ValidationError
 
@@ -14,13 +14,16 @@ from deykit.contracts.execution_groups import (
     DiagnosticSnapshot,
     ExecutionGroup,
     ExecutionGroupSegment,
+    ExperimentSnapshot,
 )
+from deykit.contracts.experiments import ExperimentRequest
 from deykit.contracts.json_value import (
+    GROUP_SELECTION_LIMITS,
     RECORD_LIMITS,
-    JsonDocument,
     JsonValue,
     bytes_hash,
     canonical_bytes,
+    parse_json,
     semantic_hash,
 )
 from deykit.contracts.ports import Collection, ResourceKey, StoredRecord
@@ -31,7 +34,11 @@ from deykit.contracts.records import (
     RunManifest,
 )
 from deykit.domain.definitions import definition_hash
+from deykit.runner.experiment_plan import ExperimentMember, diagnostic_base_index
 from deykit.runner.group_selection import decode_group_start_selection, group_start_intent
+
+if TYPE_CHECKING:
+    from deykit.runner.decoding import HistoryDecoder
 
 PREPARED_EVIDENCE_PROFILE = "deykit-group-member-prepared-v1"
 
@@ -87,10 +94,75 @@ class GroupBudget:
     group: ExecutionGroup
     used: int
     segments: tuple[ExecutionGroupSegment, ...] = ()
+    reserved_units: int = 0
+    limit_units: int | None = None
+    member_prices: tuple[tuple[str, int | None], ...] = ()
+    unknown_price_attempts: int = 0
 
     @property
     def remaining(self) -> int:
         return max(0, self.group.max_attempts - self.used)
+
+    def remaining_for(self, run_id: str) -> int:
+        if self.limit_units is None:
+            return self.remaining
+        prices = dict(self.member_prices)
+        if run_id not in prices:
+            fail("experiment_member_price_missing", "incompatible_data")
+        price = prices[run_id]
+        if price is None:
+            return 0
+        if price == 0:
+            return self.remaining
+        return min(self.remaining, max(0, self.limit_units - self.reserved_units) // price)
+
+
+def experiment_request(group: ExecutionGroup) -> ExperimentRequest:
+    selection = decode_group_start_selection(group.selection_source, expected_kind="experiment")
+    assert isinstance(selection.original_selection, dict)
+    try:
+        return ExperimentRequest.model_validate_json(
+            json.dumps(_selection_integers(selection.original_selection["request"]))
+        )
+    except (ValidationError, ValueError):
+        fail("invalid_experiment_selection", "incompatible_data")
+
+
+def experiment_members(
+    group: ExecutionGroup, records: tuple[StoredRecord, ...]
+) -> tuple[ExperimentMember, ...]:
+    from deykit.runner.experiment_plan import expand_experiment
+
+    request = experiment_request(group)
+    index = {record.key: record for record in records}
+    combinations = request.combination_indices()
+    if len(group.members) < len(combinations):
+        fail("experiment_member_count_mismatch", "incompatible_data")
+    definitions = []
+    for position, decision in enumerate(request.decisions):
+        first = next(
+            index
+            for index, (decision_index, _, _) in enumerate(combinations)
+            if decision_index == position
+        )
+        member = group.members[first]
+        manifest_stored = index.get(ResourceKey("runs", member.run_id))
+        if manifest_stored is None:
+            fail("execution_group_member_mismatch", "incompatible_data")
+        manifest = decoded(RunManifest, manifest_stored)
+        revision_stored = index.get(
+            ResourceKey("revisions", manifest.decision_revision_id, (decision.decision_id,))
+        )
+        if revision_stored is None:
+            fail("experiment_revision_missing", "incompatible_data")
+        revision = decoded(DecisionRevision, revision_stored)
+        if revision.content_hash != definition_hash(revision.definition):
+            fail("revision_hash_mismatch", "incompatible_data")
+        definitions.append(revision.definition)
+    try:
+        return expand_experiment(request, tuple(definitions))
+    except ValueError:
+        fail("invalid_experiment_selection", "incompatible_data")
 
 
 def _selection_allocation(group: ExecutionGroup) -> int:
@@ -169,7 +241,7 @@ def _admit_diagnostic_scope(
     expected: JsonValue = {"split": split, "case_ids": list(case_ids)}
     for dataset in datasets:
         try:
-            selected = JsonDocument(dataset.selection_source).value
+            selected = parse_json(dataset.selection_source, GROUP_SELECTION_LIMITS)
         except ValueError:
             fail("diagnostic_scope_selection_mismatch", "incompatible_data")
         if selected != expected:
@@ -183,7 +255,9 @@ def _admit_diagnostic_scope(
             fail("diagnostic_scope_selection_mismatch", "incompatible_data")
 
 
-def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudget:
+def group_budget(
+    records: tuple[StoredRecord, ...], group_id: str, *, decoder: "HistoryDecoder | None" = None
+) -> GroupBudget:
     # Local import avoids coupling plain run records to group orchestration.
     from deykit.runner.history import history_from_records
     from deykit.runner.repository import deadline_at
@@ -194,19 +268,41 @@ def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudge
     stored = index.get(ResourceKey("execution_groups", group_id))
     if stored is None:
         fail("execution_group_missing", "incompatible_data")
-    group = decoded(ExecutionGroup, stored)
+    decode = decoder.decode if decoder is not None else decoded
+    group = decode(ExecutionGroup, stored)
     if group.id != group_id or group.content_hash != content_hash(group):
         fail("execution_group_hash_mismatch", "incompatible_data")
     allocation = _selection_allocation(group)
     if group.max_attempts != allocation:
         fail("execution_group_cap_selection_mismatch", "incompatible_data")
     used = 0
+    reserved_units = 0
+    unknown_price_attempts = 0
+    member_prices: list[tuple[str, int | None]] = []
+    limit_units = None
+    if group.kind == "experiment":
+        from deykit.contracts.experiments import amount_units
+
+        request = experiment_request(group)
+        specs = experiment_members(group, records)
+        if len(specs) != len(group.members):
+            fail("experiment_member_count_mismatch", "incompatible_data")
+        limit_units = amount_units(request.budget_usd) if request.budget_usd is not None else None
+        member_prices = [
+            (
+                member.run_id,
+                amount_units(spec.variant.reservation_usd)
+                if spec.variant.reservation_usd is not None
+                else None,
+            )
+            for member, spec in zip(group.members, specs, strict=True)
+        ]
     histories = {}
     for member in group.members:
         stored = index.get(ResourceKey("runs", member.run_id))
         if stored is None or bytes_hash(stored.body) != member.manifest_hash:
             fail("execution_group_member_mismatch", "incompatible_data")
-        manifest = decoded(RunManifest, stored)
+        manifest = decode(RunManifest, stored)
         if manifest.settings.max_attempts != allocation:
             fail("execution_group_member_cap_mismatch", "incompatible_data")
         try:
@@ -215,7 +311,7 @@ def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudge
             fail("execution_group_prepared_scope_mismatch", "incompatible_data")
         if actual_prepared_hash != member.prepared_hash:
             fail("execution_group_prepared_hash_mismatch", "incompatible_data")
-        history = history_from_records(records, member.run_id, verify_group=False)
+        history = history_from_records(records, member.run_id, verify_group=False, decoder=decoder)
         if (
             history.manifest.id != member.run_id
             or history.manifest.operation_id != group.operation_id
@@ -229,19 +325,27 @@ def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudge
             fail("execution_group_cap_fixed", "incompatible_data")
         histories[member.run_id] = history
         used += history.used
+        if group.kind == "experiment":
+            price = dict(member_prices)[member.run_id]
+            if price is None:
+                unknown_price_attempts += history.used
+            else:
+                reserved_units += price * history.used
     if used > group.max_attempts:
         fail("execution_group_cap_exceeded", "incompatible_data")
+    if limit_units is not None and (reserved_units > limit_units or unknown_price_attempts):
+        fail("experiment_spending_cap_exceeded", "incompatible_data")
     # Orphan manifests must not claim membership or borrow this group's budget.
     members = {member.run_id for member in group.members}
     for record in records:
         if record.key.collection == "runs":
-            manifest = decoded(RunManifest, record)
+            manifest = decode(RunManifest, record)
             if manifest.execution_group_id == group.id and manifest.id not in members:
                 fail("execution_group_foreign_member", "incompatible_data")
     segments = tuple(
         sorted(
             (
-                decoded(ExecutionGroupSegment, r)
+                decode(ExecutionGroupSegment, r)
                 for r in records
                 if r.key.collection == "group_segments" and r.key.scope == (group_id,)
             ),
@@ -290,36 +394,63 @@ def group_budget(records: tuple[StoredRecord, ...], group_id: str) -> GroupBudge
             linked.add(child.id)
     if linked != {s.id for history in histories.values() for s in history.segments}:
         fail("unowned_group_child_segment", "incompatible_data")
-    return GroupBudget(group, used, segments)
+    return GroupBudget(
+        group,
+        used,
+        segments,
+        reserved_units,
+        limit_units,
+        tuple(member_prices),
+        unknown_price_attempts,
+    )
 
 
-GroupSnapshot = DiagnosticSnapshot | CheckSnapshot
+GroupSnapshot = DiagnosticSnapshot | CheckSnapshot | ExperimentSnapshot
 
 
 def admit_group_snapshots(
-    records: tuple[StoredRecord, ...], group_id: str
+    records: tuple[StoredRecord, ...],
+    group_id: str,
+    *,
+    decoder: "HistoryDecoder | None" = None,
 ) -> tuple[GroupSnapshot, ...]:
     """Admit every retained boundary before any recovery mutation; no source access."""
     from deykit.application.evaluations import frozen_evaluation_from_records
+    from deykit.runner.decoding import HistoryDecoder
     from deykit.runner.history import history_from_records
 
-    budget = group_budget(records, group_id)
-    collection: Collection = (
-        "diagnostic_snapshots" if budget.group.kind == "choice_order" else "check_snapshots"
-    )
-    kind = DiagnosticSnapshot if budget.group.kind == "choice_order" else CheckSnapshot
+    decoder = decoder if decoder is not None else HistoryDecoder()
+    budget = group_budget(records, group_id, decoder=decoder)
+    collection: Collection = {
+        "choice_order": "diagnostic_snapshots",
+        "regression_check": "check_snapshots",
+        "experiment": "experiment_snapshots",
+    }[budget.group.kind]  # type: ignore[assignment]
+    kind = {
+        "choice_order": DiagnosticSnapshot,
+        "regression_check": CheckSnapshot,
+        "experiment": ExperimentSnapshot,
+    }[budget.group.kind]
     segments = {s.id: s for s in budget.segments}
     if not segments:
         fail("group_segment_missing", "incompatible_data")
     # Missing group summaries do not relax admission of frozen child context.
     contexts = []
     for execution_member in budget.group.members:
-        history = history_from_records(records, execution_member.run_id, verify_group=False)
+        history = history_from_records(
+            records, execution_member.run_id, verify_group=False, decoder=decoder
+        )
         if not history.snapshots:
             fail("group_member_result_missing", "incompatible_data")
         for result in history.snapshots:
             frozen = frozen_evaluation_from_records(
-                records, execution_member.run_id, result.id, None, "original"
+                records,
+                execution_member.run_id,
+                result.id,
+                None,
+                "original",
+                decoder=decoder,
+                history=history,
             )
         if (
             frozen.revision.id != frozen.manifest.decision_revision_id
@@ -404,7 +535,7 @@ def admit_group_snapshots(
             for f in contexts
         ):
             fail("diagnostic_selection_mismatch", "incompatible_data")
-    else:
+    elif budget.group.kind == "regression_check":
         from deykit.application.checks import CheckRequest
         from deykit.contracts.records import RegressionRecord
         from deykit.regressions.evidence import admit_regression_origin
@@ -450,15 +581,56 @@ def admit_group_snapshots(
                     or regression.question_id != f.revision.definition.questions[0].id
                 ):
                     fail("check_regression_mismatch", "incompatible_data")
+    else:
+        request = experiment_request(budget.group)
+        for frozen, spec in zip(contexts, experiment_members(budget.group, records), strict=True):
+            decision, cohort, variant = spec.decision, spec.cohort, spec.variant
+            _admit_profile_revision(
+                records,
+                decision_id=decision.decision_id,
+                mode=request.mode,
+                provider_id=variant.provider_id,
+                revision_id=decision.revision_id,
+                members=((frozen.manifest, frozen.revision),),
+            )
+            _admit_diagnostic_scope(cohort.split, cohort.case_ids, (frozen.dataset,))
+            manifest = frozen.manifest
+            if (
+                manifest.decision_id != decision.decision_id
+                or manifest.dataset_id != cohort.dataset_id
+                or manifest.mode != request.mode
+                or manifest.fixture_set_id != variant.fixture_set_id
+                or manifest.settings != request.settings
+                or bool(frozen.revision.definition.selected_images)
+                != (decision.modality == "image")
+                or manifest.option_order != spec.option_order
+            ):
+                fail("experiment_selection_mismatch", "incompatible_data")
+            if spec.purpose != "main":
+                if spec.diagnostic is None:
+                    fail("experiment_diagnostic_scope_mismatch", "incompatible_data")
+                base = contexts[diagnostic_base_index(request, spec.diagnostic)]
+                selected_ids = set(spec.cohort.case_ids)
+                if selected_ids != {
+                    case.id for case in frozen.dataset.cases
+                } or not selected_ids <= {case.id for case in base.dataset.cases}:
+                    fail("experiment_diagnostic_scope_mismatch", "incompatible_data")
     selected: list[GroupSnapshot] = []
+    boundaries: dict[str, tuple[int, ...]] = {}
     for stored in records:
-        if stored.key.collection not in {"diagnostic_snapshots", "check_snapshots"}:
+        if stored.key.collection not in {
+            "diagnostic_snapshots",
+            "check_snapshots",
+            "experiment_snapshots",
+        }:
             continue
         record: GroupSnapshot
         if stored.key.collection == "diagnostic_snapshots":
             record = decoded(DiagnosticSnapshot, stored)
-        else:
+        elif stored.key.collection == "check_snapshots":
             record = decoded(CheckSnapshot, stored)
+        else:
+            record = decoded(ExperimentSnapshot, stored)
         if ResourceKey("execution_groups", record.group_id) not in {r.key for r in records}:
             fail("group_snapshot_group_missing", "incompatible_data")
         if record.group_id != group_id:
@@ -473,16 +645,26 @@ def admit_group_snapshots(
         ):
             fail("group_snapshot_context_mismatch", "incompatible_data")
         segment = segments[record.segment_id]
-        if record.sequence != segment.sequence:
+        if record.sequence < segment.sequence:
             fail("group_snapshot_segment_sequence_mismatch", "incompatible_data")
+        member_boundaries = []
         for member in record.results:
-            frozen = frozen_evaluation_from_records(
-                records, member.run_id, member.result_snapshot_id, None, "original"
+            history = history_from_records(
+                records, member.run_id, verify_group=False, decoder=decoder
             )
-            history = history_from_records(records, member.run_id, verify_group=False)
+            frozen = frozen_evaluation_from_records(
+                records,
+                member.run_id,
+                member.result_snapshot_id,
+                None,
+                "original",
+                decoder=decoder,
+                history=history,
+            )
             if frozen.results.id != member.result_snapshot_id:
                 fail("group_result_path_mismatch", "incompatible_data")
             boundary = frozen.results.through_event_sequence
+            member_boundaries.append(boundary)
             child_id = next(
                 m.segment_id for m in segment.member_segments if m.run_id == member.run_id
             )
@@ -499,9 +681,24 @@ def admit_group_snapshots(
             if any(s.sequence > child.sequence and s.id == last_segment for s in history.segments):
                 fail("group_snapshot_future_result", "incompatible_data")
         selected.append(record)
+        boundaries[record.id] = tuple(member_boundaries)
     selected.sort(key=lambda s: s.sequence)
     if tuple(s.sequence for s in selected) != tuple(range(1, len(selected) + 1)):
         fail("invalid_group_snapshot_sequence", "incompatible_data")
+    prior_segment = 0
+    prior_boundaries: tuple[int, ...] | None = None
+    for snapshot in selected:
+        if snapshot.segment_id is None:
+            fail("group_snapshot_segment_mismatch", "incompatible_data")
+        segment = segments[snapshot.segment_id]
+        if segment.sequence < prior_segment or segment.sequence > prior_segment + 1:
+            fail("group_snapshot_segment_sequence_mismatch", "incompatible_data")
+        current = boundaries[snapshot.id]
+        if prior_boundaries is not None and any(
+            after < before for before, after in zip(prior_boundaries, current, strict=True)
+        ):
+            fail("group_snapshot_boundary_regression", "incompatible_data")
+        prior_segment, prior_boundaries = segment.sequence, current
     return tuple(selected)
 
 

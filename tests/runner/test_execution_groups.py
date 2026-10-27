@@ -45,6 +45,40 @@ def test_group_orders_atomic_scope_replay_and_child_resume_rejected(setup):
     assert len(factory.calls) == 4
 
 
+def test_existing_group_waits_for_priority_between_members(setup, monkeypatch):
+    from deykit.storage import FileProjectSource
+
+    source, runner, factory, _ = setup(count=1)
+    original = runner.scheduler.run
+    calls = 0
+
+    async def exercise(reader):
+        priority = reader.priority_read()
+
+        async def run_then_inspect(*args, **kwargs):
+            nonlocal calls
+            result = await original(*args, **kwargs)
+            calls += 1
+            if calls == 1:
+                priority.__enter__()
+
+                async def release():
+                    await asyncio.sleep(0.1)
+                    priority.__exit__(None, None, None)
+
+                asyncio.create_task(release())
+            return result
+
+        monkeypatch.setattr(runner.scheduler, "run", run_then_inspect)
+        return await DiagnosticService(runner).start(
+            ChoiceOrderRequest(run=request()), operation_id="priority"
+        )
+
+    with FileProjectSource(source.root) as reader:
+        result = asyncio.run(exercise(reader))
+    assert result.group.attempts_used == 2 and len(factory.calls) == 2
+
+
 def test_expanded_preflight_cap_writes_nothing(setup):
     source, runner, factory, _ = setup(count=2)
     before = source.capture_snapshot()

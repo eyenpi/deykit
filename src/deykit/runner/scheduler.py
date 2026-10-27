@@ -2,7 +2,8 @@
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Literal, TypeVar
 
@@ -26,6 +27,7 @@ _RepositoryStage = Literal[
     "finalization",
 ]
 _RepositoryResult = TypeVar("_RepositoryResult")
+_SOURCE_GATE: ContextVar[asyncio.Lock | None] = ContextVar("experiment_source_gate", default=None)
 
 
 class AsyncWaiter:
@@ -41,6 +43,30 @@ class Stop:
     contention_failure: ServiceError | None = None
     contention_stage: _RepositoryStage | None = None
     unsettled_contention: bool = False
+
+
+@dataclass
+class ProviderStop:
+    failed: bool = False
+    reason: ServiceError | None = None
+
+
+@dataclass
+class ConcurrencyShare:
+    limit: int
+    changed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def add(self, slots: int) -> None:
+        self.limit += slots
+        self.changed.set()
+
+
+def _observe_provider_stop(stop: Stop, shared: ProviderStop | None) -> None:
+    if shared is not None and shared.failed and stop.state is None:
+        stop.state = "interrupted"
+        stop.reason = shared.reason or ServiceError(
+            code="run_incomplete", reason="provider_wide_failure"
+        )
 
 
 class _SourceContentionExhausted(ServiceFailure):
@@ -79,9 +105,9 @@ def _outcome(value: DispatchOutcome) -> DispatchOutcome:
                 raise ValueError("invalid_transport_outcome")
             raw[name] = dict(vars(item))
     for item in [raw, *(node for node in raw.values() if isinstance(node, dict))]:
-        for field in item.values():
-            if isinstance(field, str):
-                field.encode("utf-8", "strict")
+        for value in item.values():
+            if isinstance(value, str):
+                value.encode("utf-8", "strict")
     return DispatchOutcome.model_validate(raw)
 
 
@@ -97,6 +123,16 @@ class Scheduler:
         self.waiter = waiter or AsyncWaiter()
         self._default_hook: Callable[[str, AttemptRecord], None] = lambda _stage, _attempt: None
         self.hook = hook or self._default_hook
+
+    @staticmethod
+    def _cap_reason(history: RunHistory) -> str:
+        group = history.group
+        if group is not None:
+            if group.remaining == 0:
+                return "execution_group_cap"
+            if group.group.kind == "experiment" and group.remaining_for(history.manifest.id) == 0:
+                return "experiment_reservation_budget"
+        return "attempt_cap"
 
     @staticmethod
     def _record_contention(stop: Stop, error: _SourceContentionExhausted) -> None:
@@ -116,11 +152,23 @@ class Scheduler:
         *,
         deadline: float | None = None,
         offload: bool = False,
+        source_gate: asyncio.Lock | None = None,
     ) -> _RepositoryResult:
         """Retry only source-lock acquisition, never a callable that entered its epoch."""
+        gate = source_gate if source_gate is not None else _SOURCE_GATE.get()
+        if gate is not None:
+            async with gate:
+                token = _SOURCE_GATE.set(None)
+                try:
+                    return await self._source_call(
+                        run_id, stage, operation, deadline=deadline, offload=offload
+                    )
+                finally:
+                    _SOURCE_GATE.reset(token)
         repo = self.repository
         budget_deadline = repo.clock.monotonic() + _SOURCE_CONTENTION_BUDGET_SECONDS
         delay_index = 0
+        priority_index = 0
         while True:
             now = repo.clock.monotonic()
             if deadline is not None and now >= deadline and deadline <= budget_deadline:
@@ -156,11 +204,25 @@ class Scheduler:
                         pending.exception()
                     raise
             except ServiceFailure as error:
-                if entered or error.error.code != "conflict" or error.error.reason != "source_busy":
+                if (
+                    entered
+                    or error.error.code != "conflict"
+                    or error.error.reason not in {"source_busy", "source_priority"}
+                ):
                     raise
                 now = repo.clock.monotonic()
                 if deadline is not None and now >= deadline:
                     raise _SegmentDeadlineElapsed from None
+                if error.error.reason == "source_priority":
+                    delay = _SOURCE_CONTENTION_DELAYS_SECONDS[
+                        min(priority_index, len(_SOURCE_CONTENTION_DELAYS_SECONDS) - 1)
+                    ]
+                    if deadline is not None:
+                        delay = min(delay, deadline - now)
+                    await self.waiter.wait(delay)
+                    budget_deadline += max(0.0, repo.clock.monotonic() - now)
+                    priority_index += 1
+                    continue
                 if now >= budget_deadline:
                     raise _SourceContentionExhausted(run_id, stage) from None
                 delay = _SOURCE_CONTENTION_DELAYS_SECONDS[
@@ -185,6 +247,7 @@ class Scheduler:
         *,
         dispatch_ready: bool | None = None,
         received: list[tuple[AttemptRecord, DispatchOutcome, float | None]] | None = None,
+        provider_stop: ProviderStop | None = None,
     ) -> DispatchOutcome:
         repo = self.repository
         started: float | None = None
@@ -192,6 +255,7 @@ class Scheduler:
         outcome: DispatchOutcome
         cancelled = False
         try:
+            _observe_provider_stop(stop, provider_stop)
             if stop.state is not None:
                 outcome = DispatchOutcome(
                     state="not_sent",
@@ -219,6 +283,9 @@ class Scheduler:
                     self._record_contention(stop, error)
                     outcome = DispatchOutcome(state="not_sent", error=error.error)
                 else:
+                    _observe_provider_stop(stop, provider_stop)
+                    if stop.state is not None:
+                        dispatched = False
                     if not dispatched:
                         if repo.clock.monotonic() >= deadline:
                             stop.state = "budget_exhausted"
@@ -274,6 +341,9 @@ class Scheduler:
         if outcome.provider_wide:
             stop.state = "completed_with_errors"
             stop.reason = outcome.error
+            if provider_stop is not None:
+                provider_stop.failed = True
+                provider_stop.reason = outcome.error
         settlement_duration = (
             duration
             if duration is not None
@@ -315,10 +385,41 @@ class Scheduler:
         *,
         progress: Callable[[RunHistory], None] | None = None,
         deadline: float | None = None,
+        concurrency_override: int | None = None,
+        source_gate: asyncio.Lock | None = None,
+        provider_stop: ProviderStop | None = None,
+        concurrency_share: ConcurrencyShare | None = None,
     ) -> RunHistory:
+        if source_gate is not None:
+            token = _SOURCE_GATE.set(source_gate)
+            try:
+                return await self.run(
+                    history,
+                    segment,
+                    backend,
+                    progress=progress,
+                    deadline=deadline,
+                    concurrency_override=concurrency_override,
+                    provider_stop=provider_stop,
+                    concurrency_share=concurrency_share,
+                )
+            finally:
+                _SOURCE_GATE.reset(token)
+        concurrency = history.manifest.settings.concurrency
+        if concurrency_override is not None:
+            if not 1 <= concurrency_override <= concurrency:
+                raise ValueError("invalid_concurrency_override")
+            concurrency = concurrency_override
         if len(history.prepared) >= 64 and self.hook is self._default_hook:
             return await self._run_bulk(
-                history, segment, backend, progress=progress, deadline=deadline
+                history,
+                segment,
+                backend,
+                progress=progress,
+                deadline=deadline,
+                concurrency=concurrency,
+                provider_stop=provider_stop,
+                concurrency_share=concurrency_share,
             )
         repo, clock = self.repository, self.repository.clock
         run_id = history.manifest.id
@@ -336,6 +437,9 @@ class Scheduler:
         outer_cancelled = False
         try:
             while queue or active:
+                if concurrency_share is not None:
+                    concurrency = concurrency_share.limit
+                _observe_provider_stop(stop, provider_stop)
                 if stop.persistence_failed or stop.unsettled_contention:
                     break
                 try:
@@ -389,17 +493,12 @@ class Scheduler:
                     stop.state = "budget_exhausted"
                     stop.reason = ServiceError(
                         code="run_incomplete",
-                        reason="execution_group_cap"
-                        if current.group and current.group.remaining == 0
-                        else "attempt_cap",
+                        reason=self._cap_reason(current),
                     )
+                _observe_provider_stop(stop, provider_stop)
                 if stop.state is None:
                     queue.sort(key=lambda entry: entry[0])
-                    while (
-                        queue
-                        and queue[0][0] <= clock.monotonic()
-                        and len(active) < history.manifest.settings.concurrency
-                    ):
+                    while queue and queue[0][0] <= clock.monotonic() and len(active) < concurrency:
                         due_at, work = queue.pop(0)
                         try:
                             reserved = await self._source_call(
@@ -431,6 +530,7 @@ class Scheduler:
                                 stop,
                                 history.manifest.settings.timeout_seconds,
                                 deadline,
+                                provider_stop=provider_stop,
                             )
                         )
                         active[task] = reserved
@@ -489,11 +589,7 @@ class Scheduler:
                     stop.reason = ServiceError(
                         code="run_incomplete",
                         resource_id=run_id,
-                        reason=(
-                            "execution_group_cap"
-                            if current.group and current.group.remaining == 0
-                            else "attempt_cap"
-                        ),
+                        reason=self._cap_reason(current),
                     )
             state = stop.state or (
                 "completed"
@@ -525,6 +621,9 @@ class Scheduler:
         *,
         progress: Callable[[RunHistory], None] | None,
         deadline: float | None,
+        concurrency: int,
+        provider_stop: ProviderStop | None,
+        concurrency_share: ConcurrencyShare | None,
     ) -> RunHistory:
         repo, clock = self.repository, self.repository.clock
         source_call = partial(self._source_call, offload=True)
@@ -560,6 +659,10 @@ class Scheduler:
 
         try:
             while queue or active:
+                if concurrency_share is not None:
+                    concurrency_share.changed.clear()
+                    concurrency = concurrency_share.limit
+                _observe_provider_stop(stop, provider_stop)
                 if stop.persistence_failed:
                     break
                 had_received = bool(received)
@@ -594,14 +697,13 @@ class Scheduler:
                         reason=(
                             "segment_deadline"
                             if clock.monotonic() >= deadline
-                            else "execution_group_cap"
-                            if current.group and current.group.remaining == 0
-                            else "attempt_cap"
+                            else self._cap_reason(current)
                         ),
                     )
+                _observe_provider_stop(stop, provider_stop)
                 if stop.state is None:
                     queue.sort(key=lambda entry: entry[0])
-                    available = history.manifest.settings.concurrency - len(active)
+                    available = concurrency - len(active)
                     due = tuple(
                         work for due_at, work in queue[:available] if due_at <= clock.monotonic()
                     )
@@ -637,6 +739,7 @@ class Scheduler:
                                         deadline,
                                         dispatch_ready=ready,
                                         received=received,
+                                        provider_stop=provider_stop,
                                     )
                                 )
                                 active[task] = attempt
@@ -647,23 +750,21 @@ class Scheduler:
                 pending = [task for task in active if not task.done()]
                 if pending:
                     delay = None
-                    if (
-                        stop.state is None
-                        and queue
-                        and len(active) < history.manifest.settings.concurrency
-                    ):
+                    if stop.state is None and queue and len(active) < concurrency:
                         delay = max(0.0, min(due_at for due_at, _ in queue) - clock.monotonic())
-                    if delay is None:
-                        await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                    else:
-                        timer = asyncio.create_task(self.waiter.wait(delay))
-                        try:
-                            await asyncio.wait(
-                                [*pending, timer], return_when=asyncio.FIRST_COMPLETED
-                            )
-                        finally:
-                            timer.cancel()
-                            await asyncio.gather(timer, return_exceptions=True)
+                    watchers: list[asyncio.Task[object]] = []
+                    if delay is not None:
+                        watchers.append(asyncio.create_task(self.waiter.wait(delay)))
+                    if concurrency_share is not None:
+                        watchers.append(asyncio.create_task(concurrency_share.changed.wait()))
+                    try:
+                        await asyncio.wait(
+                            [*pending, *watchers], return_when=asyncio.FIRST_COMPLETED
+                        )
+                    finally:
+                        for watcher in watchers:
+                            watcher.cancel()
+                        await asyncio.gather(*watchers, return_exceptions=True)
                 elif queue:
                     delay = max(0.0, min(due_at for due_at, _ in queue) - clock.monotonic())
                     await self.waiter.wait(min(0.25, delay))

@@ -52,7 +52,7 @@ class RunHistory:
     @property
     def remaining(self) -> int:
         own = max(0, self.cap - self.used)
-        return min(own, self.group.remaining) if self.group else own
+        return min(own, self.group.remaining_for(self.manifest.id)) if self.group else own
 
     @property
     def cap(self) -> int:
@@ -317,7 +317,7 @@ def history_from_records(
         tuple(attempt_events),
         controls,
         tuple(sorted(snapshots, key=lambda item: (item.through_event_sequence, item.id))),
-        group_budget(records, manifest.execution_group_id)
+        group_budget(records, manifest.execution_group_id, decoder=decoder)
         if verify_group and manifest.execution_group_id
         else None,
     )

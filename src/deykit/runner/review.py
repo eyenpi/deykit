@@ -148,11 +148,14 @@ def group_review_hash(plan: GroupPlan, selection_source: str) -> str:
 
     selection = decode_group_start_selection(selection_source, expected_kind=plan.kind)
     payload: JsonValue = {
-        "kind": "group-review-v1",
+        "kind": "experiment-group-review-v2" if plan.kind == "experiment" else "group-review-v1",
         "group_kind": plan.kind,
         "selection": selection.original_selection,
         "algorithm": "deykit-choice-order-v1" if plan.kind == "choice_order" else None,
-        "members": [run_review_payload(member) for member in plan.plans],
+        "members": [
+            run_review_hash(member) if plan.kind == "experiment" else run_review_payload(member)
+            for member in plan.plans
+        ],
         "max_attempts": plan.max_attempts,
         "deadline_seconds": plan.deadline_seconds,
         "default_regression_ids": (

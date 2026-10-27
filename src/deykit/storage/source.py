@@ -9,7 +9,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Container, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +36,7 @@ from deykit.storage._chunks import (
     ChunkManifest,
     chunk_name,
     compact_entry,
+    create_chunk_count,
     decode_chunks,
     encode_chunks,
     expected_files,
@@ -243,6 +244,43 @@ class FileProjectSource:
         self.close()
 
     @contextmanager
+    def priority_read(self) -> Iterator[None]:
+        """Give an inspection the next source epoch, then release on exit or process death."""
+        if getattr(self._local, "source_depth", 0):
+            fail("lock_order_violation", "conflict")
+        depth = getattr(self._local, "priority_depth", 0)
+        if depth:
+            self._local.priority_depth = depth + 1
+            try:
+                yield
+            finally:
+                self._local.priority_depth = depth
+            return
+        try:
+            with self.files.ownership("source-priority.lock") as acquired:
+                if not acquired:
+                    fail("source_busy", "conflict")
+                self._local.priority_depth = 1
+                try:
+                    yield
+                finally:
+                    self._local.priority_depth = 0
+        except OSError:
+            fail("storage_io", "internal_error")
+
+    @contextmanager
+    def _source_epoch_lock(self) -> Iterator[None]:
+        with ExitStack() as stack:
+            if getattr(self._local, "priority_depth", 0):
+                stack.enter_context(acquire(self.files, "source.lock"))
+            else:
+                with self.files.ownership("source-priority.lock") as admitted:
+                    if not admitted:
+                        fail("source_priority", "conflict")
+                    stack.enter_context(acquire(self.files, "source.lock"))
+            yield
+
+    @contextmanager
     def consistent_read(self) -> Iterator[FileProjectSource]:
         try:
             depth = getattr(self._local, "source_depth", 0)
@@ -270,7 +308,7 @@ class FileProjectSource:
                     if not self._mutex.acquire(blocking=False):
                         fail("source_busy", "conflict")
                     try:
-                        with acquire(self.files, "source.lock"):
+                        with self._source_epoch_lock():
                             self._local.source_depth = 1
                             self._local.records = None
                             self._local.record_capture = None
@@ -575,6 +613,39 @@ class FileProjectSource:
             fail("invalid_operation_id")
         if intent_hash is not None and not re.fullmatch(r"[0-9a-f]{64}", intent_hash):
             fail("invalid_intent_hash")
+
+    def preview_create_transaction(self, changes: tuple[SourceChange, ...]) -> None:
+        """Bound a planned create-only manifest, including pack references, without writes."""
+        if not changes or len({change.key for change in changes}) != len(changes):
+            fail("invalid_changes")
+        if any(change.body is None or change.expected_etag is not None for change in changes):
+            fail("invalid_changes")
+        ordered = tuple(sorted(changes, key=lambda item: key_path(item.key)))
+        entries = tuple(
+            JournalEntry(
+                collection=change.key.collection,
+                resource_id=change.key.resource_id,
+                scope=change.key.scope,
+                old_hash=None,
+                new_hash="0" * 64,
+            )
+            for change in ordered
+        )
+        count = create_chunk_count(
+            tuple(change.body for change in ordered if change.body is not None)
+        )
+        manifest = ChunkManifest(
+            operation_id="a" * 128,
+            payload_hash="0" * 64,
+            intent_hash="0" * 64,
+            sequence=2**63 - 1,
+            entries=entries,
+            blob_chunks=("0" * 64,) * count,
+        )
+        try:
+            dump_record(manifest)
+        except JsonError as error:
+            fail(error.code, "preflight_failed")
 
     def commit(
         self,

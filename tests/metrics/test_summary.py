@@ -132,6 +132,29 @@ def result(record, option=None, *, status="valid"):
     )
 
 
+def test_assess_large_bounded_frozen_dataset():
+    from deykit.metrics.baseline import majority_baseline
+
+    cases = tuple(case(number) for number in range(1, 4001))
+    results = tuple(result(item, "question") for item in cases)
+    dataset, expectations, answers = frozen(cases, (), results)
+    summary = assess_results(
+        definition(), dataset, expectations, answers, tuple(c.id for c in cases)
+    )
+    assert summary.selected_count == 4000
+    assert dict(summary.status_counts)["valid"] == 4000
+    baseline = majority_baseline(
+        definition(),
+        dataset,
+        expectations,
+        dataset,
+        expectations,
+        tuple(c.id for c in cases),
+        (),
+    )
+    assert baseline.selected_count == 4000
+
+
 def test_authored_12_case_matrix_and_exact_macro_f1():
     cases = tuple(case(number) for number in range(1, 13))
     labels = tuple(label(item, EXPECTED[item.id]) for item in cases if item.id in EXPECTED)

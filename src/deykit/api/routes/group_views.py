@@ -11,6 +11,8 @@ from .execution import run_progress
 
 
 def group_progress(value: GroupProgress) -> GroupProgressDTO:
+    if value.kind == "experiment":
+        raise RuntimeError("unsupported_group_kind")
     return GroupProgressDTO(
         group_id=value.group_id,
         kind=value.kind,

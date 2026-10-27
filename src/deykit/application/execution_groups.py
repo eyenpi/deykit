@@ -1,5 +1,6 @@
-"""Atomic group freezing and explicit recovery using the single existing run scheduler."""
+"""Atomic group freezing and explicit recovery using the existing run scheduler."""
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
@@ -12,9 +13,18 @@ from deykit.contracts.errors import ServiceError
 from deykit.contracts.execution_groups import (
     ExecutionGroup,
     ExecutionGroupSegment,
+    GroupMemberSegment,
 )
 from deykit.contracts.json_value import JsonSource, bytes_hash
-from deykit.contracts.ports import CommitReceipt, ResourceKey, SourceChange, StoredRecord
+from deykit.contracts.ports import (
+    CommitReceipt,
+    CreateTransactionPreviewSource,
+    ResourceKey,
+    SourceChange,
+    StoredRecord,
+)
+from deykit.contracts.records import RunSegment
+from deykit.runner.decoding import HistoryDecoder
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.group_models import (
     GroupAcknowledged,
@@ -34,7 +44,7 @@ from deykit.runner.group_selection import (
     group_start_intent,
 )
 from deykit.runner.history import RunHistory, history_from_records
-from deykit.runner.planner import MAX_PLAN_BYTES
+from deykit.runner.planner import MAX_EXPERIMENT_PLAN_BYTES, MAX_PLAN_BYTES
 from deykit.runner.ports import Backend
 from deykit.runner.review import (
     _record_identities,
@@ -84,7 +94,9 @@ class GroupExecutionService:
             group, "preview", 1, False, records, initial=True
         )
         ready_changes = self.store.stage_ready(segment, self._staged((*changes, *segment_changes)))
-        self._check_size((*changes, *segment_changes, *ready_changes))
+        self._check_size((*changes, *segment_changes, *ready_changes), kind=plan.kind)
+        if plan.kind == "experiment" and isinstance(self.source, CreateTransactionPreviewSource):
+            self.source.preview_create_transaction((*changes, *segment_changes))
         return GroupPreview(
             plan.kind,
             tuple(preview_view(p) for p in plan.plans),
@@ -132,8 +144,9 @@ class GroupExecutionService:
         )
 
     @staticmethod
-    def _check_size(changes: tuple[SourceChange, ...]) -> None:
-        if sum(len(c.body or b"") for c in changes) > MAX_PLAN_BYTES:
+    def _check_size(changes: tuple[SourceChange, ...], *, kind: GroupKind = "choice_order") -> None:
+        limit = MAX_EXPERIMENT_PLAN_BYTES if kind == "experiment" else MAX_PLAN_BYTES
+        if sum(len(c.body or b"") for c in changes) > limit:
             fail("execution_group_resource_limit", "preflight_failed")
 
     def _check_selection(self, plan: GroupPlan) -> None:
@@ -166,13 +179,15 @@ class GroupExecutionService:
     def _require_kind(group: ExecutionGroup, expected_kind: GroupKind | None) -> None:
         if expected_kind is None:
             return
-        if expected_kind not in ("choice_order", "regression_check"):
+        if expected_kind not in ("choice_order", "regression_check", "experiment"):
             fail("invalid_execution_group_kind")
         if group.kind != expected_kind:
             fail(
                 "diagnostic_group_required"
                 if expected_kind == "choice_order"
                 else "regression_check_group_required"
+                if expected_kind == "regression_check"
+                else "experiment_group_required"
             )
 
     @staticmethod
@@ -180,6 +195,7 @@ class GroupExecutionService:
         if expected_kind is not None and expected_kind not in (
             "choice_order",
             "regression_check",
+            "experiment",
         ):
             fail("invalid_execution_group_kind")
 
@@ -254,9 +270,9 @@ class GroupExecutionService:
         ):
             fail("invalid_group_receipt", "incompatible_data")
 
-        budget = group_budget(records, group_id)
+        budget = group_budget(records, group_id, decoder=self.repo.decoder)
         self._require_kind(budget.group, expected_kind)
-        admit_group_snapshots(records, group_id)
+        admit_group_snapshots(records, group_id, decoder=self.repo.decoder)
         admitted_segment = next((item for item in budget.segments if item.id == segment.id), None)
         if admitted_segment != segment:
             fail("invalid_group_receipt", "incompatible_data")
@@ -264,7 +280,10 @@ class GroupExecutionService:
             fail("conflict", "conflict")
 
         histories = tuple(
-            history_from_records(records, member.run_id) for member in budget.group.members
+            history_from_records(
+                records, member.run_id, verify_group=False, decoder=self.repo.decoder
+            )
+            for member in budget.group.members
         )
         if len(segment.member_segments) != len(budget.group.members):
             fail("invalid_group_receipt", "incompatible_data")
@@ -301,6 +320,7 @@ class GroupExecutionService:
         expected_kind: GroupKind | None = None,
         retry_unknown: bool | None = None,
         replayed: bool,
+        active: bool | None = None,
     ) -> _AdmittedAcknowledgement | None:
         with self.source.consistent_read():
             receipt = self.source.operation_receipt(operation_id, intent_hash=digest)
@@ -321,7 +341,8 @@ class GroupExecutionService:
                 replayed=replayed,
             )
         # Ownership status is observational and must not precede receipt/graph admission.
-        active = self.runner.execution.execution_active()
+        if active is None:
+            active = self.runner.execution.execution_active()
         return replace(
             admitted,
             progress=self.captured_progress(
@@ -356,7 +377,7 @@ class GroupExecutionService:
             fail("conflict", "conflict")
         with self.source.consistent_read():
             records = self.source.capture_snapshot()
-            budget = group_budget(records, group_id)
+            budget = group_budget(records, group_id, decoder=self.repo.decoder)
             self._require_kind(budget.group, expected_kind)
             if not any(item == segment_record for item in budget.segments):
                 fail("invalid_group_receipt", "incompatible_data")
@@ -378,6 +399,20 @@ class GroupExecutionService:
             raise ServiceFailure(
                 ServiceError(code="internal_error", reason=reason, resource_id=value.group.id)
             ) from None
+
+    def _observe_owned_acknowledgement(
+        self, value: _AdmittedAcknowledgement
+    ) -> _AdmittedAcknowledgement:
+        # Probe ownership only after admission and outside the source epoch.
+        active = self.runner.execution.execution_active()
+        members = tuple(
+            replace(
+                member,
+                execution_active=active and member.state in {"preparing", "running", "cancelling"},
+            )
+            for member in value.progress.members
+        )
+        return replace(value, progress=replace(value.progress, members=members))
 
     def _backend_captured(self, history: RunHistory, records: tuple[StoredRecord, ...]) -> Backend:
         profile = history.manifest.provider
@@ -424,11 +459,14 @@ class GroupExecutionService:
         identifier(group_id)
         with self.source.consistent_read():
             records = self.source.capture_snapshot()
-        budget = group_budget(records, group_id)
-        selected = admit_group_snapshots(records, group_id)
+        budget = group_budget(records, group_id, decoder=self.repo.decoder)
+        selected = admit_group_snapshots(records, group_id, decoder=self.repo.decoder)
         active = self.runner.execution.execution_active()
         unsettled = any(
-            history_from_records(records, m.run_id).state in {"running", "preparing", "cancelling"}
+            history_from_records(
+                records, m.run_id, verify_group=False, decoder=self.repo.decoder
+            ).state
+            in {"running", "preparing", "cancelling"}
             for m in budget.group.members
         )
         missing = bool(budget.segments) and not any(
@@ -440,20 +478,24 @@ class GroupExecutionService:
                     # Recapture and admit the complete graph under actual ownership BEFORE repairs.
                     with self.source.consistent_read():
                         records = self.source.capture_snapshot()
-                        budget = group_budget(records, group_id)
-                        admit_group_snapshots(records, group_id)
+                        budget = group_budget(records, group_id, decoder=self.repo.decoder)
+                        admit_group_snapshots(records, group_id, decoder=self.repo.decoder)
                         for member in budget.group.members:
                             self.repo.recover(member.run_id)
                         if budget.segments:
                             self.store.snapshot(budget.group, budget.segments[-1])
                         records = self.source.capture_snapshot()
-                        budget = group_budget(records, group_id)
-                        selected = admit_group_snapshots(records, group_id)
+                        budget = group_budget(records, group_id, decoder=self.repo.decoder)
+                        selected = admit_group_snapshots(
+                            records, group_id, decoder=self.repo.decoder
+                        )
             except ServiceFailure as failure:
                 if failure.error.code != "execution_locked":
                     raise
                 active = True
-        return self.captured_progress(records, group_id, active=active, replayed=replayed)
+        return self.captured_progress(
+            records, group_id, active=active, replayed=replayed, decoder=self.repo.decoder
+        )
 
     @staticmethod
     def captured_progress(
@@ -462,13 +504,19 @@ class GroupExecutionService:
         *,
         active: bool = False,
         replayed: bool = False,
+        decoder: HistoryDecoder | None = None,
     ) -> GroupProgress:
-        budget = group_budget(records, group_id)
-        selected = admit_group_snapshots(records, group_id)
-        members = tuple(
-            progress_view(history_from_records(records, member.run_id), active=active)
+        decoder = decoder if decoder is not None else HistoryDecoder()
+        budget = group_budget(records, group_id, decoder=decoder)
+        selected = admit_group_snapshots(records, group_id, decoder=decoder)
+        histories = tuple(
+            replace(
+                history_from_records(records, member.run_id, verify_group=False, decoder=decoder),
+                group=budget,
+            )
             for member in budget.group.members
         )
+        members = tuple(progress_view(history, active=active) for history in histories)
         latest = selected[-1] if selected else None
         return GroupProgress(
             group_id,
@@ -485,7 +533,7 @@ class GroupExecutionService:
                     tuple(request_identity(c.case_id, c.input_hash, c.request) for c in h.prepared),
                     h.manifest.id,
                 )
-                for h in (history_from_records(records, m.run_id) for m in budget.group.members)
+                for h in histories
             ),
             initial_requests=sum(m.initial_requests for m in budget.group.members),
             independent_case_count=len(
@@ -508,26 +556,29 @@ class GroupExecutionService:
             fail("invalid_unknown_retry_choice")
         with self.source.consistent_read():
             records = self.source.capture_snapshot()
-            budget = group_budget(records, group_id)
+            budget = group_budget(records, group_id, decoder=self.repo.decoder)
             self._require_kind(budget.group, expected_kind)
-            admit_group_snapshots(records, group_id)
+            admit_group_snapshots(records, group_id, decoder=self.repo.decoder)
             histories = tuple(
-                history_from_records(records, member.run_id) for member in budget.group.members
+                history_from_records(
+                    records, member.run_id, verify_group=False, decoder=self.repo.decoder
+                )
+                for member in budget.group.members
             )
-            if any(
-                event.outcome and event.outcome.provider_wide
-                for history in histories
-                for event in history.attempt_events
-            ):
+            blocked_profiles = self._failed_provider_profiles(histories)
+            if blocked_profiles and budget.group.kind != "experiment":
                 fail("provider_wide_failure_requires_new_run", "preflight_failed")
             for history in histories:
-                self._backend_captured(history, records)
+                if history.manifest.provider_config_hash not in blocked_profiles:
+                    self._backend_captured(history, records)
             segment_ids = tuple(segment.id for segment in budget.segments)
             members = tuple(
                 GroupMemberResumePreview(
                     history.manifest.id,
                     tuple(
-                        item.prepared.case_id for item in history.work(retry_unknown=retry_unknown)
+                        item.prepared.case_id
+                        for item in history.work(retry_unknown=retry_unknown)
+                        if history.manifest.provider_config_hash not in blocked_profiles
                     ),
                 )
                 for history in histories
@@ -545,6 +596,16 @@ class GroupExecutionService:
             proposed_attempt_limit=proposed_attempt_limit,
         )
 
+    @staticmethod
+    def _failed_provider_profiles(histories: tuple[RunHistory, ...]) -> set[str]:
+        return {
+            history.manifest.provider_config_hash
+            for history in histories
+            if any(
+                event.outcome and event.outcome.provider_wide for event in history.attempt_events
+            )
+        }
+
     def cancel(
         self,
         group_id: str,
@@ -557,9 +618,9 @@ class GroupExecutionService:
         self._validate_expected_kind(expected_kind)
         with self.source.consistent_read():
             records = self.source.capture_snapshot()
-            budget = group_budget(records, group_id)
+            budget = group_budget(records, group_id, decoder=self.repo.decoder)
             self._require_kind(budget.group, expected_kind)
-            admit_group_snapshots(records, group_id)
+            admit_group_snapshots(records, group_id, decoder=self.repo.decoder)
             group = budget.group
 
         for member in group.members:
@@ -581,7 +642,7 @@ class GroupExecutionService:
         active = self.runner.execution.execution_active()
         with self.source.consistent_read():
             records = self.source.capture_snapshot()
-        return self.captured_progress(records, group.id, active=active)
+        return self.captured_progress(records, group.id, active=active, decoder=self.repo.decoder)
 
     async def start(
         self,
@@ -653,7 +714,7 @@ class GroupExecutionService:
                         )
                         all_changes = (*changes, *segment_changes)
                         ready_changes = self.store.stage_ready(segment, self._staged(all_changes))
-                        self._check_size((*all_changes, *ready_changes))
+                        self._check_size((*all_changes, *ready_changes), kind=plan.kind)
                         deadline = self.repo.clock.monotonic() + group.deadline_seconds
                         self.source.commit(operation_id, all_changes, intent_hash=digest)
                         self.store.ready(segment, acknowledge=False)
@@ -670,11 +731,17 @@ class GroupExecutionService:
                         return acknowledged.progress
                     return self._replay(receipt)
                 if on_created is not None:
-                    acknowledged = self._capture_acknowledgement(
-                        operation_id, digest, command="start", replayed=False
+                    acknowledged = await self.runner.scheduler._source_call(
+                        group.id,
+                        "history",
+                        lambda: self._capture_acknowledgement(
+                            operation_id, digest, command="start", replayed=False, active=True
+                        ),
+                        offload=True,
                     )
                     if acknowledged is None:
                         self._acknowledgement_incomplete(group.id)
+                    acknowledged = self._observe_owned_acknowledgement(acknowledged)
                     await self._notify_acknowledged(
                         on_created, acknowledged, reason="group_created_callback_failed"
                     )
@@ -710,6 +777,7 @@ class GroupExecutionService:
         if expected_kind is not None and expected_kind not in (
             "choice_order",
             "regression_check",
+            "experiment",
         ):
             fail("invalid_execution_group_kind")
         if type(retry_unknown) is not bool:
@@ -779,14 +847,20 @@ class GroupExecutionService:
                     receipt = self.source.operation_receipt(operation_id, intent_hash=digest)
                     if receipt is None:
                         records = self.source.capture_snapshot()
-                        budget = group_budget(records, group_id)
+                        budget = group_budget(records, group_id, decoder=self.repo.decoder)
                         self._require_kind(budget.group, expected_kind)
-                        admit_group_snapshots(records, group_id)
-                        if any(
-                            event.outcome and event.outcome.provider_wide
+                        admit_group_snapshots(records, group_id, decoder=self.repo.decoder)
+                        histories = tuple(
+                            history_from_records(
+                                records,
+                                member.run_id,
+                                verify_group=False,
+                                decoder=self.repo.decoder,
+                            )
                             for member in budget.group.members
-                            for event in history_from_records(records, member.run_id).attempt_events
-                        ):
+                        )
+                        blocked_profiles = self._failed_provider_profiles(histories)
+                        if blocked_profiles and budget.group.kind != "experiment":
                             fail("provider_wide_failure_requires_new_run", "preflight_failed")
                         segments = sorted(
                             (
@@ -802,10 +876,16 @@ class GroupExecutionService:
                         ):
                             fail("invalid_group_segment_sequence", "incompatible_data")
                         # Credential/config failure remains zero-write for this new segment.
-                        for member in budget.group.members:
-                            self._backend_captured(
-                                history_from_records(records, member.run_id), records
+                        for history in histories:
+                            needs_backend = budget.group.kind != "experiment" or (
+                                bool(history.work(retry_unknown=retry_unknown))
+                                and budget.remaining_for(history.manifest.id) > 0
                             )
+                            if (
+                                needs_backend
+                                and history.manifest.provider_config_hash not in blocked_profiles
+                            ):
+                                self._backend_captured(history, records)
                         # Recover unknowns while holding actual execution ownership; no sends.
                         for member in budget.group.members:
                             self.repo.recover(member.run_id)
@@ -850,21 +930,30 @@ class GroupExecutionService:
                     )
                     return self._replay(receipt)
                 if on_resumed is not None:
-                    acknowledged = self._capture_acknowledgement(
-                        operation_id,
-                        digest,
-                        command="resume",
-                        requested_group_id=group_id,
-                        expected_kind=expected_kind,
-                        retry_unknown=retry_unknown,
-                        replayed=False,
+                    acknowledged = await self.runner.scheduler._source_call(
+                        group_id,
+                        "history",
+                        lambda: self._capture_acknowledgement(
+                            operation_id,
+                            digest,
+                            command="resume",
+                            requested_group_id=group_id,
+                            expected_kind=expected_kind,
+                            retry_unknown=retry_unknown,
+                            replayed=False,
+                            active=True,
+                        ),
+                        offload=True,
                     )
                     if acknowledged is None:
                         self._acknowledgement_incomplete(group_id)
+                    acknowledged = self._observe_owned_acknowledgement(acknowledged)
                     await self._notify_acknowledged(
                         on_resumed, acknowledged, reason="group_resumed_callback_failed"
                     )
-                return await self._execute(budget.group, segment, deadline=deadline)
+                return await self._execute(
+                    budget.group, segment, deadline=deadline, blocked_profiles=blocked_profiles
+                )
         except ServiceFailure as failure:
             if failure.error.code == "execution_locked":
                 receipt = self._receipt(operation_id, digest)
@@ -901,76 +990,293 @@ class GroupExecutionService:
         segment: ExecutionGroupSegment,
         *,
         deadline: float,
+        blocked_profiles: set[str] | None = None,
     ) -> GroupProgress:
         stop_reason: ServiceError | None = None
         stop_state: Literal["cancelled", "interrupted", "budget_exhausted"] = "interrupted"
         try:
-            for member in segment.member_segments:
-                history = self.repo.history(member.run_id)
-                child_segment = next(
-                    (s for s in history.segments if s.id == member.segment_id), None
+            if group.kind == "experiment":
+                stop_state, stop_reason = await self._execute_experiment(
+                    group, segment, deadline=deadline, blocked_profiles=blocked_profiles
                 )
-                if child_segment is None or not any(
+            else:
+                stop_state, stop_reason = await self._execute_sequential(segment, deadline=deadline)
+        finally:
+            # Unsettled children stay explicit; these are references, not synthetic answers.
+            for child in segment.member_segments:
+
+                def finalize_child(member: GroupMemberSegment = child) -> None:
+                    history = self.repo.history(member.run_id)
+                    if history.state in {"running", "preparing", "cancelling"}:
+                        results = history.results()
+                        state: Literal[
+                            "completed",
+                            "completed_with_errors",
+                            "cancelled",
+                            "interrupted",
+                            "budget_exhausted",
+                        ]
+                        state = (
+                            "completed"
+                            if all(r.status == "valid" for r in results)
+                            else "completed_with_errors"
+                            if not any(r.status == "pending" for r in results)
+                            else stop_state
+                        )
+                        self.repo.finish(member.run_id, state, member.segment_id, stop_reason)
+
+                await self.runner.scheduler._source_call(
+                    child.run_id, "finalization", finalize_child, offload=True
+                )
+            await self.runner.scheduler._source_call(
+                group.id, "finalization", lambda: self.store.snapshot(group, segment), offload=True
+            )
+        records = await self.runner.scheduler._source_call(
+            group.id, "history", self.source.capture_snapshot, offload=True
+        )
+        return self.captured_progress(records, group.id, active=True, decoder=self.repo.decoder)
+
+    async def _execute_sequential(
+        self, segment: ExecutionGroupSegment, *, deadline: float
+    ) -> tuple[Literal["cancelled", "interrupted", "budget_exhausted"], ServiceError | None]:
+        stop_state: Literal["cancelled", "interrupted", "budget_exhausted"] = "interrupted"
+        stop_reason: ServiceError | None = None
+        for member in segment.member_segments:
+
+            def capture(member: GroupMemberSegment = member) -> tuple[RunHistory, RunSegment, bool]:
+                history = self.repo.history(member.run_id)
+                child = next((s for s in history.segments if s.id == member.segment_id), None)
+                if child is None or not any(
                     e.state == "segment_ready" and e.segment_id == member.segment_id
                     for e in history.events
                 ):
                     fail("execution_group_not_ready", "run_incomplete")
-                if self.repo.cancelled(history, child_segment):
-                    stop_state = "cancelled"
-                    stop_reason = ServiceError(code="run_incomplete", reason="cancel_requested")
-                    break
-                if history.work(retry_unknown=segment.retry_unknown) and (
-                    self.repo.clock.monotonic() >= deadline or history.remaining <= 0
-                ):
-                    stop_state = "budget_exhausted"
-                    stop_reason = ServiceError(
-                        code="run_incomplete",
-                        reason="segment_deadline"
-                        if self.repo.clock.monotonic() >= deadline
-                        else "execution_group_cap",
-                    )
-                    break
-                result = await self.runner.scheduler.run(
-                    self.repo.history(member.run_id),
-                    child_segment,
-                    self.runner._backend(history),
-                    deadline=deadline,
+                return history, child, self.repo.cancelled(history, child)
+
+            history, child_segment, cancelled = await self.runner.scheduler._source_call(
+                member.run_id, "history", capture, offload=True
+            )
+            if cancelled:
+                stop_state = "cancelled"
+                stop_reason = ServiceError(code="run_incomplete", reason="cancel_requested")
+                break
+            if history.work(retry_unknown=segment.retry_unknown) and (
+                self.repo.clock.monotonic() >= deadline or history.remaining <= 0
+            ):
+                stop_state = "budget_exhausted"
+                stop_reason = ServiceError(
+                    code="run_incomplete",
+                    reason="segment_deadline"
+                    if self.repo.clock.monotonic() >= deadline
+                    else "execution_group_cap",
                 )
-                if result.state in {"cancelled", "interrupted", "budget_exhausted"} or any(
-                    event.outcome and event.outcome.provider_wide for event in result.attempt_events
+                break
+
+            def resolve_backend(history: RunHistory = history) -> Backend:
+                return self.runner._backend(history)
+
+            backend = await self.runner.scheduler._source_call(
+                member.run_id, "history", resolve_backend, offload=True
+            )
+            result = await self.runner.scheduler.run(
+                history, child_segment, backend, deadline=deadline
+            )
+            if result.state in {"cancelled", "interrupted", "budget_exhausted"} or any(
+                event.outcome and event.outcome.provider_wide for event in result.attempt_events
+            ):
+                stop_state = cast(
+                    Literal["cancelled", "interrupted", "budget_exhausted"],
+                    (
+                        result.state
+                        if result.state in {"cancelled", "interrupted", "budget_exhausted"}
+                        else "interrupted"
+                    ),
+                )
+                stop_reason = result.events[-1].reason or ServiceError(
+                    code="run_incomplete", reason="provider_wide_failure"
+                )
+                break
+        return stop_state, stop_reason
+
+    async def _execute_experiment(
+        self,
+        group: ExecutionGroup,
+        segment: ExecutionGroupSegment,
+        *,
+        deadline: float,
+        blocked_profiles: set[str] | None = None,
+    ) -> tuple[Literal["cancelled", "interrupted", "budget_exhausted"], ServiceError | None]:
+        from deykit.runner.group_evidence import experiment_request
+        from deykit.runner.scheduler import ConcurrencyShare, ProviderStop, _SegmentDeadlineElapsed
+
+        concurrency = experiment_request(group).settings.concurrency
+        source_gate = asyncio.Lock()
+        provider_stops = {
+            profile: ProviderStop(failed=True) for profile in (blocked_profiles or set())
+        }
+        stop_state: Literal["cancelled", "interrupted", "budget_exhausted"] = "interrupted"
+        stop_reason: ServiceError | None = None
+        tasks: dict[asyncio.Task[RunHistory], tuple[ConcurrencyShare, str]] = {}
+        remaining = iter(segment.member_segments)
+
+        async def launch(member: GroupMemberSegment, slots: int) -> str | None:
+            def capture() -> tuple[RunHistory, RunSegment, Backend | None, bool, str | None]:
+                history = self.repo.history(member.run_id)
+                child = next((s for s in history.segments if s.id == member.segment_id), None)
+                if child is None or not any(
+                    e.state == "segment_ready" and e.segment_id == child.id for e in history.events
                 ):
-                    stop_state = cast(
-                        Literal["cancelled", "interrupted", "budget_exhausted"],
-                        (
-                            result.state
-                            if result.state in {"cancelled", "interrupted", "budget_exhausted"}
-                            else "interrupted"
-                        ),
+                    fail("execution_group_not_ready", "run_incomplete")
+                stop = provider_stops.get(history.manifest.provider_config_hash)
+                work = history.work(retry_unknown=segment.retry_unknown)
+                skip = (
+                    "provider_skipped"
+                    if stop is not None and stop.failed
+                    else "no_work"
+                    if not work
+                    else self.runner.scheduler._cap_reason(history)
+                    if history.remaining <= 0
+                    else None
+                )
+                backend = None if skip else self.runner._backend(history)
+                return history, child, backend, self.repo.cancelled(history, child), skip
+
+            try:
+                history, child, backend, cancelled, skip = await self.runner.scheduler._source_call(
+                    member.run_id,
+                    "history",
+                    capture,
+                    deadline=deadline,
+                    offload=True,
+                    source_gate=source_gate,
+                )
+            except _SegmentDeadlineElapsed:
+                return "segment_deadline"
+            if cancelled:
+                return "cancel_requested"
+            if skip is not None:
+                return skip
+            provider_stop = provider_stops.setdefault(
+                history.manifest.provider_config_hash, ProviderStop()
+            )
+            if provider_stop.failed:
+                return "provider_skipped"
+            assert backend is not None
+            share = ConcurrencyShare(slots)
+            task = asyncio.create_task(
+                self.runner.scheduler.run(
+                    history,
+                    child,
+                    backend,
+                    deadline=deadline,
+                    concurrency_override=slots,
+                    source_gate=source_gate,
+                    provider_stop=provider_stop,
+                    concurrency_share=share,
+                )
+            )
+            tasks[task] = (share, history.manifest.provider_config_hash)
+            return None
+
+        async def launch_next(slots: int) -> str | None:
+            nonlocal stop_state, stop_reason
+            while (member := next(remaining, None)) is not None:
+                problem = await launch(member, slots)
+                if problem in {"provider_skipped", "no_work"}:
+                    continue
+                if problem in {
+                    "execution_group_cap",
+                    "experiment_reservation_budget",
+                    "attempt_cap",
+                }:
+                    stop_state = "budget_exhausted"
+                    stop_reason = ServiceError(code="run_incomplete", reason=problem)
+                    continue
+                return problem
+            return None
+
+        def distribute(slots: int) -> None:
+            if slots and tasks:
+                shares = [share for share, _ in tasks.values()]
+                per_member, extra = divmod(slots, len(shares))
+                for index, share in enumerate(shares):
+                    added = per_member + (1 if index < extra else 0)
+                    if added:
+                        share.add(added)
+
+        try:
+            initial_count = min(concurrency, len(segment.member_segments))
+            slots, extra = divmod(concurrency, initial_count)
+            unallocated = 0
+            for index in range(initial_count):
+                available = slots + (1 if index < extra else 0)
+                before = len(tasks)
+                problem = await launch_next(available)
+                if problem is not None:
+                    return (
+                        "cancelled"
+                        if problem == "cancel_requested"
+                        else "budget_exhausted"
+                        if problem == "segment_deadline"
+                        else "interrupted",
+                        ServiceError(code="run_incomplete", reason=problem),
                     )
-                    stop_reason = result.events[-1].reason or ServiceError(
-                        code="run_incomplete", reason="provider_wide_failure"
+                if len(tasks) == before:
+                    unallocated += available
+            distribute(unallocated)
+            while tasks:
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                released = [tasks.pop(task) for task in done]
+                completed = await asyncio.gather(*done, return_exceptions=True)
+                for result, (_, profile) in zip(completed, released, strict=True):
+                    if isinstance(result, BaseException):
+                        raise result
+                    provider_wide = any(
+                        event.outcome and event.outcome.provider_wide
+                        for event in result.attempt_events
                     )
-                    break
+                    if result.state == "cancelled" or (
+                        result.state == "interrupted" and not provider_stops[profile].failed
+                    ):
+                        stop_state = "cancelled" if result.state == "cancelled" else "interrupted"
+                        stop_reason = result.events[-1].reason or ServiceError(
+                            code="run_incomplete", reason="provider_wide_failure"
+                        )
+                        return stop_state, stop_reason
+                    if provider_wide or provider_stops[profile].failed:
+                        stop_reason = provider_stops[profile].reason or ServiceError(
+                            code="run_incomplete", reason="provider_wide_failure"
+                        )
+                    if result.state == "budget_exhausted":
+                        stop_state = "budget_exhausted"
+                        stop_reason = result.events[-1].reason
+                unallocated = 0
+                for share, _ in released:
+                    before = len(tasks)
+                    problem = await launch_next(share.limit)
+                    if problem is not None:
+                        return (
+                            "cancelled"
+                            if problem == "cancel_requested"
+                            else "budget_exhausted"
+                            if problem == "segment_deadline"
+                            else "interrupted",
+                            ServiceError(code="run_incomplete", reason=problem),
+                        )
+                    if len(tasks) == before:
+                        unallocated += share.limit
+                distribute(unallocated)
         finally:
-            # Unsettled children stay explicit; these are references, not synthetic answers.
-            for child in segment.member_segments:
-                history = self.repo.history(child.run_id)
-                if history.state in {"running", "preparing", "cancelling"}:
-                    results = history.results()
-                    state: Literal[
-                        "completed",
-                        "completed_with_errors",
-                        "cancelled",
-                        "interrupted",
-                        "budget_exhausted",
-                    ]
-                    state = (
-                        "completed"
-                        if all(r.status == "valid" for r in results)
-                        else "completed_with_errors"
-                        if not any(r.status == "pending" for r in results)
-                        else stop_state
-                    )
-                    self.repo.finish(child.run_id, state, child.segment_id, stop_reason)
-            self.store.snapshot(group, segment)
-        return self.show(group.id)
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                drained = asyncio.gather(*tasks, return_exceptions=True)
+                cancelled = False
+                while not drained.done():
+                    try:
+                        await asyncio.shield(drained)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                if cancelled:
+                    raise asyncio.CancelledError
+        return stop_state, stop_reason

@@ -266,44 +266,48 @@ class ExecutionService:
             if replayed:
                 history = self.repository.history(run_id)
                 return progress_view(history, replayed=True)
-            if on_created is None:
-                history = self.repository.history(run_id)
-                segment = self.repository.segment(
+            segment_operation_id = self.repository.identity()
+            try:
+                segment = await self.scheduler._source_call(
                     run_id,
-                    self.repository.identity(),
-                    safe_hash({"command": "run.first_segment", "run_id": run_id}),
-                    acknowledge_cancellation=False,
-                )
-            else:
-                try:
-                    segment = self.repository.segment(
+                    "history",
+                    lambda: self.repository.segment(
                         run_id,
-                        self.repository.identity(),
+                        segment_operation_id,
                         safe_hash({"command": "run.first_segment", "run_id": run_id}),
                         acknowledge_cancellation=False,
+                    ),
+                    offload=True,
+                )
+            except ServiceFailure as failure:
+                if on_created is None or (
+                    failure.error.code != "internal_error" or failure.error.reason != "storage_io"
+                ):
+                    raise
+                raise ServiceFailure(
+                    ServiceError(
+                        code="run_incomplete",
+                        resource_id=run_id,
+                        reason="start_acknowledgement_incomplete",
                     )
-                except ServiceFailure as failure:
-                    if (
-                        failure.error.code != "internal_error"
-                        or failure.error.reason != "storage_io"
-                    ):
-                        raise
-                    raise ServiceFailure(
-                        ServiceError(
-                            code="run_incomplete",
-                            resource_id=run_id,
-                            reason="start_acknowledgement_incomplete",
-                        )
-                    ) from None
-                except OSError:
-                    raise ServiceFailure(
-                        ServiceError(
-                            code="run_incomplete",
-                            resource_id=run_id,
-                            reason="start_acknowledgement_incomplete",
-                        )
-                    ) from None
-                captured = self._capture_start_ready(operation_id, digest)
+                ) from None
+            except OSError:
+                if on_created is None:
+                    raise
+                raise ServiceFailure(
+                    ServiceError(
+                        code="run_incomplete",
+                        resource_id=run_id,
+                        reason="start_acknowledgement_incomplete",
+                    )
+                ) from None
+            if on_created is not None:
+                captured = await self.scheduler._source_call(
+                    run_id,
+                    "history",
+                    lambda: self._capture_start_ready(operation_id, digest),
+                    offload=True,
+                )
                 if captured is None or captured.manifest.id != run_id:
                     raise ServiceFailure(
                         ServiceError(
@@ -314,10 +318,18 @@ class ExecutionService:
                     )
                 history = captured
                 self._created(history, False, on_created)
+
+            def ready() -> tuple[RunHistory, Backend]:
+                current = self.repository.history(run_id)
+                return current, self._backend(current)
+
+            history, backend = await self.scheduler._source_call(
+                run_id, "history", ready, offload=True
+            )
             result = await self.scheduler.run(
-                self.repository.history(run_id),
+                history,
                 segment.record,
-                self._backend(history),
+                backend,
                 deadline=segment.monotonic_deadline,
                 progress=(lambda current: on_progress(progress_view(current, active=True)))
                 if on_progress
@@ -530,9 +542,15 @@ class ExecutionService:
             segment = self.repository.segment(
                 run_id, operation_id, digest, retry_unknown=retry_unknown, max_attempts=max_attempts
             )
-            self._resumed(self.repository.history(run_id), segment.record.id, False, on_resumed)
+            history = await self.scheduler._source_call(
+                run_id, "history", lambda: self.repository.history(run_id), offload=True
+            )
+            self._resumed(history, segment.record.id, False, on_resumed)
+            history = await self.scheduler._source_call(
+                run_id, "history", lambda: self.repository.history(run_id), offload=True
+            )
             result = await self.scheduler.run(
-                self.repository.history(run_id),
+                history,
                 segment.record,
                 backend,
                 deadline=segment.monotonic_deadline,
