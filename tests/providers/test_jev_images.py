@@ -16,6 +16,7 @@ from deykit.contracts.codec import dump_record, load_record
 from deykit.contracts.images import ImageAsset, ImagePreparation
 from deykit.contracts.json_value import bytes_hash, dump_json, parse_json
 from deykit.contracts.records import CompiledRequest, FixtureBinding
+from deykit.domain.jev_response_v1 import category_only_choice
 from deykit.images.local import LocalImages
 from deykit.providers.choice import JevChoiceCompiler, compile_choice
 from deykit.providers.credentials import Credentials
@@ -75,6 +76,41 @@ def test_preserved_jpeg_and_exact_selected_json_are_not_transformed(tmp_path):
     wire_asset = next(iter(body["assets"].values()))
     assert wire_asset["format"] == "jpg"
     assert base64.b64decode(wire_asset["data_base64"]) == image.source_bytes()
+
+
+def test_category_only_does_not_salvage_selected_or_forged_image_requests(tmp_path, monkeypatch):
+    image = asset(tmp_path, format="JPEG")
+    request = compiled(image)
+    wire = valid()
+    wire["answers"]["category"]["probabilities"] = None
+
+    def choice(candidate, has_selected_images):
+        return category_only_choice(
+            candidate,
+            dump_json(wire),
+            "missing_probabilities",
+            expected_question=definition().questions[0],
+            expected_order=("question", "report"),
+            expected_input="Why?",
+            has_selected_images=has_selected_images,
+        )
+
+    body = parse_json(request.body)
+    reference = body["state"]["product"]
+    body["assets"][reference]["data_base64"] = base64.b64encode(
+        image.prepared_bytes()[:-2]
+    ).decode()
+    encoded = dump_json(body).encode()
+    changed = request.model_copy(update={"body": encoded, "body_hash": bytes_hash(encoded)})
+
+    def forbidden_decode(*args, **kwargs):
+        raise AssertionError("Category-only reports must not decode image requests")
+
+    monkeypatch.setattr(Image, "open", forbidden_decode)
+    assert choice(request, True) is None
+    assert choice(request, False) is None
+    assert choice(changed, True) is None
+    assert choice(changed, False) is None
 
 
 @pytest.mark.parametrize("location", ["input", "instructions", "name", "description"])

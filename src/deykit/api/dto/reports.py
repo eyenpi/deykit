@@ -25,6 +25,7 @@ class CreateReportRequest(Mutation):
     raw: RawChoices = RawChoices()
     preset: Literal["classification"] | None = None
     pricing: ClassificationPricing | None = None
+    category_only: bool = False
 
     @field_validator("pricing", mode="before")
     @classmethod
@@ -48,6 +49,7 @@ class CreateReportRequest(Mutation):
             raw=self.raw,
             preset=self.preset,
             pricing=self.pricing,
+            category_only=self.category_only,
         )
 
 

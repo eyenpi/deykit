@@ -7,6 +7,7 @@ from deykit.reports.models import (
     ExperimentalPairCase,
     ReportCase,
     ReportEvaluation,
+    SelectedInputDifference,
 )
 
 BUCKETS: tuple[ExperimentalPairBucket, ...] = (
@@ -56,6 +57,7 @@ def _case(
     right_question: str,
     left_options: set[str],
     right_options: set[str],
+    selected_inputs: tuple[dict[str, str | None], dict[str, str | None]] | None,
 ) -> ExperimentalPairCase:
     if left is None or right is None:
         return ExperimentalPairCase(
@@ -68,12 +70,31 @@ def _case(
             image_source_changed=None,
             prepared_image_changed=None,
             preparation_changed=None,
+            selected_input=(
+                SelectedInputDifference(changed=None, unavailable_reason="case_missing")
+                if selected_inputs is not None
+                else None
+            ),
         )
     assert case.left is not None and case.right is not None
     left_images = {image.name: image.asset for image in left.selected_images}
     right_images = {image.name: image.asset for image in right.selected_images}
     shared_images = left_images.keys() & right_images.keys()
     left_request, right_request = case.left.request_hash, case.right.request_hash
+    selected_input = None
+    if selected_inputs is not None:
+        if case.case_id not in selected_inputs[0] or case.case_id not in selected_inputs[1]:
+            raise ValueError("selected_input_identity_missing")
+        left_hash = selected_inputs[0][case.case_id]
+        right_hash = selected_inputs[1][case.case_id]
+        selected_input = SelectedInputDifference(
+            changed=left_hash != right_hash
+            if left_hash is not None and right_hash is not None
+            else None,
+            unavailable_reason=(
+                "input_not_prepared" if left_hash is None or right_hash is None else None
+            ),
+        )
     incompatible_answer = (
         left.status == "valid"
         and (left.answer_question_id != left_question or left.answer_option_id not in left_options)
@@ -110,11 +131,15 @@ def _case(
             left_images[name].preparation != right_images[name].preparation
             for name in shared_images
         ),
+        selected_input=selected_input,
     )
 
 
 def experimental_comparison(
-    comparison: ComparisonOutcomes, evaluations: tuple[ReportEvaluation, ...]
+    comparison: ComparisonOutcomes,
+    evaluations: tuple[ReportEvaluation, ...],
+    *,
+    selected_inputs: tuple[dict[str, str | None], dict[str, str | None]] | None = None,
 ) -> ExperimentalComparison:
     left, right = evaluations
     left_cases = {case.case_id: case for case in left.cases}
@@ -134,6 +159,7 @@ def experimental_comparison(
             right_question=comparison.right.question_id,
             left_options=left_options,
             right_options=right_options,
+            selected_inputs=selected_inputs,
         )
         for case in comparison.cases
     )
@@ -141,7 +167,9 @@ def experimental_comparison(
     paired = tuple(case for case in cases if case.input_identity_changed is not None)
     return ExperimentalComparison(
         policy="matching_labels_allow_changed_inputs_v1",
-        selected_input_comparison="not_recorded",
+        selected_input_comparison=(
+            "reconstructed_selection_v1" if selected_inputs is not None else "not_recorded"
+        ),
         counts=counts,
         quality_denominator=(
             counts["both_correct"] + counts["improved"] + counts["regressed"] + counts["both_wrong"]
@@ -159,6 +187,22 @@ def experimental_comparison(
         image_source_changed_count=sum(case.image_source_changed is True for case in paired),
         prepared_image_changed_count=sum(case.prepared_image_changed is True for case in paired),
         preparation_changed_count=sum(case.preparation_changed is True for case in paired),
+        selected_input_changed_count=(
+            sum(
+                case.selected_input is not None and case.selected_input.changed is True
+                for case in paired
+            )
+            if selected_inputs is not None
+            else None
+        ),
+        selected_input_unavailable_count=(
+            sum(
+                case.selected_input is not None and case.selected_input.changed is None
+                for case in paired
+            )
+            if selected_inputs is not None
+            else None
+        ),
         definition_changed=comparison.left.definition_hash != comparison.right.definition_hash,
         adapter_changed=comparison.left.adapter != comparison.right.adapter,
         requested_model_changed=(
