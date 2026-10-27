@@ -197,7 +197,12 @@ def test_accuracy_gap_and_flips_use_explicit_distinct_denominators():
         for i, results in enumerate(results_by_order)
     )
     summary = summarize_orders(definition(), tuple(case.id for case in cases), results_by_order)
-    analysis = summarize_order_analysis(summary, assessments)
+    analysis = summarize_order_analysis(summary, assessments, (("A", "B"), ("B", "A"), ("A", "B")))
+    assert [item.option_order for item in analysis.orders] == [
+        ("A", "B"),
+        ("B", "A"),
+        ("A", "B"),
+    ]
 
     assert [(item.accuracy.numerator, item.accuracy.denominator) for item in analysis.orders] == [
         (4, 4),
@@ -262,7 +267,7 @@ def test_order_analysis_reports_unavailable_accuracy_and_gap():
     )
     assessment = assess_results(definition(), dataset, labels, results, (case.id,))
     summary = summarize_orders(definition(), (case.id,), ((answer,),))
-    analysis = summarize_order_analysis(summary, (assessment.cases,))
+    analysis = summarize_order_analysis(summary, (assessment.cases,), (("A", "B"),))
     assert analysis.orders[0].accuracy.reason == "no_eligible_labels"
     assert analysis.orders[0].common_accuracy.reason == "no_comparable_labeled_cases"
     assert analysis.accuracy_gap.reason == "fewer_than_two_orders"
@@ -270,7 +275,9 @@ def test_order_analysis_reports_unavailable_accuracy_and_gap():
     assert analysis.cases[0].flip_rate.reason == "no_comparable_orders"
 
     two_orders = summarize_orders(definition(), (case.id,), ((answer,), (answer,)))
-    unavailable = summarize_order_analysis(two_orders, (assessment.cases, assessment.cases))
+    unavailable = summarize_order_analysis(
+        two_orders, (assessment.cases, assessment.cases), (("A", "B"), ("B", "A"))
+    )
     assert unavailable.accuracy_gap.reason == "order_accuracy_unavailable"
     assert unavailable.common_accuracy_gap.reason == "no_comparable_labeled_cases"
 

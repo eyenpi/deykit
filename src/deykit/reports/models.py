@@ -627,6 +627,7 @@ class DiagnosticCaseDisplay(FrozenModel):
 
 
 class DiagnosticOrderAccuracyDisplay(FrozenModel):
+    option_order: tuple[ResourceId, ...]
     accuracy: RateDisplay
     accuracy_exclusions: dict[str, NonnegativeInt]
     accuracy_label_provenance: dict[str, NonnegativeInt]

@@ -71,6 +71,7 @@ def test_diagnostic_cli_keeps_frozen_labels_and_uses_no_extra_calls(setup, monke
     data = json.loads(first.stdout)["data"]
     assert data["summary"]["evidence_mode"] == "fixture"
     analysis = data["summary"]["order_analysis"]
+    assert [item["option_order"] for item in analysis["orders"]] == [["yes", "no"], ["no", "yes"]]
     assert [item["accuracy"]["value"] for item in analysis["orders"]] == ["1.000000", "1.000000"]
     assert analysis["accuracy_gap"]["value"] == "0.000000"
     assert analysis["orders"][1]["flips_from_original"]["numerator"] == 0

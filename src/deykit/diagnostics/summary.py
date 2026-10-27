@@ -13,6 +13,7 @@ from deykit.metrics.summary import CaseAssessment, Rate
 
 @dataclass(frozen=True)
 class OrderAccuracy:
+    option_order: tuple[str, ...]
     accuracy: Rate
     accuracy_exclusions: tuple[tuple[str, int], ...]
     accuracy_label_provenance: tuple[tuple[str, int], ...]
@@ -21,6 +22,7 @@ class OrderAccuracy:
 
     def source(self) -> dict[str, JsonValue]:
         return {
+            "option_order": list(self.option_order),
             "accuracy": self.accuracy.source(),
             "accuracy_exclusions": dict(self.accuracy_exclusions),
             "accuracy_label_provenance": dict(self.accuracy_label_provenance),
@@ -172,11 +174,22 @@ def summarize_orders(
 
 
 def summarize_order_analysis(
-    summary: OrderSummary, assessments: tuple[tuple[CaseAssessment, ...], ...]
+    summary: OrderSummary,
+    assessments: tuple[tuple[CaseAssessment, ...], ...],
+    option_orders: tuple[tuple[str, ...], ...],
 ) -> OrderAnalysis:
     """Compare evaluated answers on their own and on a shared eligible cohort."""
-    if len(assessments) != summary.order_count:
+    if (
+        not option_orders
+        or len(assessments) != summary.order_count
+        or len(option_orders) != summary.order_count
+    ):
         raise DiagnosticInvalid("diagnostic_assessment_mismatch")
+    if any(
+        len(order) != len(option_orders[0]) or set(order) != set(option_orders[0])
+        for order in option_orders
+    ) or len(set(option_orders[0])) != len(option_orders[0]):
+        raise DiagnosticInvalid("diagnostic_order_mismatch")
     for order_index, assessment in enumerate(assessments):
         if len(assessment) != len(summary.cases):
             raise DiagnosticInvalid("diagnostic_assessment_mismatch")
@@ -229,6 +242,7 @@ def summarize_order_analysis(
         )
         orders.append(
             OrderAccuracy(
+                option_orders[order_index],
                 Rate.counts(
                     sum(case.set_correct is True for case in eligible),
                     len(eligible),

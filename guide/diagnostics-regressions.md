@@ -24,8 +24,9 @@ deykit --json --project "$PROJECT" diagnose show "$GROUP_ID"
 deykit --json --project "$PROJECT" diagnose resume "$GROUP_ID" --operation-id "$RESUME_ID"
 ```
 
-The summary uses the labels frozen when the group started. For each order,
-`order_analysis.orders` gives set accuracy for valid answers with applicable labels
+The summary uses the labels frozen when the group started. Each entry in
+`order_analysis.orders` identifies its option order and gives set accuracy for valid
+answers with applicable labels
 and counts the exclusion reasons. A case can have more than one exclusion reason.
 An answer is correct when it matches any acceptable option. Unlabelled, disputed,
 stale and incompatible labels, and unavailable answers do not count as wrong.

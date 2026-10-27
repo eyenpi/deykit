@@ -223,9 +223,14 @@ def diagnostic_snapshot_from_records(
             )
             for member in members
         )
+        option_orders = tuple(member.manifest.option_order for member in members)
+        if any(order is None for order in option_orders):
+            fail("diagnostic_order_mismatch", "incompatible_data")
         summary = replace(
             summary,
-            order_analysis=summarize_order_analysis(summary, assessments),
+            order_analysis=summarize_order_analysis(
+                summary, assessments, cast(tuple[tuple[str, ...], ...], option_orders)
+            ),
             evidence_mode=first.manifest.mode,
         )
     except (DiagnosticInvalid, MetricsInvalid) as error:

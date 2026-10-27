@@ -425,10 +425,11 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                 "Accuracy uses valid answers with applicable frozen labels. Common-case accuracy "
                 "uses cases eligible in every order. Exclusion reasons can overlap.",
                 "The gap across orders compares rates that can use different cases.",
+                "Its fraction expresses the exact difference, not a separate case denominator.",
                 "",
-                "| Order | Accuracy | Common-case accuracy | Flips from original | "
+                "| Order | Options | Accuracy | Common-case accuracy | Flips from original | "
                 "Exclusions | Label provenance |",
-                "| --- | --- | --- | --- | --- | --- |",
+                "| --- | --- | --- | --- | --- | --- | --- |",
             ]
             for number, order in enumerate(analysis.orders, 1):
                 lines.append(
@@ -436,6 +437,7 @@ def _markdown(record: ReportRecord, content: ReportContent) -> str:
                     + " | ".join(
                         (
                             str(number),
+                            _inline(order.option_order),
                             _rate(order.accuracy.model_dump(mode="json")),
                             _rate(order.common_accuracy.model_dump(mode="json")),
                             _rate(order.flips_from_original.model_dump(mode="json")),
