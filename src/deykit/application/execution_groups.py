@@ -400,6 +400,20 @@ class GroupExecutionService:
                 ServiceError(code="internal_error", reason=reason, resource_id=value.group.id)
             ) from None
 
+    def _observe_owned_acknowledgement(
+        self, value: _AdmittedAcknowledgement
+    ) -> _AdmittedAcknowledgement:
+        # Probe ownership only after admission and outside the source epoch.
+        active = self.runner.execution.execution_active()
+        members = tuple(
+            replace(
+                member,
+                execution_active=active and member.state in {"preparing", "running", "cancelling"},
+            )
+            for member in value.progress.members
+        )
+        return replace(value, progress=replace(value.progress, members=members))
+
     def _backend_captured(self, history: RunHistory, records: tuple[StoredRecord, ...]) -> Backend:
         profile = history.manifest.provider
         if profile is None:
@@ -727,6 +741,7 @@ class GroupExecutionService:
                     )
                     if acknowledged is None:
                         self._acknowledgement_incomplete(group.id)
+                    acknowledged = self._observe_owned_acknowledgement(acknowledged)
                     await self._notify_acknowledged(
                         on_created, acknowledged, reason="group_created_callback_failed"
                     )
@@ -932,6 +947,7 @@ class GroupExecutionService:
                     )
                     if acknowledged is None:
                         self._acknowledgement_incomplete(group_id)
+                    acknowledged = self._observe_owned_acknowledgement(acknowledged)
                     await self._notify_acknowledged(
                         on_resumed, acknowledged, reason="group_resumed_callback_failed"
                     )
