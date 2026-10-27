@@ -193,7 +193,16 @@ def admit_report_from_records(
             frozen_group = read_diagnostic(records, snapshot_id)
             if frozen_group.group.id != admitted.content.target.target_id:
                 fail("report_link_mismatch", "incompatible_data")
-            diagnostic_projection = project_diagnostic(records, frozen_group, active_sanitizer)
+            saved_diagnostic = admitted.content.diagnostic
+            diagnostic_projection = project_diagnostic(
+                records,
+                frozen_group,
+                active_sanitizer,
+                include_order_analysis=(
+                    saved_diagnostic is not None
+                    and saved_diagnostic.summary.order_analysis is not None
+                ),
+            )
             if diagnostic_projection != admitted.content.diagnostic:
                 fail("report_link_mismatch", "incompatible_data")
             if admitted.record.diagnostic_snapshot_id != snapshot_id:

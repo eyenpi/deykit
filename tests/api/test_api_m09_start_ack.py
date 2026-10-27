@@ -511,14 +511,23 @@ def test_http_group_start_acknowledges_before_held_execution_preparation_and_rep
                             await asyncio.sleep(0.01)
                             continue
                         assert progress.status_code == 200, progress.text
-                        if not any(
-                            member["execution_active"]
-                            for member in progress.json()["data"]["group"]["members"]
+                        group = progress.json()["data"]["group"]
+                        if group["snapshot_id"] is not None and not any(
+                            member["execution_active"] for member in group["members"]
                         ):
                             break
                         await asyncio.sleep(0.01)
                     else:
                         raise AssertionError("held fixture group did not settle after release")
+                    snapshot_id = progress.json()["data"]["group"]["snapshot_id"]
+                    snapshot = await client.get(
+                        f"{base}/diagnostics/{first_data['group_id']}/snapshots/{snapshot_id}",
+                        headers=headers,
+                    )
+                    assert snapshot.status_code == 200, snapshot.text
+                    summary = snapshot.json()["data"]["summary"]
+                    assert summary["evidence_mode"] == "fixture"
+                    assert summary["order_analysis"]["orders"][0]["option_order"] == ["yes", "no"]
             finally:
                 release_execution.set()
 

@@ -1,12 +1,64 @@
 """Group semantic answers by original case without inflating the sample count."""
 
+from collections import Counter
 from dataclasses import dataclass
+from typing import Literal
 
 from deykit.contracts.json_value import JsonValue
 from deykit.contracts.model_admission import ModelInvalid, admit_model
 from deykit.contracts.records import CaseResult, ChoiceDefinition
 from deykit.diagnostics.orders import DiagnosticInvalid
-from deykit.metrics.summary import Rate
+from deykit.metrics.summary import CaseAssessment, Rate
+
+
+@dataclass(frozen=True)
+class OrderAccuracy:
+    option_order: tuple[str, ...]
+    accuracy: Rate
+    accuracy_exclusions: tuple[tuple[str, int], ...]
+    accuracy_label_provenance: tuple[tuple[str, int], ...]
+    common_accuracy: Rate
+    flips_from_original: Rate
+
+    def source(self) -> dict[str, JsonValue]:
+        return {
+            "option_order": list(self.option_order),
+            "accuracy": self.accuracy.source(),
+            "accuracy_exclusions": dict(self.accuracy_exclusions),
+            "accuracy_label_provenance": dict(self.accuracy_label_provenance),
+            "common_accuracy": self.common_accuracy.source(),
+            "flips_from_original": self.flips_from_original.source(),
+        }
+
+
+@dataclass(frozen=True)
+class CaseFlips:
+    case_id: str
+    flipped_from_original: tuple[bool | None, ...]
+    flip_rate: Rate
+
+    def source(self) -> dict[str, JsonValue]:
+        return {
+            "case_id": self.case_id,
+            "flipped_from_original": list(self.flipped_from_original),
+            "flip_rate": self.flip_rate.source(),
+        }
+
+
+@dataclass(frozen=True)
+class OrderAnalysis:
+    orders: tuple[OrderAccuracy, ...]
+    accuracy_gap: Rate
+    common_accuracy_gap: Rate
+    cases: tuple[CaseFlips, ...]
+
+    def source(self) -> dict[str, JsonValue]:
+        return {
+            "orders": [order.source() for order in self.orders],
+            "accuracy_gap": self.accuracy_gap.source(),
+            "common_accuracy_gap": self.common_accuracy_gap.source(),
+            "cases": [case.source() for case in self.cases],
+        }
 
 
 @dataclass(frozen=True)
@@ -35,9 +87,11 @@ class OrderSummary:
     fully_observed_case_count: int
     disagreement: Rate
     cases: tuple[CaseSensitivity, ...]
+    order_analysis: OrderAnalysis | None = None
+    evidence_mode: Literal["fixture", "live"] | None = None
 
     def source(self) -> dict[str, JsonValue]:
-        return {
+        value: dict[str, JsonValue] = {
             "independent_case_count": self.independent_case_count,
             "order_count": self.order_count,
             "expanded_result_count": self.expanded_result_count,
@@ -46,6 +100,11 @@ class OrderSummary:
             "cases": [case.source() for case in self.cases],
             "interpretation": "observed_request_order_sensitivity",
         }
+        if self.order_analysis is not None:
+            value["order_analysis"] = self.order_analysis.source()
+        if self.evidence_mode is not None:
+            value["evidence_mode"] = self.evidence_mode
+        return value
 
 
 def summarize_orders(
@@ -112,3 +171,111 @@ def summarize_orders(
         ),
         tuple(cases),
     )
+
+
+def summarize_order_analysis(
+    summary: OrderSummary,
+    assessments: tuple[tuple[CaseAssessment, ...], ...],
+    option_orders: tuple[tuple[str, ...], ...],
+) -> OrderAnalysis:
+    """Compare evaluated answers on their own and on a shared eligible cohort."""
+    if (
+        not option_orders
+        or len(assessments) != summary.order_count
+        or len(option_orders) != summary.order_count
+    ):
+        raise DiagnosticInvalid("diagnostic_assessment_mismatch")
+    if any(
+        len(order) != len(option_orders[0]) or set(order) != set(option_orders[0])
+        for order in option_orders
+    ) or len(set(option_orders[0])) != len(option_orders[0]):
+        raise DiagnosticInvalid("diagnostic_order_mismatch")
+    for order_index, assessment in enumerate(assessments):
+        if len(assessment) != len(summary.cases):
+            raise DiagnosticInvalid("diagnostic_assessment_mismatch")
+        for case, assessed in zip(summary.cases, assessment, strict=True):
+            if (
+                assessed.case_id != case.case_id
+                or assessed.status != case.statuses[order_index]
+                or assessed.answer_option_id != case.option_ids[order_index]
+            ):
+                raise DiagnosticInvalid("diagnostic_assessment_mismatch")
+
+    common = tuple(
+        index
+        for index in range(len(summary.cases))
+        if all(assessment[index].set_correct is not None for assessment in assessments)
+    )
+    case_flips = []
+    for case in summary.cases:
+        original = case.option_ids[0]
+        flips = (None,) + tuple(
+            None if original is None or answer is None else answer != original
+            for answer in case.option_ids[1:]
+        )
+        comparable = tuple(value for value in flips if value is not None)
+        case_flips.append(
+            CaseFlips(
+                case.case_id,
+                flips,
+                Rate.counts(sum(comparable), len(comparable), "no_comparable_orders"),
+            )
+        )
+
+    orders = []
+    for order_index, assessment in enumerate(assessments):
+        exclusions: Counter[str] = Counter()
+        for assessed_case in assessment:
+            if assessed_case.set_correct is None:
+                exclusions.update(assessed_case.exclusion_reasons)
+        common_correct = sum(assessment[index].set_correct is True for index in common)
+        eligible = tuple(case for case in assessment if case.set_correct is not None)
+        provenance = Counter(
+            case.label_provenance for case in eligible if case.label_provenance is not None
+        )
+        if sum(provenance.values()) != len(eligible):
+            raise DiagnosticInvalid("diagnostic_label_provenance_missing")
+        comparable_flips = tuple(
+            case.flipped_from_original[order_index]
+            for case in case_flips
+            if case.flipped_from_original[order_index] is not None
+        )
+        orders.append(
+            OrderAccuracy(
+                option_orders[order_index],
+                Rate.counts(
+                    sum(case.set_correct is True for case in eligible),
+                    len(eligible),
+                    "no_eligible_labels",
+                ),
+                tuple(sorted(exclusions.items())),
+                tuple(sorted(provenance.items())),
+                Rate.counts(common_correct, len(common), "no_comparable_labeled_cases"),
+                Rate.counts(
+                    sum(value is True for value in comparable_flips),
+                    len(comparable_flips),
+                    "original_order" if order_index == 0 else "no_comparable_cases",
+                ),
+            )
+        )
+
+    if len(orders) < 2:
+        gap = Rate.counts(0, 0, "fewer_than_two_orders")
+        common_gap = gap
+    else:
+        available = tuple(value for order in orders if (value := order.accuracy.exact) is not None)
+        gap = (
+            Rate.fraction(max(available) - min(available), "order_accuracy_unavailable")
+            if len(available) == len(orders)
+            else Rate.counts(0, 0, "order_accuracy_unavailable")
+        )
+        if not common:
+            common_gap = Rate.counts(0, 0, "no_comparable_labeled_cases")
+        else:
+            correct_counts = tuple(order.common_accuracy.numerator for order in orders)
+            common_gap = Rate.counts(
+                max(correct_counts) - min(correct_counts),
+                len(common),
+                "no_comparable_labeled_cases",
+            )
+    return OrderAnalysis(tuple(orders), gap, common_gap, tuple(case_flips))

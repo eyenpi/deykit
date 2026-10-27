@@ -20,7 +20,9 @@ from deykit.contracts.execution_groups import (
 )
 from deykit.contracts.json_value import JsonValue, dump_json
 from deykit.contracts.ports import ResourceKey, StoredRecord
-from deykit.diagnostics.summary import OrderSummary, summarize_orders
+from deykit.diagnostics.orders import DiagnosticInvalid
+from deykit.diagnostics.summary import OrderSummary, summarize_order_analysis, summarize_orders
+from deykit.metrics.summary import MetricsInvalid, assess_admitted_cases
 from deykit.runner.group_evidence import admit_group_snapshots, group_budget
 from deykit.runner.group_models import (
     GroupPlan,
@@ -205,11 +207,34 @@ def diagnostic_snapshot_from_records(
         for f in members
     ):
         fail("diagnostic_source_mismatch", "incompatible_data")
-    summary = summarize_orders(
-        first.revision.definition,
-        first.manifest.case_ids,
-        tuple(f.results.results for f in members),
-    )
+    try:
+        summary = summarize_orders(
+            first.revision.definition,
+            first.manifest.case_ids,
+            tuple(f.results.results for f in members),
+        )
+        assessments = tuple(
+            assess_admitted_cases(
+                member.revision.definition,
+                member.dataset,
+                member.labels,
+                member.results,
+                member.manifest.case_ids,
+            )
+            for member in members
+        )
+        option_orders = tuple(member.manifest.option_order for member in members)
+        if any(order is None for order in option_orders):
+            fail("diagnostic_order_mismatch", "incompatible_data")
+        summary = replace(
+            summary,
+            order_analysis=summarize_order_analysis(
+                summary, assessments, cast(tuple[tuple[str, ...], ...], option_orders)
+            ),
+            evidence_mode=first.manifest.mode,
+        )
+    except (DiagnosticInvalid, MetricsInvalid) as error:
+        fail(str(error), "incompatible_data")
     return FrozenDiagnosticSnapshot(
         budget.group,
         next((s for s in budget.segments if s.id == snapshot.segment_id), None),
